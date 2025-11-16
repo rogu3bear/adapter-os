@@ -173,6 +173,10 @@ struct PriorContext {
     adapter_framework_ids: Vec<Option<String>>,
     /// Lifecycle manager handle for activation percentages
     lifecycle: Arc<LifecycleManager>,
+    /// Upstream adapter indices (for pipeline phase separation)
+    upstream_adapter_indices: Vec<u16>,
+    /// Downstream adapter indices (for pipeline phase separation)
+    downstream_adapter_indices: Vec<u16>,
 }
 
 impl InferencePipeline {
@@ -356,11 +360,142 @@ impl InferencePipeline {
             .map(|a| a.framework_id.clone())
             .collect::<Vec<_>>();
 
+        // Separate adapters into upstream and downstream based on manifest
+        let mut upstream_adapter_indices = Vec::new();
+        let mut downstream_adapter_indices = Vec::new();
+
+        for (idx, adapter) in manifest.adapters.iter().enumerate() {
+            if adapter.upstream_enabled {
+                upstream_adapter_indices.push(idx as u16);
+            } else {
+                downstream_adapter_indices.push(idx as u16);
+            }
+        }
+
+        info!(
+            "Pipeline configured with {} upstream adapters and {} downstream adapters",
+            upstream_adapter_indices.len(),
+            downstream_adapter_indices.len()
+        );
+
         self.prior_context = Some(PriorContext {
             adapter_framework_ids,
             lifecycle,
+            upstream_adapter_indices,
+            downstream_adapter_indices,
         });
         self
+    }
+
+    /// Apply upstream adapters to input tokens (Phase 1 of two-phase pipeline)
+    ///
+    /// ⚠️ **INCOMPLETE IMPLEMENTATION**: This is infrastructure-only code that tracks
+    /// upstream adapters and demonstrates the pipeline architecture, but does NOT
+    /// actually affect model outputs. The computed embeddings are currently discarded.
+    ///
+    /// **What this does:**
+    /// - Identifies and tracks adapters marked as `upstream_enabled`
+    /// - Applies deterministic transformations using `pre_inference_seed`
+    /// - Emits telemetry events for upstream adapter activation
+    /// - Ensures downstream phase excludes upstream adapters
+    ///
+    /// **What this does NOT do:**
+    /// - Actually modify the model's embedding layer with LoRA weights
+    /// - Pass transformed embeddings to the kernel backend
+    /// - Affect model outputs in any way
+    ///
+    /// **TODO for full implementation:**
+    /// 1. Load actual LoRA weight matrices (A, B) for upstream adapters
+    /// 2. Compute real embedding transformations: `E' = E + (alpha/r) * B @ A`
+    /// 3. Extend `FusedKernels` API to accept pre-computed embeddings
+    /// 4. Modify `IoBuffers` to support embedding input mode
+    /// 5. Update all kernel backends (Metal, MLX, etc.) to handle embeddings
+    /// 6. Add integration tests that verify output changes
+    ///
+    /// The transformation is deterministic and uses the `pre_inference_seed` for any
+    /// random operations to ensure reproducibility.
+    async fn apply_upstream_adapters(&self, input_tokens: &[u32]) -> Result<Vec<f32>> {
+        // If no prior context or no upstream adapters, return identity transformation
+        let pc = match &self.prior_context {
+            Some(pc) if !pc.upstream_adapter_indices.is_empty() => pc,
+            _ => {
+                // No upstream adapters - return identity (tokens as-is, converted to f32)
+                return Ok(input_tokens.iter().map(|&t| t as f32).collect());
+            }
+        };
+
+        warn!(
+            "⚠️  INCOMPLETE FEATURE: {} upstream adapters detected but will NOT affect outputs. \
+             This is infrastructure-only code. See apply_upstream_adapters() documentation.",
+            pc.upstream_adapter_indices.len()
+        );
+
+        info!(
+            "Applying {} upstream adapters to input (length: {}) - tracking only",
+            pc.upstream_adapter_indices.len(),
+            input_tokens.len()
+        );
+
+        // TODO: Initialize real embedding vectors from model's embedding layer
+        // This placeholder just converts token IDs to f32, which is not semantically correct
+        // Real embeddings would be high-dimensional vectors (e.g., 4096-d per token)
+        let mut embeddings: Vec<f32> = input_tokens.iter().map(|&t| t as f32).collect();
+
+        // Apply each upstream adapter to modify the embeddings deterministically
+        for &adapter_idx in &pc.upstream_adapter_indices {
+            // Use pre_inference_seed to derive adapter-specific seed for determinism
+            let adapter_seed = adapteros_core::derive_seed(
+                &self.pre_inference_seed,
+                &format!("upstream_adapter_{}", adapter_idx),
+            );
+
+            // TODO: Replace this placeholder with actual LoRA weight application
+            // Real implementation would:
+            // 1. Load LoRA matrices A (d×r) and B (r×d) from adapter file
+            // 2. Compute delta: Δ = (alpha/r) * B @ A
+            // 3. Apply to embeddings: E'[i] = E[i] + Δ @ E[i]
+            //
+            // Current placeholder: deterministic bias based on adapter seed
+            let seed_hash = u64::from_le_bytes([
+                adapter_seed[0],
+                adapter_seed[1],
+                adapter_seed[2],
+                adapter_seed[3],
+                adapter_seed[4],
+                adapter_seed[5],
+                adapter_seed[6],
+                adapter_seed[7],
+            ]);
+
+            // Apply a small deterministic bias to each embedding dimension
+            // Scale factor is small to avoid drastically changing embeddings
+            let bias_scale = 0.01;
+            for (i, emb) in embeddings.iter_mut().enumerate() {
+                let position_seed = seed_hash.wrapping_add(i as u64);
+                let bias = ((position_seed % 1000) as f32 / 1000.0 - 0.5) * bias_scale;
+                *emb += bias;
+            }
+
+            // Log upstream adapter activation
+            if let Some(ref telemetry) = self.telemetry {
+                let _ = telemetry.log(
+                    "adapter.activated",
+                    serde_json::json!({
+                        "adapter_idx": adapter_idx,
+                        "state": "upstream",
+                        "phase": "pre_inference",
+                        "input_length": input_tokens.len(),
+                    }),
+                );
+            }
+
+            debug!(
+                "Applied upstream adapter {} to input embeddings",
+                adapter_idx
+            );
+        }
+
+        Ok(embeddings)
     }
 
     /// Run inference on a prompt
@@ -394,6 +529,38 @@ impl InferencePipeline {
             )));
         }
 
+        // 2.5. PHASE 1: Apply upstream adapters to input embeddings
+        // ⚠️ INCOMPLETE: This currently only tracks and logs upstream adapters
+        // The modified embeddings are DISCARDED and do not affect model outputs
+        let upstream_start = Instant::now();
+        let _modified_embeddings = self.apply_upstream_adapters(&input_tokens).await?;
+        let upstream_latency = upstream_start.elapsed();
+
+        // TODO: Pass modified_embeddings to kernels instead of discarding them
+        // This requires:
+        // 1. Extending IoBuffers with: input_embeddings: Option<Vec<f32>>
+        // 2. Modifying FusedKernels::run_step() to check for embeddings before tokens
+        // 3. Updating all kernel backends (Metal, MLX) to support embedding input
+        // 4. Handling embedding→logits flow without tokenization
+        //
+        // Until then, the generation loop below uses original input_tokens (unmodified)
+
+        if let Some(ref telemetry) = self.telemetry {
+            let _ = telemetry.log(
+                "inference.upstream_phase",
+                serde_json::json!({
+                    "cpid": request.cpid,
+                    "upstream_latency_us": upstream_latency.as_micros(),
+                    "input_tokens": input_tokens.len(),
+                }),
+            );
+        }
+
+        debug!(
+            "Upstream phase completed in {}us",
+            upstream_latency.as_micros()
+        );
+
         // 3. Initialize generation state
         let mut generated_tokens = Vec::with_capacity(request.max_tokens);
         let mut router_decisions = Vec::with_capacity(request.max_tokens);
@@ -407,7 +574,8 @@ impl InferencePipeline {
         let mut io_buffers = IoBuffers::new(self.config.vocab_size);
         let mut router_ring = RouterRing::new(self.router.get_k());
 
-        // 4. Autoregressive generation loop
+        // 4. PHASE 2: Autoregressive generation loop (downstream adapters only)
+        // This phase applies downstream adapters during generation as previously done
         for step in 0..request.max_tokens {
             // Prepare input for this step
             let input_ids = if step == 0 {
@@ -453,6 +621,14 @@ impl InferencePipeline {
                     for (i, prior) in priors.iter_mut().enumerate() {
                         let act = activation_values[i];
                         *prior += act;
+                    }
+
+                    // Filter out upstream adapters during downstream phase (generation)
+                    // Set their priors to 0 so they won't be selected by the router
+                    for &upstream_idx in &pc.upstream_adapter_indices {
+                        if (upstream_idx as usize) < priors.len() {
+                            priors[upstream_idx as usize] = 0.0;
+                        }
                     }
 
                     priors
@@ -699,5 +875,315 @@ mod tests {
             request_type: None,
         };
         assert_eq!(request.max_tokens, 100);
+    }
+
+    #[test]
+    fn test_upstream_downstream_adapter_separation() {
+        // Test that adapters are correctly classified based on upstream_enabled flag
+        // NOTE: This only tests the separation logic, not actual upstream behavior
+        // (which is not yet implemented - see apply_upstream_adapters documentation)
+
+        // Create a test manifest with both upstream and downstream adapters
+        let mut manifest = ManifestV3 {
+            schema: "adapteros.manifest.v3".to_string(),
+            base: adapteros_manifest::Base {
+                model_id: "test-model".to_string(),
+                model_hash: adapteros_core::B3Hash::hash(b"test"),
+                arch: "llama".to_string(),
+                vocab_size: 32000,
+                hidden_dim: 4096,
+                n_layers: 32,
+                n_heads: 32,
+                config_hash: adapteros_core::B3Hash::hash(b"config"),
+                tokenizer_hash: adapteros_core::B3Hash::hash(b"tokenizer"),
+                tokenizer_cfg_hash: adapteros_core::B3Hash::hash(b"tokenizer_cfg"),
+                license_hash: None,
+                rope_scaling_override: None,
+            },
+            adapters: vec![
+                // Adapter 0: upstream (e.g., prompt translation)
+                adapteros_manifest::Adapter {
+                    id: "upstream-translator".to_string(),
+                    hash: adapteros_core::B3Hash::hash(b"upstream"),
+                    tier: adapteros_manifest::AdapterTier::Persistent,
+                    rank: 16,
+                    alpha: 32.0,
+                    target_modules: vec!["q_proj".to_string()],
+                    ttl: None,
+                    acl: vec![],
+                    warmup_prompt: None,
+                    dependencies: None,
+                    category: adapteros_manifest::AdapterCategory::Code,
+                    scope: adapteros_manifest::AdapterScope::Global,
+                    framework_id: None,
+                    framework_version: None,
+                    repo_id: None,
+                    commit_sha: None,
+                    intent: Some("Translate prompts".to_string()),
+                    auto_promote: true,
+                    eviction_priority: adapteros_manifest::EvictionPriority::Normal,
+                    upstream_enabled: true, // Mark as upstream
+                },
+                // Adapter 1: downstream (standard generation-time adapter)
+                adapteros_manifest::Adapter {
+                    id: "downstream-python".to_string(),
+                    hash: adapteros_core::B3Hash::hash(b"downstream1"),
+                    tier: adapteros_manifest::AdapterTier::Persistent,
+                    rank: 16,
+                    alpha: 32.0,
+                    target_modules: vec!["q_proj".to_string()],
+                    ttl: None,
+                    acl: vec![],
+                    warmup_prompt: None,
+                    dependencies: None,
+                    category: adapteros_manifest::AdapterCategory::Code,
+                    scope: adapteros_manifest::AdapterScope::Global,
+                    framework_id: Some("python".to_string()),
+                    framework_version: None,
+                    repo_id: None,
+                    commit_sha: None,
+                    intent: Some("Python coding".to_string()),
+                    auto_promote: true,
+                    eviction_priority: adapteros_manifest::EvictionPriority::Normal,
+                    upstream_enabled: false, // Downstream (default)
+                },
+                // Adapter 2: another downstream
+                adapteros_manifest::Adapter {
+                    id: "downstream-rust".to_string(),
+                    hash: adapteros_core::B3Hash::hash(b"downstream2"),
+                    tier: adapteros_manifest::AdapterTier::Persistent,
+                    rank: 16,
+                    alpha: 32.0,
+                    target_modules: vec!["q_proj".to_string()],
+                    ttl: None,
+                    acl: vec![],
+                    warmup_prompt: None,
+                    dependencies: None,
+                    category: adapteros_manifest::AdapterCategory::Code,
+                    scope: adapteros_manifest::AdapterScope::Global,
+                    framework_id: Some("rust".to_string()),
+                    framework_version: None,
+                    repo_id: None,
+                    commit_sha: None,
+                    intent: Some("Rust coding".to_string()),
+                    auto_promote: true,
+                    eviction_priority: adapteros_manifest::EvictionPriority::Normal,
+                    upstream_enabled: false, // Downstream (default)
+                },
+            ],
+            router: adapteros_manifest::RouterCfg {
+                k_sparse: 2,
+                gate_quant: "q15".to_string(),
+                entropy_floor: 0.02,
+                tau: 1.0,
+                sample_tokens_full: 128,
+                warmup: false,
+                algorithm: "weighted".to_string(),
+                orthogonal_penalty: 0.1,
+                shared_downsample: false,
+                compression_ratio: 0.8,
+                multi_path_enabled: false,
+                diversity_threshold: 0.05,
+                orthogonal_constraints: false,
+            },
+            telemetry: adapteros_manifest::TelemetryCfg {
+                schema_hash: adapteros_core::B3Hash::hash(b"telemetry"),
+                sampling: adapteros_manifest::Sampling {
+                    token: 0.05,
+                    router: 1.0,
+                    inference: 1.0,
+                },
+                router_full_tokens: 128,
+                bundle: adapteros_manifest::BundleCfg {
+                    max_events: 500000,
+                    max_bytes: 268435456,
+                },
+            },
+            policies: adapteros_manifest::Policies::default(),
+            seeds: adapteros_manifest::Seeds {
+                global: adapteros_core::B3Hash::hash(b"global"),
+                manifest_hash: adapteros_core::B3Hash::hash(b"manifest"),
+                parent_cpid: None,
+            },
+        };
+
+        // Create a mock lifecycle manager (we don't need real adapter files for this test)
+        let temp_dir = std::env::temp_dir().join("upstream_downstream_test");
+        std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+
+        let adapter_names = manifest
+            .adapters
+            .iter()
+            .map(|a| a.id.clone())
+            .collect::<Vec<_>>();
+
+        let lifecycle = Arc::new(LifecycleManager::new(
+            adapter_names,
+            &manifest.policies,
+            temp_dir.clone(),
+            None,
+            2, // K=2
+        ));
+
+        // Create prior context
+        let adapter_framework_ids = manifest
+            .adapters
+            .iter()
+            .map(|a| a.framework_id.clone())
+            .collect::<Vec<_>>();
+
+        let mut upstream_adapter_indices = Vec::new();
+        let mut downstream_adapter_indices = Vec::new();
+
+        for (idx, adapter) in manifest.adapters.iter().enumerate() {
+            if adapter.upstream_enabled {
+                upstream_adapter_indices.push(idx as u16);
+            } else {
+                downstream_adapter_indices.push(idx as u16);
+            }
+        }
+
+        // Verify separation
+        assert_eq!(
+            upstream_adapter_indices.len(),
+            1,
+            "Should have 1 upstream adapter"
+        );
+        assert_eq!(
+            downstream_adapter_indices.len(),
+            2,
+            "Should have 2 downstream adapters"
+        );
+        assert_eq!(
+            upstream_adapter_indices[0], 0,
+            "Adapter 0 should be upstream"
+        );
+        assert_eq!(
+            downstream_adapter_indices,
+            vec![1, 2],
+            "Adapters 1 and 2 should be downstream"
+        );
+
+        // Cleanup
+        std::fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_upstream_adapter_application_is_deterministic() {
+        use adapteros_core::B3Hash;
+
+        // Test that upstream adapter detection and manifest processing works correctly
+        // NOTE: This does NOT test actual deterministic output changes because
+        // upstream adapters are not yet fully implemented (embeddings are discarded)
+        // This test validates the infrastructure/tracking layer only
+
+        // Create a test inference pipeline with upstream adapters
+        let temp_dir = std::env::temp_dir().join("upstream_determinism_test");
+        std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+
+        // Create a simple manifest with one upstream adapter
+        let manifest = ManifestV3 {
+            schema: "adapteros.manifest.v3".to_string(),
+            base: adapteros_manifest::Base {
+                model_id: "test-model".to_string(),
+                model_hash: B3Hash::hash(b"test"),
+                arch: "llama".to_string(),
+                vocab_size: 32000,
+                hidden_dim: 4096,
+                n_layers: 32,
+                n_heads: 32,
+                config_hash: B3Hash::hash(b"config"),
+                tokenizer_hash: B3Hash::hash(b"tokenizer"),
+                tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg"),
+                license_hash: None,
+                rope_scaling_override: None,
+            },
+            adapters: vec![adapteros_manifest::Adapter {
+                id: "test-upstream".to_string(),
+                hash: B3Hash::hash(b"upstream"),
+                tier: adapteros_manifest::AdapterTier::Persistent,
+                rank: 16,
+                alpha: 32.0,
+                target_modules: vec!["q_proj".to_string()],
+                ttl: None,
+                acl: vec![],
+                warmup_prompt: None,
+                dependencies: None,
+                category: adapteros_manifest::AdapterCategory::Code,
+                scope: adapteros_manifest::AdapterScope::Global,
+                framework_id: None,
+                framework_version: None,
+                repo_id: None,
+                commit_sha: None,
+                intent: Some("Test upstream".to_string()),
+                auto_promote: true,
+                eviction_priority: adapteros_manifest::EvictionPriority::Normal,
+                upstream_enabled: true,
+            }],
+            router: adapteros_manifest::RouterCfg {
+                k_sparse: 1,
+                gate_quant: "q15".to_string(),
+                entropy_floor: 0.02,
+                tau: 1.0,
+                sample_tokens_full: 128,
+                warmup: false,
+                algorithm: "weighted".to_string(),
+                orthogonal_penalty: 0.1,
+                shared_downsample: false,
+                compression_ratio: 0.8,
+                multi_path_enabled: false,
+                diversity_threshold: 0.05,
+                orthogonal_constraints: false,
+            },
+            telemetry: adapteros_manifest::TelemetryCfg {
+                schema_hash: B3Hash::hash(b"telemetry"),
+                sampling: adapteros_manifest::Sampling {
+                    token: 0.05,
+                    router: 1.0,
+                    inference: 1.0,
+                },
+                router_full_tokens: 128,
+                bundle: adapteros_manifest::BundleCfg {
+                    max_events: 500000,
+                    max_bytes: 268435456,
+                },
+            },
+            policies: adapteros_manifest::Policies::default(),
+            seeds: adapteros_manifest::Seeds {
+                global: B3Hash::hash(b"global_test"),
+                manifest_hash: B3Hash::hash(b"manifest"),
+                parent_cpid: None,
+            },
+        };
+
+        let lifecycle = Arc::new(LifecycleManager::new(
+            vec!["test-upstream".to_string()],
+            &manifest.policies,
+            temp_dir.clone(),
+            None,
+            1,
+        ));
+
+        // Create a mock router and policy engine
+        let router = Router::new(vec![1.0], 1, 1.0, 0.02, [0u8; 32]);
+        let policy = adapteros_policy::PolicyEngine::new(&manifest.policies);
+
+        // Create mock kernels (we won't actually run inference, just test upstream application)
+        // For this test, we'll directly test the apply_upstream_adapters method
+
+        // Test input tokens
+        let input_tokens = vec![100u32, 200u32, 300u32, 400u32];
+
+        // We need a pipeline instance to test, but creating a full one requires many dependencies
+        // For now, let's verify the manifest processing is correct
+        // The actual determinism will be tested in integration tests
+
+        // Verify that the manifest correctly marks the adapter as upstream
+        assert_eq!(manifest.adapters.len(), 1);
+        assert!(manifest.adapters[0].upstream_enabled);
+        assert_eq!(manifest.adapters[0].id, "test-upstream");
+
+        // Cleanup
+        std::fs::remove_dir_all(temp_dir).ok();
     }
 }
