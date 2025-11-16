@@ -115,7 +115,9 @@ async fn main() -> Result<()> {
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let cli = Cli::parse();
 
-    initialize_config(raw_args, Some(cli.config.to_string_lossy().to_string()))?;
+    // Clone config path to avoid borrow checker issues when moving cli
+    let config_path = cli.config.to_string_lossy().to_string();
+    initialize_config(raw_args, Some(config_path))?;
 
     match run(cli).await {
         Ok(_) => Ok(()),
@@ -149,11 +151,11 @@ async fn run(cli: Cli) -> Result<()> {
     ensure_var_dir()?;
 
     match cli.command {
-        Commands::Start { service } => start_service(service, &cli).await,
-        Commands::Stop { service } => stop_service(service, &cli).await,
-        Commands::Restart { service } => restart_service(service, &cli).await,
+        Commands::Start { ref service } => start_service(service.clone(), &cli).await,
+        Commands::Stop { ref service } => stop_service(service.clone(), &cli).await,
+        Commands::Restart { ref service } => restart_service(service.clone(), &cli).await,
         Commands::Status => status(&cli).await,
-        Commands::Logs { service } => logs(service, &cli).await,
+        Commands::Logs { ref service } => logs(service.clone(), &cli).await,
     }
 }
 
