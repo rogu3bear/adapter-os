@@ -7,8 +7,13 @@ license.workspace = true
 repository.workspace = true
 description = "AOS 2.0 archive format for AdapterOS"
 
+[[bin]]
+name = "aos"
+path = "src/bin/aos.rs"
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-config = { path = "../adapteros-config" }
 
 # Serialization
 serde = { workspace = true }
@@ -16,6 +21,18 @@ serde_json = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI and async runtime
+clap = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+
+# Process management
+anyhow = { workspace = true }
+
+# HTTP and time utilities (for health checks and timestamps)
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 # File mapping (optional - for loader)
 memmap2 = { version = "0.9", optional = true }

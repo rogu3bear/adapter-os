@@ -1,3 +1,9 @@
-#!/bin/bash
-cd /Users/star/Dev/adapter-os
-target/release/adapteros-server --config /etc/adapteros/cp.toml --migrate-only
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "This script is deprecated; use 'aosctl db migrate' instead." >&2
+echo "" >&2
+echo "Replacement command:" >&2
+echo "  aosctl db migrate" >&2
+
+exec aosctl db migrate "$@"
