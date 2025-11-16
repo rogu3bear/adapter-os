@@ -1,10 +1,11 @@
 mod assets;
 
-use adapteros_core::AosError;
+use adapteros_core::{derive_seed, AosError, B3Hash};
 use adapteros_db::Db;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
+use adapteros_manifest::ManifestV3;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
@@ -112,6 +113,15 @@ struct Cli {
     /// Skip PF/firewall egress checks (for development only)
     #[arg(long)]
     skip_pf_check: bool,
+
+    /// Path to base model manifest for executor seeding
+    /// Can also be set via AOS_MANIFEST_PATH environment variable
+    #[arg(
+        long,
+        env = "AOS_MANIFEST_PATH",
+        default_value = "models/qwen2.5-7b-mlx/manifest.json"
+    )]
+    manifest_path: PathBuf,
 }
 
 #[tokio::main]
@@ -142,8 +152,105 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Initialize deterministic executor
-    let global_seed = [42u8; 32]; // TODO: derive from manifest
+    // Load configuration early (needed for production mode check)
+    info!("Loading configuration from {}", cli.config);
+    let config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+
+    // Initialize deterministic executor with manifest-derived seed
+    info!("Initializing deterministic executor");
+
+    // Load manifest for deterministic seeding
+    let manifest_path = &cli.manifest_path;
+
+    let manifest_hash = if manifest_path.exists() {
+        match std::fs::read_to_string(manifest_path) {
+            Ok(json) => match serde_json::from_str::<ManifestV3>(&json) {
+                Ok(manifest) => {
+                    // Validate manifest before using for seeding
+                    if let Err(e) = manifest.validate() {
+                        warn!(
+                            error = %e,
+                            path = %manifest_path.display(),
+                            "Manifest validation failed, using default seed"
+                        );
+                        None
+                    } else {
+                        match manifest.compute_hash() {
+                            Ok(hash) => {
+                                info!(
+                                    manifest_hash = %hash.to_hex()[..16],
+                                    path = %manifest_path.display(),
+                                    "Loaded and validated manifest for executor seeding"
+                                );
+                                Some(hash)
+                            }
+                            Err(e) => {
+                                warn!(
+                                    error = %e,
+                                    path = %manifest_path.display(),
+                                    "Failed to compute manifest hash, using default seed"
+                                );
+                                None
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        path = %manifest_path.display(),
+                        "Failed to parse manifest, using default seed"
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    path = %manifest_path.display(),
+                    "Failed to read manifest, using default seed"
+                );
+                None
+            }
+        }
+    } else {
+        warn!(
+            path = %manifest_path.display(),
+            "Manifest not found, using default seed (development mode)"
+        );
+        None
+    };
+
+    // Production mode enforcement: require valid manifest
+    {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+
+        if cfg.security.require_pf_deny && manifest_hash.is_none() {
+            return Err(AosError::Config(
+                format!(
+                    "Production mode (require_pf_deny=true) requires valid manifest for executor seeding. \
+                     Manifest path: {} \n\
+                     Set --manifest-path or AOS_MANIFEST_PATH environment variable, or disable production mode.",
+                    manifest_path.display()
+                )
+            ).into());
+        }
+    }
+
+    // Derive executor seed using HKDF from manifest hash
+    let base_seed = manifest_hash.unwrap_or_else(|| B3Hash::hash(b"default-seed-non-production"));
+
+    let global_seed = derive_seed(&base_seed, "executor");
+
+    info!(
+        seed_hash = %B3Hash::hash(&global_seed).to_hex()[..16],
+        manifest_based = manifest_hash.is_some(),
+        hkdf_label = "executor",
+        "Derived deterministic executor seed"
+    );
+
     let config = ExecutorConfig {
         global_seed,
         enable_event_logging: true,
@@ -151,11 +258,7 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
     init_global_executor(config)?;
-    info!("Deterministic executor initialized");
-
-    // Load configuration (wrapped in Arc<RwLock> for hot-reload)
-    info!("Loading configuration from {}", cli.config);
-    let config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+    info!("Deterministic executor initialized with manifest-derived seed");
 
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
@@ -261,6 +364,41 @@ async fn main() -> Result<()> {
     info!("Connecting to database: {}", db_path);
     let db = Db::connect(&db_path).await?;
 
+    // Audit log: Executor bootstrap event
+    {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+
+        let metadata = serde_json::json!({
+            "manifest_path": cli.manifest_path.display().to_string(),
+            "manifest_based": manifest_hash.is_some(),
+            "hkdf_label": "executor",
+            "production_mode": cfg.security.require_pf_deny,
+            "seed_source": if manifest_hash.is_some() { "manifest" } else { "default" },
+        });
+
+        if let Err(e) = db
+            .log_audit(
+                "system",                 // user_id
+                "system",                 // user_role
+                "system",                 // tenant_id
+                "executor.seed_init",     // action
+                "deterministic_executor", // resource_type
+                None,                     // resource_id
+                "success",                // status
+                None,                     // error_message
+                None,                     // ip_address
+                Some(&serde_json::to_string(&metadata)?),
+            )
+            .await
+        {
+            warn!("Failed to log executor bootstrap audit event: {}", e);
+        } else {
+            info!("Executor bootstrap event logged to audit trail");
+        }
+    }
+
     // Run migrations (temporarily disabled for demo)
     info!("Skipping database migrations for demo");
     // db.migrate().await?;
@@ -334,8 +472,8 @@ async fn main() -> Result<()> {
         });
     }
 
-    // Initialize status writer start time
-    status_writer::init_start_time();
+    // Initialize status writer uptime tracking early
+    status_writer::init_uptime_tracking();
 
     // Spawn alert watcher if enabled
     {
