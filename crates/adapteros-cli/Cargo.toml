@@ -27,6 +27,7 @@ adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
+adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }

@@ -1144,6 +1144,25 @@ pub enum Commands {
         args: train_base_adapter::TrainBaseAdapterArgs,
     },
 
+    /// Ingest documents (PDF/Markdown) for RAG and training
+    #[command(after_help = r#"Examples:
+  # Index PDFs in RAG for a tenant
+  aosctl ingest-docs document.pdf manual.pdf --tenant dev --index-rag \
+    --db-url postgresql://localhost/adapteros
+
+  # Generate training data from Markdown
+  aosctl ingest-docs docs/*.md --generate-training \
+    --training-output training_data.json --training-strategy qa
+
+  # Both index and generate training data
+  aosctl ingest-docs files/*.pdf --tenant dev --index-rag --generate-training \
+    --training-output training.json --db-url sqlite://rag.db
+"#)]
+    IngestDocs {
+        #[command(flatten)]
+        args: ingest_docs::IngestDocsArgs,
+    },
+
     /// Alias for tenant-init (for convenience)
     #[command(hide = true)]
     Init {
@@ -1736,6 +1755,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             args.execute().await?;
         }
 
+        Commands::IngestDocs { args } => {
+            args.execute().await?;
+        }
+
         // Code Intelligence Commands
         Commands::CodeInit { path, tenant } => {
             commands::code::code_init(path, tenant, output).await?;
@@ -1807,6 +1830,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
         Commands::TrainBaseAdapter { .. } => "train-base-adapter",
+        Commands::IngestDocs { .. } => "ingest-docs",
         Commands::CodeInit { .. } => "code-init",
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",

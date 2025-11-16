@@ -25,6 +25,7 @@ pub mod golden;
 pub mod import;
 pub mod import_model;
 pub mod infer;
+pub mod ingest_docs;
 pub mod init_tenant;
 pub mod list_adapters;
 pub mod manual;
