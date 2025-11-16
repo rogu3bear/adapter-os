@@ -11,7 +11,6 @@ pub mod git;
 pub mod inference;
 pub mod metrics;
 pub mod nodes;
-pub mod openai;
 pub mod plans;
 pub mod repositories;
 pub mod telemetry;
@@ -28,7 +27,6 @@ pub use git::*;
 pub use inference::*;
 pub use metrics::*;
 pub use nodes::*;
-pub use openai::*;
 pub use plans::*;
 pub use repositories::*;
 // Note: telemetry types are not re-exported to avoid conflicts with metrics types
