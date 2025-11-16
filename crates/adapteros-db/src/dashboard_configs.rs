@@ -124,13 +124,14 @@ impl Db {
 
     /// Check if a user has any dashboard configuration
     pub async fn has_dashboard_config(&self, user_id: &str) -> Result<bool> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM dashboard_configs WHERE user_id = ?"
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to check dashboard config: {}", e)))?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM dashboard_configs WHERE user_id = ?")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to check dashboard config: {}", e))
+                })?;
 
         Ok(count > 0)
     }

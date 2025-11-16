@@ -202,22 +202,28 @@ impl ApiClient {
     /// Parse metrics from JSON response
     fn parse_metrics(&self, data: Value) -> SystemMetrics {
         SystemMetrics {
-            inference_latency_p95_ms: data.get("inference_latency_p95_ms")
+            inference_latency_p95_ms: data
+                .get("inference_latency_p95_ms")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32,
-            tokens_per_second: data.get("tokens_per_second")
+            tokens_per_second: data
+                .get("tokens_per_second")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32,
-            queue_depth: data.get("queue_depth")
+            queue_depth: data
+                .get("queue_depth")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32,
-            active_adapters: data.get("active_adapters")
+            active_adapters: data
+                .get("active_adapters")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32,
-            total_adapters: data.get("total_adapters")
+            total_adapters: data
+                .get("total_adapters")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(50) as u32,
-            memory_headroom_percent: data.get("memory_headroom_percent")
+            memory_headroom_percent: data
+                .get("memory_headroom_percent")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(15.0) as f32,
         }

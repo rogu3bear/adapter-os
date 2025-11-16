@@ -167,8 +167,11 @@ impl App {
         // Fetch real service status from API
         if let Ok(service_statuses) = self.api_client.get_service_status().await {
             for status_response in service_statuses {
-                if let Some(service) = self.services.iter_mut()
-                    .find(|s| s.name == status_response.name) {
+                if let Some(service) = self
+                    .services
+                    .iter_mut()
+                    .find(|s| s.name == status_response.name)
+                {
                     // Map API status to our Status enum
                     service.status = match status_response.status.as_str() {
                         "running" | "Running" => Status::Running,
@@ -180,7 +183,8 @@ impl App {
                     };
 
                     // Update message from API or use status as fallback
-                    service.message = status_response.message
+                    service.message = status_response
+                        .message
                         .unwrap_or_else(|| service.status.as_str().to_string());
 
                     debug!(
@@ -212,12 +216,16 @@ impl App {
         }
 
         // Update model status based on Router service
-        self.model_status.loaded = self.services.iter()
+        self.model_status.loaded = self
+            .services
+            .iter()
             .any(|s| s.name == "Router" && s.status == Status::Running);
 
         // Calculate memory usage from loaded adapters
         if self.model_status.loaded {
-            let adapter_memory: u32 = self.adapters.iter()
+            let adapter_memory: u32 = self
+                .adapters
+                .iter()
                 .filter(|a| a.loaded)
                 .filter_map(|a| a.memory_mb)
                 .sum();
@@ -295,18 +303,16 @@ impl App {
 
     pub async fn on_enter(&mut self) -> Result<()> {
         match self.current_mode {
-            Mode::Normal => {
-                match self.selected_menu_item {
-                    0 => self.boot_all_services().await?,
-                    1 => self.current_mode = Mode::ServiceSelect,
-                    2 => self.debug_service().await?,
-                    3 => self.current_screen = Screen::Metrics,
-                    4 => self.current_screen = Screen::Logs,
-                    5 => self.current_screen = Screen::Config,
-                    6 => self.toggle_production_mode(),
-                    _ => {}
-                }
-            }
+            Mode::Normal => match self.selected_menu_item {
+                0 => self.boot_all_services().await?,
+                1 => self.current_mode = Mode::ServiceSelect,
+                2 => self.debug_service().await?,
+                3 => self.current_screen = Screen::Metrics,
+                4 => self.current_screen = Screen::Logs,
+                5 => self.current_screen = Screen::Config,
+                6 => self.toggle_production_mode(),
+                _ => {}
+            },
             Mode::ServiceSelect => {
                 self.boot_single_service(self.selected_service).await?;
                 self.current_mode = Mode::Normal;
@@ -454,7 +460,11 @@ impl App {
 
     fn toggle_production_mode(&mut self) {
         self.production_mode = !self.production_mode;
-        let mode = if self.production_mode { "PRODUCTION" } else { "DEVELOPMENT" };
+        let mode = if self.production_mode {
+            "PRODUCTION"
+        } else {
+            "DEVELOPMENT"
+        };
         self.confirmation_message = Some(format!("Switched to {} mode", mode));
 
         if self.production_mode {

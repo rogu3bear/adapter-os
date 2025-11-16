@@ -6,16 +6,16 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, Mode};
 use crate::app::types::Status;
+use crate::app::{App, Mode};
 
 pub fn draw_services(f: &mut Frame, app: &App, area: Rect) {
     // Split into service list and detail view
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(0),     // Service list
-            Constraint::Length(8),  // Service details
+            Constraint::Min(0),    // Service list
+            Constraint::Length(8), // Service details
         ])
         .split(area);
 
@@ -27,13 +27,13 @@ fn draw_service_list(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(" Select Service to Control ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(
-            if app.current_mode == Mode::ServiceSelect {
+        .border_style(
+            Style::default().fg(if app.current_mode == Mode::ServiceSelect {
                 Color::Green
             } else {
                 Color::White
-            }
-        ));
+            }),
+        );
 
     // Create header with proper column alignment
     let header = ListItem::new(Line::from(vec![
@@ -96,10 +96,7 @@ fn draw_service_list(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(status_color),
             ),
             Span::raw(dependencies),
-            Span::styled(
-                action,
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled(action, Style::default().fg(Color::Cyan)),
         ]));
 
         items.push(item);
@@ -138,22 +135,20 @@ fn draw_service_details(f: &mut Frame, app: &App, area: Rect) {
 
     if selected_service.status == Status::Failed {
         details.push(Line::from(vec![
-            Span::styled(
-                "Last Error: ",
-                Style::default().fg(Color::Red),
-            ),
+            Span::styled("Last Error: ", Style::default().fg(Color::Red)),
             Span::raw("Failed to load adapter manifest"),
         ]));
-        details.push(Line::from(format!("Time: {}", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"))));
+        details.push(Line::from(format!(
+            "Time: {}",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+        )));
     }
 
     details.push(Line::from(""));
-    details.push(Line::from(vec![
-        Span::styled(
-            "[S] Start  [D] Debug  [L] Logs  [R] Restart  [Esc] Back",
-            Style::default().fg(Color::Cyan),
-        ),
-    ]));
+    details.push(Line::from(vec![Span::styled(
+        "[S] Start  [D] Debug  [L] Logs  [R] Restart  [Esc] Back",
+        Style::default().fg(Color::Cyan),
+    )]));
 
     let paragraph = Paragraph::new(details)
         .block(block)

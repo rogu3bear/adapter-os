@@ -1,9 +1,9 @@
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
+    Frame,
 };
 
 use crate::app::{App, Screen};
@@ -23,8 +23,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Status bar (now split into static + live boxes)
-            Constraint::Min(0),     // Main content
+            Constraint::Length(3), // Status bar (now split into static + live boxes)
+            Constraint::Min(0),    // Main content
         ])
         .split(f.area());
 
@@ -80,7 +80,10 @@ fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
                 format!(" {} ", entry.level.color_code()),
                 Style::default().fg(level_color),
             ),
-            Span::styled(&entry.component, Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &entry.component,
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::raw(format!(" {}", entry.message)),
         ]));
     }
@@ -103,8 +106,8 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(0),     // Content
+            Constraint::Length(3), // Title
+            Constraint::Min(0),    // Content
         ])
         .split(area);
 
@@ -119,9 +122,9 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
     let content_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(8),   // Performance metrics
-            Constraint::Length(6),   // Resource usage
-            Constraint::Min(0),      // Component status
+            Constraint::Length(8), // Performance metrics
+            Constraint::Length(6), // Resource usage
+            Constraint::Min(0),    // Component status
         ])
         .split(chunks[1]);
 
@@ -222,8 +225,7 @@ fn draw_resource_usage(f: &mut Frame, app: &App, area: Rect) {
         )),
         Line::from(format!(
             "Network: ↓ {:.1}MB/s  ↑ {:.1}MB/s",
-            app.system_status.network_rx_mbps,
-            app.system_status.network_tx_mbps
+            app.system_status.network_rx_mbps, app.system_status.network_tx_mbps
         )),
     ];
 
@@ -272,32 +274,45 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(Color::Blue));
 
     let config_text = vec![
-        Line::from(vec![
-            Span::styled("Server Configuration", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Server Configuration",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::raw("Production Mode:    "),
             Span::styled(
                 if app.production_mode { "[ON]" } else { "[OFF]" },
-                Style::default().fg(if app.production_mode { Color::Green } else { Color::Red }),
+                Style::default().fg(if app.production_mode {
+                    Color::Green
+                } else {
+                    Color::Red
+                }),
             ),
         ]),
         Line::from(format!("Server Port:        {}", app.config.server_port)),
-        Line::from(format!("Max Connections:    {}", app.config.max_connections)),
+        Line::from(format!(
+            "Max Connections:    {}",
+            app.config.max_connections
+        )),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Model Configuration", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Model Configuration",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(format!("Model Path:         {}", app.config.model_path)),
         Line::from(format!("K-Sparse Value:     {}", app.config.k_sparse_value)),
         Line::from(format!("Batch Size:         {}", app.config.batch_size)),
-        Line::from(format!("Cache Size:         {} MB", app.config.cache_size_mb)),
+        Line::from(format!(
+            "Cache Size:         {} MB",
+            app.config.cache_size_mb
+        )),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Security Configuration", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Security Configuration",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::raw("JWT Mode:           "),
@@ -308,15 +323,23 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
                         Color::Green
                     } else {
                         Color::Yellow
-                    }
+                    },
                 ),
             ),
         ]),
         Line::from(vec![
             Span::raw("Require PF Deny:    "),
             Span::styled(
-                if app.config.require_pf_deny { "[YES]" } else { "[NO]" },
-                Style::default().fg(if app.config.require_pf_deny { Color::Green } else { Color::Red }),
+                if app.config.require_pf_deny {
+                    "[YES]"
+                } else {
+                    "[NO]"
+                },
+                Style::default().fg(if app.config.require_pf_deny {
+                    Color::Green
+                } else {
+                    Color::Red
+                }),
             ),
         ]),
     ];
@@ -335,9 +358,10 @@ fn draw_help(f: &mut Frame, _app: &App, area: Rect) {
         .border_style(Style::default().fg(Color::Cyan));
 
     let help_text = vec![
-        Line::from(vec![
-            Span::styled("Keyboard Controls", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Keyboard Controls",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from("Navigation:"),
         Line::from("  ↑/↓       Navigate menu items"),

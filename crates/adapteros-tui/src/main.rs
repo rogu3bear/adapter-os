@@ -4,16 +4,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
-use std::{
-    io,
-    time::Duration,
-};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::{io, time::Duration};
 use tokio::time::sleep;
-use tracing::{info, error};
+use tracing::{error, info};
 
 mod app;
 mod ui;
