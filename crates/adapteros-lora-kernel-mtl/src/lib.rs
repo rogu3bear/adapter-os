@@ -9,9 +9,17 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
+
+#[cfg(target_os = "macos")]
 use metal::*;
+
+#[cfg(target_os = "macos")]
 use rand::{Rng, SeedableRng};
+
+#[cfg(target_os = "macos")]
 use std::collections::HashMap;
+
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
 
 pub mod ane_acceleration;

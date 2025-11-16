@@ -30,8 +30,7 @@ chrono.workspace = true
 hkdf.workspace = true
 sha2.workspace = true
 
-# Metal integration
-metal.workspace = true
+# Note: Metal integration moved to macOS-specific dependencies below
 
 # Additional dependencies
 parking_lot.workspace = true
@@ -41,3 +40,7 @@ reqwest.workspace = true
 uuid.workspace = true
 rand = "0.8"
 rand_chacha = "0.3"
+
+# macOS-specific dependencies for Metal GPU support
+[target.'cfg(target_os = "macos")'.dependencies]
+metal.workspace = true

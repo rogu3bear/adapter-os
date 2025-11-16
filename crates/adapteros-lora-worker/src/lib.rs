@@ -1038,6 +1038,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         // Proceed with verification - backends without GPU tracking will skip via default trait impls
         for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
             // Try to verify GPU buffers
+            #[cfg(target_os = "macos")]
             match kernels_lock.verify_adapter_buffers(*adapter_id_u16) {
                 Ok((buffer_size, first, last, mid)) => {
                     // Create fingerprint from current GPU state
@@ -1147,6 +1148,16 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                         "GPU verification skipped"
                     );
                 }
+            }
+
+            // Non-macOS platforms don't have Metal GPU verification
+            #[cfg(not(target_os = "macos"))]
+            {
+                skipped.push((*adapter_id_u16, adapter_id.clone()));
+                tracing::debug!(
+                    adapter_id = %adapter_id,
+                    "GPU verification not available on this platform"
+                );
             }
         }
 

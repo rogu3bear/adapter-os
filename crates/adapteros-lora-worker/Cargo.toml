@@ -19,7 +19,6 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
-adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-profiler = { path = "../adapteros-profiler" }
@@ -60,6 +59,7 @@ smallvec = "1.13"
 tempfile = "3.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 nix = { workspace = true }
 mach = "0.3"
 metal = "0.27"
