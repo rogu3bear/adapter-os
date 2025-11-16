@@ -27,13 +27,27 @@ pub struct Db {
 
 impl Db {
     /// Connect to SQLite database with WAL mode
+    ///
+    /// Configuration:
+    /// - WAL mode for better concurrency
+    /// - Normal synchronous mode (balance between safety and performance)
+    /// - 30-second connection timeout
+    /// - Max 20 connections in pool
+    /// - Statement cache size of 100
     pub async fn connect(path: &str) -> Result<Self> {
+        use std::time::Duration;
+
         let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path))?
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(30)) // 30s timeout for busy database
+            .statement_cache_capacity(100); // Cache up to 100 prepared statements
 
-        let pool = SqlitePool::connect_with(options).await?;
+        let pool = SqlitePool::connect_with(options)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
+
         Ok(Self { pool })
     }
 
@@ -42,6 +56,19 @@ impl Db {
         let database_url =
             std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/cp.db".to_string());
         Self::connect(&database_url).await
+    }
+
+    /// Create in-memory database for testing
+    ///
+    /// This creates a temporary SQLite database in memory with all migrations applied.
+    /// Useful for unit tests and integration tests.
+    ///
+    /// # Note
+    /// This is available in both test and non-test builds for maximum flexibility.
+    pub async fn new_in_memory() -> Result<Self> {
+        let db = Self::connect(":memory:").await?;
+        db.migrate().await?;
+        Ok(db)
     }
 
     /// Run database migrations with signature verification

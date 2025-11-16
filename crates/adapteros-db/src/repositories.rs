@@ -1,14 +1,35 @@
 use crate::Db;
+use adapteros_core::{derive_seed, B3Hash};
 use anyhow::Result;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
-// UUID generation simplified - using timestamp-based IDs
+use std::sync::atomic::{AtomicU64, Ordering};
+
+// Global counter for deterministic ID generation
+static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate deterministic ID using HKDF-derived seed
+///
+/// Per Determinism Policy: All randomness must be seeded via HKDF.
+/// This replaces the previous rand::random() implementation which violated the policy.
 fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros();
-    let random_suffix: u32 = rand::random();
+
+    // Derive deterministic seed for ID generation
+    let global_seed = B3Hash::hash(b"adapteros-db-id-generation");
+    let counter = ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let seed = derive_seed(&global_seed, &format!("repo_id:{}", counter));
+
+    // Use seeded RNG instead of rand::random()
+    let mut rng = ChaCha20Rng::from_seed(seed);
+    let random_suffix: u32 = rand::Rng::gen(&mut rng);
+
     format!("{:016x}{:08x}", timestamp, random_suffix)
 }
 
@@ -217,24 +238,33 @@ impl Db {
     }
 
     /// Delete repository and associated data
+    ///
+    /// Uses a transaction to ensure atomicity - either all deletions succeed or none do.
+    /// This prevents partial deletion if any step fails.
     pub async fn delete_repository(&self, id: &str) -> Result<()> {
+        // Begin transaction for atomic multi-step deletion
+        let mut tx = self.pool.begin().await?;
+
         // Delete related CodeGraph metadata first (if exists)
         sqlx::query("DELETE FROM code_graph_metadata WHERE repo_id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
         // Delete scan jobs
         sqlx::query("DELETE FROM scan_jobs WHERE repo_id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
         // Delete repository
         sqlx::query("DELETE FROM repositories WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+
+        // Commit transaction - all deletions succeed together
+        tx.commit().await?;
 
         Ok(())
     }
