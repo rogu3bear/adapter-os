@@ -50,9 +50,9 @@ pub struct ManifestVerifier {
 impl ManifestVerifier {
     /// Create a new manifest verifier with embedded public key
     pub fn new(telemetry: Option<Arc<TelemetryWriter>>) -> Result<Self> {
-        // Load public key (allow env override)
-        let public_key_pem = crate::keys::resolve_public_key_pem();
-        let public_key = PublicKey::from_pem(&public_key_pem)
+        // Load public key from embedded constant
+        let public_key_pem = crate::keys::SIGNING_PUBLIC_KEY_PEM;
+        let public_key = PublicKey::from_pem(public_key_pem)
             .map_err(|e| AosError::Crypto(format!("Failed to load embedded public key: {}", e)))?;
 
         Ok(Self {

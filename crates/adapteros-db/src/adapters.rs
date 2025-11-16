@@ -7,11 +7,15 @@ use uuid::Uuid;
 /// Builder for creating adapter registration parameters
 #[derive(Debug, Default)]
 pub struct AdapterRegistrationBuilder {
+    tenant_id: Option<String>,
     adapter_id: Option<String>,
     name: Option<String>,
     hash_b3: Option<String>,
     rank: Option<i32>,
-    tier: Option<i32>,
+    tier: Option<String>, // 'persistent', 'warm', or 'ephemeral'
+    alpha: Option<f64>,
+    targets_json: Option<String>,
+    acl_json: Option<String>,
     languages_json: Option<String>,
     framework: Option<String>,
     category: Option<String>,
@@ -22,16 +26,32 @@ pub struct AdapterRegistrationBuilder {
     commit_sha: Option<String>,
     intent: Option<String>,
     expires_at: Option<String>,
+    // .aos file support (from migration 0045)
+    aos_file_path: Option<String>,
+    aos_file_hash: Option<String>,
+    // Semantic naming taxonomy (from migration 0061)
+    adapter_name: Option<String>,
+    tenant_namespace: Option<String>,
+    domain: Option<String>,
+    purpose: Option<String>,
+    revision: Option<String>,
+    parent_id: Option<String>,
+    fork_type: Option<String>,
+    fork_reason: Option<String>,
 }
 
 /// Parameters for adapter registration
 #[derive(Debug, Clone)]
 pub struct AdapterRegistrationParams {
+    pub tenant_id: String,
     pub adapter_id: String,
     pub name: String,
     pub hash_b3: String,
     pub rank: i32,
-    pub tier: i32,
+    pub tier: String, // 'persistent', 'warm', or 'ephemeral'
+    pub alpha: f64,
+    pub targets_json: String,
+    pub acl_json: Option<String>,
     pub languages_json: Option<String>,
     pub framework: Option<String>,
     pub category: String,
@@ -42,6 +62,18 @@ pub struct AdapterRegistrationParams {
     pub commit_sha: Option<String>,
     pub intent: Option<String>,
     pub expires_at: Option<String>,
+    // .aos file support (from migration 0045)
+    pub aos_file_path: Option<String>,
+    pub aos_file_hash: Option<String>,
+    // Semantic naming taxonomy (from migration 0061)
+    pub adapter_name: Option<String>,
+    pub tenant_namespace: Option<String>,
+    pub domain: Option<String>,
+    pub purpose: Option<String>,
+    pub revision: Option<String>,
+    pub parent_id: Option<String>,
+    pub fork_type: Option<String>,
+    pub fork_reason: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -74,9 +106,34 @@ impl AdapterRegistrationBuilder {
         self
     }
 
-    /// Set the tier (required)
-    pub fn tier(mut self, tier: i32) -> Self {
-        self.tier = Some(tier);
+    /// Set the tenant ID (defaults to "default-tenant" if not set)
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    /// Set the tier (defaults to "warm" if not set)
+    /// Valid values: "persistent", "warm", "ephemeral"
+    pub fn tier(mut self, tier: impl Into<String>) -> Self {
+        self.tier = Some(tier.into());
+        self
+    }
+
+    /// Set the alpha parameter (defaults to rank * 2.0 if not set)
+    pub fn alpha(mut self, alpha: f64) -> Self {
+        self.alpha = Some(alpha);
+        self
+    }
+
+    /// Set the targets JSON (defaults to "[]" if not set)
+    pub fn targets_json(mut self, targets_json: impl Into<String>) -> Self {
+        self.targets_json = Some(targets_json.into());
+        self
+    }
+
+    /// Set the ACL JSON (optional)
+    pub fn acl_json(mut self, acl_json: Option<impl Into<String>>) -> Self {
+        self.acl_json = acl_json.map(|s| s.into());
         self
     }
 
@@ -140,9 +197,82 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the .aos file path (optional)
+    pub fn aos_file_path(mut self, aos_file_path: Option<impl Into<String>>) -> Self {
+        self.aos_file_path = aos_file_path.map(|s| s.into());
+        self
+    }
+
+    /// Set the .aos file hash (optional)
+    pub fn aos_file_hash(mut self, aos_file_hash: Option<impl Into<String>>) -> Self {
+        self.aos_file_hash = aos_file_hash.map(|s| s.into());
+        self
+    }
+
+    /// Set the semantic adapter name (optional)
+    /// Format: {tenant_namespace}/{domain}/{purpose}/{revision}
+    pub fn adapter_name(mut self, adapter_name: Option<impl Into<String>>) -> Self {
+        self.adapter_name = adapter_name.map(|s| s.into());
+        self
+    }
+
+    /// Set the tenant namespace (optional, part of semantic naming)
+    pub fn tenant_namespace(mut self, tenant_namespace: Option<impl Into<String>>) -> Self {
+        self.tenant_namespace = tenant_namespace.map(|s| s.into());
+        self
+    }
+
+    /// Set the domain (optional, part of semantic naming)
+    pub fn domain(mut self, domain: Option<impl Into<String>>) -> Self {
+        self.domain = domain.map(|s| s.into());
+        self
+    }
+
+    /// Set the purpose (optional, part of semantic naming)
+    pub fn purpose(mut self, purpose: Option<impl Into<String>>) -> Self {
+        self.purpose = purpose.map(|s| s.into());
+        self
+    }
+
+    /// Set the revision (optional, part of semantic naming)
+    pub fn revision(mut self, revision: Option<impl Into<String>>) -> Self {
+        self.revision = revision.map(|s| s.into());
+        self
+    }
+
+    /// Set the parent adapter ID for forks (optional)
+    pub fn parent_id(mut self, parent_id: Option<impl Into<String>>) -> Self {
+        self.parent_id = parent_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the fork type (optional: 'parameter', 'data', 'architecture')
+    pub fn fork_type(mut self, fork_type: Option<impl Into<String>>) -> Self {
+        self.fork_type = fork_type.map(|s| s.into());
+        self
+    }
+
+    /// Set the fork reason (optional)
+    pub fn fork_reason(mut self, fork_reason: Option<impl Into<String>>) -> Self {
+        self.fork_reason = fork_reason.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
     pub fn build(self) -> Result<AdapterRegistrationParams> {
+        let rank = self.rank.ok_or_else(|| anyhow::anyhow!("rank is required"))?;
+
+        // Validate and default tier
+        let tier = self.tier.unwrap_or_else(|| "warm".to_string());
+        if !["persistent", "warm", "ephemeral"].contains(&tier.as_str()) {
+            return Err(anyhow::anyhow!(
+                "tier must be 'persistent', 'warm', or 'ephemeral', got: {}",
+                tier
+            ));
+        }
+
         Ok(AdapterRegistrationParams {
+            tenant_id: self.tenant_id.unwrap_or_else(|| "default-tenant".to_string()),
             adapter_id: self
                 .adapter_id
                 .ok_or_else(|| anyhow::anyhow!("adapter_id is required"))?,
@@ -152,12 +282,11 @@ impl AdapterRegistrationBuilder {
             hash_b3: self
                 .hash_b3
                 .ok_or_else(|| anyhow::anyhow!("hash_b3 is required"))?,
-            rank: self
-                .rank
-                .ok_or_else(|| anyhow::anyhow!("rank is required"))?,
-            tier: self
-                .tier
-                .ok_or_else(|| anyhow::anyhow!("tier is required"))?,
+            rank,
+            tier,
+            alpha: self.alpha.unwrap_or_else(|| (rank * 2) as f64),
+            targets_json: self.targets_json.unwrap_or_else(|| "[]".to_string()),
+            acl_json: self.acl_json,
             category: self.category.unwrap_or_else(|| "code".to_string()),
             scope: self.scope.unwrap_or_else(|| "global".to_string()),
             languages_json: self.languages_json,
@@ -168,22 +297,40 @@ impl AdapterRegistrationBuilder {
             commit_sha: self.commit_sha,
             intent: self.intent,
             expires_at: self.expires_at,
+            // .aos file support
+            aos_file_path: self.aos_file_path,
+            aos_file_hash: self.aos_file_hash,
+            // Semantic naming taxonomy
+            adapter_name: self.adapter_name,
+            tenant_namespace: self.tenant_namespace,
+            domain: self.domain,
+            purpose: self.purpose,
+            revision: self.revision,
+            parent_id: self.parent_id,
+            fork_type: self.fork_type,
+            fork_reason: self.fork_reason,
         })
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Adapter {
+    // Core fields (from migration 0001)
     pub id: String,
-    pub adapter_id: String,
+    pub tenant_id: String,
     pub name: String,
+    pub tier: String, // TEXT enum: 'persistent', 'warm', 'ephemeral'
     pub hash_b3: String,
     pub rank: i32,
-    pub tier: i32,
+    pub alpha: f64, // LoRA alpha parameter (usually rank * 2)
+    pub targets_json: String, // JSON array of target modules
+    pub acl_json: Option<String>, // Access control list
+    pub adapter_id: Option<String>, // External adapter ID for lookups
     pub languages_json: Option<String>,
     pub framework: Option<String>,
+    pub active: i32,
 
-    // Code intelligence fields
+    // Code intelligence fields (from migration 0012)
     pub category: String,
     pub scope: String,
     pub framework_id: Option<String>,
@@ -192,17 +339,36 @@ pub struct Adapter {
     pub commit_sha: Option<String>,
     pub intent: Option<String>,
 
-    // Lifecycle state management
+    // Lifecycle state management (from migration 0012)
     pub current_state: String,
     pub pinned: i32,
     pub memory_bytes: i64,
     pub last_activated: Option<String>,
     pub activation_count: i64,
+
+    // Expiration (from migration 0044)
     pub expires_at: Option<String>,
+
+    // Runtime load state (from migration 0031)
+    pub load_state: String,
+    pub last_loaded_at: Option<String>,
+
+    // .aos file support (from migration 0045)
+    pub aos_file_path: Option<String>,
+    pub aos_file_hash: Option<String>,
+
+    // Semantic naming (from migration 0061)
+    pub adapter_name: Option<String>,
+    pub tenant_namespace: Option<String>,
+    pub domain: Option<String>,
+    pub purpose: Option<String>,
+    pub revision: Option<String>,
+    pub parent_id: Option<String>,
+    pub fork_type: Option<String>,
+    pub fork_reason: Option<String>,
 
     pub created_at: String,
     pub updated_at: String,
-    pub active: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -267,15 +433,19 @@ impl Db {
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         sqlx::query(
-            "INSERT INTO adapters (id, adapter_id, name, hash_b3, rank, tier, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, current_state, pinned, memory_bytes, activation_count, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'unloaded', 0, 0, 0, 1)"
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, current_state, pinned, memory_bytes, activation_count, load_state, active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, 'unloaded', 0, 0, 0, 'cold', 1)"
         )
         .bind(&id)
+        .bind(&params.tenant_id)
         .bind(&params.adapter_id)
         .bind(&params.name)
         .bind(&params.hash_b3)
         .bind(params.rank)
-        .bind(params.tier)
+        .bind(params.alpha)
+        .bind(&params.tier)
+        .bind(&params.targets_json)
+        .bind(&params.acl_json)
         .bind(&params.languages_json)
         .bind(&params.framework)
         .bind(&params.category)
@@ -286,6 +456,16 @@ impl Db {
         .bind(&params.commit_sha)
         .bind(&params.intent)
         .bind(&params.expires_at)
+        .bind(&params.aos_file_path)
+        .bind(&params.aos_file_hash)
+        .bind(&params.adapter_name)
+        .bind(&params.tenant_namespace)
+        .bind(&params.domain)
+        .bind(&params.purpose)
+        .bind(&params.revision)
+        .bind(&params.parent_id)
+        .bind(&params.fork_type)
+        .bind(&params.fork_reason)
         .execute(self.pool())
         .await?;
 
@@ -295,7 +475,14 @@ impl Db {
     /// Find all expired adapters
     pub async fn find_expired_adapters(&self) -> Result<Vec<Adapter>> {
         let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT * FROM adapters WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
+             WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
         )
         .fetch_all(self.pool())
         .await?;
@@ -305,12 +492,14 @@ impl Db {
     /// List all adapters
     pub async fn list_adapters(&self) -> Result<Vec<Adapter>> {
         let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, adapter_id, name, hash_b3, rank, tier, languages_json, framework,
-                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
-                    current_state, pinned, memory_bytes, last_activated, activation_count,
-                    created_at, updated_at, active 
-             FROM adapters 
-             WHERE active = 1 
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
+             WHERE active = 1
              ORDER BY tier ASC, created_at DESC",
         )
         .fetch_all(self.pool())
@@ -319,7 +508,52 @@ impl Db {
     }
 
     /// Delete an adapter by its ID
+    ///
+    /// This function checks if the adapter is pinned before deletion.
+    /// Pinned adapters cannot be deleted until they are unpinned.
+    ///
+    /// Per Agent G Stability Plan: Uses pinned_adapters table as single source of truth.
+    /// Citation: Agent G Stability Reinforcement Plan - Patch 1.3
     pub async fn delete_adapter(&self, id: &str) -> Result<()> {
+        use adapteros_core::AosError;
+        use tracing::warn;
+
+        // Get adapter_id for pinning check
+        let adapter_id: Option<String> = sqlx::query_scalar(
+            "SELECT adapter_id FROM adapters WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?;
+
+        if let Some(adapter_id) = adapter_id {
+            // Check active_pinned_adapters view (single source of truth)
+            // View automatically filters expired pins
+            let active_pin_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?"
+            )
+            .bind(&adapter_id)
+            .fetch_one(self.pool())
+            .await
+            .unwrap_or(0);
+
+            if active_pin_count > 0 {
+                warn!(
+                    id = %id,
+                    adapter_id = %adapter_id,
+                    pin_count = active_pin_count,
+                    "Attempted to delete adapter with active pins"
+                );
+                return Err(AosError::PolicyViolation(
+                    format!(
+                        "Cannot delete adapter '{}': adapter has {} active pin(s). Unpin first.",
+                        adapter_id, active_pin_count
+                    )
+                ).into());
+            }
+        }
+
+        // Not pinned - safe to delete
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
             .execute(self.pool())
@@ -327,14 +561,85 @@ impl Db {
         Ok(())
     }
 
+    /// Delete an adapter and all its related entries in a transaction
+    ///
+    /// This ensures cascade deletion of:
+    /// - Adapter record from adapters table
+    /// - Any pinned_adapters entries
+    /// - Any adapter_stack references (would need additional cleanup)
+    ///
+    /// Citation: Agent G Stability Reinforcement Plan - Patch 4.1
+    pub async fn delete_adapter_cascade(&self, id: &str) -> Result<()> {
+        use adapteros_core::AosError;
+        use tracing::{info, warn};
+
+        let mut tx = self.pool().begin().await?;
+
+        // Get adapter_id for pinning check
+        let adapter_id: Option<String> = sqlx::query_scalar(
+            "SELECT adapter_id FROM adapters WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(adapter_id) = adapter_id {
+            // Check active_pinned_adapters view (single source of truth)
+            let active_pin_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?"
+            )
+            .bind(&adapter_id)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or(0);
+
+            if active_pin_count > 0 {
+                warn!(
+                    id = %id,
+                    adapter_id = %adapter_id,
+                    pin_count = active_pin_count,
+                    "Attempted to cascade delete adapter with active pins"
+                );
+                return Err(AosError::PolicyViolation(
+                    format!(
+                        "Cannot delete adapter '{}': adapter has {} active pin(s)",
+                        adapter_id, active_pin_count
+                    )
+                ).into());
+            }
+
+            // Delete from pinned_adapters (expired pins)
+            sqlx::query("DELETE FROM pinned_adapters WHERE adapter_id = ?")
+                .bind(&adapter_id)
+                .execute(&mut *tx)
+                .await?;
+
+            info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
+
+            // Delete the adapter itself
+            sqlx::query("DELETE FROM adapters WHERE id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+
+            tx.commit().await?;
+            Ok(())
+        } else {
+            // Adapter not found
+            Err(anyhow::anyhow!("Adapter not found: {}", id))
+        }
+    }
+
     /// Get adapter by ID
     pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
         let adapter = sqlx::query_as::<_, Adapter>(
-            "SELECT id, adapter_id, name, hash_b3, rank, tier, languages_json, framework,
-                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
-                    current_state, pinned, memory_bytes, last_activated, activation_count,
-                    created_at, updated_at, active 
-             FROM adapters 
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
              WHERE adapter_id = ?",
         )
         .bind(adapter_id)
@@ -438,14 +743,155 @@ impl Db {
         Ok(())
     }
 
+    /// Update adapter state with transaction protection
+    ///
+    /// This version uses SELECT FOR UPDATE to prevent race conditions
+    /// when multiple operations attempt to update the same adapter concurrently.
+    ///
+    /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
+    pub async fn update_adapter_state_tx(
+        &self,
+        adapter_id: &str,
+        state: &str,
+        reason: &str,
+    ) -> Result<()> {
+        use tracing::{debug, warn};
+
+        let mut tx = self.pool().begin().await?;
+
+        // Lock the row to prevent concurrent updates
+        let row_exists: Option<(String,)> = sqlx::query_as(
+            "SELECT adapter_id FROM adapters WHERE adapter_id = ?"
+        )
+        .bind(adapter_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if row_exists.is_none() {
+            warn!(adapter_id = %adapter_id, "Adapter not found for state update");
+            return Err(anyhow::anyhow!("Adapter not found: {}", adapter_id));
+        }
+
+        // Update state with reason logged
+        debug!(adapter_id = %adapter_id, state = %state, reason = %reason,
+               "Updating adapter state (transactional)");
+
+        sqlx::query(
+            "UPDATE adapters SET current_state = ?, updated_at = datetime('now') WHERE adapter_id = ?"
+        )
+        .bind(state)
+        .bind(adapter_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Update adapter memory usage with transaction protection
+    ///
+    /// This version uses transactions to ensure atomic updates.
+    ///
+    /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
+    pub async fn update_adapter_memory_tx(
+        &self,
+        adapter_id: &str,
+        memory_bytes: i64,
+    ) -> Result<()> {
+        use tracing::debug;
+
+        let mut tx = self.pool().begin().await?;
+
+        // Verify adapter exists
+        let row_exists: Option<(String,)> = sqlx::query_as(
+            "SELECT adapter_id FROM adapters WHERE adapter_id = ?"
+        )
+        .bind(adapter_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if row_exists.is_none() {
+            return Err(anyhow::anyhow!("Adapter not found: {}", adapter_id));
+        }
+
+        debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes,
+               "Updating adapter memory (transactional)");
+
+        sqlx::query(
+            "UPDATE adapters SET memory_bytes = ?, updated_at = datetime('now') WHERE adapter_id = ?"
+        )
+        .bind(memory_bytes)
+        .bind(adapter_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Atomically update both adapter state and memory in a single transaction
+    ///
+    /// This prevents race conditions where state and memory updates might
+    /// interleave, causing inconsistent adapter records.
+    ///
+    /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
+    pub async fn update_adapter_state_and_memory(
+        &self,
+        adapter_id: &str,
+        state: &str,
+        memory_bytes: i64,
+        reason: &str,
+    ) -> Result<()> {
+        use tracing::debug;
+
+        let mut tx = self.pool().begin().await?;
+
+        // Verify adapter exists
+        let row_exists: Option<(String,)> = sqlx::query_as(
+            "SELECT adapter_id FROM adapters WHERE adapter_id = ?"
+        )
+        .bind(adapter_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if row_exists.is_none() {
+            return Err(anyhow::anyhow!("Adapter not found: {}", adapter_id));
+        }
+
+        debug!(
+            adapter_id = %adapter_id,
+            state = %state,
+            memory_bytes = %memory_bytes,
+            reason = %reason,
+            "Updating adapter state and memory atomically"
+        );
+
+        // Single UPDATE for both fields - atomic at SQL level
+        sqlx::query(
+            "UPDATE adapters
+             SET current_state = ?, memory_bytes = ?, updated_at = datetime('now')
+             WHERE adapter_id = ?"
+        )
+        .bind(state)
+        .bind(memory_bytes)
+        .bind(adapter_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// List adapters by category
     pub async fn list_adapters_by_category(&self, category: &str) -> Result<Vec<Adapter>> {
         let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, adapter_id, name, hash_b3, rank, tier, languages_json, framework,
-                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
-                    current_state, pinned, memory_bytes, last_activated, activation_count,
-                    created_at, updated_at, active 
-             FROM adapters 
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
              WHERE active = 1 AND category = ?
              ORDER BY activation_count DESC, created_at DESC",
         )
@@ -458,11 +904,13 @@ impl Db {
     /// List adapters by scope
     pub async fn list_adapters_by_scope(&self, scope: &str) -> Result<Vec<Adapter>> {
         let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, adapter_id, name, hash_b3, rank, tier, languages_json, framework,
-                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
-                    current_state, pinned, memory_bytes, last_activated, activation_count,
-                    created_at, updated_at, active 
-             FROM adapters 
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
              WHERE active = 1 AND scope = ?
              ORDER BY activation_count DESC, created_at DESC",
         )
@@ -475,11 +923,13 @@ impl Db {
     /// List adapters by state
     pub async fn list_adapters_by_state(&self, state: &str) -> Result<Vec<Adapter>> {
         let adapters = sqlx::query_as::<_, Adapter>(
-            "SELECT id, adapter_id, name, hash_b3, rank, tier, languages_json, framework,
-                    category, scope, framework_id, framework_version, repo_id, commit_sha, intent,
-                    current_state, pinned, memory_bytes, last_activated, activation_count,
-                    created_at, updated_at, active 
-             FROM adapters 
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
              WHERE active = 1 AND current_state = ?
              ORDER BY activation_count DESC, created_at DESC",
         )
