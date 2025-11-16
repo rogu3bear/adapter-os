@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Download baselines
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: baseline-*
           merge-multiple: true
