@@ -346,6 +346,17 @@ Examples:
         registry: PathBuf,
     },
 
+    /// Migrate legacy registry database into new schema
+    #[command(after_help = "\
+Examples:
+  # Migrate from deprecated/registry.db to var/registry.db
+  aosctl registry migrate
+
+  # Explicit paths with dry run
+  aosctl registry migrate --from-db deprecated/registry.db --to-db var/registry.db --dry-run
+")]
+    RegistryMigrate(commands::registry_migrate::RegistryMigrateArgs),
+
     // ============================================================
     // Plan Management
     // ============================================================
@@ -1343,6 +1354,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         } => {
             sync_registry::sync_registry(&dir, &cas_root, &registry, &output).await?;
         }
+        Commands::RegistryMigrate(args) => {
+            commands::registry_migrate::run(args.clone(), &output).await?;
+        }
 
         // Plan Management
         Commands::PlanBuild {
@@ -1645,6 +1659,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Golden(_) => "golden",
         Commands::Router(_) => "router",
         Commands::RegistrySync { .. } => "registry-sync",
+        Commands::RegistryMigrate { .. } => "registry-migrate",
         Commands::Report { .. } => "report",
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",

@@ -9,7 +9,7 @@ mod openapi_docs;
 mod pack_lora;
 mod sbom;
 mod train_base_adapter;
-mod verify_agents;
+mod verify_adapters;
 mod verify_artifacts;
 
 #[tokio::main]
@@ -68,12 +68,12 @@ async fn main() -> Result<()> {
                 // Prepend program name for clap
                 let mut new_args = vec![args_vec[0].clone()];
                 new_args.extend(args_vec[2..].to_vec());
-                verify_agents::VerifyAgentsArgs::parse_from(new_args)
+                verify_adapters::VerifyAgentsArgs::parse_from(new_args)
             } else {
-                verify_agents::VerifyAgentsArgs::parse()
+                verify_adapters::VerifyAgentsArgs::parse()
             };
 
-            let report = verify_agents::run(verify_args).await?;
+            let report = verify_adapters::run(verify_args).await?;
 
             // Print summary
             println!("\n=== Verification Complete ===");
