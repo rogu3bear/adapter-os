@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { logger, toError } from '../utils/logger';
 import type { MetricsSnapshotResponse } from '../api/types';
-import { 
-  Activity, 
-  Shield, 
-  CheckCircle, 
+import {
+  Activity,
+  Shield,
+  CheckCircle,
   Code,
   Eye,
   Download,
@@ -14,7 +14,8 @@ import {
   Zap,
   Play,
   FileText,
-  TrendingUp
+  TrendingUp,
+  Settings
 } from 'lucide-react';
 import { MLPipelineWidget } from './dashboard/MLPipelineWidget';
 import { NextStepsWidget } from './dashboard/NextStepsWidget';
@@ -25,12 +26,14 @@ import { MultiModelStatusWidget } from './dashboard/MultiModelStatusWidget';
 import { BaseModelWidget } from './dashboard/BaseModelWidget';
 import { ReportingSummaryWidget } from './dashboard/ReportingSummaryWidget';
 import { ServiceStatusWidget } from './dashboard/ServiceStatusWidget';
+import { DashboardSettings } from './dashboard/DashboardSettings';
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import { useNavigate } from 'react-router-dom';
 import type { UserRole, User, SystemMetrics } from '@/api/types';
 import apiClient from '../api/client';
 import { useAnnounce, useKeyboardShortcuts } from '@/utils/accessibility';
 import { usePolling } from '../hooks/usePolling';
+import { useDashboardConfig } from '../hooks/useDashboardConfig';
 
 interface DashboardProps {
   user?: User;
@@ -222,6 +225,15 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
   const { selectedTenant } = useTenant();
   const navigate = useNavigate();
   const effectiveUser = userProp ?? user!;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Dashboard configuration hook
+  const {
+    widgets: userWidgetConfig,
+    isLoading: configLoading,
+    updateWidgetVisibility,
+    resetConfig
+  } = useDashboardConfig(effectiveUser?.id);
 
   if (!effectiveUser) {
     return null;
@@ -241,6 +253,40 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
     layout = dashboardLayouts.viewer;
   }
 
+  // Filter and order widgets based on user configuration
+  const visibleWidgets = useMemo(() => {
+    if (userWidgetConfig.length === 0) {
+      // No custom configuration, use role defaults
+      return layout.widgets;
+    }
+
+    // Create a map of widget configurations
+    const configMap = new Map(
+      userWidgetConfig.map(config => [config.widget_id, config])
+    );
+
+    // Filter and sort widgets
+    return layout.widgets
+      .filter(widget => {
+        const config = configMap.get(widget.id);
+        // Show widget if no config exists (default) or if explicitly enabled
+        return config === undefined || config.enabled;
+      })
+      .sort((a, b) => {
+        const configA = configMap.get(a.id);
+        const configB = configMap.get(b.id);
+        const posA = configA?.position ?? a.priority;
+        const posB = configB?.position ?? b.priority;
+        return posA - posB;
+      });
+  }, [layout.widgets, userWidgetConfig]);
+
+  // Get available widget IDs for the settings modal
+  const availableWidgetIds = useMemo(
+    () => layout.widgets.map(w => w.id),
+    [layout.widgets]
+  );
+
   // Global shortcuts for search/help (announced via live region)
   const announce = useAnnounce();
   useKeyboardShortcuts({
@@ -250,10 +296,28 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
 
   return (
     <div className="space-y-6">
+      {/* Dashboard Header with Customize Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
+            Welcome back, {effectiveUser.email}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Customize dashboard"
+        >
+          <Settings className="h-4 w-4 mr-2" />
+          Customize
+        </Button>
+      </div>
 
       {/* Widgets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {layout.widgets.map((widget) => {
+        {visibleWidgets.map((widget) => {
           const WidgetComponent = widget.component;
           return <WidgetComponent key={widget.id} selectedTenant={selectedTenant} />;
         })}
@@ -292,6 +356,17 @@ export function Dashboard({ user: userProp, selectedTenant: tenantProp, onNaviga
           </div>
         </CardContent>
       </Card>
+
+      {/* Dashboard Settings Modal */}
+      <DashboardSettings
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        availableWidgetIds={availableWidgetIds}
+        currentConfig={userWidgetConfig}
+        onUpdateVisibility={updateWidgetVisibility}
+        onReset={resetConfig}
+        isUpdating={configLoading}
+      />
     </div>
   );
 }
