@@ -14,6 +14,7 @@ use adapteros_core::{
 };
 use adapteros_db::tenants::Tenant;
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
+use adapteros_telemetry::TelemetryWriter;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -66,12 +67,13 @@ pub struct PluginRegistry {
     watchdog: Arc<PluginWatchdog>,
     config: Arc<PluginRegistryConfig>,
     identity: Arc<IdentityEnvelope>,
+    telemetry_writer: Option<Arc<TelemetryWriter>>,
 }
 
 impl PluginRegistry {
     /// Create new plugin registry with default config
     pub fn new(db: adapteros_db::Db, identity: IdentityEnvelope) -> Self {
-        Self::with_config(db, identity, PluginRegistryConfig::default())
+        Self::with_config(db, identity, PluginRegistryConfig::default(), None)
     }
 
     /// Create new plugin registry with custom config
@@ -79,6 +81,7 @@ impl PluginRegistry {
         db: adapteros_db::Db,
         identity: IdentityEnvelope,
         config: PluginRegistryConfig,
+        telemetry_writer: Option<Arc<TelemetryWriter>>,
     ) -> Self {
         let watchdog = PluginWatchdog::new(config.restart_policy.clone());
 
@@ -89,7 +92,17 @@ impl PluginRegistry {
             watchdog: Arc::new(watchdog),
             config: Arc::new(config),
             identity: Arc::new(identity),
+            telemetry_writer,
         }
+    }
+
+    /// Create new plugin registry with telemetry writer
+    pub fn with_telemetry(
+        db: adapteros_db::Db,
+        identity: IdentityEnvelope,
+        telemetry_writer: Arc<TelemetryWriter>,
+    ) -> Self {
+        Self::with_config(db, identity, PluginRegistryConfig::default(), Some(telemetry_writer))
     }
 
     /// Emit telemetry event
@@ -114,16 +127,24 @@ impl PluginRegistry {
         .metadata(metadata)
         .build();
 
-        // Fire and forget - don't block on telemetry
-        tokio::spawn(async move {
-            // In production, this would emit to telemetry writer
-            // For now, just log
-            info!(
-                event_type = event.event_type,
-                message = event.message,
-                "Plugin telemetry event"
-            );
-        });
+        // Write to telemetry if writer available
+        if let Some(writer) = &self.telemetry_writer {
+            let writer = writer.clone();
+            let event_clone = event.clone();
+            // Fire and forget - don't block on telemetry
+            tokio::spawn(async move {
+                if let Err(e) = writer.log_event(event_clone) {
+                    error!(error = %e, "Failed to write telemetry event");
+                }
+            });
+        }
+
+        // Also log for immediate operator visibility
+        info!(
+            event_type = event.event_type,
+            message = event.message,
+            "Plugin telemetry event"
+        );
     }
 
     /// Register plugin with timeout protection
@@ -244,6 +265,7 @@ impl PluginRegistry {
         let operation_timeout = self.config.operation_timeout;
         let identity = self.identity.clone();
         let enable_telemetry = self.config.enable_telemetry;
+        let telemetry_writer = self.telemetry_writer.clone();
 
         let handle = tokio::spawn(async move {
             let mut interval_timer = tokio::time::interval(interval);
@@ -258,6 +280,7 @@ impl PluginRegistry {
                         format!("Starting health check for plugin {}", name_clone),
                         json!({"plugin_name": name_clone}),
                         &identity,
+                        telemetry_writer.as_ref(),
                     )
                     .await;
                 }
@@ -282,6 +305,7 @@ impl PluginRegistry {
                                     "status": format!("{:?}", health.status)
                                 }),
                                 &identity,
+                                telemetry_writer.as_ref(),
                             )
                             .await;
                         }
@@ -305,6 +329,7 @@ impl PluginRegistry {
                                             "reason": reason
                                         }),
                                         &identity,
+                                        telemetry_writer.as_ref(),
                                     )
                                     .await;
                                 }
@@ -317,6 +342,7 @@ impl PluginRegistry {
                                     &name_clone,
                                     &identity,
                                     enable_telemetry,
+                                    telemetry_writer.as_ref(),
                                 )
                                 .await
                                 {
@@ -345,6 +371,7 @@ impl PluginRegistry {
                                             "reason": reason
                                         }),
                                         &identity,
+                                        telemetry_writer.as_ref(),
                                     )
                                     .await;
                                 }
@@ -366,6 +393,7 @@ impl PluginRegistry {
                                                     "restart_attempts": attempts
                                                 }),
                                                 &identity,
+                                                telemetry_writer.as_ref(),
                                             )
                                             .await;
                                         }
@@ -395,6 +423,7 @@ impl PluginRegistry {
                                     "error": e.to_string()
                                 }),
                                 &identity,
+                                telemetry_writer.as_ref(),
                             )
                             .await;
                         }
@@ -416,6 +445,7 @@ impl PluginRegistry {
                                     "timeout_secs": operation_timeout.as_secs()
                                 }),
                                 &identity,
+                                telemetry_writer.as_ref(),
                             )
                             .await;
                         }
@@ -437,6 +467,7 @@ impl PluginRegistry {
         message: String,
         metadata: serde_json::Value,
         identity: &IdentityEnvelope,
+        telemetry_writer: Option<&Arc<TelemetryWriter>>,
     ) -> Result<()> {
         let event = TelemetryEventBuilder::new(
             event_type,
@@ -448,7 +479,14 @@ impl PluginRegistry {
         .metadata(metadata)
         .build();
 
-        // Log event
+        // Write to telemetry if writer available
+        if let Some(writer) = telemetry_writer {
+            if let Err(e) = writer.log_event(event.clone()) {
+                error!(error = %e, "Failed to write telemetry event");
+            }
+        }
+
+        // Also log for immediate operator visibility
         info!(
             event_type = event.event_type,
             message = event.message,
@@ -466,6 +504,7 @@ impl PluginRegistry {
         name: &str,
         identity: &IdentityEnvelope,
         enable_telemetry: bool,
+        telemetry_writer: Option<&Arc<TelemetryWriter>>,
     ) -> Result<()> {
         // Check if restart is allowed
         if !watchdog.can_restart(name).await? {
@@ -484,6 +523,7 @@ impl PluginRegistry {
                                 "failure_count": attempts
                             }),
                             identity,
+                            telemetry_writer,
                         )
                         .await;
                     }
@@ -498,6 +538,7 @@ impl PluginRegistry {
                                 "max_attempts": attempts
                             }),
                             identity,
+                            telemetry_writer,
                         )
                         .await;
                     }
@@ -524,6 +565,7 @@ impl PluginRegistry {
                         "attempt": attempts + 1
                     }),
                     identity,
+                    telemetry_writer,
                 )
                 .await;
             }
@@ -544,6 +586,7 @@ impl PluginRegistry {
                         format!("Plugin {} restart successful", name),
                         json!({"plugin_name": name}),
                         identity,
+                        telemetry_writer,
                     )
                     .await;
                 }
@@ -564,6 +607,7 @@ impl PluginRegistry {
                             "error": e.to_string()
                         }),
                         identity,
+                        telemetry_writer,
                     )
                     .await;
                 }
