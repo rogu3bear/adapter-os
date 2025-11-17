@@ -48,6 +48,9 @@ pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
     derive_seed_typed, hash_adapter_dir, SeedLabel,
 };
+pub use tenant_snapshot::{
+    AdapterInfo, PolicyInfo, SnapshotHash, StackInfo, TenantStateSnapshot,
+};
 
 /// RNG module version for determinism tracking
 pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";

@@ -92,6 +92,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::plugins::list_plugins,
         handlers::get_uma_memory,
         handlers::hydrate_tenant_from_bundle,
+        // Tenant snapshot handlers (PRD 2)
+        handlers::tenants::get_tenant_snapshot,
+        handlers::tenants::get_tenant_snapshot_hash,
+        handlers::tenants::hydrate_tenant_from_db,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -238,6 +242,18 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/tenants/:tenant_id/usage",
             get(handlers::get_tenant_usage),
+        )
+        .route(
+            "/v1/tenants/:tenant_id/snapshot",
+            get(handlers::tenants::get_tenant_snapshot),
+        )
+        .route(
+            "/v1/tenants/:tenant_id/snapshot/hash",
+            get(handlers::tenants::get_tenant_snapshot_hash),
+        )
+        .route(
+            "/v1/tenants/:tenant_id/hydrate-from-db",
+            post(handlers::tenants::hydrate_tenant_from_db),
         )
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))

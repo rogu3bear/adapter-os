@@ -25,6 +25,7 @@ pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod replay;
+pub mod tenants;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;

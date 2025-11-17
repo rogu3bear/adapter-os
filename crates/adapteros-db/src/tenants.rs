@@ -1,10 +1,12 @@
 use crate::adapters::Adapter; // assume
 use crate::Db;
-use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
+use adapteros_core::tenant_snapshot::{
+    AdapterInfo, PolicyInfo, SnapshotHash, StackInfo, TenantStateSnapshot,
+};
 use adapteros_core::AosError;
 use adapteros_core::B3Hash;
 use anyhow::Result;
-use chrono::{Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
@@ -82,36 +84,91 @@ impl Db {
         Ok(hash_str.and_then(|s| B3Hash::from_hex(&s).ok()))
     }
 
+    /// Hydrate tenant snapshot from DB and store hash
+    ///
+    /// This method:
+    /// 1. Builds snapshot from current DB state
+    /// 2. Validates consistency (stack references, etc.)
+    /// 3. Computes deterministic hash
+    /// 4. Stores hash in tenant_snapshots table
+    /// 5. Returns SnapshotHash
+    ///
+    /// Failures:
+    /// - Returns 409 Conflict (via AosError::Validation) if DB is inconsistent
+    /// - No partial writes: hash is NOT stored on validation failure
+    ///
+    /// Idempotency:
+    /// - Re-hydrating an already hydrated tenant MUST NOT create duplicates
+    /// - Hash is stored with (tenant_id, state_hash) as composite key
+    pub async fn hydrate_from_db(&self, tenant_id: &str) -> Result<SnapshotHash> {
+        // Build and validate snapshot (may fail with AosError::Validation)
+        let snapshot = self.build_tenant_snapshot(tenant_id).await?;
+
+        // Compute deterministic hash
+        let state_hash = snapshot.compute_hash();
+
+        // Store hash (idempotent - composite key prevents duplicates)
+        self.store_tenant_snapshot_hash(tenant_id, &state_hash)
+            .await?;
+
+        Ok(SnapshotHash {
+            tenant_id: tenant_id.to_string(),
+            state_hash,
+        })
+    }
+
     pub async fn build_tenant_snapshot(&self, tenant_id: &str) -> Result<TenantStateSnapshot> {
+        use std::collections::HashSet;
+
         // Adapters
         let all_adapters = self.list_adapters().await?;
         let adapters: Vec<&Adapter> = all_adapters
             .iter()
             .filter(|a| a.tenant_id == tenant_id)
             .collect();
+
+        // Build set of valid adapter IDs for validation
+        let valid_adapter_ids: HashSet<String> = adapters.iter().map(|a| a.id.clone()).collect();
+
         let adapter_infos: Vec<AdapterInfo> = adapters
             .iter()
             .map(|a| AdapterInfo {
-                id: a.id.clone(), // assume String
+                id: a.id.clone(),
                 name: a.name.clone(),
                 rank: a.rank as u32,
-                version: "1.0".to_string(), // since no version
+                version: "1.0".to_string(), // since no version field exists
             })
             .collect();
 
         // Stacks
         let stacks = self.list_stacks_for_tenant(tenant_id).await?;
-        let stack_infos: Vec<StackInfo> = stacks
-            .iter()
-            .map(|s| {
-                let adapter_ids: Vec<String> =
-                    serde_json::from_str(&s.adapter_ids_json).unwrap_or_default();
-                StackInfo {
-                    name: s.name.clone(),
-                    adapter_ids,
-                }
-            })
-            .collect();
+        let mut stack_infos: Vec<StackInfo> = Vec::new();
+
+        // Validate stack references before building snapshot
+        for stack in &stacks {
+            let adapter_ids: Vec<String> =
+                serde_json::from_str(&stack.adapter_ids_json).unwrap_or_default();
+
+            // Check for missing adapter references
+            let missing_adapters: Vec<String> = adapter_ids
+                .iter()
+                .filter(|id| !valid_adapter_ids.contains(*id))
+                .cloned()
+                .collect();
+
+            if !missing_adapters.is_empty() {
+                return Err(AosError::Validation(format!(
+                    "Stack '{}' (id: {}) references missing adapters: {:?}",
+                    stack.name, stack.id, missing_adapters
+                ))
+                .into());
+            }
+
+            stack_infos.push(StackInfo {
+                name: stack.name.clone(),
+                adapter_ids,
+            });
+        }
 
         // Router policies
         let mut policies_rs = Vec::new();

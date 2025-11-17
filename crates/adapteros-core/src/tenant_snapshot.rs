@@ -6,6 +6,13 @@ use std::collections::BTreeMap;
 
 pub type EventId = String;
 
+/// Snapshot hash result from hydration
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SnapshotHash {
+    pub tenant_id: String,
+    pub state_hash: B3Hash,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TenantStateSnapshot {
     pub tenant_id: String,
@@ -39,8 +46,35 @@ pub struct PolicyInfo {
 }
 
 impl TenantStateSnapshot {
+    /// Compute deterministic hash over canonical snapshot representation
+    ///
+    /// Invariants:
+    /// - Adapters sorted by ID
+    /// - Stacks sorted by name
+    /// - Router policies sorted by name
+    /// - BTreeMap configs maintain sorted order
+    /// - JSON serialization is deterministic (no floating precision issues)
+    ///
+    /// Same DB contents MUST yield identical hash across runs/machines/architectures.
     pub fn compute_hash(&self) -> B3Hash {
-        let json = serde_json::to_string(self).expect("Serialization failed");
+        // Clone and enforce canonical ordering
+        let mut canonical = self.clone();
+        canonical.adapters.sort_by(|a, b| a.id.cmp(&b.id));
+        canonical.stacks.sort_by(|a, b| a.name.cmp(&b.name));
+        canonical.router_policies.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // Sort adapter_ids within each stack for determinism
+        for stack in &mut canonical.stacks {
+            stack.adapter_ids.sort();
+        }
+
+        // Sort rules within each policy for determinism
+        for policy in &mut canonical.router_policies {
+            policy.rules.sort();
+        }
+
+        // Serialize to canonical JSON (BTreeMap ensures sorted keys)
+        let json = serde_json::to_string(&canonical).expect("Serialization failed");
         B3Hash::hash(json.as_bytes())
     }
 
