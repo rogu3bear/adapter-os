@@ -847,6 +847,30 @@ class ApiClient {
     }, skipRetry, cancelToken);
   }
 
+  // PRD-07: Adapter Lifecycle Promotion/Demotion
+  async promoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
+    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/promote`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async demoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
+    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/demote`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  // PRD-08: Adapter Lineage & Detail Views
+  async getAdapterLineage(adapterId: string): Promise<types.AdapterLineageResponse> {
+    return this.request<types.AdapterLineageResponse>(`/v1/adapters/${adapterId}/lineage`);
+  }
+
+  async getAdapterDetail(adapterId: string): Promise<types.AdapterDetailResponse> {
+    return this.request<types.AdapterDetailResponse>(`/v1/adapters/${adapterId}/detail`);
+  }
+
   async updateAdapterPolicy(adapterId: string, req: types.UpdateAdapterPolicyRequest): Promise<types.UpdateAdapterPolicyResponse> {
     return this.request<types.UpdateAdapterPolicyResponse>(`/v1/adapters/${adapterId}/policy`, {
       method: 'PUT',
