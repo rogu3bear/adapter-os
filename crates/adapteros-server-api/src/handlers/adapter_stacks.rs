@@ -352,6 +352,9 @@ pub async fn activate_stack(
     })?;
 
     // PRD 3: Validate all adapters are at least Loaded state
+    // Lifecycle state is derived from memory tier state:
+    //   - "unloaded" = AdapterLifecycleState::Unloaded (INVALID for stacks)
+    //   - "cold", "warm", "hot", "resident" = AdapterLifecycleState::Loaded (VALID for stacks)
     for adapter_id in &adapter_ids {
         let adapter = state
             .db
@@ -370,9 +373,9 @@ pub async fn activate_stack(
                 ));
             }
             Some(a) => {
-                // Check if adapter is loaded (not "unloaded" or "registered")
-                // Valid states: "loaded", "active", "cold", "warm", "hot", "resident"
-                if a.current_state == "unloaded" || a.current_state == "registered" {
+                // Check if adapter is loaded (memory tier state)
+                // Use helper to check valid loaded states: cold/warm/hot/resident
+                if !adapteros_core::AdapterLifecycleState::is_loaded_state(&a.current_state) {
                     return Err((
                         StatusCode::CONFLICT,
                         format!(

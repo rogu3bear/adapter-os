@@ -71,8 +71,10 @@ impl StackSpec {
     ) -> B3Hash {
         let mut pairs = Vec::new();
         for id in adapter_ids {
-            if let Some(hash) = adapter_hashes.get(id) {
-                pairs.push((id.clone(), hash.clone()));
+            if let Some(hash_str) = adapter_hashes.get(id) {
+                // Convert string hash to B3Hash
+                let hash = B3Hash::from_hex(hash_str).unwrap_or_else(|_| B3Hash::hash(hash_str.as_bytes()));
+                pairs.push((id.clone(), hash));
             }
         }
         crate::compute_stack_hash(pairs)

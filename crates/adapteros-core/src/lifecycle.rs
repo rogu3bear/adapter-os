@@ -92,6 +92,29 @@ impl std::str::FromStr for AdapterLifecycleState {
     }
 }
 
+impl AdapterLifecycleState {
+    /// Derive lifecycle state from memory tier state (current_state column)
+    ///
+    /// Maps existing AdapterState values to lifecycle semantics:
+    /// - "unloaded" → Registered (exists in DB but not in memory)
+    /// - "cold", "warm", "hot", "resident" → Loaded (in memory, can be used in stacks)
+    ///
+    /// Note: "Active" state is not stored; it's determined by whether the adapter
+    /// is in the currently active stack.
+    pub fn from_memory_tier_state(current_state: &str) -> Self {
+        match current_state {
+            "unloaded" => AdapterLifecycleState::Registered,
+            "cold" | "warm" | "hot" | "resident" => AdapterLifecycleState::Loaded,
+            _ => AdapterLifecycleState::Registered, // Defensive: treat unknown as registered
+        }
+    }
+
+    /// Check if a memory tier state represents a loaded adapter
+    pub fn is_loaded_state(current_state: &str) -> bool {
+        matches!(current_state, "cold" | "warm" | "hot" | "resident")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
