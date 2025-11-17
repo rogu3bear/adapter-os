@@ -48,7 +48,10 @@ pub struct TelemetryEvent {
     pub span_id: Option<String>,
 
     /// Event hash for integrity verification
-    pub event_hash: Option<B3Hash>,
+    pub hash: Option<String>,
+
+    /// Sampling rate applied to this event
+    pub sampling_rate: Option<f32>,
 }
 
 /// Log levels for telemetry events
@@ -236,6 +239,22 @@ pub struct TelemetryFilters {
     pub trace_id: Option<String>,
 }
 
+impl Default for TelemetryFilters {
+    fn default() -> Self {
+        Self {
+            limit: Some(100),
+            tenant_id: None,
+            user_id: None,
+            start_time: None,
+            end_time: None,
+            event_type: None,
+            level: None,
+            component: None,
+            trace_id: None,
+        }
+    }
+}
+
 /// Telemetry event builder for constructing events
 pub struct TelemetryEventBuilder {
     event: TelemetryEvent,
@@ -262,7 +281,8 @@ impl TelemetryEventBuilder {
                 metadata: None,
                 trace_id: None,
                 span_id: None,
-                event_hash: None,
+                hash: None,
+                sampling_rate: None,
             },
         }
     }
@@ -294,25 +314,9 @@ impl TelemetryEventBuilder {
 
         // Compute event hash for integrity
         let event_data = serde_json::to_vec(&self.event).unwrap();
-        self.event.event_hash = Some(B3Hash::hash(&event_data));
+        self.event.hash = Some(B3Hash::hash(&event_data).to_string());
 
         self.event
-    }
-}
-
-impl Default for TelemetryFilters {
-    fn default() -> Self {
-        Self {
-            limit: Some(100),
-            tenant_id: None,
-            user_id: None,
-            start_time: None,
-            end_time: None,
-            event_type: None,
-            level: None,
-            component: None,
-            trace_id: None,
-        }
     }
 }
 
@@ -348,12 +352,13 @@ mod tests {
         .user_id("test-user".to_string())
         .build();
 
-        assert_eq!(event.event_type, "SystemStart");
+        assert_eq!(event.event_type, "system.start");
         assert_eq!(event.message, "System started successfully");
         assert_eq!(event.component, Some("adapteros-core".to_string()));
         assert_eq!(event.user_id, Some("test-user".to_string()));
         assert_eq!(event.identity.tenant_id, "test-tenant");
-        assert!(event.event_hash.is_some());
+        assert!(event.hash.is_some());
+        assert!(event.sampling_rate.is_none());
     }
 
     #[test]

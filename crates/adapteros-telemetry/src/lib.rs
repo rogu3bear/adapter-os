@@ -215,7 +215,7 @@ impl TelemetryWriter {
         self.log("adapter_swap", event)
     }
 
-    /// Log adapter preload operation (Tier 6)
+    /// Log adapter preload operation (phase 1 of hot-swap)
     pub fn log_adapter_preload(&self, event: AdapterPreloadEvent) -> Result<()> {
         self.log("adapter_preload", event)
     }
@@ -314,7 +314,10 @@ fn run_writer(
         // Add counter for sampled checks, every 100th event check.
 
         // Use event hash if available, otherwise compute it
-        let event_hash = event.event_hash.unwrap_or_else(|| {
+        let event_hash = event.hash.as_ref().map(|h| {
+            // Assume hash is b3: prefixed string, extract bytes or rehash
+            B3Hash::hash(h.as_bytes())
+        }).unwrap_or_else(|| {
             let event_json = serde_json::to_string(&event).unwrap_or_default();
             let hash_bytes = blake3::hash(event_json.as_bytes());
             B3Hash::from_bytes(hash_bytes.into())
@@ -502,7 +505,7 @@ pub struct NodeSyncEvent {
 mod tests {
     use super::*;
     use adapteros_core::identity::IdentityEnvelope;
-    use adapteros_telemetry::unified_events::{EventType, LogLevel};
+    use crate::unified_events::{EventType, LogLevel};
 
     #[test]
     fn test_log_with_identity() {

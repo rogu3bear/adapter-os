@@ -342,18 +342,15 @@ impl AdapterTable {
     /// For full cross-layer verification, use compute_cross_layer_hash().
     pub fn compute_stack_hash(&self) -> B3Hash {
         let stack = self.current_stack.load(Ordering::Acquire);
-        let mut ids: Vec<_> = self.active.read().keys().collect();
-        ids.sort();
+        let active = self.active.read();
 
-        let mut hasher = blake3::Hasher::new();
-        for id in ids {
-            if let Some(adapter) = self.active.read().get(id) {
-                hasher.update(id.as_bytes());
-                hasher.update(&adapter.hash.to_bytes());
-            }
-        }
+        // Collect (adapter_id, hash) pairs from active adapters
+        let pairs: Vec<(String, B3Hash)> = active.iter()
+            .map(|(id, adapter)| (id.clone(), adapter.hash))
+            .collect();
 
-        B3Hash::from_bytes(hasher.finalize().into())
+        // Use canonical compute_stack_hash from adapteros-core
+        adapteros_core::compute_stack_hash(pairs)
     }
 
     /// Compute cross-layer stack hash (metadata + GPU fingerprints)

@@ -6,6 +6,7 @@
 //! # Citations
 //! - PRD 1: Global Identity Envelope for Events & Logs
 
+use crate::AosError;
 use serde::{Deserialize, Serialize};
 
 /// Identity envelope containing required context for all events and logs
@@ -36,18 +37,18 @@ impl IdentityEnvelope {
     }
 
     /// Validate the envelope fields (basic non-empty check)
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), AosError> {
         if self.tenant_id.is_empty() {
-            return Err("tenant_id cannot be empty");
+            return Err(AosError::Validation("tenant_id cannot be empty".to_string()));
         }
         if self.domain.is_empty() {
-            return Err("domain cannot be empty");
+            return Err(AosError::Validation("domain cannot be empty".to_string()));
         }
         if self.purpose.is_empty() {
-            return Err("purpose cannot be empty");
+            return Err(AosError::Validation("purpose cannot be empty".to_string()));
         }
         if self.revision.is_empty() {
-            return Err("revision cannot be empty");
+            return Err(AosError::Validation("revision cannot be empty".to_string()));
         }
         Ok(())
     }

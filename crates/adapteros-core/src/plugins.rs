@@ -13,11 +13,24 @@ pub struct PluginConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PluginStatus {
+    /// Plugin not loaded
+    Unloaded,
+    /// Plugin is being loaded
+    Loading,
+    /// Plugin successfully loaded
     Loaded,
+    /// Plugin is starting
+    Starting,
+    /// Plugin successfully started and running
     Started,
+    /// Plugin is stopping
+    Stopping,
+    /// Plugin successfully stopped
     Stopped,
+    /// Plugin degraded but still functional (e.g., partial tenant failures)
     Degraded(String),
-    Dead(String),
+    /// Plugin completely failed and needs restart
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

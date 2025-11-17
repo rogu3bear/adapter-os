@@ -92,7 +92,7 @@ pub use secrets::{KeyRotationStatus, SecretMetadata, SecretsConfig, SecretsPolic
 pub use telemetry::{
     BundleConfig, CompressionAlgorithm, CompressionConfig,
     RetentionConfig as TelemetryRetentionConfig, SamplingConfig, TelemetryBundle, TelemetryConfig,
-    TelemetryEvent, TelemetryPolicy,
+    PolicyTelemetryView, TelemetryPolicy,
 };
 
 /// Policy pack factory for creating policy instances
