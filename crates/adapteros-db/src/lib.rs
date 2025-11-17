@@ -456,16 +456,15 @@ impl Db {
         tenant_id: &str,
         adapter_id: &str,
     ) -> Result<Option<AdapterRecord>> {
-        let row = sqlx::query_as!(
-            AdapterRecord,
+        let row = sqlx::query_as::<_, AdapterRecord>(
             r#"
             SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason
             FROM adapters
             WHERE tenant_id = ? AND id = ?
             "#,
-            tenant_id,
-            adapter_id
         )
+        .bind(tenant_id)
+        .bind(adapter_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;
@@ -475,73 +474,50 @@ impl Db {
 
     /// List stacks for a tenant
     pub async fn list_stacks_for_tenant(&self, tenant_id: &str) -> Result<Vec<StackRecord>> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as::<_, StackRecord>(
             r#"
             SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
             "#,
-            tenant_id
         )
+        .bind(tenant_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| StackRecord {
-                id: r.id,
-                tenant_id: r.tenant_id,
-                name: r.name,
-                description: r.description,
-                adapter_ids_json: r.adapter_ids_json,
-                workflow_type: r.workflow_type,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-                created_by: r.created_by,
-            })
-            .collect())
+        Ok(rows)
     }
 
     /// Get a stack by ID and tenant
     pub async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query!(
+        let row = sqlx::query_as::<_, StackRecord>(
             r#"
             SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
-            tenant_id,
-            id
         )
+        .bind(tenant_id)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
 
-        Ok(row.map(|r| StackRecord {
-            id: r.id,
-            tenant_id: r.tenant_id,
-            name: r.name,
-            description: r.description,
-            adapter_ids_json: r.adapter_ids_json,
-            workflow_type: r.workflow_type,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-            created_by: r.created_by,
-        }))
+        Ok(row)
     }
 
     /// Delete a stack by ID and tenant
     pub async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             DELETE FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
-            tenant_id,
-            id
         )
+        .bind(tenant_id)
+        .bind(id)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
@@ -555,18 +531,18 @@ impl Db {
             serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
         let workflow_type_str = stack.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             UPDATE adapter_stacks
             SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, updated_at = datetime('now')
             WHERE id = ?
             "#,
-            stack.name,
-            stack.description,
-            adapter_ids_json,
-            workflow_type_str,
-            id
         )
+        .bind(&stack.name)
+        .bind(&stack.description)
+        .bind(&adapter_ids_json)
+        .bind(&workflow_type_str)
+        .bind(id)
         .execute(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;

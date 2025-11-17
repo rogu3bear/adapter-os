@@ -21,6 +21,7 @@ pub struct PythonParser {
     /// Tree-sitter parser
     parser: Parser,
     /// Python language
+    #[allow(dead_code)]
     python_lang: TSLanguage,
     /// Query for function definitions
     function_query: Query,

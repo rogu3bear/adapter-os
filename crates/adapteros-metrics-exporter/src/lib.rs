@@ -1,6 +1,6 @@
 //! Prometheus/OpenMetrics exporter for AdapterOS control plane
 
-use adapteros_db::Db;
+use adapteros_db::{Db, models::Worker};
 use anyhow::Result;
 use prometheus::{
     Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
@@ -174,7 +174,7 @@ impl MetricsExporter {
     /// Update worker metrics from database
     pub async fn update_worker_metrics(&self, _db: &Db) -> Result<()> {
         // Use db.list_all_workers() which uses actual Worker schema
-        let workers = vec![];
+        let workers: Vec<Worker> = vec![];
 
         // Reset workers_active gauge
         self.workers_active.set(workers.len() as f64);

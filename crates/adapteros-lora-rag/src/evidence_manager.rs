@@ -82,6 +82,7 @@ pub trait EmbeddingModel: Send + Sync {
 
 /// Evidence index manager
 pub struct EvidenceIndexManager {
+    #[allow(dead_code)]
     tenant_id: String,
     symbol_index: Arc<RwLock<SymbolIndexImpl>>,
     test_index: Arc<RwLock<TestIndexImpl>>,
@@ -138,7 +139,7 @@ impl EvidenceIndexManager {
         &self,
         query: &str,
         evidence_types: &[EvidenceType],
-        repo_id: Option<&str>,
+        _repo_id: Option<&str>,
         max_results: usize,
     ) -> Result<Vec<EvidenceSpan>> {
         let mut all_spans = Vec::new();

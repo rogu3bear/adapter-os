@@ -8,7 +8,7 @@
 //!
 //! Per Determinism Ruleset #2: "refuse to serve if policy hashes don't match"
 
-use adapteros_core::{AosError, B3Hash, IdentityEnvelope, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash, Result};
 use adapteros_db::Db;
 use adapteros_telemetry::{PolicyHashValidationEvent, TelemetryWriter, ValidationStatus};
 use serde::{Deserialize, Serialize};

@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use tracing::info;
 
 /// Unified memory management interface
+#[allow(async_fn_in_trait)]
 pub trait MemoryManager {
     /// Get current memory usage statistics
     async fn get_memory_usage(&self) -> Result<MemoryUsageStats>;

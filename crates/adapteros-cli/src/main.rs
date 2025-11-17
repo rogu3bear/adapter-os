@@ -753,6 +753,14 @@ Examples:
         /// Timeout in milliseconds
         #[arg(long, default_value_t = 30000)]
         timeout: u64,
+
+        /// Show citations (trace.evidence) in output
+        #[arg(long, default_value_t = false)]
+        show_citations: bool,
+
+        /// Show full trace (router summary, token counts)
+        #[arg(long, default_value_t = false)]
+        show_trace: bool,
     },
 
     /// Replay a bundle
@@ -1490,6 +1498,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             max_tokens,
             require_evidence,
             timeout,
+            show_citations,
+            show_trace,
         } => {
             // Check UMA pressure before inference
             let monitor = UmaPressureMonitor::new(15, None);
@@ -1512,6 +1522,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 *require_evidence,
                 socket.clone(),
                 *timeout,
+                *show_citations,
+                *show_trace,
             )
             .await?;
         }
@@ -1669,6 +1681,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
         Commands::AuditDeterminism { .. } => "audit-determinism",
+        Commands::Infer { .. } => "infer",
+        Commands::VerifyDeterminismLoop => "verify-determinism-loop",
         Commands::Replay { .. } => "replay",
         Commands::Rollback { .. } => "rollback",
         Commands::Golden(_) => "golden",

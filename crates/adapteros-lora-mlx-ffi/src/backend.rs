@@ -93,6 +93,7 @@ impl MLXFFIBackend {
     }
 
     /// Apply LoRA adapters based on router decisions
+    #[allow(dead_code)]
     fn apply_loras(
         &self,
         ring: &RouterRing,

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// Adapter record from database
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AdapterRecord {
     pub id: String,
     pub tenant_id: String,
@@ -52,7 +52,7 @@ pub struct AdapterRecord {
 }
 
 /// Stack record from database
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StackRecord {
     pub id: String,
     pub tenant_id: String,

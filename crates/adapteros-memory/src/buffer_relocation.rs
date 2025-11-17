@@ -84,6 +84,7 @@ pub struct BufferState {
 pub struct BufferRelocationDetector {
     /// Device reference
     #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
     device: Arc<Device>,
     /// Active buffers by buffer ID
     active_buffers: Arc<RwLock<HashMap<u64, BufferState>>>,

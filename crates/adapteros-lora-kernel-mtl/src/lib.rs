@@ -701,7 +701,7 @@ impl MetalKernels {
     fn run_transformer_layers(
         &mut self,
         adapters: &[ActiveAdapter],
-        io: &mut IoBuffers,
+        _io: &mut IoBuffers,
     ) -> Result<()> {
         let transformer_weights = self
             .transformer_weights

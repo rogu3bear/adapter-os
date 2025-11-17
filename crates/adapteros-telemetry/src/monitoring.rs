@@ -9,7 +9,7 @@ use crate::{
 use adapteros_core::{identity::IdentityEnvelope, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 const HEALTH_CHECK_EVENT: &str = "monitoring.health_check";
 const POLICY_VIOLATION_EVENT: &str = "monitoring.policy_violation_alert";

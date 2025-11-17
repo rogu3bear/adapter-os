@@ -5,7 +5,7 @@ use adapteros_core::{AosError, Result};
 use async_trait::async_trait;
 use sqlx::{postgres::PgConnectOptions, PgPool, Row};
 use std::str::FromStr;
-use tracing::{debug, info};
+use tracing::info;
 
 /// PostgreSQL database backend
 pub struct PostgresBackend {
@@ -141,7 +141,7 @@ impl DatabaseBackend for PostgresBackend {
 
     async fn update_stack(
         &self,
-        tenant_id: &str,
+        _tenant_id: &str,
         id: &str,
         stack: &CreateStackRequest,
     ) -> Result<bool> {
@@ -176,16 +176,15 @@ impl DatabaseBackend for PostgresBackend {
     ) -> Result<Option<super::traits::AdapterRecord>> {
         use super::traits::AdapterRecord;
 
-        let row = sqlx::query_as!(
-            AdapterRecord,
+        let row = sqlx::query_as::<_, AdapterRecord>(
             r#"
             SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason
             FROM adapters
             WHERE tenant_id = $1 AND id = $2
             "#,
-            tenant_id,
-            adapter_id
         )
+        .bind(tenant_id)
+        .bind(adapter_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;

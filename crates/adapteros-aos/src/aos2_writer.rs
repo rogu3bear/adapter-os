@@ -26,6 +26,7 @@ impl Default for WriteOptions {
 
 /// AOS 2.0 Archive Writer
 pub struct AOS2Writer {
+    #[allow(dead_code)]
     options: WriteOptions,
 }
 
@@ -69,7 +70,7 @@ impl AOS2Writer {
 
         // Calculate offsets
         let header_size = 8; // 2 x u32
-        let weights_offset = header_size;
+        let _weights_offset = header_size;
         let manifest_offset = header_size + weights_data.len();
         let manifest_len = manifest_json.len();
 

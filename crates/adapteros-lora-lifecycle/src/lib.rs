@@ -93,10 +93,10 @@ pub use activation_tracker::ActivationTracker;
 pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
 pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
-pub use state::{AdapterState, AdapterStateRecord, EvictionPriority};
+pub use state::{AdapterState, AdapterStateRecord, AllocationTier, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
 pub use workflow_executor::{
-    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, KernelAdapterBackend,
+    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats,
     MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
 };
 

@@ -104,7 +104,7 @@ impl MemoryOptimizer {
 
         // Evict cold buffers when global pressure breaches the threshold.
         if report.pressure_pct >= self.pressure_threshold_pct {
-            if let Some((backend, pressure)) = report
+            if let Some((backend, _pressure)) = report
                 .backend_pressure
                 .iter()
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))

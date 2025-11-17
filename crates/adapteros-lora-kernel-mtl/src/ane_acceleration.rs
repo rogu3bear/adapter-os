@@ -77,8 +77,10 @@ pub struct ANESession {
     /// Model configuration
     model_config: ANEModelConfig,
     /// Input buffers
+    #[allow(dead_code)]
     input_buffers: Vec<ANEBuffer>,
     /// Output buffers
+    #[allow(dead_code)]
     output_buffers: Vec<ANEBuffer>,
     /// Execution state
     state: ANESessionState,
@@ -138,6 +140,7 @@ pub enum ANECalibrationMethod {
 #[derive(Debug)]
 pub struct ANEBuffer {
     /// Buffer identifier
+    #[allow(dead_code)]
     id: String,
     /// Buffer data
     data: Vec<u8>,
@@ -146,6 +149,7 @@ pub struct ANEBuffer {
     /// Data type
     data_type: ANEDataType,
     /// Memory layout
+    #[allow(dead_code)]
     layout: ANEMemoryLayout,
 }
 

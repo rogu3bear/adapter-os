@@ -27,8 +27,6 @@
 //! let response = worker.infer(request).await?;
 //! ```
 
-use crate::kvcache::KvCache;
-use adapteros_core::B3Hash;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
@@ -36,7 +34,6 @@ use adapteros_lora_router::Router;
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -47,7 +44,6 @@ use tokio::watch;
 use tracing::info;
 
 pub mod adapter_hotswap;
-use adapteros_telemetry::TelemetryWriter;
 pub mod anomaly_detection;
 pub mod backend_factory;
 pub mod base_model_state;
@@ -242,7 +238,6 @@ pub struct RouterSummary {
 use crate::embeddings::EmbeddingModel;
 use crate::evidence::EvidenceRetriever;
 use crate::tokenizer::QwenTokenizer;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms

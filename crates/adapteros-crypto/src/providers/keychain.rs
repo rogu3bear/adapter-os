@@ -25,6 +25,8 @@
 //! - Memory zeroization and secure key handling
 //! - Platform-specific optimizations and fallbacks
 
+#![allow(unexpected_cfgs)]
+
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
@@ -824,6 +826,7 @@ trait KeyringImpl: Send + Sync + std::any::Any {
     fn check_health(&mut self) -> Result<()>;
 
     // Provide as_any for downcasting
+    #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;
 }
 

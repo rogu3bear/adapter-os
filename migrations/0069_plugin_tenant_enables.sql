@@ -11,3 +11,4 @@ CREATE TABLE IF NOT EXISTS plugin_tenant_enables (
 
 -- Index for efficient queries
 CREATE INDEX IF NOT EXISTS idx_plugin_tenant_enables_plugin ON plugin_tenant_enables(plugin_name);
+

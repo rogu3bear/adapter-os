@@ -14,6 +14,7 @@ pub struct TypeScriptParser {
     /// Tree-sitter parser
     parser: Parser,
     /// TypeScript language
+    #[allow(dead_code)]
     typescript_lang: TSLanguage,
     /// Query for function declarations
     function_query: Query,
