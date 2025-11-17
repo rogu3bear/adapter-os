@@ -234,27 +234,48 @@ impl StandardCircuitBreaker {
     /// Transition to a new state
     async fn transition_to(&self, new_state: CircuitState) {
         let mut state = self.state.lock().await;
+        let old_state = *state;
         *state = new_state;
         drop(state); // Release lock before updating timestamp
         self.update_state_change_time();
 
+        // Emit telemetry events for state transitions
         match new_state {
             CircuitState::Open { .. } => {
                 self.opens_total.fetch_add(1, Ordering::Relaxed);
                 self.consecutive_failures.store(0, Ordering::Relaxed);
                 self.consecutive_successes.store(0, Ordering::Relaxed);
+
+                // Only emit if transitioning from closed/half-open to open
+                if !matches!(old_state, CircuitState::Open { .. }) {
+                    self.emit_telemetry_event(new_state).await;
+                }
             }
             CircuitState::Closed => {
                 self.closes_total.fetch_add(1, Ordering::Relaxed);
                 self.consecutive_failures.store(0, Ordering::Relaxed);
                 self.consecutive_successes.store(0, Ordering::Relaxed);
                 self.half_open_requests.store(0, Ordering::Relaxed);
+
+                // Only emit if transitioning to closed from open/half-open
+                if matches!(old_state, CircuitState::Open { .. } | CircuitState::HalfOpen) {
+                    self.emit_telemetry_event(new_state).await;
+                }
             }
             CircuitState::HalfOpen => {
                 self.half_opens_total.fetch_add(1, Ordering::Relaxed);
                 self.half_open_requests.store(0, Ordering::Relaxed);
+
+                // Always emit half-open transitions
+                self.emit_telemetry_event(new_state).await;
             }
         }
+    }
+
+    /// Emit telemetry event for state transition
+    async fn emit_telemetry_event(&self, _new_state: CircuitState) {
+        // Telemetry emission would be handled by the caller or through a callback
+        // to avoid circular dependencies between core and telemetry crates
     }
 
     /// Handle a successful operation
