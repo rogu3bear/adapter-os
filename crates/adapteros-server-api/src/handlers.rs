@@ -834,41 +834,44 @@ pub async fn get_uma_memory(
     .map(|rows| rows.into_iter().map(|(id,)| id).collect())
     .unwrap_or_default();
 
-    // Collect GPU memory stats (best-effort)
-    #[cfg(target_os = "macos")]
-    let gpu_memory = {
-        use adapteros_memory::collect_gpu_memory;
-        let gpu_stats = collect_gpu_memory();
-        if gpu_stats.metrics_available {
-            Some(GpuMemoryInfo {
-                total_mb: gpu_stats.total_bytes / (1024 * 1024),
-                used_mb: gpu_stats.used_bytes / (1024 * 1024),
-                usage_pct: gpu_stats.usage_pct(),
-                metrics_available: true,
-            })
+    // Get comprehensive memory snapshot from BackpressureMonitor
+    let (gpu_memory, kv_cache_used_mb, eviction_action) = {
+        let monitor = state.backpressure_monitor.lock().await;
+
+        if let Some(snapshot) = monitor.get_snapshot().await {
+            // GPU memory from snapshot
+            let gpu_info = if snapshot.gpu_total_bytes > 0 {
+                Some(GpuMemoryInfo {
+                    total_mb: snapshot.gpu_total_bytes / (1024 * 1024),
+                    used_mb: snapshot.gpu_used_bytes / (1024 * 1024),
+                    usage_pct: snapshot.gpu_usage_pct(),
+                    metrics_available: true,
+                })
+            } else {
+                None
+            };
+
+            // KV cache from snapshot
+            let kv_mb = snapshot.kv_used_bytes / (1024 * 1024);
+
+            // Recommended eviction action
+            let action = monitor.get_eviction_action().await.map(|a| match a {
+                adapteros_memory::EvictionAction::BlockNewRequests => {
+                    "block_new_requests".to_string()
+                }
+                adapteros_memory::EvictionAction::UnloadIdleAdapters { .. } => {
+                    "unload_idle_adapters".to_string()
+                }
+                adapteros_memory::EvictionAction::DropCache { .. } => {
+                    "drop_cache".to_string()
+                }
+            });
+
+            (gpu_info, kv_mb, action)
         } else {
-            None
+            // Fallback: no snapshot available yet
+            (None, 0, None)
         }
-    };
-    #[cfg(not(target_os = "macos"))]
-    let gpu_memory = None;
-
-    // TODO: Integrate with actual KV cache tracking
-    // For now, return 0 as placeholder
-    let kv_cache_used_mb = 0;
-
-    // Determine recommended eviction action
-    let eviction_action = match pressure {
-        adapteros_lora_worker::memory::MemoryPressureLevel::Critical => {
-            Some("block_new_requests".to_string())
-        }
-        adapteros_lora_worker::memory::MemoryPressureLevel::High => {
-            Some("unload_idle_adapters".to_string())
-        }
-        adapteros_lora_worker::memory::MemoryPressureLevel::Medium => {
-            Some("drop_cache".to_string())
-        }
-        _ => None,
     };
 
     Ok(Json(UmaMemoryResponse {

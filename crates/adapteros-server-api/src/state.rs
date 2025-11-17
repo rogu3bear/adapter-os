@@ -5,6 +5,7 @@ use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_worker::UmaPressureMonitor;
 use adapteros_lora_worker::Worker;
+use adapteros_memory::BackpressureMonitor;
 use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -76,6 +77,7 @@ pub struct AppState {
     pub db_pool: sqlx::SqlitePool,
     pub plugin_registry: Arc<adapteros_server::PluginRegistry>,
     pub uma_monitor: Arc<UmaPressureMonitor>,
+    pub backpressure_monitor: Arc<Mutex<BackpressureMonitor>>,
 }
 
 impl AppState {
@@ -85,6 +87,7 @@ impl AppState {
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
         uma_monitor: Arc<UmaPressureMonitor>,
+        backpressure_monitor: Arc<Mutex<BackpressureMonitor>>,
     ) -> Self {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
         Self {
@@ -103,6 +106,7 @@ impl AppState {
             db_pool,
             plugin_registry: Arc::new(adapteros_server::PluginRegistry::new(db.clone())),
             uma_monitor,
+            backpressure_monitor,
         }
     }
 

@@ -170,6 +170,24 @@ impl UmaPressureMonitor {
     pub fn should_evict(&self) -> bool {
         self.headroom_pct() < self.min_headroom_pct as f32
     }
+
+    /// Get UMA stats synchronously (for use in non-async contexts)
+    pub fn blocking_get_uma_stats(&self) -> UmaStats {
+        let headroom_pct = self.headroom_pct();
+        let total_mb = self
+            .get_total_memory_bytes()
+            .map(|b| b / (1024 * 1024))
+            .unwrap_or(0);
+        let used_mb = ((100.0 - headroom_pct) / 100.0 * total_mb as f32) as u64;
+        let available_mb = total_mb - used_mb;
+
+        UmaStats {
+            headroom_pct,
+            used_mb,
+            total_mb,
+            available_mb,
+        }
+    }
 }
 
 // Add enum
@@ -206,6 +224,7 @@ pub async fn get_uma_stats(&self) -> UmaStats {
         headroom_pct,
         used_mb,
         total_mb,
+        available_mb,
     }
 }
 
@@ -320,7 +339,8 @@ async fn emit_telemetry(
 
 #[derive(Clone)]
 pub struct UmaStats {
-    headroom_pct: f32,
-    used_mb: u64,
-    total_mb: u64,
+    pub headroom_pct: f32,
+    pub used_mb: u64,
+    pub total_mb: u64,
+    pub available_mb: u64,
 }

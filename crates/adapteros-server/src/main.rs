@@ -9,6 +9,7 @@ use adapteros_deterministic_exec::{
 };
 use adapteros_lora_worker::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
+use adapteros_memory::{BackpressureMonitor, EvictionPolicy};
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
 use adapteros_server::status_writer;
@@ -22,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -653,12 +655,18 @@ async fn main() -> Result<()> {
     let uma_monitor = Arc::new(UmaPressureMonitor::new(15, Some(metrics_exporter.clone())));
     uma_monitor.start_polling().await;
 
+    // Initialize BackpressureMonitor (PRD 5)
+    let eviction_policy = EvictionPolicy::default(); // WARNING: 85%, CRITICAL: 95%
+    let backpressure_monitor = Arc::new(Mutex::new(BackpressureMonitor::new(5, eviction_policy)));
+    info!("BackpressureMonitor initialized (5s interval)");
+
     let mut state = AppState::new(
         db.clone(),
         jwt_secret.as_bytes().to_vec(),
         api_config.clone(),
         Arc::clone(&metrics_exporter),
         uma_monitor.clone(),
+        backpressure_monitor.clone(),
     );
 
     state = state.with_plugin_registry(Arc::new(plugin_registry::PluginRegistry::new(db.clone())));
@@ -812,6 +820,79 @@ async fn main() -> Result<()> {
             }
         });
         info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
+    }
+
+    // Start BackpressureMonitor with snapshot collection and eviction controller
+    // Citation: PRD 5 - Memory & Backpressure Tracking
+    {
+        let monitor_clone = backpressure_monitor.clone();
+        let uma_clone = uma_monitor.clone();
+        let lifecycle_clone = state.lifecycle_manager.clone();
+
+        // Start snapshot collection
+        let monitor_for_start = monitor_clone.clone();
+        spawn_deterministic("BackpressureMonitor start".to_string(), async move {
+            monitor_for_start.lock().await.start(move || {
+                // Collect host memory stats
+                let uma_stats = uma_clone.blocking_get_uma_stats();
+                let host_used = uma_stats.used_mb * 1024 * 1024;
+                let host_total = uma_stats.total_mb * 1024 * 1024;
+
+                // GPU memory (best-effort)
+                let (gpu_used, gpu_total) = {
+                    use adapteros_memory::collect_gpu_memory;
+                    let gpu_stats = collect_gpu_memory();
+                    (gpu_stats.used_bytes, gpu_stats.total_bytes)
+                };
+
+                // KV cache (TODO: integrate with actual KvCache)
+                let kv_used = 0;
+
+                adapteros_memory::MemorySnapshot::new(host_used, host_total, gpu_used, gpu_total, kv_used)
+            }).await;
+        });
+
+        // Eviction controller subscription loop
+        let _ = spawn_deterministic("Eviction controller".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+
+                let monitor = monitor_clone.lock().await;
+
+                // Check backpressure and execute eviction actions
+                if monitor.is_backpressure_active().await {
+                    if let Some(action) = monitor.get_eviction_action().await {
+                        info!(action = ?action, "Backpressure active - executing eviction");
+
+                        match action {
+                            adapteros_memory::EvictionAction::BlockNewRequests => {
+                                warn!("CRITICAL memory pressure - new requests will be blocked");
+                                // Actual blocking happens in handler via is_backpressure_active check
+                            }
+                            adapteros_memory::EvictionAction::UnloadIdleAdapters { .. } => {
+                                if let Some(ref lifecycle) = lifecycle_clone {
+                                    // Trigger eviction via lifecycle manager
+                                    let mut lc = lifecycle.lock().await;
+                                    if let Err(e) = lc.check_memory_pressure(
+                                        16 * 1024 * 1024 * 1024, // 16GB default
+                                        adapteros_lora_worker::memory::MemoryPressureLevel::High
+                                    ).await {
+                                        warn!(error = %e, "Failed to execute eviction");
+                                    }
+                                }
+                            }
+                            adapteros_memory::EvictionAction::DropCache { .. } => {
+                                info!("Medium pressure - dropping caches");
+                                // Cache dropping would happen here
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        info!("BackpressureMonitor started with eviction controller (10s check interval)");
     }
 
     // After DB init
