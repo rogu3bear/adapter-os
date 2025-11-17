@@ -25,25 +25,30 @@
 //! let seed = derive_seed(&hash, "component_a");
 //! ```
 
+pub mod circuit_breaker;
 pub mod error;
 pub mod hash;
 pub mod id;
 pub mod identity;
 pub mod index_snapshot;
+pub mod lifecycle;
 pub mod naming;
 pub mod plugins;
 pub mod policy;
 pub mod seed;
 pub mod stack;
+pub mod stack_spec;
 pub mod tenant_snapshot;
 
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
+pub use lifecycle::AdapterLifecycleState;
 pub use naming::{AdapterName, ForkType, StackName};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
 pub use stack::compute_stack_hash;
+pub use stack_spec::StackSpec;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
     derive_seed_typed, hash_adapter_dir, SeedLabel,
@@ -55,6 +60,7 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        AdapterName, AosError, B3Hash, DriftPolicy, ForkType, Result, ResultExt, StackName, CPID,
+        AdapterLifecycleState, AdapterName, AosError, B3Hash, DriftPolicy, ForkType, Result,
+        ResultExt, StackName, StackSpec, CPID,
     };
 }

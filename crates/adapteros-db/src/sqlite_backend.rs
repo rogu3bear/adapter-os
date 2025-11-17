@@ -40,14 +40,20 @@ impl SqliteBackend {
 impl DatabaseBackend for SqliteBackend {
     async fn insert_stack(&self, req: &CreateStackRequest) -> Result<String> {
         let id = self.generate_id();
+
+        // Sort and deduplicate adapter_ids per PRD 3
+        let mut sorted_ids = req.adapter_ids.clone();
+        sorted_ids.sort();
+        sorted_ids.dedup();
+
         let adapter_ids_json =
-            serde_json::to_string(&req.adapter_ids).map_err(|e| AosError::Serialization(e))?;
+            serde_json::to_string(&sorted_ids).map_err(|e| AosError::Serialization(e))?;
         let workflow_type = req.workflow_type.as_deref().unwrap_or("parallel");
         let description = req.description.as_deref().unwrap_or("");
 
         let row = sqlx::query(
-            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')) 
+            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, generation, stack_hash, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 0, NULL, datetime('now'), datetime('now'))
              RETURNING id"
         )
         .bind(&id)
@@ -64,8 +70,8 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by 
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, i64, Option<String>, String, String, Option<String>)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, generation, stack_hash, created_at, updated_at, created_by
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -81,9 +87,11 @@ impl DatabaseBackend for SqliteBackend {
             description: r.3,
             adapter_ids_json: r.4,
             workflow_type: r.5,
-            created_at: r.6,
-            updated_at: r.7,
-            created_by: r.8,
+            generation: r.6,
+            stack_hash: r.7,
+            created_at: r.8,
+            updated_at: r.9,
+            created_by: r.10,
         }))
     }
 
@@ -95,12 +103,14 @@ impl DatabaseBackend for SqliteBackend {
             Option<String>,   // description
             String,           // adapter_ids_json
             Option<String>,   // workflow_type
+            i64,              // generation
+            Option<String>,   // stack_hash
             String,           // created_at
             String,           // updated_at
             Option<String>,   // created_by
         )>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, generation, stack_hash, created_at, updated_at, created_by
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -118,9 +128,11 @@ impl DatabaseBackend for SqliteBackend {
                 description: r.3,
                 adapter_ids_json: r.4,
                 workflow_type: r.5,
-                created_at: r.6,
-                updated_at: r.7,
-                created_by: r.8,
+                generation: r.6,
+                stack_hash: r.7,
+                created_at: r.8,
+                updated_at: r.9,
+                created_by: r.10,
             })
             .collect())
     }
@@ -227,7 +239,7 @@ impl DatabaseBackend for SqliteBackend {
         let rows = sqlx::query(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
-                   created_at, updated_at, created_by
+                   generation, stack_hash, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -247,10 +259,37 @@ impl DatabaseBackend for SqliteBackend {
                 description: r.get::<Option<String>, _>(3),
                 adapter_ids_json: r.get(4),
                 workflow_type: r.get::<Option<String>, _>(5),
-                created_at: r.get(6),
-                updated_at: r.get(7),
-                created_by: r.get::<Option<String>, _>(8),
+                generation: r.get(6),
+                stack_hash: r.get::<Option<String>, _>(7),
+                created_at: r.get(8),
+                updated_at: r.get(9),
+                created_by: r.get::<Option<String>, _>(10),
             })
             .collect())
+    }
+
+    async fn update_stack_generation(
+        &self,
+        tenant_id: &str,
+        stack_id: &str,
+        new_generation: u64,
+        new_hash: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE adapter_stacks
+            SET generation = ?, stack_hash = ?, updated_at = datetime('now')
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(new_generation as i64)
+        .bind(new_hash)
+        .bind(tenant_id)
+        .bind(stack_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update stack generation: {}", e)))?;
+
+        Ok(())
     }
 }

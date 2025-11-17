@@ -51,13 +51,19 @@ pub enum WorkflowType {
 }
 
 /// Create a new adapter stack
+///
+/// PRD 3: Stack creation with validation
+/// - Sorts and deduplicates adapter_ids
+/// - Returns 400 if duplicate adapter IDs provided
+/// - Does NOT validate adapter states on creation (only on activation)
 #[utoipa::path(
     post,
     path = "/v1/adapter-stacks",
     request_body = CreateStackRequest,
     responses(
         (status = 201, description = "Stack created", body = StackResponse),
-        (status = 400, description = "Invalid request"),
+        (status = 400, description = "Invalid request (duplicate adapters or invalid name)"),
+        (status = 409, description = "Stack name conflict"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -67,6 +73,17 @@ pub async fn create_stack(
     Json(req): Json<CreateStackRequest>,
 ) -> Result<(StatusCode, Json<StackResponse>), (StatusCode, String)> {
     let tenant_id = claims.tenant_id.clone();
+
+    // PRD 3: Check for duplicate adapter IDs
+    let mut seen = HashSet::new();
+    for id in &req.adapter_ids {
+        if !seen.insert(id) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Duplicate adapter ID in stack: {}", id),
+            ));
+        }
+    }
 
     // Validate stack name format
     let stack_name = StackName::parse(&req.name).map_err(|e| {
@@ -80,17 +97,12 @@ pub async fn create_stack(
         tenant_id = %tenant_id,
         stack_name = %stack_name,
         adapter_count = req.adapter_ids.len(),
-        "Creating adapter stack"
+        "Creating adapter stack with PRD 3 validation"
     );
 
-    let id = uuid::Uuid::now_v7().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let adapter_ids_json = serde_json::to_string(&req.adapter_ids)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let workflow_type_str = req.workflow_type.as_ref().map(|w| format!("{:?}", w));
-
+    // Database layer will sort and deduplicate (defensive)
     let db_req = adapteros_db::traits::CreateStackRequest {
-        tenant_id,
+        tenant_id: tenant_id.clone(),
         name: req.name.clone(),
         description: req.description.clone(),
         adapter_ids: req.adapter_ids.clone(),
@@ -108,8 +120,13 @@ pub async fn create_stack(
         }
     })?;
 
-    info!(stack_id = %id, stack_name = %stack_name, tenant_id = %tenant_id, "Adapter stack created");
+    info!(stack_id = %id, stack_name = %stack_name, tenant_id = %tenant_id, "Adapter stack created successfully");
 
+    // Return sorted adapter_ids (as stored in DB)
+    let mut sorted_ids = req.adapter_ids.clone();
+    sorted_ids.sort();
+
+    let now = chrono::Utc::now().to_rfc3339();
     Ok((
         StatusCode::CREATED,
         Json(StackResponse {
@@ -117,7 +134,7 @@ pub async fn create_stack(
             tenant_id,
             name: req.name,
             description: req.description,
-            adapter_ids: req.adapter_ids,
+            adapter_ids: sorted_ids,
             workflow_type: req.workflow_type,
             created_at: now.clone(),
             updated_at: now,
@@ -277,6 +294,12 @@ pub async fn delete_stack(
 }
 
 /// Activate an adapter stack (sets it as the active stack for routing)
+///
+/// PRD 3: Stack activation with validation
+/// - Validates all adapters are in Loaded or Active state
+/// - Returns 409 if any adapter is unloaded or missing
+/// - Bumps generation counter
+/// - Recomputes and stores stack hash
 #[utoipa::path(
     post,
     path = "/v1/adapter-stacks/{id}/activate",
@@ -286,6 +309,7 @@ pub async fn delete_stack(
     responses(
         (status = 200, description = "Stack activated"),
         (status = 404, description = "Stack not found"),
+        (status = 409, description = "Conflict - stack references unloaded/missing adapters"),
         (status = 500, description = "Internal server error")
     )
 )]
@@ -294,54 +318,31 @@ pub async fn activate_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
-    // First verify the stack exists and parse adapter IDs
-    let stack = sqlx::query!(
-        r#"
-        SELECT id, name, adapter_ids_json, tenant_id
-        FROM adapter_stacks
-        WHERE id = ? AND tenant_id = ?
-        "#,
-        id,
-        tenant_id
-    )
-    .fetch_optional(&state.db_pool)
-    .await
-    .map_err(|e| {
-        warn!(
-            "Database error while fetching stack {} for tenant {}: {}",
-            id, tenant_id, e
-        );
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {}", e),
-        )
-    })?
-    .ok_or_else(|| {
-        warn!(
-            "Attempted to activate non-existent stack: {} for tenant {}",
-            id, tenant_id
-        );
-        (
-            StatusCode::NOT_FOUND,
-            format!(
-                "Stack with id '{}' not found for tenant '{}'",
+    // Fetch stack using DatabaseBackend trait
+    let stack = state
+        .db
+        .get_stack(&tenant_id, &id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            warn!(
+                "Attempted to activate non-existent stack: {} for tenant {}",
                 id, tenant_id
-            ),
-        )
-    })?;
+            );
+            (
+                StatusCode::NOT_FOUND,
+                format!(
+                    "Stack with id '{}' not found for tenant '{}'",
+                    id, tenant_id
+                ),
+            )
+        })?;
 
-    if stack.tenant_id != tenant_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Stack does not belong to your tenant".to_string(),
-        ));
-    }
+    let name = stack.name.clone();
 
-    let name = stack.name;
-
-    // Parse adapter IDs to ensure they're valid
+    // Parse adapter IDs
     let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json).map_err(|e| {
         warn!("Failed to parse adapter_ids_json for stack {}: {}", name, e);
         (
@@ -350,8 +351,61 @@ pub async fn activate_stack(
         )
     })?;
 
+    // PRD 3: Validate all adapters are at least Loaded state
+    for adapter_id in &adapter_ids {
+        let adapter = state
+            .db
+            .get_adapter_by_id(&tenant_id, adapter_id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        match adapter {
+            None => {
+                return Err((
+                    StatusCode::CONFLICT,
+                    format!(
+                        "Stack references missing adapter: {}. Cannot activate.",
+                        adapter_id
+                    ),
+                ));
+            }
+            Some(a) => {
+                // Check if adapter is loaded (not "unloaded" or "registered")
+                // Valid states: "loaded", "active", "cold", "warm", "hot", "resident"
+                if a.current_state == "unloaded" || a.current_state == "registered" {
+                    return Err((
+                        StatusCode::CONFLICT,
+                        format!(
+                            "Stack references unloaded adapter: {} (state: {}). Load adapter first.",
+                            adapter_id, a.current_state
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    // PRD 3: Bump generation counter
+    let new_generation = stack.generation as u64 + 1;
+
+    // PRD 3: Recompute stack hash
+    let new_hash = compute_stack_hash(&state, &tenant_id, &id).await?;
+
+    // PRD 3: Update generation and hash in database
+    state
+        .db
+        .update_stack_generation(&tenant_id, &id, new_generation, Some(&new_hash.to_hex()))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    info!(
+        stack_id = %id,
+        generation = new_generation,
+        hash = %new_hash.to_short_hex(),
+        "Stack generation bumped and hash updated"
+    );
+
     // Store the active stack ID in application state
-    // This would be used by the routing logic
     let previous_stack = {
         let mut active_stack = state.active_stack.write().map_err(|e| {
             warn!("Failed to acquire write lock for active_stack: {}", e);
@@ -364,8 +418,6 @@ pub async fn activate_stack(
         *active_stack = Some(id.clone());
         prev
     };
-
-    let new_hash = compute_stack_hash(&state, &tenant_id, &id).await?;
 
     let old_hash = if let Some(old_id) = &previous_stack {
         Some(compute_stack_hash(&state, &tenant_id, old_id).await?)
@@ -449,6 +501,8 @@ pub async fn activate_stack(
         "stack_id": id,
         "tenant_id": tenant_id,
         "adapter_count": adapter_ids.len(),
+        "generation": new_generation,
+        "stack_hash": new_hash.to_short_hex(),
         "previous_stack": previous_stack,
     })))
 }

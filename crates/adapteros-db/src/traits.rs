@@ -60,6 +60,8 @@ pub struct StackRecord {
     pub description: Option<String>,
     pub adapter_ids_json: String,
     pub workflow_type: Option<String>,
+    pub generation: i64,
+    pub stack_hash: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub created_by: Option<String>,
@@ -128,6 +130,15 @@ pub trait DatabaseBackend: Send + Sync {
 
     /// Format current timestamp for this database
     fn current_timestamp(&self) -> String;
+
+    /// Update stack generation and hash (used during activation)
+    async fn update_stack_generation(
+        &self,
+        tenant_id: &str,
+        stack_id: &str,
+        new_generation: u64,
+        new_hash: Option<&str>,
+    ) -> Result<()>;
 }
 
 /// Helper trait for converting between database-specific types
