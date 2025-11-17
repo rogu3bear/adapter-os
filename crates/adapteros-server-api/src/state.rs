@@ -76,6 +76,7 @@ pub struct AppState {
     pub db_pool: sqlx::SqlitePool,
     pub plugin_registry: Arc<adapteros_server::PluginRegistry>,
     pub uma_monitor: Arc<UmaPressureMonitor>,
+    pub response_validator: Arc<crate::validation::response_schemas::ResponseSchemaValidator>,
 }
 
 impl AppState {
@@ -103,6 +104,7 @@ impl AppState {
             db_pool,
             plugin_registry: Arc::new(adapteros_server::PluginRegistry::new(db.clone())),
             uma_monitor,
+            response_validator: Arc::new(crate::validation::response_schemas::ResponseSchemaValidator::new(None)),
         }
     }
 

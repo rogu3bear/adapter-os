@@ -1,38 +1,38 @@
-# PRD 1: Inference Request Circuit Breaker
+# PRD 5: API Response Schema Validation
 
 ### Title
-Implement circuit breaker pattern for inference request handling
+Implement comprehensive JSON schema validation for all API responses
 
 ### Problem Statement
-Inference requests that trigger adapter failures or infinite loops can cause cascading failures across the entire system, violating live inference stability requirements.
+API responses may contain invalid data structures or inconsistent schemas, violating API correctness and consistency requirements.
 
 ### Non-goals
-- Changing existing adapter selection logic
-- Implementing request queuing beyond circuit state
-- Modifying inference execution protocols
+- Changing existing API endpoint response formats
+- Implementing new API endpoints
+- Modifying request validation logic
 
 ### Canonical Constraints
-- Must preserve existing TelemetryEvent schema and emission patterns
-- Cannot modify plugin lifecycle state transitions
+- Must preserve existing API response structures
+- Cannot modify telemetry event schemas
 - Must use existing IdentityEnvelope for request correlation
-- Cannot alter stack hashing or adapter loading mechanisms
+- Cannot alter authentication/authorization logic
 
 ### Acceptance Criteria
-- [ ] Circuit breaker opens after configurable failure threshold (5 failures/60s default)
-- [ ] Open circuits return fast failure responses without adapter invocation
-- [ ] Half-open state allows single test request for recovery verification
-- [ ] Circuit state tracked per adapter and exposed via health endpoints
-- [ ] Circuit events logged via canonical telemetry with full context
-- [ ] Recovery mechanisms prevent thundering herd on circuit closure
+- [ ] All API responses validated against versioned JSON schemas
+- [ ] Schema violations trigger automatic error responses and logging
+- [ ] Response validation includes structural and semantic checks
+- [ ] Schema versions tracked and validated for API compatibility
+- [ ] Validation failures include detailed error context for debugging
+- [ ] Tests verify schema compliance across all endpoints
 
 ### Migration/Upgrade Notes
-Existing inference requests gain circuit breaker protection automatically.
+Existing API responses gain schema validation without breaking clients.
 
 ### File-level Impact List
 ```
-crates/adapteros-core/src/circuit_breaker.rs
-crates/adapteros-lora-worker/src/inference_pipeline.rs
-crates/adapteros-server-api/src/handlers/inference.rs
-tests/circuit_breaker_tests.rs
-crates/adapteros-telemetry/src/events/circuit_breaker.rs
+crates/adapteros-server-api/src/validation/response_schemas.rs
+crates/adapteros-server-api/src/handlers/mod.rs
+crates/adapteros-core/src/validation.rs
+tests/api_schema_validation_tests.rs
+crates/adapteros-telemetry/src/events/schema_validation.rs
 ```
