@@ -8,7 +8,7 @@
       "prd_number": 1,
       "title": "Inference Request Circuit Breaker",
       "branch": "prd/1-inference-request-timeout",
-      "status": "scaffolded",
+      "status": "implemented",
       "phase": 1,
       "dependencies": [],
       "files_touched": [
@@ -16,10 +16,11 @@
         "crates/adapteros-lora-worker/src/inference_pipeline.rs",
         "crates/adapteros-server-api/src/handlers/inference.rs",
         "tests/circuit_breaker_tests.rs",
-        "crates/adapteros-telemetry/src/events/circuit_breaker.rs"
+        "crates/adapteros-telemetry/src/events/circuit_breaker.rs",
+        "crates/adapteros-core/src/timeout.rs"
       ],
       "invariants_verified": true,
-      "build_status": "pending"
+      "build_status": "success"
     },
     {
       "prd_number": 2,
