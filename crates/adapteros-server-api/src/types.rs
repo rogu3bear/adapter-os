@@ -863,24 +863,69 @@ pub struct MetaResponse {
     pub build_date: String,
 }
 
-/// Routing decisions query parameters
+/// Routing decisions query parameters with comprehensive filters
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RoutingDecisionsQuery {
     pub tenant: String,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    pub offset: Option<usize>,
     pub since: Option<String>, // ISO-8601 timestamp
+    pub until: Option<String>, // ISO-8601 timestamp
+    pub stack_id: Option<String>,
+    pub adapter_id: Option<String>,
+    pub request_id: Option<String>,
+    pub min_entropy: Option<f64>,
+    pub max_overhead_pct: Option<f64>,
+    #[serde(default)]
+    pub anomalies_only: bool,  // Filter to high overhead or low entropy
 }
 
 fn default_limit() -> usize {
     50
 }
 
-/// Single routing decision
+/// Router candidate with gate value
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct RouterCandidateInfo {
+    pub adapter_idx: u16,
+    pub adapter_name: Option<String>,
+    pub raw_score: f32,
+    pub gate_q15: i16,
+    pub gate_float: f32,  // Q15 converted to float for display
+    pub selected: bool,   // Whether this adapter was selected (gate > 0)
+}
+
+/// Single routing decision with full candidate details
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RoutingDecision {
-    pub ts: String,
+    pub id: String,
     pub tenant_id: String,
+    pub timestamp: String,
+    pub request_id: Option<String>,
+
+    // Decision Context
+    pub step: i64,
+    pub input_token_id: Option<i64>,
+    pub stack_id: Option<String>,
+    pub stack_name: Option<String>,
+    pub stack_hash: Option<String>,
+
+    // Routing Parameters
+    pub entropy: f64,
+    pub tau: f64,
+    pub entropy_floor: f64,
+    pub k_value: Option<i64>,
+
+    // Candidates (parsed from JSON)
+    pub candidates: Vec<RouterCandidateInfo>,
+
+    // Timing Metrics
+    pub router_latency_us: Option<i64>,
+    pub total_inference_latency_us: Option<i64>,
+    pub overhead_pct: Option<f64>,
+
+    // Legacy fields for compatibility
     pub adapters_used: Vec<String>,
     pub activations: Vec<f64>,
     pub reason: String,
