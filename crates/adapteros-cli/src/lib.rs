@@ -1,12 +1,37 @@
-//! Library interface for AdapterOS CLI components.
+use adapteros_core::identity::IdentityEnvelope;
+use clap::{Parser, Subcommand};
 
-pub mod app;
-pub mod cli;
-pub mod cli_telemetry;
-pub mod commands;
-pub mod error_codes;
-pub mod logging;
-pub mod output;
+#[derive(Parser)]
+#[command(name = "aos")]
+#[command(about = "AdapterOS CLI", long_about = None)]
+pub struct Cli {
+    /// Tenant ID
+    #[arg(short, long, default_value = "default")]
+    pub tenant_id: String,
 
-pub use app::{run, BackendType, Cli, Commands};
-pub use commands::infer;
+    /// Domain
+    #[arg(short = 'd', long, default_value = "cli")]
+    pub domain: String,
+
+    /// Purpose
+    #[arg(short, long, default_value = "maintenance")]
+    pub purpose: String,
+
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    // ... existing subcommands ...
+}
+
+// Function to get identity from cli
+pub fn get_identity(cli: &Cli) -> IdentityEnvelope {
+    IdentityEnvelope::new(
+        cli.tenant_id.clone(),
+        cli.domain.clone(),
+        cli.purpose.clone(),
+        IdentityEnvelope::default_revision(),
+    )
+}

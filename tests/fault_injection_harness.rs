@@ -753,7 +753,9 @@ fn test_adapter_name_malformed_inputs() {
 
 #[test]
 fn test_adapter_name_reserved_namespaces() {
-    use adapteros_policy::packs::naming_policy::{NamingConfig, NamingPolicy, AdapterNameValidation};
+    use adapteros_policy::packs::naming_policy::{
+        AdapterNameValidation, NamingConfig, NamingPolicy,
+    };
 
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -769,13 +771,19 @@ fn test_adapter_name_reserved_namespaces() {
         };
 
         let result = policy.validate_adapter_name(&request);
-        assert!(result.is_err(), "Reserved tenant '{}' should be blocked", reserved);
+        assert!(
+            result.is_err(),
+            "Reserved tenant '{}' should be blocked",
+            reserved
+        );
     }
 }
 
 #[test]
 fn test_adapter_name_tenant_isolation_violation() {
-    use adapteros_policy::packs::naming_policy::{NamingConfig, NamingPolicy, AdapterNameValidation};
+    use adapteros_policy::packs::naming_policy::{
+        AdapterNameValidation, NamingConfig, NamingPolicy,
+    };
 
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -788,7 +796,10 @@ fn test_adapter_name_tenant_isolation_violation() {
     };
 
     let result = policy.validate_adapter_name(&request);
-    assert!(result.is_err(), "Cross-tenant adapter creation should be blocked");
+    assert!(
+        result.is_err(),
+        "Cross-tenant adapter creation should be blocked"
+    );
 
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("tenant"));
@@ -797,7 +808,9 @@ fn test_adapter_name_tenant_isolation_violation() {
 
 #[test]
 fn test_adapter_name_revision_monotonicity_violation() {
-    use adapteros_policy::packs::naming_policy::{NamingConfig, NamingPolicy, AdapterNameValidation};
+    use adapteros_policy::packs::naming_policy::{
+        AdapterNameValidation, NamingConfig, NamingPolicy,
+    };
 
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -827,12 +840,17 @@ fn test_adapter_name_max_length_violation() {
 
     assert!(long_name.len() > 200);
     let result = AdapterName::parse(&long_name);
-    assert!(result.is_err(), "Names exceeding 200 chars should be rejected");
+    assert!(
+        result.is_err(),
+        "Names exceeding 200 chars should be rejected"
+    );
 }
 
 #[test]
 fn test_adapter_name_profanity_filtering() {
-    use adapteros_policy::packs::naming_policy::{NamingConfig, NamingPolicy, AdapterNameValidation};
+    use adapteros_policy::packs::naming_policy::{
+        AdapterNameValidation, NamingConfig, NamingPolicy,
+    };
 
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -870,7 +888,11 @@ fn test_adapter_name_sql_injection_attempt() {
 
     for attempt in injection_attempts {
         let result = AdapterName::parse(attempt);
-        assert!(result.is_err(), "SQL injection attempt should be rejected: {}", attempt);
+        assert!(
+            result.is_err(),
+            "SQL injection attempt should be rejected: {}",
+            attempt
+        );
     }
 }
 
@@ -887,7 +909,11 @@ fn test_adapter_name_path_traversal_attempt() {
 
     for attempt in traversal_attempts {
         let result = AdapterName::parse(attempt);
-        assert!(result.is_err(), "Path traversal should be rejected: {}", attempt);
+        assert!(
+            result.is_err(),
+            "Path traversal should be rejected: {}",
+            attempt
+        );
     }
 }
 
@@ -900,7 +926,10 @@ fn test_adapter_name_consecutive_hyphens() {
     assert!(result.is_err(), "Consecutive hyphens should be rejected");
 
     let result2 = AdapterName::parse("tenant/domain---bad/purpose/r001");
-    assert!(result2.is_err(), "Multiple consecutive hyphens should be rejected");
+    assert!(
+        result2.is_err(),
+        "Multiple consecutive hyphens should be rejected"
+    );
 }
 
 #[test]
@@ -945,7 +974,10 @@ fn test_stack_name_max_length_violation() {
 
     assert!(long_name.len() > 100);
     let result = StackName::parse(&long_name);
-    assert!(result.is_err(), "Stack names exceeding 100 chars should be rejected");
+    assert!(
+        result.is_err(),
+        "Stack names exceeding 100 chars should be rejected"
+    );
 }
 
 #[test]
@@ -1056,7 +1088,10 @@ fn test_policy_thresholds_infinity_handling() {
 
     // Negative infinity memory
     let result2 = engine.check_system_thresholds(50.0, f32::NEG_INFINITY);
-    assert!(result2.is_err(), "Negative infinite memory should be rejected");
+    assert!(
+        result2.is_err(),
+        "Negative infinite memory should be rejected"
+    );
 
     // Positive infinity headroom
     let result3 = engine.check_memory_headroom(f32::INFINITY);
@@ -1194,8 +1229,16 @@ fn test_policy_thresholds_error_message_accuracy() {
 
     // Check max_tokens error includes threshold
     if let Err(AosError::PolicyViolation(msg)) = engine.check_resource_limits(501) {
-        assert!(msg.contains("500"), "Error should include threshold: {}", msg);
-        assert!(msg.contains("501"), "Error should include actual value: {}", msg);
+        assert!(
+            msg.contains("500"),
+            "Error should include threshold: {}",
+            msg
+        );
+        assert!(
+            msg.contains("501"),
+            "Error should include actual value: {}",
+            msg
+        );
     } else {
         panic!("Expected PolicyViolation error");
     }
@@ -1244,9 +1287,7 @@ fn test_policy_thresholds_subnormal_float_values() {
 
     // Very small subnormal values should be handled gracefully
     let subnormal = f32::from_bits(0x00000001); // Smallest positive subnormal
-    assert!(engine
-        .check_system_thresholds(subnormal, subnormal)
-        .is_ok());
+    assert!(engine.check_system_thresholds(subnormal, subnormal).is_ok());
 
     // Should still enforce thresholds correctly
     assert!(engine.check_system_thresholds(subnormal, 100.0).is_err());
@@ -1284,11 +1325,11 @@ async fn test_multi_agent_barrier_adversarial_conditions() {
 
     // Test barrier with adversarial agent names
     let adversarial_names = vec![
-        "".to_string(),                    // Empty string
+        "".to_string(),                           // Empty string
         "agent_with_very_long_name_".repeat(100), // Extremely long name
-        "agent\nwith\nnewlines".to_string(), // Newlines
-        "agent\twith\ttabs".to_string(),   // Tabs
-        "agent\0with\nulls".to_string(),   // Null bytes
+        "agent\nwith\nnewlines".to_string(),      // Newlines
+        "agent\twith\ttabs".to_string(),          // Tabs
+        "agent\0with\nulls".to_string(),          // Null bytes
     ];
 
     for name in adversarial_names {
@@ -1297,17 +1338,24 @@ async fn test_multi_agent_barrier_adversarial_conditions() {
 
         // Should handle adversarial names gracefully
         let result = barrier.wait(&name, 1).await;
-        assert!(result.is_err(), "Should reject adversarial agent name: {:?}", name);
-        assert!(matches!(result.unwrap_err(), CoordinationError::AgentNotRegistered { .. }));
+        assert!(
+            result.is_err(),
+            "Should reject adversarial agent name: {:?}",
+            name
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            CoordinationError::AgentNotRegistered { .. }
+        ));
     }
 }
 
 #[tokio::test]
 async fn test_global_tick_ledger_merkle_chain_integrity() {
-    use adapteros_deterministic_exec::global_ledger::{GlobalTickLedger, TickLedgerEntry};
-    use adapteros_deterministic_exec::ExecutorEvent;
     use adapteros_core::{B3Hash, TaskId};
     use adapteros_db::Db;
+    use adapteros_deterministic_exec::global_ledger::{GlobalTickLedger, TickLedgerEntry};
+    use adapteros_deterministic_exec::ExecutorEvent;
     use tempfile::TempDir;
 
     // Create temporary database for testing
@@ -1317,11 +1365,7 @@ async fn test_global_tick_ledger_merkle_chain_integrity() {
     db.migrate().await.unwrap();
 
     let db = Arc::new(db);
-    let ledger = GlobalTickLedger::new(
-        db,
-        "test-tenant".to_string(),
-        "test-host".to_string(),
-    );
+    let ledger = GlobalTickLedger::new(db, "test-tenant".to_string(), "test-host".to_string());
 
     // Test Merkle chain integrity with adversarial event data
     let task_id = TaskId::from_bytes([1u8; 32]);
@@ -1352,7 +1396,10 @@ async fn test_global_tick_ledger_merkle_chain_integrity() {
 
     for event in adversarial_events {
         let result = ledger.record_tick(task_id, &event).await;
-        assert!(result.is_ok(), "Should handle adversarial event data gracefully");
+        assert!(
+            result.is_ok(),
+            "Should handle adversarial event data gracefully"
+        );
 
         let hash = result.unwrap();
         assert_ne!(hash, B3Hash::new([0u8; 32]), "Hash should not be zero");
@@ -1378,7 +1425,10 @@ async fn test_global_tick_ledger_merkle_chain_integrity() {
     let our_entries = ledger.get_entries(0, 10).await.unwrap();
     let divergences = ledger.compute_divergences(&our_entries, &peer_entries);
 
-    assert!(!divergences.is_empty(), "Should detect tampered data as divergence");
+    assert!(
+        !divergences.is_empty(),
+        "Should detect tampered data as divergence"
+    );
 }
 
 #[tokio::test]
@@ -1406,7 +1456,10 @@ async fn test_database_schema_recovery_adversarial() {
 
     // Migration should work on clean database
     let migration_result = db.migrate().await;
-    assert!(migration_result.is_ok(), "Should apply migrations successfully");
+    assert!(
+        migration_result.is_ok(),
+        "Should apply migrations successfully"
+    );
 
     // Verify critical tables exist
     let pool = db.pool();
@@ -1434,13 +1487,13 @@ async fn test_database_schema_recovery_adversarial() {
 
 #[tokio::test]
 async fn test_process_monitoring_adversarial_inputs() {
-    use adapteros_db::process_monitoring::{ProcessHealthMetric, ProcessAlert, ProcessAnomaly};
+    use adapteros_db::process_monitoring::{ProcessAlert, ProcessAnomaly, ProcessHealthMetric};
     use chrono::{DateTime, Utc};
 
     // Test process monitoring with adversarial inputs
     let adversarial_metrics = vec![
         ProcessHealthMetric {
-            id: "".to_string(), // Empty ID
+            id: "".to_string(),        // Empty ID
             worker_id: "".to_string(), // Empty worker ID
             tenant_id: "test-tenant".to_string(),
             metric_name: "".to_string(), // Empty metric name
@@ -1474,11 +1527,18 @@ async fn test_process_monitoring_adversarial_inputs() {
     // These should all be handled gracefully without panicking
     for metric in adversarial_metrics {
         let json_result = serde_json::to_string(&metric);
-        assert!(json_result.is_ok(), "Should serialize adversarial metric: {:?}", metric);
+        assert!(
+            json_result.is_ok(),
+            "Should serialize adversarial metric: {:?}",
+            metric
+        );
 
         let json_str = json_result.unwrap();
         let deserialize_result = serde_json::from_str::<ProcessHealthMetric>(&json_str);
-        assert!(deserialize_result.is_ok(), "Should deserialize adversarial metric JSON");
+        assert!(
+            deserialize_result.is_ok(),
+            "Should deserialize adversarial metric JSON"
+        );
     }
 
     // Test alerts with adversarial data

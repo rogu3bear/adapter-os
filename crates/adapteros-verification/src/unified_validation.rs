@@ -7,6 +7,7 @@
 //! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
 //! - CLAUDE.md L50-55: "Verification and validation with deterministic execution"
 
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::Result;
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use async_trait::async_trait;
@@ -1431,6 +1432,12 @@ impl UnifiedVerificationFramework {
                 EventType::Custom(event_type.to_string()),
                 LogLevel::Info,
                 message.to_string(),
+                IdentityEnvelope::new(
+                    "system".to_string(),
+                    "verification".to_string(),
+                    "unified".to_string(),
+                    "v1.0".to_string(),
+                ),
             )
             .metadata(payload)
             .build();

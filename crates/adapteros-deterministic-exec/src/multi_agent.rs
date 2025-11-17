@@ -2,6 +2,7 @@
 //!
 //! Provides tick-synchronized barriers and global sequencing for multi-agent workflows.
 
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use parking_lot::Mutex;
 use serde_json::json;
@@ -78,10 +79,7 @@ impl AgentBarrier {
     }
 
     /// Create a new agent barrier with telemetry
-    pub fn with_telemetry(
-        agent_ids: Vec<String>,
-        telemetry: Option<Arc<TelemetryWriter>>,
-    ) -> Self {
+    pub fn with_telemetry(agent_ids: Vec<String>, telemetry: Option<Arc<TelemetryWriter>>) -> Self {
         info!(
             "Creating agent barrier with {} agents: {:?}",
             agent_ids.len(),
@@ -152,13 +150,22 @@ impl AgentBarrier {
 
         // Emit barrier.agent.removed telemetry (Phase 3)
         if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "default".to_string(), // TODO: from config
+                "multi-agent".to_string(),
+                "barrier".to_string(),
+                IdentityEnvelope::default_revision(),
+            );
             let event = TelemetryEventBuilder::new(
                 EventType::Custom("barrier.agent.removed".to_string()),
                 LogLevel::Warn,
                 format!(
                     "Agent {} marked as dead ({} dead, {} remaining)",
-                    agent_id, dead.len(), remaining_count
+                    agent_id,
+                    dead.len(),
+                    remaining_count
                 ),
+                identity.clone(),
             )
             .component("adapteros-deterministic-exec".to_string())
             .metadata(json!({
@@ -210,10 +217,20 @@ impl AgentBarrier {
 
         // Emit barrier.wait_start telemetry
         if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "default".to_string(),
+                "multi-agent".to_string(),
+                "barrier".to_string(),
+                IdentityEnvelope::default_revision(),
+            );
             let event = TelemetryEventBuilder::new(
                 EventType::Custom("barrier.wait_start".to_string()),
                 LogLevel::Debug,
-                format!("Agent {} entering barrier at tick {}", agent_id, current_tick),
+                format!(
+                    "Agent {} entering barrier at tick {}",
+                    agent_id, current_tick
+                ),
+                identity.clone(),
             )
             .component("adapteros-deterministic-exec".to_string())
             .metadata(json!({
@@ -259,6 +276,12 @@ impl AgentBarrier {
 
                 // Emit barrier.timeout telemetry
                 if let Some(ref telemetry) = self.telemetry {
+                    let identity = IdentityEnvelope::new(
+                        "default".to_string(),
+                        "multi-agent".to_string(),
+                        "barrier".to_string(),
+                        IdentityEnvelope::default_revision(),
+                    );
                     let event = TelemetryEventBuilder::new(
                         EventType::Custom("barrier.timeout".to_string()),
                         LogLevel::Error,
@@ -266,6 +289,7 @@ impl AgentBarrier {
                             "Agent {} timeout after {:?} at tick {}",
                             agent_id, timeout_duration, current_tick
                         ),
+                        identity.clone(),
                     )
                     .component("adapteros-deterministic-exec".to_string())
                     .metadata(json!({
@@ -301,9 +325,9 @@ impl AgentBarrier {
                 let dead = self.dead_agents.lock();
 
                 // Check if all LIVING agents have reached at least current_tick
-                ticks.iter().all(|(agent, &tick)| {
-                    dead.contains(agent) || tick >= current_tick
-                })
+                ticks
+                    .iter()
+                    .all(|(agent, &tick)| dead.contains(agent) || tick >= current_tick)
             };
 
             if all_ready {
@@ -328,26 +352,33 @@ impl AgentBarrier {
                         if let Some(ref telemetry) = self.telemetry {
                             let dead_count = self.dead_agents.lock().len();
                             let living_count = self.agent_ids.len() - dead_count;
-
-                            let event = TelemetryEventBuilder::new(
-                                EventType::Custom("barrier.generation_advanced".to_string()),
-                                LogLevel::Info,
-                                format!(
+                            let cas_identity = IdentityEnvelope::new(
+                                "default".to_string(),
+                                "multi-agent".to_string(),
+                                "cas".to_string(),
+                                IdentityEnvelope::default_revision(),
+                            );
+                            let event =
+                                TelemetryEventBuilder::new(
+                                    EventType::Custom("barrier.generation_advanced".to_string()),
+                                    LogLevel::Info,
+                                    format!(
                                     "Agent {} won CAS race, generation {} → {} ({} living agents)",
                                     agent_id, gen, gen + 1, living_count
                                 ),
-                            )
-                            .component("adapteros-deterministic-exec".to_string())
-                            .metadata(json!({
-                                "agent_id": agent_id,
-                                "tick": current_tick,
-                                "generation": gen + 1,
-                                "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
-                                "total_agents": self.agent_ids.len(),
-                                "living_agents": living_count,
-                                "dead_agents": dead_count,
-                            }))
-                            .build();
+                                    cas_identity.clone(),
+                                )
+                                .component("adapteros-deterministic-exec".to_string())
+                                .metadata(json!({
+                                    "agent_id": agent_id,
+                                    "tick": current_tick,
+                                    "generation": gen + 1,
+                                    "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
+                                    "total_agents": self.agent_ids.len(),
+                                    "living_agents": living_count,
+                                    "dead_agents": dead_count,
+                                }))
+                                .build();
 
                             let _ = telemetry.log_event(event);
                         }
@@ -368,6 +399,12 @@ impl AgentBarrier {
 
                             // Emit barrier.cas_loser_proceed telemetry
                             if let Some(ref telemetry) = self.telemetry {
+                                let identity = IdentityEnvelope::new(
+                                    "default".to_string(),
+                                    "multi-agent".to_string(),
+                                    "cas".to_string(),
+                                    IdentityEnvelope::default_revision(),
+                                );
                                 let event = TelemetryEventBuilder::new(
                                     EventType::Custom("barrier.cas_loser_proceed".to_string()),
                                     LogLevel::Debug,
@@ -375,6 +412,7 @@ impl AgentBarrier {
                                         "Agent {} lost CAS but generation advanced, proceeding",
                                         agent_id
                                     ),
+                                    identity.clone(),
                                 )
                                 .component("adapteros-deterministic-exec".to_string())
                                 .metadata(json!({
@@ -508,8 +546,8 @@ impl CoordinatedAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use once_cell::sync::Lazy;
+    use std::sync::Mutex;
 
     // Test isolation: Ensures tests touching GLOBAL_SEQ_COUNTER run serially
     // Without this, parallel test execution causes flaky failures due to shared state
@@ -592,9 +630,7 @@ mod tests {
         reset_global_seq();
 
         const AGENT_COUNT: usize = 20;
-        let agent_ids: Vec<String> = (0..AGENT_COUNT)
-            .map(|i| format!("agent-{}", i))
-            .collect();
+        let agent_ids: Vec<String> = (0..AGENT_COUNT).map(|i| format!("agent-{}", i)).collect();
 
         let barrier = Arc::new(AgentBarrier::new(agent_ids.clone()));
 
@@ -604,9 +640,7 @@ mod tests {
             .map(|id| {
                 let barrier = barrier.clone();
                 let id = id.clone();
-                tokio::spawn(async move {
-                    barrier.wait(&id, 1000).await
-                })
+                tokio::spawn(async move { barrier.wait(&id, 1000).await })
             })
             .collect();
 
@@ -695,14 +729,20 @@ mod tests {
         // Verify it's a timeout or coordination failure
         if let Err(e) = result1 {
             assert!(
-                matches!(e, CoordinationError::Timeout { .. } | CoordinationError::Failed { .. }),
+                matches!(
+                    e,
+                    CoordinationError::Timeout { .. } | CoordinationError::Failed { .. }
+                ),
                 "Should be timeout or failure, got: {:?}",
                 e
             );
         }
         if let Err(e) = result2 {
             assert!(
-                matches!(e, CoordinationError::Timeout { .. } | CoordinationError::Failed { .. }),
+                matches!(
+                    e,
+                    CoordinationError::Timeout { .. } | CoordinationError::Failed { .. }
+                ),
                 "Should be timeout or failure, got: {:?}",
                 e
             );
@@ -717,9 +757,7 @@ mod tests {
         reset_global_seq();
 
         const AGENT_COUNT: usize = 10;
-        let agent_ids: Vec<String> = (0..AGENT_COUNT)
-            .map(|i| format!("agent-{}", i))
-            .collect();
+        let agent_ids: Vec<String> = (0..AGENT_COUNT).map(|i| format!("agent-{}", i)).collect();
 
         let barrier = Arc::new(AgentBarrier::new(agent_ids.clone()));
 
@@ -917,11 +955,7 @@ mod tests {
         let _lock = TEST_LOCK.lock().unwrap();
         reset_global_seq();
 
-        let barrier = Arc::new(AgentBarrier::new(vec![
-            "a".into(),
-            "b".into(),
-            "c".into(),
-        ]));
+        let barrier = Arc::new(AgentBarrier::new(vec!["a".into(), "b".into(), "c".into()]));
 
         // Agent A and B sync, but C is dead
         let b_clone = barrier.clone();
@@ -942,7 +976,11 @@ mod tests {
         agent_a_handle.await.unwrap();
         agent_b_handle.await.unwrap();
 
-        assert_eq!(barrier.generation(), 1, "Barrier should advance with 2/3 agents (C dead)");
+        assert_eq!(
+            barrier.generation(),
+            1,
+            "Barrier should advance with 2/3 agents (C dead)"
+        );
     }
 
     /// Test marking multiple agents dead sequentially
@@ -981,7 +1019,11 @@ mod tests {
         agent_a_handle.await.unwrap();
         agent_b_handle.await.unwrap();
 
-        assert_eq!(barrier.generation(), 1, "Barrier should advance with 2/5 agents (3 dead)");
+        assert_eq!(
+            barrier.generation(),
+            1,
+            "Barrier should advance with 2/5 agents (3 dead)"
+        );
     }
 
     /// Test 50 agents hitting barrier simultaneously
@@ -1023,11 +1065,7 @@ mod tests {
         let _lock = TEST_LOCK.lock().unwrap();
         reset_global_seq();
 
-        let barrier = Arc::new(AgentBarrier::new(vec![
-            "a".into(),
-            "b".into(),
-            "c".into(),
-        ]));
+        let barrier = Arc::new(AgentBarrier::new(vec!["a".into(), "b".into(), "c".into()]));
 
         // Run 10 rounds of synchronization
         for round in 0..10 {
@@ -1068,9 +1106,7 @@ mod tests {
         reset_global_seq();
 
         const AGENT_COUNT: usize = 7;
-        let agent_ids: Vec<String> = (0..AGENT_COUNT)
-            .map(|i| format!("agent-{}", i))
-            .collect();
+        let agent_ids: Vec<String> = (0..AGENT_COUNT).map(|i| format!("agent-{}", i)).collect();
 
         let barrier = Arc::new(AgentBarrier::new(agent_ids.clone()));
 
@@ -1083,12 +1119,10 @@ mod tests {
                     let b = barrier.clone();
                     let agent_id = id.clone();
                     tokio::spawn(async move {
-                        b.wait(&agent_id, target_tick)
-                            .await
-                            .expect(&format!(
-                                "Agent {} should synchronize at tick {} without timeout",
-                                agent_id, target_tick
-                            ))
+                        b.wait(&agent_id, target_tick).await.expect(&format!(
+                            "Agent {} should synchronize at tick {} without timeout",
+                            agent_id, target_tick
+                        ))
                     })
                 })
                 .collect();

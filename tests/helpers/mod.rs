@@ -11,6 +11,4 @@ pub use test_adapter_factory_simple::{
     create_synthetic_adapter, WeightPattern,
 };
 
-pub use tracing_analyzer::{
-    ImprovementReport, SpanRecord, TimingMetrics, TracingCapture,
-};
+pub use tracing_analyzer::{ImprovementReport, SpanRecord, TimingMetrics, TracingCapture};

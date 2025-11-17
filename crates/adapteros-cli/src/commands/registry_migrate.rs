@@ -95,7 +95,10 @@ impl OldAdapterRecord {
     )> {
         // Parse hash - assume it's hex format, convert to B3Hash
         let hash = B3Hash::from_hex(&self.hash).map_err(|e| {
-            AosError::Registry(format!("Invalid hash format for adapter {}: {}", self.id, e))
+            AosError::Registry(format!(
+                "Invalid hash format for adapter {}: {}",
+                self.id, e
+            ))
         })?;
 
         // Extract tenant_id and name from id (assume format: "tenant-name")
@@ -143,7 +146,9 @@ impl OldTenantRecord {
     }
 }
 
-fn extract_old_data(old_db_path: &PathBuf) -> Result<(Vec<OldAdapterRecord>, Vec<OldTenantRecord>)> {
+fn extract_old_data(
+    old_db_path: &PathBuf,
+) -> Result<(Vec<OldAdapterRecord>, Vec<OldTenantRecord>)> {
     let conn = Connection::open(old_db_path)
         .map_err(|e| AosError::Registry(format!("Failed to open old database: {}", e)))?;
 

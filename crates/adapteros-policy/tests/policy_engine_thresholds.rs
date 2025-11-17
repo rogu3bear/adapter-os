@@ -243,25 +243,37 @@ fn test_error_messages_include_thresholds() {
     let result1 = engine.check_resource_limits(800);
     assert!(result1.is_err());
     if let Err(AosError::PolicyViolation(msg)) = result1 {
-        assert!(msg.contains("750"), "Error message should include threshold");
+        assert!(
+            msg.contains("750"),
+            "Error message should include threshold"
+        );
     }
 
     let result2 = engine.check_system_thresholds(90.0, 50.0);
     assert!(result2.is_err());
     if let Err(AosError::PerformanceViolation(msg)) = result2 {
-        assert!(msg.contains("85.0"), "Error message should include threshold");
+        assert!(
+            msg.contains("85.0"),
+            "Error message should include threshold"
+        );
     }
 
     let result3 = engine.check_system_thresholds(50.0, 95.0);
     assert!(result3.is_err());
     if let Err(AosError::MemoryPressure(msg)) = result3 {
-        assert!(msg.contains("92.0"), "Error message should include threshold");
+        assert!(
+            msg.contains("92.0"),
+            "Error message should include threshold"
+        );
     }
 
     let result4 = engine.check_memory_headroom(15.0);
     assert!(result4.is_err());
     if let Err(AosError::MemoryPressure(msg)) = result4 {
-        assert!(msg.contains("18.0"), "Error message should include threshold");
+        assert!(
+            msg.contains("18.0"),
+            "Error message should include threshold"
+        );
     }
 }
 

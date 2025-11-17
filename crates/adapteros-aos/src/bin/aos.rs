@@ -160,12 +160,8 @@ async fn run(cli: Cli) -> Result<()> {
 }
 
 fn ensure_var_dir() -> Result<()> {
-    fs::create_dir_all(VAR_DIR).map_err(|e| {
-        AosError::Io(format!(
-            "Failed to create var directory {}: {}",
-            VAR_DIR, e
-        ))
-    })
+    fs::create_dir_all(VAR_DIR)
+        .map_err(|e| AosError::Io(format!("Failed to create var directory {}: {}", VAR_DIR, e)))
 }
 
 fn pid_file_for(service: &ServiceKind) -> Option<&'static str> {
@@ -208,9 +204,8 @@ fn service_name(service: &ServiceKind) -> &'static str {
 
 async fn start_service(service: ServiceKind, cli: &Cli) -> Result<()> {
     let name = service_name(&service);
-    let pid_file = pid_file_for(&service).ok_or_else(|| {
-        AosError::Config(format!("No PID file configured for service: {}", name))
-    })?;
+    let pid_file = pid_file_for(&service)
+        .ok_or_else(|| AosError::Config(format!("No PID file configured for service: {}", name)))?;
 
     let existing_pid = read_pid(pid_file);
     if let Some(pid) = existing_pid {
@@ -265,11 +260,7 @@ async fn start_service(service: ServiceKind, cli: &Cli) -> Result<()> {
     };
 
     if result.is_ok() {
-        update_status_file(
-            name,
-            "running",
-            read_pid(pid_file),
-        )?;
+        update_status_file(name, "running", read_pid(pid_file))?;
     }
 
     result
@@ -277,9 +268,8 @@ async fn start_service(service: ServiceKind, cli: &Cli) -> Result<()> {
 
 async fn stop_service(service: ServiceKind, cli: &Cli) -> Result<()> {
     let name = service_name(&service);
-    let pid_file = pid_file_for(&service).ok_or_else(|| {
-        AosError::Config(format!("No PID file configured for service: {}", name))
-    })?;
+    let pid_file = pid_file_for(&service)
+        .ok_or_else(|| AosError::Config(format!("No PID file configured for service: {}", name)))?;
 
     let existing_pid = read_pid(pid_file);
     if existing_pid.is_none() {
@@ -359,11 +349,7 @@ async fn restart_service(service: ServiceKind, cli: &Cli) -> Result<()> {
 }
 
 async fn status(cli: &Cli) -> Result<()> {
-    let services = vec![
-        ServiceKind::Backend,
-        ServiceKind::Ui,
-        ServiceKind::Menubar,
-    ];
+    let services = vec![ServiceKind::Backend, ServiceKind::Ui, ServiceKind::Menubar];
 
     let mut statuses = Vec::new();
 
@@ -417,9 +403,8 @@ async fn status(cli: &Cli) -> Result<()> {
     };
 
     if cli.json {
-        let json = serde_json::to_string_pretty(&report).map_err(|e| {
-            AosError::Config(format!("Failed to serialize status as JSON: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|e| AosError::Config(format!("Failed to serialize status as JSON: {}", e)))?;
         println!("{json}");
     } else {
         for svc in &report.services {
@@ -471,9 +456,8 @@ async fn logs(service: ServiceKind, cli: &Cli) -> Result<()> {
     if cli.json {
         // Return lines as JSON array for machine consumption
         let lines: Vec<&str> = content.lines().collect();
-        let json = serde_json::to_string_pretty(&lines).map_err(|e| {
-            AosError::Config(format!("Failed to serialize logs as JSON: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(&lines)
+            .map_err(|e| AosError::Config(format!("Failed to serialize logs as JSON: {}", e)))?;
         println!("{json}");
     } else {
         print!("{content}");
@@ -484,8 +468,7 @@ async fn logs(service: ServiceKind, cli: &Cli) -> Result<()> {
 }
 
 fn print_json_status(status: &ServiceStatus) -> Result<()> {
-    let json =
-        serde_json::to_string(status).map_err(|e| AosError::Config(format!("{}", e)))?;
+    let json = serde_json::to_string(status).map_err(|e| AosError::Config(format!("{}", e)))?;
     println!("{json}");
     Ok(())
 }
@@ -495,12 +478,8 @@ fn load_status_map() -> Result<serde_json::Map<String, serde_json::Value>> {
         return Ok(serde_json::Map::new());
     }
 
-    let content = fs::read_to_string(STATUS_FILE).map_err(|e| {
-        AosError::Io(format!(
-            "Failed to read status file {}: {}",
-            STATUS_FILE, e
-        ))
-    })?;
+    let content = fs::read_to_string(STATUS_FILE)
+        .map_err(|e| AosError::Io(format!("Failed to read status file {}: {}", STATUS_FILE, e)))?;
 
     let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
         AosError::Config(format!(
@@ -515,9 +494,7 @@ fn load_status_map() -> Result<serde_json::Map<String, serde_json::Value>> {
     })
 }
 
-fn write_status_map(
-    map: &serde_json::Map<String, serde_json::Value>,
-) -> Result<()> {
+fn write_status_map(map: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
     let value = serde_json::Value::Object(map.clone());
     let content = serde_json::to_string_pretty(&value).map_err(|e| {
         AosError::Config(format!(
@@ -543,9 +520,8 @@ fn update_status_file(service: &str, status: &str, pid: Option<u32>) -> Result<(
     };
     map.insert(
         service.to_string(),
-        serde_json::to_value(entry).map_err(|e| {
-            AosError::Config(format!("Failed to encode status entry: {}", e))
-        })?,
+        serde_json::to_value(entry)
+            .map_err(|e| AosError::Config(format!("Failed to encode status entry: {}", e)))?,
     );
     write_status_map(&map)
 }
@@ -563,7 +539,10 @@ async fn start_backend(pid_file: &str, cli: &Cli) -> Result<()> {
 
     let log_file = "server.log";
     let log = fs::File::create(log_file).map_err(|e| {
-        AosError::Io(format!("Failed to create backend log file {}: {}", log_file, e))
+        AosError::Io(format!(
+            "Failed to create backend log file {}: {}",
+            log_file, e
+        ))
     })?;
     let log_clone = log
         .try_clone()
@@ -583,9 +562,8 @@ async fn start_backend(pid_file: &str, cli: &Cli) -> Result<()> {
 
     let pid = child.id().unwrap_or(0);
 
-    fs::write(pid_file, pid.to_string()).map_err(|e| {
-        AosError::Io(format!("Failed to write backend PID file: {}", e))
-    })?;
+    fs::write(pid_file, pid.to_string())
+        .map_err(|e| AosError::Io(format!("Failed to write backend PID file: {}", e)))?;
 
     info!(
         component = "aos",
@@ -627,9 +605,8 @@ async fn start_backend(pid_file: &str, cli: &Cli) -> Result<()> {
 async fn start_ui(pid_file: &str, cli: &Cli) -> Result<()> {
     // We assume pnpm is available, matching the previous shell implementation.
     let log_file = "ui-dev.log";
-    let log = fs::File::create(log_file).map_err(|e| {
-        AosError::Io(format!("Failed to create UI log file {}: {}", log_file, e))
-    })?;
+    let log = fs::File::create(log_file)
+        .map_err(|e| AosError::Io(format!("Failed to create UI log file {}: {}", log_file, e)))?;
     let log_clone = log
         .try_clone()
         .map_err(|e| AosError::Io(format!("Failed to clone UI log file: {}", e)))?;
@@ -640,15 +617,14 @@ async fn start_ui(pid_file: &str, cli: &Cli) -> Result<()> {
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_clone));
 
-    let child = cmd.spawn().map_err(|e| {
-        AosError::Io(format!("Failed to spawn UI dev server (pnpm dev): {}", e))
-    })?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| AosError::Io(format!("Failed to spawn UI dev server (pnpm dev): {}", e)))?;
 
     let pid = child.id().unwrap_or(0);
 
-    fs::write(pid_file, pid.to_string()).map_err(|e| {
-        AosError::Io(format!("Failed to write UI PID file: {}", e))
-    })?;
+    fs::write(pid_file, pid.to_string())
+        .map_err(|e| AosError::Io(format!("Failed to write UI PID file: {}", e)))?;
 
     info!(
         component = "aos",
@@ -731,9 +707,8 @@ async fn start_menubar(pid_file: &str, cli: &Cli) -> Result<()> {
 
         let pid = child.id().unwrap_or(0);
 
-        fs::write(pid_file, pid.to_string()).map_err(|e| {
-            AosError::Io(format!("Failed to write menu bar PID file: {}", e))
-        })?;
+        fs::write(pid_file, pid.to_string())
+            .map_err(|e| AosError::Io(format!("Failed to write menu bar PID file: {}", e)))?;
 
         info!(
             component = "aos",

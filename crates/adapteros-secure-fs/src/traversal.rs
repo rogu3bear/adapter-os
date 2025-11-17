@@ -80,10 +80,7 @@ pub fn check_path_traversal(path: impl AsRef<Path>) -> Result<()> {
                 if !protection.allowed_components.is_empty()
                     && !protection.allowed_components.contains(&name_str)
                 {
-                    return Err(AosError::Io(format!(
-                        "Component not allowed: {}",
-                        name_str
-                    )));
+                    return Err(AosError::Io(format!("Component not allowed: {}", name_str)));
                 }
             }
             Component::RootDir => {
@@ -674,9 +671,8 @@ pub fn validate_file_streaming(
     let mut reader = std::io::BufReader::new(file);
     let mut header_buffer = vec![0u8; config.max_header_size_bytes];
 
-    let bytes_read = std::io::Read::read(&mut reader, &mut header_buffer).map_err(|e| {
-        AosError::Io(format!("Failed to read file header for validation: {}", e))
-    })?;
+    let bytes_read = std::io::Read::read(&mut reader, &mut header_buffer)
+        .map_err(|e| AosError::Io(format!("Failed to read file header for validation: {}", e)))?;
 
     // Basic header validation - ensure it's not all zeros or has expected structure
     // This is a basic check; specific file format validation should be done by the caller

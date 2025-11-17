@@ -3,26 +3,26 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use serde::Deserialize;
-use adapteros_core::{AosError, Result, B3Hash, derive_seed};
-use tracing::{info, error};
+use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use serde::Deserialize;
+use tracing::{error, info};
 
 /// AOS 2.0 Format Loader
-/// 
+///
 /// Loads memory-mappable AOS 2.0 format with zero-copy GPU transfer.
-/// 
+///
 /// # Features
 /// - Safetensors weight parsing from mmap
 /// - Zero-copy transfer to Metal buffers
 /// - Deterministic loading (seeded RNG for any randomization)
-/// 
+///
 /// # Errors
 /// - AosError::Io for file access
 /// - AosError::Serialization for manifest parsing
 /// - AosError::Validation for format mismatches
-/// 
+///
 /// # Example
 /// ```rust
 /// let loader = AOS2Loader::new();
@@ -85,7 +85,8 @@ impl AOS2Loader {
             let buffer = self.device.new_buffer_with_data(
                 data.as_ptr() as *const std::ffi::c_void,
                 data.len(),
-                metal::MTLResourceOptions::CPUCacheModeDefaultCache | metal::MTLResourceOptions::StorageModeShared,
+                metal::MTLResourceOptions::CPUCacheModeDefaultCache
+                    | metal::MTLResourceOptions::StorageModeShared,
             );
 
             buffers.insert(name.clone(), buffer);
@@ -101,10 +102,7 @@ impl AOS2Loader {
             "AOS 2.0 loaded deterministically"
         );
 
-        Ok(LoadedAdapter {
-            manifest,
-            buffers,
-        })
+        Ok(LoadedAdapter { manifest, buffers })
     }
 }
 

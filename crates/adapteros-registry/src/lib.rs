@@ -88,7 +88,9 @@ impl Registry {
             }
 
             // Check revision monotonicity
-            if let Some(latest) = self.get_latest_revision(name.tenant(), name.domain(), name.purpose())? {
+            if let Some(latest) =
+                self.get_latest_revision(name.tenant(), name.domain(), name.purpose())?
+            {
                 if let Some(latest_name) = latest.semantic_name {
                     let latest_rev = latest_name.revision_number()?;
                     let new_rev = name.revision_number()?;
@@ -405,11 +407,7 @@ impl Registry {
     /// - Direct parent-child relationships
     /// - Multi-level ancestry (grandparent, great-grandparent, etc.)
     /// - Circular dependencies (A→B→C→A)
-    pub fn is_descendant_of(
-        &self,
-        child_id: &str,
-        potential_ancestor_id: &str,
-    ) -> Result<bool> {
+    pub fn is_descendant_of(&self, child_id: &str, potential_ancestor_id: &str) -> Result<bool> {
         let conn = self.conn.lock();
 
         let result: Option<i32> = conn

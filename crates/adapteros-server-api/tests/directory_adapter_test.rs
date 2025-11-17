@@ -68,18 +68,16 @@ async fn test_directory_adapter_normal_operation() {
     };
 
     // Execute handler
-    let result = upsert_directory_adapter(
-        State(state),
-        Extension(claims),
-        Json(request),
-    )
-    .await;
+    let result = upsert_directory_adapter(State(state), Extension(claims), Json(request)).await;
 
     // Verify success
     assert!(result.is_ok(), "Handler should succeed for valid directory");
     let (status, response) = result.unwrap();
     assert_eq!(status, StatusCode::CREATED);
-    assert!(response.0.adapter_id.starts_with("directory::test-tenant::"));
+    assert!(response
+        .0
+        .adapter_id
+        .starts_with("directory::test-tenant::"));
 }
 
 #[tokio::test]
@@ -125,12 +123,7 @@ async fn test_directory_adapter_invalid_path() {
         exp: 9999999999,
     };
 
-    let result = upsert_directory_adapter(
-        State(state),
-        Extension(claims),
-        Json(request),
-    )
-    .await;
+    let result = upsert_directory_adapter(State(state), Extension(claims), Json(request)).await;
 
     // Verify rejection
     assert!(result.is_err(), "Handler should reject path with '..'");
@@ -180,12 +173,7 @@ async fn test_directory_adapter_nonexistent_root() {
         exp: 9999999999,
     };
 
-    let result = upsert_directory_adapter(
-        State(state),
-        Extension(claims),
-        Json(request),
-    )
-    .await;
+    let result = upsert_directory_adapter(State(state), Extension(claims), Json(request)).await;
 
     // Verify rejection
     assert!(result.is_err(), "Handler should reject nonexistent root");
@@ -244,12 +232,10 @@ async fn test_directory_adapter_configurable_timeout() {
     };
 
     // Should succeed even with short timeout because directory is small
-    let result = upsert_directory_adapter(
-        State(state),
-        Extension(claims),
-        Json(request),
-    )
-    .await;
+    let result = upsert_directory_adapter(State(state), Extension(claims), Json(request)).await;
 
-    assert!(result.is_ok(), "Handler should succeed with custom timeout for small directory");
+    assert!(
+        result.is_ok(),
+        "Handler should succeed with custom timeout for small directory"
+    );
 }

@@ -64,7 +64,7 @@ async fn test_two_bundles_in_memory_verification() -> Result<()> {
     eprintln!("Creating BundleWriter with generated keypair");
     let mut writer = BundleWriter::new(
         bundle_dir.clone(),
-        5, // max_events per bundle
+        5,           // max_events per bundle
         1024 * 1024, // max_bytes
     )?;
 
@@ -101,13 +101,14 @@ async fn test_two_bundles_in_memory_verification() -> Result<()> {
         let merkle_root = B3Hash::from_hex(&sig_meta.merkle_root)
             .map_err(|e| AosError::Validation(format!("Invalid merkle_root hex: {}", e)))?;
 
-        let is_valid = verify_bundle_signature(
-            &merkle_root,
-            &sig_meta.signature,
-            &sig_meta.public_key,
-        )?;
+        let is_valid =
+            verify_bundle_signature(&merkle_root, &sig_meta.signature, &sig_meta.public_key)?;
 
-        assert!(is_valid, "Bundle signature verification failed for {:?}", sig_file);
+        assert!(
+            is_valid,
+            "Bundle signature verification failed for {:?}",
+            sig_file
+        );
         eprintln!("✓ Bundle verified successfully");
     }
 
@@ -172,14 +173,17 @@ async fn test_verification_after_writer_drop() -> Result<()> {
 
     // Scope 2: Verify bundles without BundleWriter (keypair not in memory)
     for sig_file in &sig_files {
-        eprintln!("Verifying {:?} from metadata only", sig_file.file_name().unwrap());
+        eprintln!(
+            "Verifying {:?} from metadata only",
+            sig_file.file_name().unwrap()
+        );
 
         let sig_meta = load_signature_metadata(sig_file)?;
 
         // Check if public_key is present in signature metadata
         if sig_meta.public_key.is_empty() {
             return Err(AosError::Validation(
-                "❌ REGRESSION DETECTED: public_key field is EMPTY in .ndjson.sig file".to_string()
+                "❌ REGRESSION DETECTED: public_key field is EMPTY in .ndjson.sig file".to_string(),
             ));
         }
 
@@ -193,16 +197,14 @@ async fn test_verification_after_writer_drop() -> Result<()> {
             .map_err(|e| AosError::Validation(format!("Invalid merkle_root: {}", e)))?;
 
         // Attempt verification using ONLY metadata (no in-memory keypair)
-        let is_valid = verify_bundle_signature(
-            &merkle_root,
-            &sig_meta.signature,
-            &sig_meta.public_key,
-        )?;
+        let is_valid =
+            verify_bundle_signature(&merkle_root, &sig_meta.signature, &sig_meta.public_key)?;
 
         if !is_valid {
-            return Err(AosError::Validation(
-                format!("❌ REGRESSION: Bundle verification FAILED from metadata for {:?}", sig_file)
-            ));
+            return Err(AosError::Validation(format!(
+                "❌ REGRESSION: Bundle verification FAILED from metadata for {:?}",
+                sig_file
+            )));
         }
 
         eprintln!("✓ Bundle verified successfully from metadata");
@@ -280,18 +282,19 @@ async fn test_chain_verification_from_metadata() -> Result<()> {
             .map_err(|e| AosError::Validation(format!("Invalid merkle_root: {}", e)))?;
 
         if meta.public_key.is_empty() {
-            return Err(AosError::Validation(
-                format!("❌ REGRESSION: public_key missing in {:?}", path.file_name().unwrap())
-            ));
+            return Err(AosError::Validation(format!(
+                "❌ REGRESSION: public_key missing in {:?}",
+                path.file_name().unwrap()
+            )));
         }
 
-        let is_valid = verify_bundle_signature(
-            &merkle_root,
-            &meta.signature,
-            &meta.public_key,
-        )?;
+        let is_valid = verify_bundle_signature(&merkle_root, &meta.signature, &meta.public_key)?;
 
-        assert!(is_valid, "Signature verification failed for sequence {}", meta.sequence_no);
+        assert!(
+            is_valid,
+            "Signature verification failed for sequence {}",
+            meta.sequence_no
+        );
         eprintln!("✓ Bundle {} signature verified", meta.sequence_no);
     }
 
@@ -309,11 +312,15 @@ async fn test_chain_verification_from_metadata() -> Result<()> {
                 "Chain link broken between bundle {} and {}",
                 prev.sequence_no, current.sequence_no
             );
-            eprintln!("✓ Chain link verified: {} → {}", prev.sequence_no, current.sequence_no);
+            eprintln!(
+                "✓ Chain link verified: {} → {}",
+                prev.sequence_no, current.sequence_no
+            );
         } else {
-            return Err(AosError::Validation(
-                format!("❌ REGRESSION: prev_bundle_hash missing for bundle {}", current.sequence_no)
-            ));
+            return Err(AosError::Validation(format!(
+                "❌ REGRESSION: prev_bundle_hash missing for bundle {}",
+                current.sequence_no
+            )));
         }
     }
 
@@ -343,11 +350,7 @@ async fn test_fresh_process_verification() -> Result<()> {
 
     // Phase 1: Original process creates bundles
     {
-        let mut writer = BundleWriter::new(
-            bundle_dir.clone(),
-            3,
-            1024 * 1024,
-        )?;
+        let mut writer = BundleWriter::new(bundle_dir.clone(), 3, 1024 * 1024)?;
 
         for i in 0..8 {
             writer.write_event(&create_test_event(i, &format!("fresh_process_{}", i)))?;
@@ -381,7 +384,10 @@ async fn test_fresh_process_verification() -> Result<()> {
 
     // Verify each bundle from metadata
     for sig_file in &sig_files {
-        eprintln!("Fresh process verifying {:?}", sig_file.file_name().unwrap());
+        eprintln!(
+            "Fresh process verifying {:?}",
+            sig_file.file_name().unwrap()
+        );
 
         let sig_meta = load_signature_metadata(sig_file)?;
 
@@ -397,15 +403,13 @@ async fn test_fresh_process_verification() -> Result<()> {
 
         // Fresh process has NO access to original keypair
         // Verification must work from metadata alone
-        let is_valid = verify_bundle_signature(
-            &merkle_root,
-            &sig_meta.signature,
-            &sig_meta.public_key,
-        )?;
+        let is_valid =
+            verify_bundle_signature(&merkle_root, &sig_meta.signature, &sig_meta.public_key)?;
 
         if !is_valid {
             return Err(AosError::Validation(
-                "❌ REGRESSION: Fresh process cannot verify bundle signature from metadata".to_string()
+                "❌ REGRESSION: Fresh process cannot verify bundle signature from metadata"
+                    .to_string(),
             ));
         }
 
@@ -431,11 +435,7 @@ async fn test_document_metadata_coverage() -> Result<()> {
     let public_key_from_writer: Vec<u8>;
 
     {
-        let mut writer = BundleWriter::new(
-            bundle_dir.clone(),
-            5,
-            1024 * 1024,
-        )?;
+        let mut writer = BundleWriter::new(bundle_dir.clone(), 5, 1024 * 1024)?;
 
         public_key_from_writer = hex::decode(&writer.public_key())
             .map_err(|e| AosError::Validation(format!("Invalid public_key hex: {}", e)))?;
@@ -468,9 +468,21 @@ async fn test_document_metadata_coverage() -> Result<()> {
     let sig_meta = load_signature_metadata(&sig_file)?;
 
     eprintln!("SignatureMetadata fields:");
-    eprintln!("  ✓ merkle_root: {} (length: {})", sig_meta.merkle_root, sig_meta.merkle_root.len());
-    eprintln!("  ✓ signature: {} (length: {})", sig_meta.signature, sig_meta.signature.len());
-    eprintln!("  ✓ public_key: {} (length: {})", sig_meta.public_key, sig_meta.public_key.len());
+    eprintln!(
+        "  ✓ merkle_root: {} (length: {})",
+        sig_meta.merkle_root,
+        sig_meta.merkle_root.len()
+    );
+    eprintln!(
+        "  ✓ signature: {} (length: {})",
+        sig_meta.signature,
+        sig_meta.signature.len()
+    );
+    eprintln!(
+        "  ✓ public_key: {} (length: {})",
+        sig_meta.public_key,
+        sig_meta.public_key.len()
+    );
     eprintln!("  ✓ event_count: {}", sig_meta.event_count);
     eprintln!("  ✓ sequence_no: {}", sig_meta.sequence_no);
     eprintln!("  ✓ prev_bundle_hash: {:?}", sig_meta.prev_bundle_hash);
@@ -501,11 +513,8 @@ async fn test_document_metadata_coverage() -> Result<()> {
 
     // Attempt verification using persisted metadata
     let merkle_root = B3Hash::from_hex(&sig_meta.merkle_root)?;
-    let is_valid = verify_bundle_signature(
-        &merkle_root,
-        &sig_meta.signature,
-        &sig_meta.public_key,
-    )?;
+    let is_valid =
+        verify_bundle_signature(&merkle_root, &sig_meta.signature, &sig_meta.public_key)?;
 
     if is_valid {
         eprintln!("✅ METADATA COVERAGE: COMPLETE");
@@ -517,7 +526,7 @@ async fn test_document_metadata_coverage() -> Result<()> {
         eprintln!("\n   Bundle verification from metadata: WORKING ✓");
     } else {
         return Err(AosError::Validation(
-            "❌ METADATA COVERAGE: INCOMPLETE - Verification failed".to_string()
+            "❌ METADATA COVERAGE: INCOMPLETE - Verification failed".to_string(),
         ));
     }
 
@@ -538,11 +547,7 @@ async fn test_tampered_signature_fails_verification() -> Result<()> {
     eprintln!("Creating bundle for tampering test");
 
     {
-        let mut writer = BundleWriter::new(
-            bundle_dir.clone(),
-            5,
-            1024 * 1024,
-        )?;
+        let mut writer = BundleWriter::new(bundle_dir.clone(), 5, 1024 * 1024)?;
 
         for i in 0..3 {
             writer.write_event(&create_test_event(i, "tamper_test"))?;
@@ -571,11 +576,8 @@ async fn test_tampered_signature_fails_verification() -> Result<()> {
 
     eprintln!("Attempting verification with tampered merkle root");
 
-    let result = verify_bundle_signature(
-        &tampered_merkle,
-        &sig_meta.signature,
-        &sig_meta.public_key,
-    );
+    let result =
+        verify_bundle_signature(&tampered_merkle, &sig_meta.signature, &sig_meta.public_key);
 
     // Verification should fail for tampered data
     assert!(

@@ -53,7 +53,8 @@ fn check_federation_migration() -> Check {
                     "Tick ledger federation migration",
                     vec![
                         "Migration 0035_tick_ledger_federation.sql exists".to_string(),
-                        "Contains bundle_hash, prev_host_hash, federation_signature columns".to_string(),
+                        "Contains bundle_hash, prev_host_hash, federation_signature columns"
+                            .to_string(),
                     ],
                 )
             } else {
@@ -110,7 +111,10 @@ fn check_federation_schema() -> Check {
             } else {
                 Check::skip(
                     "Federation schema in global_ledger.rs",
-                    format!("Federation fields not all present (reserved for future use): {}", evidence.join(", ")),
+                    format!(
+                        "Federation fields not all present (reserved for future use): {}",
+                        evidence.join(", ")
+                    ),
                 )
             }
         }
@@ -252,24 +256,39 @@ fn check_barrier_tests() -> Check {
                 evidence.push("Dead agent handling test present (Issue C-8)".to_string());
             }
             if has_regression_test {
-                evidence.push("Critical regression test: 7 agents, 5 rapid barriers (Issue C-1/C-2)".to_string());
+                evidence.push(
+                    "Critical regression test: 7 agents, 5 rapid barriers (Issue C-1/C-2)"
+                        .to_string(),
+                );
             }
 
-            let test_count = [has_stress_test, has_timeout_test, has_cas_test, has_dead_agent_test, has_regression_test]
-                .iter()
-                .filter(|&&b| b)
-                .count();
+            let test_count = [
+                has_stress_test,
+                has_timeout_test,
+                has_cas_test,
+                has_dead_agent_test,
+                has_regression_test,
+            ]
+            .iter()
+            .filter(|&&b| b)
+            .count();
 
             if test_count >= 4 {
                 Check::pass(
                     "Comprehensive barrier tests",
-                    vec![format!("Found {}/5 critical barrier tests", test_count), evidence.join(", ")],
+                    vec![
+                        format!("Found {}/5 critical barrier tests", test_count),
+                        evidence.join(", "),
+                    ],
                 )
             } else {
                 Check::fail(
                     "Comprehensive barrier tests",
                     evidence,
-                    format!("Insufficient test coverage: {}/5 critical tests found", test_count),
+                    format!(
+                        "Insufficient test coverage: {}/5 critical tests found",
+                        test_count
+                    ),
                 )
             }
         }

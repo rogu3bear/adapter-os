@@ -54,7 +54,7 @@ async fn test_qwen_integration_pipeline() {
 fn sample_model_config() -> ModelConfig {
     ModelConfig::from_json(
         r#"{
-        "name": "Qwen2.5-7B-Instruct",
+        "name": r#"Qwen2.5-7B-Instruct"#,
         "architecture": "qwen2",
         "vocab_size": 32000,
         "hidden_size": 4096,

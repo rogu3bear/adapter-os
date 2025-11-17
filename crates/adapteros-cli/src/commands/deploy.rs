@@ -86,13 +86,11 @@ async fn deploy_adapters(args: DeployAdaptersArgs, output: &OutputWriter) -> Res
     // Optional backup root: /opt/adapteros/adapters.backup.YYYYMMDD_HHMMSS
     let backup_root = if args.backup_existing {
         let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        Some(
-            PathBuf::from(format!(
-                "{}.backup.{}",
-                args.adapters_dir.display(),
-                ts
-            )),
-        )
+        Some(PathBuf::from(format!(
+            "{}.backup.{}",
+            args.adapters_dir.display(),
+            ts
+        )))
     } else {
         None
     };
@@ -134,7 +132,10 @@ async fn deploy_adapters(args: DeployAdaptersArgs, output: &OutputWriter) -> Res
                 let item = deploy_directory_adapter(dir, &args, &backup_root, output).await?;
                 items.push(item);
             } else {
-                output.warning(format!("Cannot determine adapter directory for {}", path.display()));
+                output.warning(format!(
+                    "Cannot determine adapter directory for {}",
+                    path.display()
+                ));
             }
         }
     }
@@ -193,11 +194,7 @@ async fn deploy_directory_adapter(
                 fs::create_dir_all(root)
                     .with_context(|| format!("creating backup dir {}", root.display()))?;
                 fs::remove_dir_all(&backup_path).ok();
-                fs::create_dir_all(
-                    backup_path
-                        .parent()
-                        .unwrap_or_else(|| Path::new(".")),
-                )?;
+                fs::create_dir_all(backup_path.parent().unwrap_or_else(|| Path::new(".")))?;
                 fs_extra::dir::copy(
                     &target_dir,
                     &backup_path.parent().unwrap_or(root),
@@ -225,11 +222,7 @@ async fn deploy_directory_adapter(
         if target_dir.exists() {
             fs::remove_dir_all(&target_dir).ok();
         }
-        fs::create_dir_all(
-            target_dir
-                .parent()
-                .unwrap_or_else(|| &args.adapters_dir),
-        )?;
+        fs::create_dir_all(target_dir.parent().unwrap_or_else(|| &args.adapters_dir))?;
         fs_extra::dir::copy(
             adapter_dir,
             &args.adapters_dir,
@@ -326,11 +319,7 @@ async fn deploy_aos_adapter(
                     backup_path.display()
                 ));
             } else {
-                fs::create_dir_all(
-                    backup_path
-                        .parent()
-                        .unwrap_or_else(|| root.as_path()),
-                )?;
+                fs::create_dir_all(backup_path.parent().unwrap_or_else(|| root.as_path()))?;
                 fs::copy(&target_path, &backup_path).with_context(|| {
                     format!(
                         "backing up existing .aos {} -> {}",
@@ -350,11 +339,7 @@ async fn deploy_aos_adapter(
             target_path.display()
         ));
     } else {
-        fs::create_dir_all(
-            target_path
-                .parent()
-                .unwrap_or_else(|| &args.adapters_dir),
-        )?;
+        fs::create_dir_all(target_path.parent().unwrap_or_else(|| &args.adapters_dir))?;
         fs::copy(aos_file, &target_path).with_context(|| {
             format!(
                 "copying .aos file {} -> {}",

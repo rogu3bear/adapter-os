@@ -30,13 +30,13 @@ pub use alerting::{AlertEvaluator, AlertingConfig};
 pub use anomaly::{AnomalyConfig, AnomalyDetector};
 pub use baselines::{BaselineConfig, BaselineService};
 pub use collector::SystemMetricsCollector;
+pub use dashboard::{DashboardConfig, DashboardService};
 pub use database::SystemMetricsDb;
 pub use monitor::{SystemMonitor, SystemMonitoringService};
 pub use notifications::{NotificationConfig, NotificationService};
 pub use persistence::MetricsPersistenceService;
 pub use policy::SystemMetricsPolicy;
 pub use types::{MetricsConfig, ThresholdsConfig};
-pub use dashboard::{DashboardConfig, DashboardService};
 
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;

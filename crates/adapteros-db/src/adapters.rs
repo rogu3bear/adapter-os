@@ -260,7 +260,9 @@ impl AdapterRegistrationBuilder {
 
     /// Build the adapter registration parameters
     pub fn build(self) -> Result<AdapterRegistrationParams> {
-        let rank = self.rank.ok_or_else(|| anyhow::anyhow!("rank is required"))?;
+        let rank = self
+            .rank
+            .ok_or_else(|| anyhow::anyhow!("rank is required"))?;
 
         // Validate and default tier
         let tier = self.tier.unwrap_or_else(|| "warm".to_string());
@@ -272,7 +274,9 @@ impl AdapterRegistrationBuilder {
         }
 
         Ok(AdapterRegistrationParams {
-            tenant_id: self.tenant_id.unwrap_or_else(|| "default-tenant".to_string()),
+            tenant_id: self
+                .tenant_id
+                .unwrap_or_else(|| "default-tenant".to_string()),
             adapter_id: self
                 .adapter_id
                 .ok_or_else(|| anyhow::anyhow!("adapter_id is required"))?,
@@ -322,9 +326,9 @@ pub struct Adapter {
     pub tier: String, // TEXT enum: 'persistent', 'warm', 'ephemeral'
     pub hash_b3: String,
     pub rank: i32,
-    pub alpha: f64, // LoRA alpha parameter (usually rank * 2)
-    pub targets_json: String, // JSON array of target modules
-    pub acl_json: Option<String>, // Access control list
+    pub alpha: f64,                 // LoRA alpha parameter (usually rank * 2)
+    pub targets_json: String,       // JSON array of target modules
+    pub acl_json: Option<String>,   // Access control list
     pub adapter_id: Option<String>, // External adapter ID for lookups
     pub languages_json: Option<String>,
     pub framework: Option<String>,
@@ -523,18 +527,17 @@ impl Db {
         use tracing::warn;
 
         // Get adapter_id for pinning check
-        let adapter_id: Option<String> = sqlx::query_scalar(
-            "SELECT adapter_id FROM adapters WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_optional(self.pool())
-        .await?;
+        let adapter_id: Option<String> =
+            sqlx::query_scalar("SELECT adapter_id FROM adapters WHERE id = ?")
+                .bind(id)
+                .fetch_optional(self.pool())
+                .await?;
 
         if let Some(adapter_id) = adapter_id {
             // Check active_pinned_adapters view (single source of truth)
             // View automatically filters expired pins (pinned_until > now())
             let active_pin_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?"
+                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
             )
             .bind(&adapter_id)
             .fetch_one(self.pool())
@@ -548,12 +551,11 @@ impl Db {
                     pin_count = active_pin_count,
                     "Attempted to delete adapter with active pins"
                 );
-                return Err(AosError::PolicyViolation(
-                    format!(
-                        "Cannot delete adapter '{}': adapter has {} active pin(s). Unpin first.",
-                        adapter_id, active_pin_count
-                    )
-                ).into());
+                return Err(AosError::PolicyViolation(format!(
+                    "Cannot delete adapter '{}': adapter has {} active pin(s). Unpin first.",
+                    adapter_id, active_pin_count
+                ))
+                .into());
             }
         }
 
@@ -580,17 +582,16 @@ impl Db {
         let mut tx = self.pool().begin().await?;
 
         // Get adapter_id for pinning check
-        let adapter_id: Option<String> = sqlx::query_scalar(
-            "SELECT adapter_id FROM adapters WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let adapter_id: Option<String> =
+            sqlx::query_scalar("SELECT adapter_id FROM adapters WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if let Some(adapter_id) = adapter_id {
             // Check active_pinned_adapters view (single source of truth)
             let active_pin_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?"
+                "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
             )
             .bind(&adapter_id)
             .fetch_one(&mut *tx)
@@ -604,12 +605,11 @@ impl Db {
                     pin_count = active_pin_count,
                     "Attempted to cascade delete adapter with active pins"
                 );
-                return Err(AosError::PolicyViolation(
-                    format!(
-                        "Cannot delete adapter '{}': adapter has {} active pin(s)",
-                        adapter_id, active_pin_count
-                    )
-                ).into());
+                return Err(AosError::PolicyViolation(format!(
+                    "Cannot delete adapter '{}': adapter has {} active pin(s)",
+                    adapter_id, active_pin_count
+                ))
+                .into());
             }
 
             // Delete from pinned_adapters (expired pins)
@@ -767,12 +767,11 @@ impl Db {
         let mut tx = self.pool().begin().await?;
 
         // Lock the row to prevent concurrent updates
-        let row_exists: Option<(String,)> = sqlx::query_as(
-            "SELECT adapter_id FROM adapters WHERE adapter_id = ?"
-        )
-        .bind(adapter_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let row_exists: Option<(String,)> =
+            sqlx::query_as("SELECT adapter_id FROM adapters WHERE adapter_id = ?")
+                .bind(adapter_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if row_exists.is_none() {
             warn!(adapter_id = %adapter_id, "Adapter not found for state update");
@@ -813,12 +812,11 @@ impl Db {
         let mut tx = self.pool().begin().await?;
 
         // Verify adapter exists
-        let row_exists: Option<(String,)> = sqlx::query_as(
-            "SELECT adapter_id FROM adapters WHERE adapter_id = ?"
-        )
-        .bind(adapter_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let row_exists: Option<(String,)> =
+            sqlx::query_as("SELECT adapter_id FROM adapters WHERE adapter_id = ?")
+                .bind(adapter_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if row_exists.is_none() {
             return Err(anyhow::anyhow!("Adapter not found: {}", adapter_id));
@@ -857,12 +855,11 @@ impl Db {
         let mut tx = self.pool().begin().await?;
 
         // Verify adapter exists
-        let row_exists: Option<(String,)> = sqlx::query_as(
-            "SELECT adapter_id FROM adapters WHERE adapter_id = ?"
-        )
-        .bind(adapter_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let row_exists: Option<(String,)> =
+            sqlx::query_as("SELECT adapter_id FROM adapters WHERE adapter_id = ?")
+                .bind(adapter_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if row_exists.is_none() {
             return Err(anyhow::anyhow!("Adapter not found: {}", adapter_id));
@@ -880,7 +877,7 @@ impl Db {
         sqlx::query(
             "UPDATE adapters
              SET current_state = ?, memory_bytes = ?, updated_at = datetime('now')
-             WHERE adapter_id = ?"
+             WHERE adapter_id = ?",
         )
         .bind(state)
         .bind(memory_bytes)

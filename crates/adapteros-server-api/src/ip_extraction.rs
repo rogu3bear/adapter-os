@@ -86,7 +86,10 @@ mod tests {
     #[test]
     fn test_extract_from_x_forwarded_for() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "203.0.113.1, 10.0.0.1, 192.168.1.1".parse().unwrap());
+        headers.insert(
+            "x-forwarded-for",
+            "203.0.113.1, 10.0.0.1, 192.168.1.1".parse().unwrap(),
+        );
 
         let ip = extract_client_ip(&headers);
         assert_eq!(ip, Some("203.0.113.1".to_string()));
@@ -131,7 +134,10 @@ mod tests {
     #[test]
     fn test_whitespace_handling() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "  203.0.113.1  , 10.0.0.1".parse().unwrap());
+        headers.insert(
+            "x-forwarded-for",
+            "  203.0.113.1  , 10.0.0.1".parse().unwrap(),
+        );
 
         let ip = extract_client_ip(&headers);
         assert_eq!(ip, Some("203.0.113.1".to_string()));
@@ -140,7 +146,10 @@ mod tests {
     #[test]
     fn test_ipv6_address() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "2001:db8::1, 192.168.1.1".parse().unwrap());
+        headers.insert(
+            "x-forwarded-for",
+            "2001:db8::1, 192.168.1.1".parse().unwrap(),
+        );
 
         let ip = extract_client_ip(&headers);
         assert_eq!(ip, Some("2001:db8::1".to_string()));

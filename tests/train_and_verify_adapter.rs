@@ -18,8 +18,8 @@ use tempfile::TempDir;
 #[ignore] // Requires Metal GPU
 async fn test_train_package_and_verify() -> Result<()> {
     // Create temporary directories
-    let temp_dir = TempDir::new()
-        .map_err(|e| AosError::Io(format!("Failed to create temp dir: {}", e)))?;
+    let temp_dir =
+        TempDir::new().map_err(|e| AosError::Io(format!("Failed to create temp dir: {}", e)))?;
     let adapter_dir = temp_dir.path().join("adapters");
     std::fs::create_dir_all(&adapter_dir)?;
 
@@ -87,13 +87,8 @@ async fn test_train_package_and_verify() -> Result<()> {
     );
 
     // Verify files created
-    assert!(
-        packaged.weights_path.exists(),
-        "Weights file should exist"
-    );
-    let manifest_path = adapter_dir
-        .join(&packaged.adapter_id)
-        .join("manifest.json");
+    assert!(packaged.weights_path.exists(), "Weights file should exist");
+    let manifest_path = adapter_dir.join(&packaged.adapter_id).join("manifest.json");
     assert!(manifest_path.exists(), "Manifest should exist");
 
     // Step 5: Load adapter and verify GPU integrity
@@ -103,8 +98,8 @@ async fn test_train_package_and_verify() -> Result<()> {
 
     // Read manifest
     let manifest_json = std::fs::read_to_string(&manifest_path)?;
-    let manifest: serde_json::Value = serde_json::from_str(&manifest_json)
-        .map_err(|e| AosError::Serialization(e.to_string()))?;
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json).map_err(|e| AosError::Serialization(e.to_string()))?;
 
     assert_eq!(manifest["rank"], config.rank);
     assert_eq!(manifest["version"], "1.0.0");
@@ -115,10 +110,7 @@ async fn test_train_package_and_verify() -> Result<()> {
 
     // Read weights
     let weights_data = std::fs::read(&packaged.weights_path)?;
-    assert!(
-        weights_data.len() > 0,
-        "Weights file should contain data"
-    );
+    assert!(weights_data.len() > 0, "Weights file should contain data");
 
     println!("✅ All steps completed successfully!");
     println!("   - Trained adapter with rank {}", config.rank);
@@ -150,10 +142,7 @@ fn add(a: i32, b: i32) -> i32 {
 
     let examples = generator.generate_from_diff(code_before, code_after)?;
 
-    assert!(
-        !examples.is_empty(),
-        "Should generate examples from diff"
-    );
+    assert!(!examples.is_empty(), "Should generate examples from diff");
 
     for (i, ex) in examples.iter().enumerate() {
         println!("Example {}: {} input tokens", i, ex.input.len());

@@ -262,87 +262,6 @@ pub fn validate_description(description: &str) -> ValidationResult<()> {
     Ok(())
 }
 
-/// Validate adapter ID format (alphanumeric, underscores, hyphens)
-pub fn validate_adapter_id(adapter_id: &str) -> ValidationResult<()> {
-    let adapter_id_regex = Regex::new(r"^[a-zA-Z0-9_-]+$").expect("Invalid regex");
-
-    if !adapter_id_regex.is_match(adapter_id) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Invalid adapter ID format")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(
-                        "Must contain only alphanumeric characters, underscores, and hyphens"
-                            .to_string(),
-                    ),
-            ),
-        ));
-    }
-
-    if adapter_id.len() > 100 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Adapter ID too long")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("Maximum length is 100 characters"),
-            ),
-        ));
-    }
-
-    Ok(())
-}
-
-/// Validate name format and length
-pub fn validate_name(name: &str) -> ValidationResult<()> {
-    if name.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Name cannot be empty").with_code("INTERNAL_ERROR")),
-        ));
-    }
-
-    if name.len() > 200 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Name too long")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("Maximum length is 200 characters"),
-            ),
-        ));
-    }
-
-    // Check for suspicious patterns
-    let name_upper = name.to_uppercase();
-    let suspicious_patterns = [
-        "DROP TABLE",
-        "DELETE FROM",
-        "INSERT INTO",
-        "UPDATE SET",
-        "<SCRIPT",
-        "JAVASCRIPT:",
-        "EVAL(",
-        "EXEC(",
-    ];
-
-    for pattern in &suspicious_patterns {
-        if name_upper.contains(pattern) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Name contains suspicious content")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details("Please avoid SQL or script injection attempts"),
-                ),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
 /// Validate B3 hash format
 pub fn validate_hash_b3(hash: &str) -> ValidationResult<()> {
     if !hash.starts_with("b3:") {
@@ -431,28 +350,6 @@ mod tests {
 
         assert!(validate_languages(&vec![]).is_err());
         assert!(validate_languages(&vec!["cobol".to_string()]).is_err());
-    }
-
-    #[test]
-    fn test_validate_adapter_id() {
-        assert!(validate_adapter_id("my-adapter").is_ok());
-        assert!(validate_adapter_id("adapter_123").is_ok());
-        assert!(validate_adapter_id("test-adapter_456").is_ok());
-
-        assert!(validate_adapter_id("").is_err());
-        assert!(validate_adapter_id("adapter with spaces").is_err());
-        assert!(validate_adapter_id("adapter@special").is_err());
-        assert!(validate_adapter_id("adapter/with/slashes").is_err());
-    }
-
-    #[test]
-    fn test_validate_name() {
-        assert!(validate_name("My Adapter").is_ok());
-        assert!(validate_name("Test Adapter 123").is_ok());
-
-        assert!(validate_name("").is_err());
-        assert!(validate_name("DROP TABLE users").is_err());
-        assert!(validate_name("<script>alert('xss')</script>").is_err());
     }
 
     #[test]

@@ -56,7 +56,12 @@ chrono = "0.4"
 smallvec = "1.13"
 
 [dev-dependencies]
-tempfile = "3.8"
+loom = "0.7"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "hotswap"
+harness = false
 
 [target.'cfg(target_os = "macos")'.dependencies]
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }

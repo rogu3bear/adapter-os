@@ -11,6 +11,7 @@ build: ## Build all crates
 
 test: ## Run all tests (excluding experimental MLX FFI)
 	cargo test --workspace --exclude adapteros-lora-mlx-ffi
+	cargo miri test --lib adapteros_lora_worker
 
 clean: ## Clean build artifacts
 	cargo clean
@@ -42,7 +43,7 @@ codegraph-viewer-dev: ## Start CodeGraph Viewer in dev mode
 	cd crates/mplora-codegraph-viewer/frontend && pnpm install
 	cd crates/mplora-codegraph-viewer/src-tauri && cargo tauri dev
 
-check: fmt clippy test ## Run all checks
+check: fmt clippy test determinism-check ## Run all checks
 
 install: build ## Install aosctl
 	cargo install --path crates/aos-cli
@@ -77,5 +78,22 @@ openapi-docs: ## Generate OpenAPI documentation
 
 validate-openapi: ## Validate OpenAPI documentation
 	./scripts/validate_openapi_docs.sh
+
+determinism-check: ## Run determinism tests
+	cargo test --test determinism_harness -- --test-threads=8 --test-timeout=45
+	cargo test -p adapteros-lora-router --test determinism
+
+# For faster runs: PROFILE=release make determinism-check
+ifeq ($(PROFILE),release)
+	cargo test --release --test determinism_harness -- --test-threads=8 --test-timeout=45
+	cargo test --release -p adapteros-lora-router --test determinism
+endif
+
+# CI Integration: Add to test job after cargo test:
+# make determinism-check || exit 1
+# Use matrix: macos-13, macos-14 for cross-version verification
+
+dup:
+	npx jscpd . --config jscpd.config.json || true
 
 .DEFAULT_GOAL := help

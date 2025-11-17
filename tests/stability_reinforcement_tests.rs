@@ -357,11 +357,7 @@ async fn test_ttl_automatic_cleanup() -> Result<()> {
 
     // Test: Find expired adapters
     let expired = db.find_expired_adapters().await?;
-    assert_eq!(
-        expired.len(),
-        1,
-        "Should find one expired adapter"
-    );
+    assert_eq!(expired.len(), 1, "Should find one expired adapter");
     assert_eq!(
         expired[0].adapter_id, adapter_id,
         "Expired adapter should match our test adapter"
@@ -484,10 +480,7 @@ async fn test_atomic_state_and_memory_update() -> Result<()> {
         .expect("Adapter should exist");
 
     assert_eq!(adapter.current_state, "hot", "State should be updated");
-    assert_eq!(
-        adapter.memory_bytes, 5_000_000,
-        "Memory should be updated"
-    );
+    assert_eq!(adapter.memory_bytes, 5_000_000, "Memory should be updated");
 
     Ok(())
 }

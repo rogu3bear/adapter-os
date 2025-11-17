@@ -52,8 +52,8 @@ pub fn create_synthetic_adapter(
         "pattern": format!("{:?}", pattern),
     });
 
-    let manifest_json = serde_json::to_vec(&manifest)
-        .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+    let manifest_json =
+        serde_json::to_vec(&manifest).map_err(|e| adapteros_core::AosError::Serialization(e))?;
 
     // Create minimal safetensors with dummy data
     // For testing, we just need valid structure
@@ -65,17 +65,21 @@ pub fn create_synthetic_adapter(
     let mut aos_bytes = Vec::new();
 
     // Write header
-    aos_bytes.write_all(&(manifest_offset as u32).to_le_bytes())
+    aos_bytes
+        .write_all(&(manifest_offset as u32).to_le_bytes())
         .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
-    aos_bytes.write_all(&(manifest_len as u32).to_le_bytes())
+    aos_bytes
+        .write_all(&(manifest_len as u32).to_le_bytes())
         .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
 
     // Write weights
-    aos_bytes.write_all(&weights_data)
+    aos_bytes
+        .write_all(&weights_data)
         .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
 
     // Write manifest
-    aos_bytes.write_all(&manifest_json)
+    aos_bytes
+        .write_all(&manifest_json)
         .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
 
     Ok(aos_bytes)
@@ -91,10 +95,7 @@ pub async fn create_minimal_test_adapter(rank: usize, alpha: f32) -> Result<Vec<
 /// Compute L2 distance between two vectors
 pub fn compute_l2_distance(a: &[f32], b: &[f32]) -> f32 {
     assert_eq!(a.len(), b.len(), "Vectors must have same length");
-    let sum_sq_diff: f32 = a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - y).powi(2))
-        .sum();
+    let sum_sq_diff: f32 = a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum();
     sum_sq_diff.sqrt()
 }
 

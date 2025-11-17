@@ -8,7 +8,6 @@
 ///
 /// Citation: Multi-agent schema audit - Phase 3 schema validation
 /// Priority: CRITICAL - Prevents struct-schema drift
-
 use adapteros_db::{adapters::AdapterRegistrationBuilder, Db};
 use anyhow::Result;
 use sqlx::Row;
@@ -27,12 +26,10 @@ async fn test_migration_application() -> Result<()> {
     let db = create_test_db().await?;
 
     // Query the migrations table to verify migrations were applied
-    let migration_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM refinery_schema_history"
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap_or(0);
+    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refinery_schema_history")
+        .fetch_one(db.pool())
+        .await
+        .unwrap_or(0);
 
     // We should have at least 65 migrations (0001-0065)
     assert!(
@@ -251,7 +248,10 @@ async fn test_taxonomy_validation() -> Result<()> {
     let purpose: Option<String> = row.get("purpose");
     let revision: Option<String> = row.get("revision");
 
-    assert_eq!(adapter_name, Some("tenant-a/engineering/code-review/r001".to_string()));
+    assert_eq!(
+        adapter_name,
+        Some("tenant-a/engineering/code-review/r001".to_string())
+    );
     assert_eq!(tenant_namespace, Some("tenant-a".to_string()));
     assert_eq!(domain, Some("engineering".to_string()));
     assert_eq!(purpose, Some("code-review".to_string()));

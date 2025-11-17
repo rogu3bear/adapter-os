@@ -222,10 +222,7 @@ async fn test_signature_verification_fails_with_wrong_public_key() -> Result<()>
     let result = verify_bundle_signature(&metadata.merkle_root, &signature, &wrong_public_key);
 
     // Verification MUST fail
-    assert!(
-        result.is_err(),
-        "Wrong public key should fail verification"
-    );
+    assert!(result.is_err(), "Wrong public key should fail verification");
 
     // Check error message
     let error = result.unwrap_err();

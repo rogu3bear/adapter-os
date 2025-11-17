@@ -8,10 +8,54 @@ use adapteros_core::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+/// Adapter record from database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterRecord {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub tier: String,
+    pub hash_b3: String,
+    pub rank: i32,
+    pub alpha: f64,
+    pub targets_json: String,
+    pub acl_json: Option<String>,
+    pub adapter_id: Option<String>,
+    pub languages_json: Option<String>,
+    pub framework: Option<String>,
+    pub active: i32,
+    pub category: String,
+    pub scope: String,
+    pub framework_id: Option<String>,
+    pub framework_version: Option<String>,
+    pub repo_id: Option<String>,
+    pub commit_sha: Option<String>,
+    pub intent: Option<String>,
+    pub current_state: String,
+    pub pinned: i32,
+    pub memory_bytes: i64,
+    pub last_activated: Option<String>,
+    pub activation_count: i64,
+    pub expires_at: Option<String>,
+    pub load_state: String,
+    pub last_loaded_at: Option<String>,
+    pub aos_file_path: Option<String>,
+    pub aos_file_hash: Option<String>,
+    pub adapter_name: Option<String>,
+    pub tenant_namespace: Option<String>,
+    pub domain: Option<String>,
+    pub purpose: Option<String>,
+    pub revision: Option<String>,
+    pub parent_id: Option<String>,
+    pub fork_type: Option<String>,
+    pub fork_reason: Option<String>,
+}
+
 /// Stack record from database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackRecord {
     pub id: String,
+    pub tenant_id: String,
     pub name: String,
     pub description: Option<String>,
     pub adapter_ids_json: String,
@@ -24,6 +68,7 @@ pub struct StackRecord {
 /// Request to create a new adapter stack
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateStackRequest {
+    pub tenant_id: String,
     pub name: String,
     pub description: Option<String>,
     pub adapter_ids: Vec<String>,
@@ -40,19 +85,34 @@ pub struct CreateStackRequest {
 #[async_trait]
 pub trait DatabaseBackend: Send + Sync {
     /// Insert a new adapter stack
-    async fn insert_stack(&self, stack: CreateStackRequest) -> Result<String>;
+    async fn insert_stack(&self, req: &CreateStackRequest) -> Result<String>;
 
     /// Get a stack by ID
-    async fn get_stack(&self, id: &str) -> Result<Option<StackRecord>>;
+    async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>>;
 
     /// List all stacks
     async fn list_stacks(&self) -> Result<Vec<StackRecord>>;
 
+    /// List stacks for a specific tenant
+    async fn list_stacks_for_tenant(&self, tenant_id: &str) -> Result<Vec<StackRecord>>;
+
     /// Delete a stack by ID
-    async fn delete_stack(&self, id: &str) -> Result<bool>;
+    async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool>;
 
     /// Update a stack
-    async fn update_stack(&self, id: &str, stack: CreateStackRequest) -> Result<bool>;
+    async fn update_stack(
+        &self,
+        tenant_id: &str,
+        id: &str,
+        stack: &CreateStackRequest,
+    ) -> Result<bool>;
+
+    /// Get adapter by ID and tenant
+    async fn get_adapter_by_id(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<Option<AdapterRecord>>;
 
     /// Get the database type (for debugging/logging)
     fn database_type(&self) -> &str;

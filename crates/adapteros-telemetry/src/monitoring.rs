@@ -6,7 +6,7 @@ use crate::{
     },
     TelemetryWriter,
 };
-use adapteros_core::Result;
+use adapteros_core::{identity::IdentityEnvelope, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -150,7 +150,13 @@ impl<S: TelemetrySink> MonitoringTelemetry<S> {
         message: String,
         metadata: T,
     ) -> Result<()> {
-        let mut builder = TelemetryEventBuilder::new(event_type, level, message);
+        let identity = IdentityEnvelope::new(
+            "system".to_string(),
+            "monitoring".to_string(),
+            "alert".to_string(),
+            "1.0".to_string(),
+        );
+        let mut builder = TelemetryEventBuilder::new(event_type, level, message, identity);
         if let Some(component) = &self.component {
             builder = builder.component(component.clone());
         }

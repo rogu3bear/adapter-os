@@ -141,7 +141,11 @@ pub async fn run(output: &OutputWriter) -> Result<i32> {
         "Host identity implementation",
         &mut checks,
     );
-    check_compile("adapteros-secd", "Secure Enclave daemon compilation", &mut checks);
+    check_compile(
+        "adapteros-secd",
+        "Secure Enclave daemon compilation",
+        &mut checks,
+    );
 
     check_file(
         "crates/adapteros-orchestrator/src/supervisor.rs",
@@ -221,7 +225,10 @@ fn check_compile(package: &str, name: &str, checks: &mut Vec<DeterminismCheck>) 
             checks.push(DeterminismCheck {
                 name: name.to_string(),
                 ok: false,
-                detail: format!("Compilation failed: {}", stderr.lines().next().unwrap_or("")),
+                detail: format!(
+                    "Compilation failed: {}",
+                    stderr.lines().next().unwrap_or("")
+                ),
             });
         }
         Err(e) => checks.push(DeterminismCheck {
@@ -261,4 +268,3 @@ fn run_determinism_report(checks: &mut Vec<DeterminismCheck>) {
         }),
     }
 }
-

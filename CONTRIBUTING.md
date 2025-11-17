@@ -193,6 +193,22 @@ and adds overflow detection.
 Fixes #789
 ```
 
+### Developing Plugins
+
+- Implement `Plugin` trait from adapteros-core.
+- Use PluginConfig for configuration.
+- Handle tenant isolation in your plugin logic.
+- Test with chaos scenarios for isolation.
+Test plugin isolation with chaos scenarios: Run `cargo test --test chaos_plugin` to verify tenant isolation and fallback behavior.
+
+```rust
+// Example chaos test structure
+#[tokio::test]
+async fn test_plugin_isolation_git_failure() {
+    // Spawn server, enable Git, simulate failure, verify inference works
+}
+```
+
 ## Pull Request Process
 
 ### Before Submitting

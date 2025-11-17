@@ -1,9 +1,13 @@
 //! CLI inference command over AdapterOS UDS
 
+use adapteros_lora_worker::UmaPressureMonitor;
 use anyhow::{Context, Result};
-use serde_json::json;
+use reqwest::Client;
+use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
+use tokio::time::timeout;
 
 /// Run a local inference against the worker UDS server
 pub async fn run(
@@ -13,61 +17,85 @@ pub async fn run(
     require_evidence: bool,
     socket: PathBuf,
     timeout_ms: u64,
+    show_citations: bool,
+    show_trace: bool,
 ) -> Result<()> {
-    // Build request
-    let request = json!({
-        "cpid": "local_dev", // for local calls; server path sets real tenant
+    // Backpressure check
+    let monitor = UmaPressureMonitor::new(15, None);
+    if let Err(e) = monitor.check_headroom() {
+        eprintln!(
+            "System under pressure: {}. Retry in 30s or reduce max_tokens.",
+            e
+        );
+        std::process::exit(1);
+    }
+
+    // Prepare request
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms))
+        .build()?;
+
+    let request_body = serde_json::to_string(&serde_json::json!({
+        "cpid": "cli-infer",
         "prompt": prompt,
         "max_tokens": max_tokens.unwrap_or(128),
         "require_evidence": require_evidence,
-    });
+        "request_type": "normal"
+    }))?;
 
-    // UDS client (simple HTTP over UDS)
-    let client = adapteros_client::UdsClient::new(Duration::from_millis(timeout_ms));
+    // Unix socket URL
+    let url = format!(
+        "http+unix:///{} /api/v1/infer",
+        socket.display().to_string().replace(' ', "%20")
+    ); // escape if needed
+    let url =
+        reqwest::Url::parse(&url).map_err(|e| anyhow::anyhow!("Invalid socket URL: {}", e))?;
 
-    // Optionally stage/swap adapter before inference via /adapter JSON endpoint
-    if let Some(adapter_id) = adapter {
-        // Preload
-        let preload_body = serde_json::to_string(&json!({
-            "type": "preload",
-            "adapter_id": adapter_id,
-            // Hash is unknown from CLI; worker accepts placeholder in current API
-            "hash": adapteros_core::B3Hash::hash(b"placeholder"),
-        }))?;
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .body(request_body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Inference request failed: {}", e))?;
 
-        let _ = client
-            .send_request(&socket, "POST", "/adapter", Some(&preload_body))
-            .await
-            .context("Failed to preload adapter")?;
-
-        // Swap (activate)
-        let swap_body = serde_json::to_string(&json!({
-            "type": "swap",
-            "add_ids": [adapter_id],
-            "remove_ids": [] as [String; 0],
-        }))?;
-
-        let _ = client
-            .send_request(&socket, "POST", "/adapter", Some(&swap_body))
-            .await
-            .context("Failed to swap adapter")?;
+    if !response.status().is_success() {
+        eprintln!("Server error: {}", response.status());
+        std::process::exit(1);
     }
 
-    let body = serde_json::to_string(&request)?;
-    let resp = client
-        .send_request(&socket, "POST", "/inference", Some(&body))
+    let json: Value = response
+        .json()
         .await
-        .context("Inference request failed")?;
+        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
 
-    // Parse worker response and print text only
-    let v: serde_json::Value = serde_json::from_str(&resp).context("Failed to parse response JSON")?;
-    if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+    if let Some(text) = json["text"].as_str() {
         println!("{}", text);
-    } else {
-        println!("{}", resp);
+    }
+
+    if show_citations {
+        if let Some(evidence) = json["trace"]["evidence"].as_array() {
+            println!("Citations:");
+            for ev in evidence {
+                println!(
+                    " - {} (score: {}) [{}:{}]",
+                    ev["doc_id"], ev["score"], ev["rev"], ev["span_hash"]
+                );
+            }
+        }
+    }
+
+    if show_trace {
+        println!("Trace: {:?}", json["trace"]);
+    }
+
+    if let Some(refusal) = json["refusal"].as_object() {
+        eprintln!(
+            "Refused: {} (reason: {:?})",
+            refusal["message"], refusal["reason"]
+        );
+        std::process::exit(1);
     }
 
     Ok(())
 }
-
-

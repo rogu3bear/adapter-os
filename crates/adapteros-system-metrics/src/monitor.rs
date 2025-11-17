@@ -54,7 +54,7 @@
 
 use crate::policy::SystemMetricsPolicy;
 use crate::{MetricsConfig, SystemMetricsCollector};
-use adapteros_core::{Result, B3Hash};
+use adapteros_core::{B3Hash, Result};
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use parking_lot::Mutex;
 use rand::SeedableRng;

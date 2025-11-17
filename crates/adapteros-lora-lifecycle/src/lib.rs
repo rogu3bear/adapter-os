@@ -240,7 +240,10 @@ impl LifecycleManager {
         .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
 
         if !stale_adapters.is_empty() {
-            warn!("Found {} orphaned adapters stuck in loading state", stale_adapters.len());
+            warn!(
+                "Found {} orphaned adapters stuck in loading state",
+                stale_adapters.len()
+            );
 
             for (adapter_id, name, load_state) in stale_adapters {
                 recovery_actions.push(format!(
@@ -303,10 +306,15 @@ impl LifecycleManager {
         )
         .fetch_one(db.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to query invalid activation_pct: {}", e)))?;
+        .map_err(|e| {
+            AosError::Database(format!("Failed to query invalid activation_pct: {}", e))
+        })?;
 
         if reset_count > 0 {
-            warn!("Found {} adapters with invalid activation_pct - resetting", reset_count);
+            warn!(
+                "Found {} adapters with invalid activation_pct - resetting",
+                reset_count
+            );
 
             sqlx::query("UPDATE adapters SET activation_pct = 0.0 WHERE activation_pct > 1.0 OR activation_pct < 0.0")
                 .execute(db.pool())
@@ -323,7 +331,10 @@ impl LifecycleManager {
         if recovery_actions.is_empty() {
             info!("✓ Crash recovery complete - no issues detected");
         } else {
-            info!("✓ Crash recovery complete - {} actions taken:", recovery_actions.len());
+            info!(
+                "✓ Crash recovery complete - {} actions taken:",
+                recovery_actions.len()
+            );
             for action in &recovery_actions {
                 info!("  - {}", action);
             }
@@ -427,7 +438,14 @@ impl LifecycleManager {
     ///
     /// Persists pin to database via `pinned_adapters` table.
     /// Pinned adapters will not be evicted by TTL or memory pressure.
-    pub async fn pin_adapter(&self, adapter_id: u16, tenant_id: &str, pinned_by: &str, pinned_until: Option<String>, reason: Option<String>) -> Result<()> {
+    pub async fn pin_adapter(
+        &self,
+        adapter_id: u16,
+        tenant_id: &str,
+        pinned_by: &str,
+        pinned_until: Option<String>,
+        reason: Option<String>,
+    ) -> Result<()> {
         let adapter_id_str = {
             let mut states = self.states.write();
 
@@ -513,14 +531,12 @@ impl LifecycleManager {
 
         // Remove pin from database (single source of truth)
         if let Some(ref db) = self.db {
-            sqlx::query(
-                "DELETE FROM pinned_adapters WHERE tenant_id = ? AND adapter_id = ?"
-            )
-            .bind(tenant_id)
-            .bind(&adapter_id_str)
-            .execute(db.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to remove adapter pin: {}", e)))?;
+            sqlx::query("DELETE FROM pinned_adapters WHERE tenant_id = ? AND adapter_id = ?")
+                .bind(tenant_id)
+                .bind(&adapter_id_str)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to remove adapter pin: {}", e)))?;
 
             info!("✓ Removed pin for adapter {} from database", adapter_id_str);
         }
@@ -1064,64 +1080,37 @@ impl LifecycleManager {
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 2.2
     /// Enhanced to prioritize eviction of expired adapters
-    pub async fn check_memory_pressure(&self, total_memory: usize, threshold: f32) -> Result<()> {
+    pub async fn check_memory_pressure(
+        &self,
+        total_memory: usize,
+        _pressure_level: MemoryPressureLevel,
+    ) -> Result<()> {
         let memory_pressure = self.get_total_memory_usage() as f32 / total_memory as f32;
 
-        // First, check for and evict expired adapters regardless of memory pressure
-        // This ensures expired adapters don't linger in memory
+        // First, evict expired adapters
         if let Some(ref db) = self.db {
             if let Ok(expired_adapters) = db.find_expired_adapters().await {
-                if !expired_adapters.is_empty() {
-                    info!(
-                        count = expired_adapters.len(),
-                        "Found expired adapters during memory check, evicting immediately"
-                    );
-
-                    for expired in &expired_adapters {
-                        if let Some(adapter_id) = self.get_adapter_id_by_name(&expired.name) {
-                            info!(
-                                adapter_id = %expired.name,
-                                expired_at = ?expired.expires_at,
-                                "Evicting expired adapter"
-                            );
-                            let _ = self.evict_adapter(adapter_id).await;
-                        }
+                for expired in &expired_adapters {
+                    if let Some(adapter_id) = self.get_adapter_id_by_name(&expired.name) {
+                        self.evict_adapter(adapter_id).await?;
                     }
                 }
             }
         }
 
-        if memory_pressure > threshold {
-            info!(
-                "Memory pressure detected: {:.2} (threshold: {:.2})",
-                memory_pressure, threshold
-            );
+        if memory_pressure > 0.95 {
+            // critical
+            // Evict Tier 0 if critical
+            self.evict_by_tier(AllocationTier::Critical).await?;
+        } else if memory_pressure > 0.85 {
+            // high
+            // Evict Tier 1
+            self.evict_by_tier(AllocationTier::Extra).await?;
+        }
 
-            // Get adapters sorted by eviction priority
-            let states = self.states.read();
-            let mut eviction_candidates: Vec<_> = states
-                .values()
-                .filter(|record| record.should_evict(memory_pressure))
-                .collect();
-
-            eviction_candidates.sort_by(|a, b| {
-                b.eviction_priority()
-                    .numeric_value()
-                    .cmp(&a.eviction_priority().numeric_value())
-            });
-
-            // Evict adapters starting with highest priority
-            for record in eviction_candidates {
-                if let Some(adapter_id) = self.get_adapter_id_by_name(&record.adapter_id) {
-                    self.evict_adapter(adapter_id).await?;
-
-                    // Check if memory pressure is resolved
-                    let new_pressure = self.get_total_memory_usage() as f32 / total_memory as f32;
-                    if new_pressure <= threshold {
-                        break;
-                    }
-                }
-            }
+        // Reduce K if still high
+        if memory_pressure > 0.9 {
+            self.reduce_k()?;
         }
 
         Ok(())
@@ -1488,14 +1477,12 @@ impl LifecycleManager {
                 .map_err(|e| AosError::Internal(format!("System time error: {}", e)))?
                 .as_secs() as i64;
 
-            sqlx::query(
-                "UPDATE adapters SET last_heartbeat = ? WHERE id = ?"
-            )
-            .bind(now)
-            .bind(adapter_id)
-            .execute(db.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to update heartbeat: {}", e)))?;
+            sqlx::query("UPDATE adapters SET last_heartbeat = ? WHERE id = ?")
+                .bind(now)
+                .bind(adapter_id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to update heartbeat: {}", e)))?;
 
             tracing::trace!(adapter_id = %adapter_id, timestamp = now, "Updated adapter heartbeat");
         }
@@ -1517,7 +1504,7 @@ impl LifecycleManager {
                 "SELECT id FROM adapters
                  WHERE last_heartbeat IS NOT NULL
                    AND last_heartbeat < ?
-                   AND load_state != 'unloaded'"
+                   AND load_state != 'unloaded'",
             )
             .bind(cutoff)
             .fetch_all(db.pool())
@@ -1527,7 +1514,11 @@ impl LifecycleManager {
             let stale_ids: Vec<String> = stale.into_iter().map(|(id,)| id).collect();
 
             if !stale_ids.is_empty() {
-                tracing::warn!(count = stale_ids.len(), threshold_seconds, "Detected stale adapters");
+                tracing::warn!(
+                    count = stale_ids.len(),
+                    threshold_seconds,
+                    "Detected stale adapters"
+                );
             }
 
             return Ok(stale_ids);
@@ -1567,7 +1558,7 @@ impl LifecycleManager {
                 sqlx::query(
                     "UPDATE adapters
                      SET load_state = 'unloaded', last_heartbeat = NULL
-                     WHERE id = ?"
+                     WHERE id = ?",
                 )
                 .bind(&adapter_id)
                 .execute(db.pool())
@@ -1598,6 +1589,31 @@ impl LifecycleManager {
 
         Ok(recovered)
     }
+
+    pub fn get_eviction_candidates(&self, tier: AllocationTier) -> Vec<String> {
+        let states = self.states.read();
+        states
+            .iter()
+            .filter_map(|(id, record)| {
+                if AllocationTier::from(record.state) == tier && !record.pinned {
+                    self.get_adapter_id_by_name(&record.adapter_id)
+                        .map(|_| record.adapter_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub async fn evict_by_tier(&self, tier: AllocationTier) -> Result<()> {
+        let candidates = self.get_eviction_candidates(tier);
+        for name in candidates {
+            if let Some(id) = self.get_adapter_id_by_name(&name) {
+                let _ = self.evict_adapter(id).await;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// GPU integrity verification report
@@ -1624,6 +1640,12 @@ pub struct KReductionEvent {
     pub old_k: usize,
     pub new_k: usize,
     pub reason: String,
+}
+
+#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+pub enum MemoryPressureLevel {
+    High,
+    Critical,
 }
 
 #[cfg(test)]
@@ -1696,7 +1718,7 @@ mod tests {
 
         // Pin adapter
         manager
-            .pin_adapter(0)
+            .pin_adapter(0, "test_tenant", "test_user", None, None)
             .expect("Test adapter pinning should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
 
@@ -1706,7 +1728,7 @@ mod tests {
 
         // Unpin and then demote
         manager
-            .unpin_adapter(0)
+            .unpin_adapter(0, "test_tenant")
             .expect("Test adapter unpinning should succeed");
         manager
             .demote_adapter(0)

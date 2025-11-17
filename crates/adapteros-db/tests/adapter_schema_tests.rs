@@ -80,10 +80,7 @@ async fn test_find_expired_adapters_with_all_schema_fields() {
     );
 
     let expired = &expired_adapters[0];
-    assert_eq!(
-        expired.adapter_id.as_deref(),
-        Some("expired-adapter-1")
-    );
+    assert_eq!(expired.adapter_id.as_deref(), Some("expired-adapter-1"));
     assert_eq!(expired.name, "Expired Test Adapter");
     assert_eq!(expired.hash_b3, "b3:test_hash_expired");
     assert_eq!(expired.rank, 8);
@@ -287,10 +284,7 @@ async fn test_filtered_queries_with_new_schema() {
     // Test category filtering
     let code_adapters = db.list_adapters_by_category("code").await.unwrap();
     assert_eq!(code_adapters.len(), 1);
-    assert_eq!(
-        code_adapters[0].adapter_id.as_deref(),
-        Some("nlp-adapter")
-    );
+    assert_eq!(code_adapters[0].adapter_id.as_deref(), Some("nlp-adapter"));
     assert_eq!(code_adapters[0].load_state, "cold");
 
     // Test scope filtering

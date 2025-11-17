@@ -1,10 +1,13 @@
 mod assets;
+mod plugin_registry;
 
-use adapteros_core::{derive_seed, AosError, B3Hash};
+use adapteros_core::index_snapshot::IndexSnapshot;
+use adapteros_core::{derive_seed, AosError, B3Hash, PluginConfig};
 use adapteros_db::Db;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
+use adapteros_lora_worker::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
@@ -12,6 +15,8 @@ use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
 use anyhow::Result;
 use clap::Parser;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -645,14 +650,22 @@ async fn main() -> Result<()> {
         .jwt_secret
         .clone();
 
+    let uma_monitor = Arc::new(UmaPressureMonitor::new(15, Some(metrics_exporter.clone())));
+    uma_monitor.start_polling().await;
+
     let mut state = AppState::new(
         db.clone(),
         jwt_secret.as_bytes().to_vec(),
         api_config.clone(),
         Arc::clone(&metrics_exporter),
+        uma_monitor.clone(),
     );
 
-    // Initialize Git subsystem (optional, only if enabled in config)
+    state = state.with_plugin_registry(Arc::new(plugin_registry::PluginRegistry::new(db.clone())));
+
+    let registry = state.plugin_registry.clone();
+
+    // Git subsystem initialization
     let git_enabled = config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
@@ -670,23 +683,33 @@ async fn main() -> Result<()> {
             .clone()
             .unwrap_or_default();
 
-        match adapteros_git::GitSubsystem::new(git_config, db.clone()).await {
-            Ok(mut git_subsystem) => {
-                // Start git subsystem
-                if let Err(e) = git_subsystem.start().await {
-                    error!("Failed to start Git subsystem: {}", e);
-                } else {
-                    // Create broadcast channel for file change events
-                    let (file_change_tx, _) = tokio::sync::broadcast::channel(1000);
+        let mut specific = HashMap::new();
+        specific.insert(
+            "config".to_string(),
+            serde_json::to_value(&git_config).map_err(|e| AosError::Serialization(e))?,
+        );
 
-                    state = state.with_git(Arc::new(git_subsystem), Arc::new(file_change_tx));
-                    info!("Git subsystem started successfully");
-                }
-            }
-            Err(e) => {
-                error!("Failed to initialize Git subsystem: {}", e);
-            }
+        let plugin_config = PluginConfig {
+            name: "git".to_string(),
+            enabled: true,
+            specific,
+        };
+
+        if let Err(e) = registry
+            .register("git".to_string(), (*git_arc.clone()).clone(), plugin_config)
+            .await
+        {
+            error!("Failed to register git plugin: {}", e);
         }
+
+        // Start git subsystem - but since in register, already started
+        // let _ = git_arc.start().await; // no need
+
+        // Create broadcast channel for file change events
+        let (file_change_tx, _) = tokio::sync::broadcast::channel(1000);
+
+        state = state.with_git(git_arc, Arc::new(file_change_tx));
+        info!("Git subsystem started successfully");
     } else {
         info!("Git subsystem disabled in configuration");
     }
@@ -719,10 +742,7 @@ async fn main() -> Result<()> {
                 match db_clone.find_expired_adapters().await {
                     Ok(expired) => {
                         if !expired.is_empty() {
-                            info!(
-                                count = expired.len(),
-                                "Found expired adapters, cleaning up"
-                            );
+                            info!(count = expired.len(), "Found expired adapters, cleaning up");
 
                             for adapter in expired {
                                 info!(
@@ -794,6 +814,17 @@ async fn main() -> Result<()> {
         info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
     }
 
+    // After DB init
+    let index_rebuilder = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5min
+        loop {
+            interval.tick().await;
+            if let Err(e) = rebuild_all_indexes(&db).await {
+                warn!("Index rebuild failed: {}", e);
+            }
+        }
+    });
+
     // Build router with UI
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
@@ -818,6 +849,26 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
+    Ok(())
+}
+
+async fn rebuild_all_indexes(db: &Db) -> Result<()> {
+    let tenants = db.list_tenants().await?;
+    for tenant in tenants {
+        let types = vec!["adapter_graph", "stacks" /* ... */];
+        for typ in types {
+            let snapshot = build_index_snapshot(&tenant.id, typ, db).await?;
+            let hash = snapshot.compute_hash();
+            db.store_index_hash(&tenant.id, typ, &hash).await?;
+            // Verify
+            if !db.verify_index(&tenant.id, typ).await? {
+                warn!(
+                    "Index verification failed for tenant {} type {}",
+                    tenant.id, typ
+                );
+            }
+        }
+    }
     Ok(())
 }
 

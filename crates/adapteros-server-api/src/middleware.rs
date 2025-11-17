@@ -2,6 +2,7 @@ use crate::auth::{validate_token, Claims};
 use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_db::users::Role;
 use axum::{
     extract::State,
@@ -30,21 +31,36 @@ pub async fn auth_middleware(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok());
 
-    if let Some(auth_header) = auth_header {
-        if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            match validate_token(token, &state.jwt_secret) {
-                Ok(claims) => {
-                    // Insert claims into request extensions for handlers to use
-                    req.extensions_mut().insert(claims);
-                    return Ok(next.run(req).await);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Token validation failed");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(ErrorResponse::new("unauthorized").with_code("INTERNAL_ERROR")),
-                    ));
-                }
+    let query_token = req.uri().query().and_then(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "token")
+            .map(|(_, value)| value.into_owned())
+    });
+
+    let token = auth_header
+        .and_then(|header| header.strip_prefix("Bearer "))
+        .or(query_token.as_ref());
+
+    if let Some(token) = token {
+        match validate_token(token, &state.jwt_secret) {
+            Ok(claims) => {
+                // Insert claims into request extensions for handlers to use
+                req.extensions_mut().insert(claims);
+                let identity = IdentityEnvelope::new(
+                    claims.tenant_id.clone(),
+                    "api".to_string(),
+                    "middleware".to_string(), // or specific
+                    IdentityEnvelope::default_revision(),
+                );
+                req.extensions_mut().insert(identity);
+                return Ok(next.run(req).await);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Token validation failed");
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(ErrorResponse::new("unauthorized").with_code("INTERNAL_ERROR")),
+                ));
             }
         }
     }
@@ -76,40 +92,62 @@ pub async fn dual_auth_middleware(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok());
 
-    if let Some(auth_header) = auth_header {
-        if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            if token == "adapteros-local" {
-                let now = Utc::now();
-                let claims = Claims {
-                    sub: "api-key-user".to_string(),
-                    email: "api@adapteros.local".to_string(),
-                    role: "User".to_string(),
-                    tenant_id: "default".to_string(),
-                    exp: (now + Duration::hours(1)).timestamp(),
-                    iat: now.timestamp(),
-                    jti: Uuid::new_v4().to_string(),
-                    nbf: now.timestamp(),
-                };
+    let query_token = req.uri().query().and_then(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(key, _)| key == "token")
+            .map(|(_, value)| value.into_owned())
+    });
+
+    let token = auth_header
+        .and_then(|header| header.strip_prefix("Bearer "))
+        .or(query_token.as_ref());
+
+    if let Some(token) = token {
+        if token == "adapteros-local" {
+            let now = Utc::now();
+            let claims = Claims {
+                sub: "api-key-user".to_string(),
+                email: "api@adapteros.local".to_string(),
+                role: "User".to_string(),
+                tenant_id: "default".to_string(),
+                exp: (now + Duration::hours(1)).timestamp(),
+                iat: now.timestamp(),
+                jti: Uuid::new_v4().to_string(),
+                nbf: now.timestamp(),
+            };
+            req.extensions_mut().insert(claims);
+            let identity = IdentityEnvelope::new(
+                claims.tenant_id.clone(),
+                "api".to_string(),
+                "middleware".to_string(), // or specific
+                IdentityEnvelope::default_revision(),
+            );
+            req.extensions_mut().insert(identity);
+            return Ok(next.run(req).await);
+        }
+
+        match validate_token(token, &state.jwt_secret) {
+            Ok(claims) => {
                 req.extensions_mut().insert(claims);
+                let identity = IdentityEnvelope::new(
+                    claims.tenant_id.clone(),
+                    "api".to_string(),
+                    "middleware".to_string(), // or specific
+                    IdentityEnvelope::default_revision(),
+                );
+                req.extensions_mut().insert(identity);
                 return Ok(next.run(req).await);
             }
-
-            match validate_token(token, &state.jwt_secret) {
-                Ok(claims) => {
-                    req.extensions_mut().insert(claims);
-                    return Ok(next.run(req).await);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Token validation failed");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(
-                            ErrorResponse::new("unauthorized")
-                                .with_code("UNAUTHORIZED")
-                                .with_string_details("invalid token"),
-                        ),
-                    ));
-                }
+            Err(e) => {
+                tracing::warn!(error = %e, "Token validation failed");
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(
+                        ErrorResponse::new("unauthorized")
+                            .with_code("UNAUTHORIZED")
+                            .with_string_details("invalid token"),
+                    ),
+                ));
             }
         }
     }

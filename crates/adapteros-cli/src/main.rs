@@ -13,6 +13,7 @@ mod error_codes;
 mod logging;
 mod output;
 
+use adapteros_lora_worker::{MemoryPressureLevel, UmaPressureMonitor};
 use commands::golden::GoldenCmd;
 use commands::*;
 use logging::init_logging;
@@ -717,7 +718,7 @@ Examples:
     },
 
     /// Run a local inference against the worker UDS
-    #[command(after_help = "\
+    #[command(after_help = r#"
 Examples:
   # Basic inference
   aosctl infer --prompt 'Hello world' --socket /var/run/adapteros.sock
@@ -727,7 +728,7 @@ Examples:
 
   # Increase max tokens and timeout
   aosctl infer --prompt 'Test' --max-tokens 256 --timeout 60000
-"])
+"#)]
     Infer {
         /// Optional adapter to activate before inference
         #[arg(long)]
@@ -1490,6 +1491,20 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             require_evidence,
             timeout,
         } => {
+            // Check UMA pressure before inference
+            let monitor = UmaPressureMonitor::new(15, None);
+            let pressure = monitor.get_current_pressure();
+            if matches!(
+                pressure,
+                MemoryPressureLevel::High | MemoryPressureLevel::Critical
+            ) {
+                eprintln!(
+                    "System under pressure (level: {}), retry in 30s or reduce max_tokens",
+                    pressure.to_string()
+                );
+                std::process::exit(1);
+            }
+
             commands::infer::run(
                 adapter.clone(),
                 prompt.clone(),

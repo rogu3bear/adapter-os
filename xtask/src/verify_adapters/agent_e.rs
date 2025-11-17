@@ -407,8 +407,12 @@ fn check_subsystem_consistency() -> Check {
                 } else {
                     issues.push("✗ compute_divergences() not found in global_ledger".to_string());
                 }
-                if content.contains("tick_ledger.consistent") || content.contains("tick_ledger.inconsistent") {
-                    evidence.push("✓ Divergence telemetry events (consistent/inconsistent) found".to_string());
+                if content.contains("tick_ledger.consistent")
+                    || content.contains("tick_ledger.inconsistent")
+                {
+                    evidence.push(
+                        "✓ Divergence telemetry events (consistent/inconsistent) found".to_string(),
+                    );
                 } else {
                     issues.push("✗ Divergence telemetry events not found".to_string());
                 }
@@ -464,15 +468,22 @@ fn check_subsystem_consistency() -> Check {
     }
 
     // 5. Cross-host consistency tests
-    let cross_host_tests = Path::new("crates/adapteros-deterministic-exec/tests/cross_host_consistency.rs");
+    let cross_host_tests =
+        Path::new("crates/adapteros-deterministic-exec/tests/cross_host_consistency.rs");
     if cross_host_tests.exists() {
         match fs::read_to_string(cross_host_tests) {
             Ok(content) => {
                 let test_count = content.matches("fn test_").count();
                 if test_count >= 3 {
-                    evidence.push(format!("✓ {} cross-host consistency tests found", test_count));
+                    evidence.push(format!(
+                        "✓ {} cross-host consistency tests found",
+                        test_count
+                    ));
                 } else {
-                    issues.push(format!("✗ Only {} cross-host tests found (expected 3+)", test_count));
+                    issues.push(format!(
+                        "✗ Only {} cross-host tests found (expected 3+)",
+                        test_count
+                    ));
                 }
             }
             Err(_) => issues.push("✗ Failed to read cross_host_consistency.rs".to_string()),

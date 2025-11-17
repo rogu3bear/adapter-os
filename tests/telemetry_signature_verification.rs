@@ -83,10 +83,7 @@ fn test_wrong_public_key_fails_verification() -> Result<()> {
     let result = verify_bundle_signature(&merkle_root, &signature_hex, &wrong_public_key_hex);
 
     // Verification should fail
-    assert!(
-        result.is_err(),
-        "Wrong public key should fail verification"
-    );
+    assert!(result.is_err(), "Wrong public key should fail verification");
     match result {
         Err(AosError::Crypto(_)) => {
             // Expected error type

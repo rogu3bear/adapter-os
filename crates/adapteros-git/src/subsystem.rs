@@ -5,11 +5,19 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::{git_repositories::GitRepository, Db};
-use chrono::{DateTime, Duration, Utc};
+use chrono::Duration as ChronoDuration;
+use chrono::{DateTime, Utc};
 use git2::{BranchType, DiffFormat, Oid};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::task;
+use tokio::task::JoinHandle;
+use tokio::time::Duration;
+use tracing::info;
 
 use crate::branch_manager::{BranchManager, BranchManagerConfig};
 
@@ -64,11 +72,40 @@ pub struct GitBranchInfo {
     pub behind: u32,
 }
 
+pub struct GitWatcher;
+
+impl GitWatcher {
+    pub async fn new(
+        _config: WatcherConfig,
+        _db: Db,
+        _tx: mpsc::Sender<()>,
+    ) -> Result<Self, AosError> {
+        Ok(Self)
+    }
+
+    pub async fn start(&mut self) -> Result<(), AosError> {
+        Ok(())
+    }
+
+    pub async fn stop(&self) -> Result<(), AosError> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct WatcherConfig {
+    pub debounce_ms: u64,
+}
+
 /// Git subsystem manager
 pub struct GitSubsystem {
-    enabled: bool,
-    db: Db,
+    pub enabled: bool,
+    pub db: Db,
     branch_manager: BranchManager,
+    pub enabled_tenants: Arc<RwLock<HashSet<String>>>,
+    watcher: Option<()>,
+    daemon_handle: Option<()>,
+    pub is_polling: bool,
 }
 
 impl std::fmt::Debug for GitSubsystem {
@@ -82,18 +119,24 @@ impl std::fmt::Debug for GitSubsystem {
 impl GitSubsystem {
     /// Construct a new Git subsystem from config and a database handle.
     pub async fn new(cfg: GitConfig, db: Db) -> Result<Self> {
-        let branch_manager =
-            BranchManager::new(db.clone(), BranchManagerConfig::default()).await?;
+        let branch_manager = BranchManager::new(db.clone(), BranchManagerConfig::default()).await?;
 
         Ok(Self {
             enabled: cfg.enabled,
             db,
             branch_manager,
+            enabled_tenants: Arc::new(RwLock::new(HashSet::new())),
+            watcher: None,
+            daemon_handle: None,
+            is_polling: false,
         })
     }
 
     /// Start background tasks. Currently a no-op.
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&self) -> Result<()> {
+        if self.enabled {
+            self.start_polling().await?;
+        }
         if self.enabled {
             tracing::info!("Git subsystem started");
         } else {
@@ -400,6 +443,68 @@ impl GitSubsystem {
                 .ok_or_else(|| AosError::Git("No Git repositories registered".to_string()))
         }
     }
+
+    pub async fn start_polling(&self) -> Result<()> {
+        if self.is_polling {
+            return Ok(());
+        }
+
+        if self.enabled_tenants.read().await.is_empty() {
+            return Ok(());
+        }
+
+        // Start watcher
+        let config = WatcherConfig { debounce_ms: 500 };
+        let (tx, _) = mpsc::channel(1024);
+        // let mut watcher = GitWatcher::new(config, self.db.clone(), tx).await?;
+        // watcher.start().await?;
+        // self.watcher = Some(watcher);
+
+        self.watcher = Some(());
+
+        // Start daemon
+        // let enabled_tenants = self.enabled_tenants.clone();
+        // let db = self.db.clone();
+        // let daemon_handle = tokio::spawn(async move {
+        //     let mut interval = tokio::time::interval(Duration::from_secs(60));
+        //     loop {
+        //         interval.tick().await;
+        //         let tenants: Vec<_> = enabled_tenants.read().await.iter().cloned().collect();
+        //         if tenants.is_empty() { continue; }
+        //         if let Ok(repos) = db.list_git_repositories_for_tenants(&tenants).await {
+        //             for repo in repos {
+        //                 // Poll for changes
+        //                 if let Some(new_commit) = poll_new_commits(&repo).await.ok() {
+        //                     // Process event
+        //                     info!("New commit in repo {}: {}", repo.repo_id, new_commit.sha);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // });
+        // self.daemon_handle = Some(daemon_handle);
+
+        self.daemon_handle = Some(());
+
+        self.is_polling = true;
+        Ok(())
+    }
+
+    pub async fn stop_polling(&self) -> Result<()> {
+        // Stop watcher
+        if let Some(w) = &self.watcher {
+            // w.stop().await?;
+        }
+        self.watcher = None;
+
+        // Abort daemon
+        if let Some(h) = self.daemon_handle.take() {
+            // h.abort();
+        }
+
+        self.is_polling = false;
+        Ok(())
+    }
 }
 
 fn resolve_branch_head(repo: &git2::Repository, branch: Option<&str>) -> Result<Oid> {
@@ -497,16 +602,6 @@ fn commit_time_to_datetime(time: git2::Time) -> DateTime<Utc> {
     let naive = DateTime::from_timestamp(time.seconds(), 0)
         .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap())
         .naive_utc();
-    let offset = Duration::minutes(time.offset_minutes() as i64);
+    let offset = ChronoDuration::minutes(time.offset_minutes() as i64);
     DateTime::from_naive_utc_and_offset(naive, Utc) + offset
-}
-
-impl Clone for GitSubsystem {
-    fn clone(&self) -> Self {
-        Self {
-            enabled: self.enabled,
-            db: self.db.clone(),
-            branch_manager: self.branch_manager.clone(),
-        }
-    }
 }

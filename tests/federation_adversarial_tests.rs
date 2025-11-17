@@ -4,8 +4,8 @@
 //! adversarial test coverage as required by patent gates.
 
 use adapteros_core::{AosError, B3Hash};
+use adapteros_crypto::{KeyPair, SignatureScheme};
 use adapteros_federation::{FederationConfig, FederationManager};
-use adapteros_crypto::{SignatureScheme, KeyPair};
 
 #[cfg(test)]
 mod tests {
@@ -47,14 +47,16 @@ mod tests {
 
         // Adversarial cases
         let adversarial_cases = vec![
-            (b"", &signature), // Empty message
-            (message, &[]),    // Empty signature
+            (b"", &signature),                  // Empty message
+            (message, &[]),                     // Empty signature
             (b"different message", &signature), // Wrong message
         ];
 
         for (msg, sig) in adversarial_cases {
-            assert!(keypair.public_key().verify(msg, sig).is_err(),
-                "Should reject adversarial signature verification");
+            assert!(
+                keypair.public_key().verify(msg, sig).is_err(),
+                "Should reject adversarial signature verification"
+            );
         }
     }
 
@@ -74,10 +76,16 @@ mod tests {
         let hash = B3Hash::hash(message);
 
         // First time should work
-        assert!(manager.verify_message_integrity(&hash, message).await.is_ok());
+        assert!(manager
+            .verify_message_integrity(&hash, message)
+            .await
+            .is_ok());
 
         // Second time should be rejected (replay protection)
-        assert!(manager.verify_message_integrity(&hash, message).await.is_err());
+        assert!(manager
+            .verify_message_integrity(&hash, message)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -94,14 +102,20 @@ mod tests {
 
         // Test with invalid certificate
         let invalid_cert = b"invalid certificate data";
-        assert!(manager.validate_peer_certificate(invalid_cert).await.is_err());
+        assert!(manager
+            .validate_peer_certificate(invalid_cert)
+            .await
+            .is_err());
 
         // Test with tampered certificate
         let valid_cert = manager.get_expected_certificate().await.unwrap();
         let mut tampered_cert = valid_cert.clone();
         tampered_cert[0] = tampered_cert[0].wrapping_add(1); // Tamper with cert
 
-        assert!(manager.validate_peer_certificate(&tampered_cert).await.is_err());
+        assert!(manager
+            .validate_peer_certificate(&tampered_cert)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -122,9 +136,8 @@ mod tests {
         // Try to exceed connection limit
         for i in 0..15 {
             let manager_clone = manager.clone();
-            let handle = tokio::spawn(async move {
-                manager_clone.establish_peer_connection(i).await
-            });
+            let handle =
+                tokio::spawn(async move { manager_clone.establish_peer_connection(i).await });
             handles.push(handle);
         }
 
@@ -158,14 +171,23 @@ mod tests {
         let original_hash = B3Hash::hash(original_message);
 
         // Valid message should verify
-        assert!(manager.verify_message_integrity(&original_hash, original_message).await.is_ok());
+        assert!(manager
+            .verify_message_integrity(&original_hash, original_message)
+            .await
+            .is_ok());
 
         // Tampered message should be rejected
         let tampered_message = b"tampered federation message";
-        assert!(manager.verify_message_integrity(&original_hash, tampered_message).await.is_err());
+        assert!(manager
+            .verify_message_integrity(&original_hash, tampered_message)
+            .await
+            .is_err());
 
         // Tampered hash should be rejected
         let wrong_hash = B3Hash::hash(b"wrong message");
-        assert!(manager.verify_message_integrity(&wrong_hash, original_message).await.is_err());
+        assert!(manager
+            .verify_message_integrity(&wrong_hash, original_message)
+            .await
+            .is_err());
     }
 }

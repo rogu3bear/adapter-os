@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features
+- **UMA-Aware Backpressure & Eviction**: Implemented global UMA pressure monitor with tiered eviction (Critical > Extra > Cache), API endpoint `/v1/system/memory`, backpressure signals in CLI/server, telemetry events, and synthetic OOM tests. Prevents OOM under load by shedding right allocations in right order.
+
+### Fixes
+- Rectified UMA backpressure: fixed compilation, real eviction candidates from lifecycle, mounted API route, CLI check, tests without stubs. [source: crates/adapteros-lora-worker/src/memory.rs L1-L188]
+- **Hot-Swap Cut Corners Fixes**: Completed per PRD 5.3.4 - added `get_adapter_by_id` DB method, KV cache alignment checks, async swap wrapping, trace_id in telemetry, signed migration 0069, enhanced test realism. Zero runtime panics, SLO test framework established. [source: crates/adapteros-server-api/src/handlers/adapter_stacks.rs L346-L382]
+
 ### Added
 - **Secure Keychain Integration** - Comprehensive multi-platform key storage system
   - macOS: Hardware Secure Enclave support with Security Framework integration

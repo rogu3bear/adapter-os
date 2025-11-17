@@ -10,7 +10,7 @@ anyhow = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = "1.0"
 serde_jcs = { workspace = true }
 schemars = { workspace = true, optional = true }
 hkdf = { workspace = true }
@@ -24,6 +24,8 @@ sqlx = { workspace = true, optional = true }
 zip = "1.1"
 regex = { workspace = true }
 once_cell = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -34,3 +36,7 @@ default = ["schemars-support"]
 test-utils = ["rand"]
 schemars-support = ["schemars"]
 sqlx = ["dep:sqlx"]
+
+[lib]
+name = "adapteros_core"
+path = "src/lib.rs"

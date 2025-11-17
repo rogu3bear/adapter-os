@@ -177,10 +177,10 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::SRE, Permission::MetricsView) => true,
         (Role::SRE, Permission::AdapterList) => true,
         (Role::SRE, Permission::AdapterView) => true,
-        (Role::SRE, Permission::AdapterLoad) => true,   // Can load for troubleshooting
+        (Role::SRE, Permission::AdapterLoad) => true, // Can load for troubleshooting
         (Role::SRE, Permission::AdapterUnload) => true, // Can unload for troubleshooting
         (Role::SRE, Permission::AdapterRegister) => false, // Cannot register new adapters
-        (Role::SRE, Permission::AdapterDelete) => false,   // Cannot delete adapters
+        (Role::SRE, Permission::AdapterDelete) => false, // Cannot delete adapters
         (Role::SRE, Permission::InferenceExecute) => true, // Can test inference
         (Role::SRE, Permission::WorkerView) => true,
         (Role::SRE, Permission::WorkerManage) => false, // Cannot spawn/manage workers
@@ -348,7 +348,10 @@ mod tests {
         assert!(has_permission(&Role::Operator, Permission::TrainingCancel));
 
         // Can execute inference
-        assert!(has_permission(&Role::Operator, Permission::InferenceExecute));
+        assert!(has_permission(
+            &Role::Operator,
+            Permission::InferenceExecute
+        ));
 
         // Cannot manage tenants or sign policies
         assert!(!has_permission(&Role::Operator, Permission::TenantManage));
@@ -373,7 +376,10 @@ mod tests {
     fn test_compliance_permissions() {
         // Can view and validate policies
         assert!(has_permission(&Role::Compliance, Permission::PolicyView));
-        assert!(has_permission(&Role::Compliance, Permission::PolicyValidate));
+        assert!(has_permission(
+            &Role::Compliance,
+            Permission::PolicyValidate
+        ));
         assert!(has_permission(&Role::Compliance, Permission::AuditView));
 
         // Cannot apply or sign policies
@@ -381,8 +387,17 @@ mod tests {
         assert!(!has_permission(&Role::Compliance, Permission::PolicySign));
 
         // Cannot manage adapters or training
-        assert!(!has_permission(&Role::Compliance, Permission::AdapterRegister));
-        assert!(!has_permission(&Role::Compliance, Permission::TrainingStart));
-        assert!(!has_permission(&Role::Compliance, Permission::InferenceExecute));
+        assert!(!has_permission(
+            &Role::Compliance,
+            Permission::AdapterRegister
+        ));
+        assert!(!has_permission(
+            &Role::Compliance,
+            Permission::TrainingStart
+        ));
+        assert!(!has_permission(
+            &Role::Compliance,
+            Permission::InferenceExecute
+        ));
     }
 }

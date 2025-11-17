@@ -348,7 +348,7 @@ AdapterOS alpha-v0.01-1 includes:
 
 ### API Reference
 - **Rust API**: Run `cargo doc --open`
-- **REST API**: See [docs/control-plane.md](docs/control-plane.md)
+- **REST API**: See [docs/control-plane.md](docs/control-plane.md) - includes hot-swap endpoints like `POST /v1/adapter-stacks/{id}/activate` for zero-downtime stack swaps
 - **CLI Commands**: See [crates/adapteros-cli/docs/aosctl_manual.md](crates/adapteros-cli/docs/aosctl_manual.md)
 
 ---
@@ -401,3 +401,40 @@ Dual-licensed under Apache 2.0 or MIT at your option.
 **AdapterOS alpha-v0.01-1 - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
+
+## Plugins
+
+AdapterOS supports pluggable extensions via the PluginRegistry.
+
+### Registering Custom Plugins
+
+1. Implement the `Plugin` trait in your crate.
+2. Register in main.rs with `registry.register(name, plugin_instance, config).await?`
+3. Use API to enable/disable per tenant: POST /v1/plugins/:name/enable {tenant_id}
+
+### API Examples
+
+To enable the Git plugin for the default tenant:
+
+```bash
+curl -X POST http://localhost:8080/v1/plugins/git/enable \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "default"}'
+```
+
+To disable the Git plugin for a specific tenant:
+
+```bash
+curl -X POST http://localhost:8080/v1/plugins/git/disable \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "default"}'
+```
+
+To check plugin status for all tenants:
+
+```bash
+curl -X GET http://localhost:8080/v1/plugins/health \
+  -H "Authorization: Bearer $JWT"
+```

@@ -16,12 +16,8 @@ pub fn run() -> Result<()> {
         .context("failed to invoke scripts/generate_openapi_simple.sh")?;
 
     if !status.success() {
-        anyhow::bail!(
-            "OpenAPI documentation script exited with status {}",
-            status
-        );
+        anyhow::bail!("OpenAPI documentation script exited with status {}", status);
     }
 
     Ok(())
 }
-

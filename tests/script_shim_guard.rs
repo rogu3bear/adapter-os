@@ -72,4 +72,3 @@ fn deprecated_scripts_are_shims() {
         );
     }
 }
-

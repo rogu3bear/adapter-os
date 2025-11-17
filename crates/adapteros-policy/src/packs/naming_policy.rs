@@ -53,7 +53,10 @@ impl NamingConfig {
         // Basic profanity list - in production, this should be more comprehensive
         // and possibly sourced from a maintained blocklist
         vec![
-            "offensive1", "offensive2", "badword1", "badword2",
+            "offensive1",
+            "offensive2",
+            "badword1",
+            "badword2",
             // Add more as needed - using placeholders for demonstration
         ]
         .into_iter()
@@ -154,8 +157,9 @@ impl NamingPolicy {
     /// Validate adapter name
     pub fn validate_adapter_name(&self, request: &AdapterNameValidation) -> Result<()> {
         // Parse the name to validate format
-        let adapter_name = AdapterName::parse(&request.name)
-            .map_err(|e| AosError::PolicyViolation(format!("Invalid adapter name format: {}", e)))?;
+        let adapter_name = AdapterName::parse(&request.name).map_err(|e| {
+            AosError::PolicyViolation(format!("Invalid adapter name format: {}", e))
+        })?;
 
         // Check profanity if enabled
         if self.config.enforce_profanity_filter {
@@ -310,7 +314,9 @@ impl NamingPolicy {
                         violation_type: NamingViolationType::Profanity,
                         component: component.to_string(),
                         reason: format!("Profanity detected in component: {}", component),
-                        suggestion: Some("Choose a professional name without offensive terms".to_string()),
+                        suggestion: Some(
+                            "Choose a professional name without offensive terms".to_string(),
+                        ),
                     });
                 }
             }
@@ -340,9 +346,7 @@ impl NamingPolicy {
         }
 
         // Check tenant isolation
-        if self.config.enforce_tenant_isolation
-            && adapter_name.tenant() != request.tenant_id
-        {
+        if self.config.enforce_tenant_isolation && adapter_name.tenant() != request.tenant_id {
             violations.push(NamingViolation {
                 violation_type: NamingViolationType::TenantIsolation,
                 component: adapter_name.tenant().to_string(),
@@ -498,10 +502,7 @@ mod tests {
 
         let result = policy.validate_adapter_name(&request);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Tenant mismatch"));
+        assert!(result.unwrap_err().to_string().contains("Tenant mismatch"));
     }
 
     #[test]
@@ -531,10 +532,7 @@ mod tests {
 
         let result = policy.validate_adapter_name(&request);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("monotonicity"));
+        assert!(result.unwrap_err().to_string().contains("monotonicity"));
     }
 
     #[test]
@@ -565,10 +563,16 @@ mod tests {
 
         // Should detect tenant isolation and revision gap
         let violation_types: Vec<_> = violations.iter().map(|v| &v.violation_type).collect();
-        assert!(violation_types.contains(&&NamingViolationType::TenantIsolation),
-            "Expected TenantIsolation violation. Got: {:?}", violation_types);
-        assert!(violation_types.contains(&&NamingViolationType::RevisionGap),
-            "Expected RevisionGap violation. Got: {:?}", violation_types);
+        assert!(
+            violation_types.contains(&&NamingViolationType::TenantIsolation),
+            "Expected TenantIsolation violation. Got: {:?}",
+            violation_types
+        );
+        assert!(
+            violation_types.contains(&&NamingViolationType::RevisionGap),
+            "Expected RevisionGap violation. Got: {:?}",
+            violation_types
+        );
 
         // Test that reserved tenant names fail at parse time (InvalidFormat)
         let reserved_request = AdapterNameValidation {
@@ -580,7 +584,10 @@ mod tests {
 
         let reserved_violations = policy.analyze_adapter_name(&reserved_request);
         assert_eq!(reserved_violations.len(), 1);
-        assert_eq!(reserved_violations[0].violation_type, NamingViolationType::InvalidFormat);
+        assert_eq!(
+            reserved_violations[0].violation_type,
+            NamingViolationType::InvalidFormat
+        );
         assert!(reserved_violations[0].reason.contains("reserved"));
     }
 

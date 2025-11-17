@@ -119,11 +119,7 @@ async fn test_high_frequency_ticks() -> Result<()> {
     assert_eq!(entries.len(), 1000, "Should have 1000 entries");
 
     for (i, entry) in entries.iter().enumerate() {
-        assert_eq!(
-            entry.tick, i as u64,
-            "Entry {} should have tick {}",
-            i, i
-        );
+        assert_eq!(entry.tick, i as u64, "Entry {} should have tick {}", i, i);
     }
 
     Ok(())
@@ -173,10 +169,7 @@ async fn test_merkle_chain_concurrent() -> Result<()> {
 
     // Build a hash map for O(1) lookups
     use std::collections::HashMap;
-    let entry_map: HashMap<_, _> = entries
-        .iter()
-        .map(|e| (e.event_hash, e))
-        .collect();
+    let entry_map: HashMap<_, _> = entries.iter().map(|e| (e.event_hash, e)).collect();
 
     // Count roots
     let roots: Vec<_> = entries
@@ -189,7 +182,9 @@ async fn test_merkle_chain_concurrent() -> Result<()> {
     // Print all entries for debugging
     println!("\nAll entries:");
     for (i, e) in entries.iter().enumerate() {
-        let prev_str = e.prev_entry_hash.as_ref()
+        let prev_str = e
+            .prev_entry_hash
+            .as_ref()
             .map(|h| h.to_hex()[..16].to_string())
             .unwrap_or_else(|| "None".to_string());
         println!(
@@ -226,7 +221,10 @@ async fn test_merkle_chain_concurrent() -> Result<()> {
                 current = entry;
             }
             None => {
-                println!("\nChain ended. Looking for entry with prev_hash={}", current.event_hash.to_hex());
+                println!(
+                    "\nChain ended. Looking for entry with prev_hash={}",
+                    current.event_hash.to_hex()
+                );
                 panic!(
                     "Chain ends prematurely at length {} (expected 20)",
                     chain_length
@@ -313,11 +311,7 @@ async fn test_concurrent_read_write() -> Result<()> {
 
     // Final verification: all 100 entries exist (5 writers × 20 entries)
     let entries = ledger.get_entries(0, 200).await?;
-    assert_eq!(
-        entries.len(),
-        100,
-        "Should have 100 entries from 5 writers"
-    );
+    assert_eq!(entries.len(), 100, "Should have 100 entries from 5 writers");
 
     Ok(())
 }

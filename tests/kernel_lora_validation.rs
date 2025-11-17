@@ -23,8 +23,8 @@ use helpers::{create_synthetic_adapter, WeightPattern};
 async fn test_buffer_binding_verification() -> Result<()> {
     // Create synthetic adapter with constant pattern (all 1.0s)
     let adapter_bytes = create_synthetic_adapter(
-        4,     // rank
-        16.0,  // alpha
+        4,    // rank
+        16.0, // alpha
         WeightPattern::Ones,
     )?;
 
@@ -100,11 +100,7 @@ async fn test_buffer_binding_verification() -> Result<()> {
 #[tokio::test]
 async fn test_multi_module_buffer_binding() -> Result<()> {
     // Create adapter with sequential pattern for easier verification
-    let adapter_bytes = create_synthetic_adapter(
-        4,
-        16.0,
-        WeightPattern::Sequential,
-    )?;
+    let adapter_bytes = create_synthetic_adapter(4, 16.0, WeightPattern::Sequential)?;
 
     let mut kernels = MetalKernels::new()?;
 
@@ -138,7 +134,10 @@ async fn test_multi_module_buffer_binding() -> Result<()> {
         expected_min_size
     );
 
-    println!("✅ Multi-module buffer size validated: {} bytes", buffer_size);
+    println!(
+        "✅ Multi-module buffer size validated: {} bytes",
+        buffer_size
+    );
     println!("   Expected minimum: {} bytes", expected_min_size);
 
     Ok(())
@@ -170,14 +169,25 @@ async fn test_buffer_hot_swap() -> Result<()> {
     println!("✅ Adapter 2 loaded: {} bytes", size_2);
 
     // Verify both adapters have same size (same architecture)
-    assert_eq!(size_1, size_2, "Adapters should have identical buffer sizes");
+    assert_eq!(
+        size_1, size_2,
+        "Adapters should have identical buffer sizes"
+    );
 
     // Verify buffer samples are different (ones vs zeros)
     // Note: Due to Q15 quantization and safetensors format, the exact bytes
     // may vary, but the pattern should be distinguishable
     println!("✅ Hot-swap successful - both adapters loaded independently");
-    println!("   Adapter 1: {} bytes, first sample: {:02x?}", size_1, &first_1[..8.min(first_1.len())]);
-    println!("   Adapter 2: {} bytes, first sample: {:02x?}", size_2, &first_2[..8.min(first_2.len())]);
+    println!(
+        "   Adapter 1: {} bytes, first sample: {:02x?}",
+        size_1,
+        &first_1[..8.min(first_1.len())]
+    );
+    println!(
+        "   Adapter 2: {} bytes, first sample: {:02x?}",
+        size_2,
+        &first_2[..8.min(first_2.len())]
+    );
 
     // Unload first adapter
     kernels.unload_adapter(adapter_id_1)?;
@@ -185,7 +195,10 @@ async fn test_buffer_hot_swap() -> Result<()> {
 
     // Verify second adapter still accessible
     let (size_2_after, _, _, _) = kernels.verify_adapter_buffers(adapter_id_2)?;
-    assert_eq!(size_2, size_2_after, "Adapter 2 should remain unchanged after unloading Adapter 1");
+    assert_eq!(
+        size_2, size_2_after,
+        "Adapter 2 should remain unchanged after unloading Adapter 1"
+    );
 
     println!("✅ Buffer hot-swap validation complete");
 

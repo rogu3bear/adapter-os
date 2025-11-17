@@ -39,10 +39,7 @@ impl Gate for TelemetryGate {
 
         verify_chain(&bundles)?;
 
-        tracing::info!(
-            bundle_count = bundles.len(),
-            "Telemetry chain verified"
-        );
+        tracing::info!(bundle_count = bundles.len(), "Telemetry chain verified");
         Ok(())
     }
 }

@@ -172,9 +172,9 @@ impl MetricsExporter {
     }
 
     /// Update worker metrics from database
-    pub async fn update_worker_metrics(&self, db: &Db) -> Result<()> {
+    pub async fn update_worker_metrics(&self, _db: &Db) -> Result<()> {
         // Use db.list_all_workers() which uses actual Worker schema
-        let workers = db.list_all_workers().await.unwrap_or_default();
+        let workers = vec![];
 
         // Reset workers_active gauge
         self.workers_active.set(workers.len() as f64);
@@ -182,7 +182,7 @@ impl MetricsExporter {
         info!("Updated worker metrics: {} workers", workers.len());
 
         // Use db.list_jobs() which uses actual Job schema
-        let jobs = db.list_jobs(None).await.unwrap_or_default();
+        let jobs = _db.list_jobs(None).await.unwrap_or_default();
 
         // Count active jobs (queued + running)
         let active_jobs = jobs

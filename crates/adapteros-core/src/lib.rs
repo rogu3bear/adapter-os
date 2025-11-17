@@ -28,14 +28,19 @@
 pub mod error;
 pub mod hash;
 pub mod id;
+pub mod identity;
+pub mod index_snapshot;
 pub mod naming;
+pub mod plugins;
 pub mod policy;
 pub mod seed;
+pub mod tenant_snapshot;
 
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
 pub use naming::{AdapterName, ForkType, StackName};
+pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,

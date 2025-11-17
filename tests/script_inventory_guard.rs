@@ -15,8 +15,7 @@ fn scripts_are_listed_in_inventory_or_deprecations() {
 
     let inventory = fs::read_to_string("docs/internal/cli-inventory.md")
         .expect("docs/internal/cli-inventory.md must exist");
-    let deprecations =
-        fs::read_to_string("DEPRECATIONS.md").expect("DEPRECATIONS.md must exist");
+    let deprecations = fs::read_to_string("DEPRECATIONS.md").expect("DEPRECATIONS.md must exist");
 
     let mut missing: Vec<String> = Vec::new();
 
@@ -50,4 +49,3 @@ fn scripts_are_listed_in_inventory_or_deprecations() {
         );
     }
 }
-

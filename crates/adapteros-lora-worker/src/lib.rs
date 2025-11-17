@@ -27,6 +27,8 @@
 //! let response = worker.infer(request).await?;
 //! ```
 
+use crate::kvcache::KvCache;
+use adapteros_core::B3Hash;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
@@ -34,12 +36,18 @@ use adapteros_lora_router::Router;
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
+use tokio::watch;
 use tracing::info;
 
 pub mod adapter_hotswap;
+use adapteros_telemetry::TelemetryWriter;
 pub mod anomaly_detection;
 pub mod backend_factory;
 pub mod base_model_state;
@@ -250,6 +258,8 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     generator: Generator,
     embedding_model: Arc<EmbeddingModel>,
     evidence_retriever: Option<EvidenceRetriever>,
+    kv_cache: KvCache,
+    last_stack_hash: RwLock<Option<B3Hash>>,
     // Safety mechanisms
     _timeout_config: TimeoutConfig,
     _timeout_wrapper: TimeoutWrapper,
@@ -263,6 +273,9 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     lifecycle: adapteros_lora_lifecycle::LifecycleManager,
     // Hot-swap management
     hotswap: HotSwapManager<K>,
+    // Retirement task management
+    retirement_handle: Option<tokio::task::JoinHandle<()>>,
+    shutdown_tx: tokio::watch::Sender<()>,
 }
 
 impl<K: FusedKernels + Send + Sync> Worker<K> {
@@ -337,6 +350,10 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             None
         };
 
+        // Initialize kv_cache
+        let kv_cache = KvCache::new(self.manifest.resources.kv_cache_mb * 1024 * 1024); // 1GB example
+        let last_stack_hash = RwLock::new(None);
+
         // Initialize profiler
         let adapter_names: Vec<String> = manifest.adapters.iter().map(|a| a.id.clone()).collect();
         let profiler = adapteros_profiler::AdapterProfiler::new(
@@ -366,6 +383,12 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         // Create shared kernels Arc for both Worker and HotSwapManager
         let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
+        let hotswap = HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone());
+
+        // Retirement task management
+        let (shutdown_tx, shutdown_rx) = tokio::watch::channel(());
+        let retirement_handle = Some(Arc::new(hotswap.clone()).start_retirement_task(shutdown_rx));
+
         Ok(Self {
             manifest,
             policy,
@@ -377,6 +400,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             generator,
             embedding_model,
             evidence_retriever,
+            kv_cache,
+            last_stack_hash,
             _timeout_config: timeout_config,
             _timeout_wrapper: timeout_wrapper,
             circuit_breaker,
@@ -386,7 +411,9 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             telemetry,
             profiler,
             lifecycle,
-            hotswap: HotSwapManager::new_with_kernels(kernels_arc, adapters_path),
+            hotswap,
+            retirement_handle,
+            shutdown_tx,
         })
     }
 
@@ -406,7 +433,9 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
         tokio::spawn(async move {
             // Placeholder - GPU verification disabled until lifecycle is wrapped in Arc
-            tracing::warn!("GPU verification task not yet implemented - lifecycle needs Arc<Mutex<>> wrapper");
+            tracing::warn!(
+                "GPU verification task not yet implemented - lifecycle needs Arc<Mutex<>> wrapper"
+            );
             tokio::time::sleep(tokio::time::Duration::from_secs(86400)).await;
         })
 
@@ -519,13 +548,15 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
         // Log telemetry
         let duration = start_time.elapsed();
-        self.telemetry.log("inference", InferenceEvent {
-            duration_ms: duration.as_millis() as u64,
-            success: result.is_ok(),
-            timeout_occurred: matches!(result, Err(AosError::Worker(ref msg)) if msg.contains("timeout")),
-            circuit_breaker_open: self.circuit_breaker.is_open(),
-            memory_usage: self.health_monitor.get_memory_usage().unwrap_or(0),
-        })?;
+        if let Some(t) = &self.telemetry {
+            let _ = t.log("inference", InferenceEvent {
+                duration_ms: duration.as_millis() as u64,
+                success: result.is_ok(),
+                timeout_occurred: matches!(result, Err(AosError::Worker(ref msg)) if msg.contains("timeout")),
+                circuit_breaker_open: self.circuit_breaker.is_open(),
+                memory_usage: self.health_monitor.get_memory_usage().unwrap_or(0),
+            }).ok();
+        }
 
         result
     }
@@ -599,6 +630,15 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
         let prompt_tokens = self.tokenizer.encode(&formatted_prompt)?;
 
+        // Snapshot current stack and increment refcounts
+        let stack_handle = self.hotswap.table().get_current_stack_handle();
+
+        // Uncomment
+        for name in stack_handle.active.keys() {
+            let table = self.hotswap.table();
+            table.inc_ref(name);
+        }
+
         let mut generated_tokens = Vec::new();
 
         // Autoregressive generation loop
@@ -664,6 +704,11 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             }
 
             generated_tokens.push(next_token);
+        }
+
+        // Decrement refcounts
+        for name in stack_handle.active.keys() {
+            let _new_ref = self.hotswap.table().dec_ref(name);
         }
 
         // Evaluate lifecycle transitions after inference
@@ -1047,7 +1092,11 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                     let checkpoint_hash_hex = current_fp.checkpoint_hash.to_hex();
 
                     // Verify against stored baseline
-                    match kernels_lock.verify_gpu_fingerprint(*adapter_id_u16, buffer_size, &checkpoint_hash_hex) {
+                    match kernels_lock.verify_gpu_fingerprint(
+                        *adapter_id_u16,
+                        buffer_size,
+                        &checkpoint_hash_hex,
+                    ) {
                         Ok(true) => {
                             // Check memory footprint against baseline
                             let (within_tolerance, z_score, baseline_stats) =
@@ -1061,20 +1110,25 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
                                 // Emit telemetry for successful verification
                                 use adapteros_lora_lifecycle::GpuIntegrityVerificationEvent;
-                                let _ = self.telemetry.log("gpu_integrity_verification", GpuIntegrityVerificationEvent {
-                                    adapter_id: adapter_id.clone(),
-                                    adapter_idx: *adapter_id_u16,
-                                    verified: true,
-                                    buffer_bytes: buffer_size,
-                                    checkpoint_hash: current_fp.checkpoint_hash.to_hex(),
-                                    memory_footprint_within_tolerance: true,
-                                    z_score: Some(z_score),
-                                    baseline_mean: Some(baseline_mean),
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_secs(),
-                                });
+                                if let Some(t) = &self.telemetry {
+                                    let _ = t.log(
+                                        "gpu_integrity_verification",
+                                        GpuIntegrityVerificationEvent {
+                                            adapter_id: adapter_id.clone(),
+                                            adapter_idx: *adapter_id_u16,
+                                            verified: true,
+                                            buffer_bytes: buffer_size,
+                                            checkpoint_hash: current_fp.checkpoint_hash.to_hex(),
+                                            memory_footprint_within_tolerance: true,
+                                            z_score: Some(z_score),
+                                            baseline_mean: Some(baseline_mean),
+                                            timestamp: std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap()
+                                                .as_secs(),
+                                        },
+                                    );
+                                }
                             } else {
                                 failed.push((
                                     *adapter_id_u16,
@@ -1087,26 +1141,32 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
                                 // Emit telemetry for memory footprint anomaly
                                 use adapteros_lora_lifecycle::GpuIntegrityViolationEvent;
-                                let _ = self.telemetry.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
-                                    adapter_id: adapter_id.clone(),
-                                    adapter_idx: *adapter_id_u16,
-                                    violation_type: "memory_anomaly".to_string(),
-                                    details: format!(
-                                        "Memory footprint {} bytes exceeds 2σ tolerance (baseline: {:.1} ± {:.1}, z-score: {:.2})",
-                                        buffer_size, baseline_mean, baseline_stddev, z_score
-                                    ),
-                                    buffer_bytes: Some(buffer_size),
-                                    z_score: Some(z_score),
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_secs(),
-                                });
+                                if let Some(t) = &self.telemetry {
+                                    let _ = t.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
+                                        adapter_id: adapter_id.clone(),
+                                        adapter_idx: *adapter_id_u16,
+                                        violation_type: "memory_anomaly".to_string(),
+                                        details: format!(
+                                            "Memory footprint {} bytes exceeds 2σ tolerance (baseline: {:.1} ± {:.1}, z-score: {:.2})",
+                                            buffer_size, baseline_mean, baseline_stddev, z_score
+                                        ),
+                                        buffer_bytes: Some(buffer_size),
+                                        z_score: Some(z_score),
+                                        timestamp: std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs(),
+                                    });
+                                }
                             }
                         }
                         Ok(false) => {
                             // No baseline exists yet - store this as the baseline
-                            kernels_lock.store_gpu_fingerprint(*adapter_id_u16, buffer_size, &checkpoint_hash_hex);
+                            kernels_lock.store_gpu_fingerprint(
+                                *adapter_id_u16,
+                                buffer_size,
+                                &checkpoint_hash_hex,
+                            );
                             verified.push((*adapter_id_u16, adapter_id.clone()));
 
                             tracing::info!(
@@ -1124,18 +1184,20 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
                             // Emit telemetry for fingerprint mismatch
                             use adapteros_lora_lifecycle::GpuIntegrityViolationEvent;
-                            let _ = self.telemetry.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
-                                adapter_id: adapter_id.clone(),
-                                adapter_idx: *adapter_id_u16,
-                                violation_type: "fingerprint_mismatch".to_string(),
-                                details: format!("GPU buffer checkpoint hash does not match stored fingerprint: {}", msg),
-                                buffer_bytes: Some(buffer_size),
-                                z_score: None,
-                                timestamp: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs(),
-                            });
+                            if let Some(t) = &self.telemetry {
+                                let _ = t.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
+                                    adapter_id: adapter_id.clone(),
+                                    adapter_idx: *adapter_id_u16,
+                                    violation_type: "fingerprint_mismatch".to_string(),
+                                    details: format!("GPU buffer checkpoint hash does not match stored fingerprint: {}", msg),
+                                    buffer_bytes: Some(buffer_size),
+                                    z_score: None,
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs(),
+                                });
+                            }
                         }
                     }
                 }
@@ -1200,6 +1262,16 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             adapter_ids.len()
         );
 
+        // Snapshot current stack and increment refcounts for workflow adapters
+        let table = self.hotswap.table();
+        let stack_handle = table.current_stack.load(Ordering::Acquire).clone();
+        let refcounts = &table.refcounts;
+        for id in &adapter_ids {
+            if let Some(rc) = refcounts.get(id) {
+                rc.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
         // Create kernel backend with adapter name mapping
         let adapter_names: Vec<String> = self
             .manifest
@@ -1209,14 +1281,31 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             .collect();
 
         let backend = Arc::new(KernelAdapterBackend::new(
+            self.hotswap.table().clone(),
             self.kernels.clone(),
             adapter_names,
             152064, // Qwen2.5 vocab size
         ));
 
         // Create and execute workflow
-        let executor = WorkflowExecutor::new(workflow_type, adapter_ids, backend);
-        executor.execute(context).await
+        let executor = WorkflowExecutor::new(workflow_type, adapter_ids.clone(), backend);
+        let result = executor.execute(context).await;
+
+        // Decrement refcounts
+        for id in &adapter_ids {
+            let _new_ref = table.dec_ref(id);
+        }
+
+        result
+    }
+}
+
+impl Drop for Worker<K> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.retirement_handle.take() {
+            let _ = self.shutdown_tx.send(());
+            let _ = tokio::runtime::Handle::current().block_on(handle);
+        }
     }
 }
 

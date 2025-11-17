@@ -34,17 +34,9 @@ async fn test_network_partition_divergence() -> Result<()> {
     let db_b = Db::connect("sqlite::memory:").await?;
     db_b.migrate().await?;
 
-    let ledger_a = GlobalTickLedger::new(
-        Arc::new(db_a),
-        "tenant-1".into(),
-        "host-a".into(),
-    );
+    let ledger_a = GlobalTickLedger::new(Arc::new(db_a), "tenant-1".into(), "host-a".into());
 
-    let ledger_b = GlobalTickLedger::new(
-        Arc::new(db_b),
-        "tenant-1".into(),
-        "host-b".into(),
-    );
+    let ledger_b = GlobalTickLedger::new(Arc::new(db_b), "tenant-1".into(), "host-b".into());
 
     // Host A records events at ticks 0-4
     for i in 0..5 {
@@ -116,8 +108,7 @@ async fn test_network_partition_divergence() -> Result<()> {
     // But cross-host chains should NOT match (diverged execution)
     for i in 0..5 {
         assert_ne!(
-            entries_a[i].event_hash,
-            entries_b[i].event_hash,
+            entries_a[i].event_hash, entries_b[i].event_hash,
             "Tick {} should have different hashes across hosts",
             i
         );
@@ -134,11 +125,7 @@ async fn test_network_partition_divergence() -> Result<()> {
 async fn test_merkle_chain_break_detection() -> Result<()> {
     let db = Db::connect("sqlite::memory:").await?;
     db.migrate().await?;
-    let ledger = GlobalTickLedger::new(
-        Arc::new(db.clone()),
-        "tenant-1".into(),
-        "host-a".into(),
-    );
+    let ledger = GlobalTickLedger::new(Arc::new(db.clone()), "tenant-1".into(), "host-a".into());
 
     // Record 10 events normally
     for i in 0..10 {
@@ -168,14 +155,12 @@ async fn test_merkle_chain_break_detection() -> Result<()> {
 
     // Manually corrupt entry at tick 5 (simulate Byzantine failure or data corruption)
     let corrupted_hash = B3Hash::hash(b"CORRUPTED_DATA");
-    sqlx::query(
-        "UPDATE tick_ledger_entries SET event_hash = ? WHERE tick = ? AND host_id = ?",
-    )
-    .bind(corrupted_hash.to_hex())
-    .bind(5)
-    .bind("host-a")
-    .execute(db.pool())
-    .await?;
+    sqlx::query("UPDATE tick_ledger_entries SET event_hash = ? WHERE tick = ? AND host_id = ?")
+        .bind(corrupted_hash.to_hex())
+        .bind(5)
+        .bind("host-a")
+        .execute(db.pool())
+        .await?;
 
     // Retrieve entries again
     let entries_corrupted = ledger.get_entries(0, 9).await?;
@@ -216,17 +201,9 @@ async fn test_identical_execution_consistency() -> Result<()> {
     let db_b = Db::connect("sqlite::memory:").await?;
     db_b.migrate().await?;
 
-    let ledger_a = GlobalTickLedger::new(
-        Arc::new(db_a),
-        "tenant-1".into(),
-        "host-a".into(),
-    );
+    let ledger_a = GlobalTickLedger::new(Arc::new(db_a), "tenant-1".into(), "host-a".into());
 
-    let ledger_b = GlobalTickLedger::new(
-        Arc::new(db_b),
-        "tenant-1".into(),
-        "host-b".into(),
-    );
+    let ledger_b = GlobalTickLedger::new(Arc::new(db_b), "tenant-1".into(), "host-b".into());
 
     // Both hosts record IDENTICAL events
     for i in 0..10 {
@@ -253,8 +230,7 @@ async fn test_identical_execution_consistency() -> Result<()> {
     // Verify NO divergence: Same ticks, same hashes
     for i in 0..10 {
         assert_eq!(
-            entries_a[i].event_hash,
-            entries_b[i].event_hash,
+            entries_a[i].event_hash, entries_b[i].event_hash,
             "Tick {} should have identical hash across hosts for deterministic execution",
             i
         );
@@ -263,8 +239,7 @@ async fn test_identical_execution_consistency() -> Result<()> {
     // Verify Merkle chains are identical
     for i in 1..10 {
         assert_eq!(
-            entries_a[i].prev_entry_hash,
-            entries_b[i].prev_entry_hash,
+            entries_a[i].prev_entry_hash, entries_b[i].prev_entry_hash,
             "Tick {} should have identical prev_entry_hash",
             i
         );
@@ -283,17 +258,9 @@ async fn test_partial_divergence() -> Result<()> {
     let db_b = Db::connect("sqlite::memory:").await?;
     db_b.migrate().await?;
 
-    let ledger_a = GlobalTickLedger::new(
-        Arc::new(db_a),
-        "tenant-1".into(),
-        "host-a".into(),
-    );
+    let ledger_a = GlobalTickLedger::new(Arc::new(db_a), "tenant-1".into(), "host-a".into());
 
-    let ledger_b = GlobalTickLedger::new(
-        Arc::new(db_b),
-        "tenant-1".into(),
-        "host-b".into(),
-    );
+    let ledger_b = GlobalTickLedger::new(Arc::new(db_b), "tenant-1".into(), "host-b".into());
 
     // Ticks 0-4: Identical execution
     for i in 0..5 {
@@ -341,8 +308,7 @@ async fn test_partial_divergence() -> Result<()> {
     // Verify ticks 0-4 match
     for i in 0..5 {
         assert_eq!(
-            entries_a[i].event_hash,
-            entries_b[i].event_hash,
+            entries_a[i].event_hash, entries_b[i].event_hash,
             "Tick {} should match (before divergence)",
             i
         );
@@ -351,8 +317,7 @@ async fn test_partial_divergence() -> Result<()> {
     // Verify ticks 5-9 diverge
     for i in 5..10 {
         assert_ne!(
-            entries_a[i].event_hash,
-            entries_b[i].event_hash,
+            entries_a[i].event_hash, entries_b[i].event_hash,
             "Tick {} should diverge (after divergence point)",
             i
         );

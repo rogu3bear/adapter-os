@@ -155,7 +155,10 @@ impl CodeFeatures {
         let mut similarity_count = 0;
         for token in &self.path_tokens {
             let token_lower = token.to_lowercase();
-            if common_paths.iter().any(|&common| token_lower.contains(common)) {
+            if common_paths
+                .iter()
+                .any(|&common| token_lower.contains(common))
+            {
                 similarity_count += 1;
             }
         }

@@ -150,6 +150,7 @@ impl BundleWriter {
                 event_count: self.event_count,
                 sequence_no: seq_no,
                 prev_bundle_hash: self.last_merkle_root,
+                version: 1, // Default version
             };
 
             let sig_json =
@@ -238,4 +239,5 @@ pub struct SignatureMetadata {
     /// Previous bundle's Merkle root for chain verification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prev_bundle_hash: Option<B3Hash>,
+    pub version: u32, // default 1
 }

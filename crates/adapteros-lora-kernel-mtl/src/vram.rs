@@ -421,7 +421,11 @@ impl VramTracker {
 
     /// Get baseline statistics for an adapter
     pub fn get_baseline_stats(&mut self, adapter_id: u32) -> Option<(f64, f64, usize)> {
-        self.baselines.write().unwrap().get_mut(&adapter_id).map(|b| b.stats())
+        self.baselines
+            .write()
+            .unwrap()
+            .get_mut(&adapter_id)
+            .map(|b| b.stats())
     }
 }
 

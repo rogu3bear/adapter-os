@@ -86,6 +86,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_base_model_status,
         // Audit logs handler
         handlers::query_audit_logs,
+        handlers::plugins::enable_plugin,
+        handlers::plugins::disable_plugin,
+        handlers::plugins::plugin_status,
+        handlers::plugins::list_plugins,
+        handlers::get_uma_memory,
+        handlers::hydrate_tenant_from_bundle,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -531,6 +537,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
         .route("/v1/metrics/system", get(handlers::get_system_metrics))
+        .route("/v1/system/memory", get(handlers::get_uma_memory))
         // Commit routes
         .route("/v1/commits", get(handlers::list_commits))
         .route("/v1/commits/:sha", get(handlers::get_commit))
@@ -596,6 +603,17 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry_events_stream),
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
+        .route(
+            "/v1/plugins/:name/enable",
+            post(handlers::plugins::enable_plugin),
+        )
+        .route(
+            "/v1/plugins/:name/disable",
+            post(handlers::plugins::disable_plugin),
+        )
+        .route("/v1/plugins/:name", get(handlers::plugins::plugin_status))
+        .route("/v1/plugins", get(handlers::plugins::list_plugins))
+        .route("/v1/system/memory", get(handlers::get_uma_memory))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

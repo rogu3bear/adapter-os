@@ -3,7 +3,7 @@
 //! Verifies signed kernel manifests at runtime to ensure determinism
 //! and prevent tampering with kernel binaries.
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash, Result};
 use adapteros_crypto::signature::{PublicKey, Signature};
 use adapteros_telemetry::{unified_events::TelemetryEventBuilder, TelemetryWriter};
 use base64::Engine;
@@ -149,6 +149,12 @@ impl ManifestVerifier {
         success: bool,
     ) -> Result<()> {
         if let Some(telemetry) = &self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "kernel".to_string(),
+                "manifest".to_string(),
+                "1.0".to_string(),
+            );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("kernel_manifest_verify".to_string()),
                 adapteros_telemetry::LogLevel::Info,
@@ -156,6 +162,7 @@ impl ManifestVerifier {
                     "Kernel manifest verification: {}",
                     if success { "success" } else { "failure" }
                 ),
+                identity,
             )
             .metadata(serde_json::json!({
                 "kernel_hash": kernel_hash.to_hex(),
