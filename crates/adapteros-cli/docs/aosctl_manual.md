@@ -2,9 +2,27 @@
 
 This manual provides an overview of the `aosctl` command‑line interface, including command groups, flag conventions, and usage examples. It is intended as a stable high‑level reference; for exhaustive per‑flag help, run `aosctl <command> --help`.
 
+**New to AdapterOS?** Start with [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) to learn about Tenants, Adapters, Stacks, Router, Telemetry, and Replay.
+
 ---
 
-## 0. Quickstart Overview
+## 0. Core Concepts (Quick Reference)
+
+Before using `aosctl`, understand these core entities:
+
+- **Tenant**: Top-level isolation unit (user, org, environment). Create with `aosctl init-tenant`.
+- **Adapter**: LoRA module that specializes a base model. Register with `aosctl register-adapter`.
+- **Stack**: Tenant-scoped set of adapters + workflow rules. Create with `aosctl create-stack`.
+- **Router**: K-sparse gating mechanism that selects top-K adapters per request.
+- **Telemetry**: Structured event logging for audit trail. Verify with `aosctl telemetry-verify`.
+- **Golden Run**: Verified, deterministic execution for replay verification.
+- **Replay**: Re-execute golden run to verify determinism with `aosctl replay`.
+
+For full details, see [docs/CONCEPTS.md](../../../docs/CONCEPTS.md).
+
+---
+
+## 1. Quickstart Overview
 
 If you just want to bring a node up, migrate the DB, deploy adapters, and verify determinism, the “happy path” looks like:
 
@@ -63,11 +81,14 @@ For more detail, the sections below organize commands by responsibility: tenants
 
 ## 2. Tenant Management
 
+**What is a Tenant?** A tenant is the top-level isolation unit in AdapterOS, representing a user, organization, or environment. Tenants own adapters and stacks, and enforce resource limits.
+
 Tenant commands create and manage isolated tenants on a node.
 
-- `aosctl init-tenant` / `aosctl init`  
-  - Initialize a new tenant with specific UID/GID.  
+- `aosctl init-tenant` / `aosctl init`
+  - Initialize a new tenant with specific UID/GID.
   - Key flags: `--id`, `--uid`, `--gid`.
+  - See [docs/CONCEPTS.md#tenant](../../../docs/CONCEPTS.md#1-tenant) for details.
 
 **Examples**
 
@@ -87,11 +108,16 @@ aosctl init-tenant --id tenant_prod --uid 5000 --gid 5000
 
 ## 3. Adapter Management
 
+**What is an Adapter?** An adapter is a LoRA (Low-Rank Adaptation) module that specializes a base model for a specific task. Adapters have lifecycle states (Unloaded → Cold → Warm → Hot → Resident) and can be pinned to prevent eviction.
+
+**Naming Convention**: `{tenant}/{domain}/{purpose}/{revision}` (e.g., `tenant-a/engineering/code-review/r001`)
+
 Adapter commands manage adapters in the registry (listing, registration, pinning, and air‑gap transfers).
 
-- List adapters  
-  - `aosctl list-adapters`  
+- List adapters
+  - `aosctl list-adapters`
   - Key flags: `--tier` (filter by tier), `--json` for machine‑readable output.
+  - See [docs/CONCEPTS.md#adapter](../../../docs/CONCEPTS.md#2-adapter) for details.
 - Register adapters  
   - `aosctl register-adapter <id> <hash>`  
   - Key flags: `--tier`, `--rank`.
@@ -196,13 +222,19 @@ aosctl deploy adapters \
 
 ## 6. Inference and Replay
 
+**What is Inference?** Inference sends a prompt to the system. The **Router** selects top-K adapters from a stack, the **Kernel** executes them, and **Telemetry** records all events.
+
+**What is Replay?** Replay re-executes a **Golden Run** (verified execution) to verify determinism by comparing outputs byte-for-byte.
+
 These commands interact with running workers and telemetry bundles.
 
-- `aosctl infer`  
-  - Run an inference against a worker UDS.  
+- `aosctl infer`
+  - Run an inference against a worker UDS.
   - Key flags: `--adapter`, `--prompt`, `--socket`, `--max-tokens`, `--timeout`, `--require-evidence`.
-- `aosctl replay`  
+  - See [docs/CONCEPTS.md#workflow-1](../../../docs/CONCEPTS.md#workflow-1-training--adapter--stack--inference) for full flow.
+- `aosctl replay`
   - Replay a telemetry bundle and optionally check determinism.
+  - See [docs/CONCEPTS.md#golden-run](../../../docs/CONCEPTS.md#7-golden-run--replay) for details.
 
 **Examples**
 
@@ -353,11 +385,16 @@ aosctl diag --full --bundle ./var/diag-bundle.zip
 
 These commands provide documentation and tutorials directly in the CLI.
 
-- `aosctl tutorial`  
+- `aosctl tutorial`
   - Guided walkthrough of common workflows (tenant setup, adapter registration, inference).
-- `aosctl manual`  
-  - Prints this manual in the terminal.  
+  - **Recommended**: Start with the concepts overview to understand the mental model.
+- `aosctl manual`
+  - Prints this manual in the terminal.
   - Use `--help` on specific commands for additional sections and examples.
+- **External Docs**:
+  - [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) - **START HERE** - Unified mental model
+  - [docs/ARCHITECTURE_INDEX.md](../../../docs/ARCHITECTURE_INDEX.md) - Architecture documentation index
+  - [CLAUDE.md](../../../CLAUDE.md) - Developer guide
 
 ---
 

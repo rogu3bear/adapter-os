@@ -5,7 +5,8 @@ export interface StageContent {
   whatAppears: string;
   why: string;
   context: string;
-  mockComponent?: string; // Reference to mock component name
+  route?: string; // Real page route in the app
+  mentalModelExplanation?: string; // How this relates to the unified mental model
 }
 
 export interface Stage {
@@ -27,46 +28,50 @@ const mlEngineerStage1: Stage = {
   id: 'training-setup',
   title: 'Training Environment Setup',
   content: {
-    whatAppears: 'CLI terminal with `aos train` command interface',
-    why: 'Direct access to training pipeline for custom LoRA adapters',
-    context: 'Local development or GPU cluster environment',
-    mockComponent: 'MLEngineerTrainingSetup'
+    whatAppears: 'Training page with dataset upload, rank selection, and training job controls',
+    why: 'Create custom LoRA adapters that specialize the base model for your specific task',
+    context: 'Training is the first step in the flow: Training → Adapter → Stack → Inference',
+    route: '/training',
+    mentalModelExplanation: 'This page creates **Adapters** (core entity #2). You upload a dataset, configure LoRA rank, and train weights that will become a registered adapter.'
   }
 };
 
-// Stage 2: Model Registry Interaction
+// Stage 2: Adapter Registration
 const mlEngineerStage2: Stage = {
-  id: 'registry-interaction',
-  title: 'Model Registry Interaction',
+  id: 'adapter-registration',
+  title: 'Adapter Registration',
   content: {
-    whatAppears: 'Registry browser showing adapter versions, metadata, and performance metrics',
-    why: 'Version control and collaboration for trained adapters',
-    context: 'After training completion, before deployment consideration',
-    mockComponent: 'MLEngineerRegistryBrowser'
+    whatAppears: 'Adapters page showing lifecycle states (Unloaded, Cold, Warm, Hot, Resident), memory usage, and activation percentages',
+    why: 'Register trained adapters in the system and manage their lifecycle',
+    context: 'After training completes, adapters must be registered with a semantic name (tenant/domain/purpose/revision)',
+    route: '/adapters',
+    mentalModelExplanation: 'This page shows **Adapters** (entity #2) and their **Lifecycle** states. You can see which adapters are loaded in memory, their activation %, and pin critical adapters to prevent eviction.'
   }
 };
 
-// Stage 3: Performance Monitoring Dashboard
+// Stage 3: Stack Creation
 const mlEngineerStage3: Stage = {
-  id: 'performance-monitoring',
-  title: 'Performance Monitoring Dashboard',
+  id: 'stack-creation',
+  title: 'Stack Creation',
   content: {
-    whatAppears: 'Training metrics, loss curves, GPU utilization graphs',
-    why: 'Validate training quality and resource efficiency',
-    context: 'During and after training runs',
-    mockComponent: 'MLEngineerTrainingMetrics'
+    whatAppears: 'Stack builder with adapter selection, workflow type chooser (Sequential, Parallel, UpstreamDownstream), and policy configuration',
+    why: 'Combine multiple adapters into reusable execution sets with workflow rules',
+    context: 'After adapters are registered, combine them into stacks for specific use cases',
+    route: '/stacks',
+    mentalModelExplanation: 'This page creates **Stacks** (entity #3). A stack is a tenant-scoped set of adapters + workflow rules. For example, [syntax-analyzer, style-checker] in Sequential mode.'
   }
 };
 
-// Stage 4: Inference Testing Interface
+// Stage 4: Inference Testing
 const mlEngineerStage4: Stage = {
   id: 'inference-testing',
-  title: 'Inference Testing Interface',
+  title: 'Inference Testing',
   content: {
-    whatAppears: 'Interactive prompt interface with adapter selection dropdown',
-    why: 'Test adapter behavior before production deployment',
-    context: 'Quality assurance stage',
-    mockComponent: 'MLEngineerInferenceTest'
+    whatAppears: 'Inference playground with prompt input, stack selector, and response output. Router inspector shows which adapters were selected.',
+    why: 'Test your stack with real inference requests and see router decisions',
+    context: 'Final step: verify the complete flow works before production deployment',
+    route: '/inference',
+    mentalModelExplanation: 'This page demonstrates the full execution flow: **Router** (entity #4) selects top-K adapters from your stack, **Kernel** (entity #5) executes them, and **Telemetry** (entity #6) records all events.'
   }
 };
 
@@ -163,23 +168,25 @@ const appDevStage4: Stage = {
 // Security Engineer Stages
 const securityStage1: Stage = {
   id: 'policy-config',
-  title: 'Policy Configuration Studio',
+  title: 'Policy Configuration',
   content: {
-    whatAppears: 'Policy pack editor with rule builder and validation tools',
-    why: 'Define and enforce security policies across the system',
-    context: 'Security policy definition',
-    mockComponent: 'SecurityPolicyEditor'
+    whatAppears: 'Policies page showing 23 canonical policy packs (Egress, Determinism, Router, Evidence, etc.) with enforcement status',
+    why: 'Define and enforce security policies across tenants, adapters, and execution',
+    context: 'Policy packs enforce rules at all layers of the mental model',
+    route: '/policies',
+    mentalModelExplanation: 'Policies enforce rules across all entities: **Tenants** (isolation), **Stacks** (composition), **Router** (selection), **Kernel** (execution). Example: Egress Policy ensures zero network egress in production.'
   }
 };
 
 const securityStage2: Stage = {
-  id: 'evidence-audit',
-  title: 'Evidence Audit Trail Viewer',
+  id: 'telemetry-audit',
+  title: 'Telemetry Audit Trail',
   content: {
-    whatAppears: 'Timeline of policy decisions with detailed evidence logs',
-    why: 'Audit compliance and investigate security incidents',
-    context: 'Compliance monitoring and incident response',
-    mockComponent: 'SecurityAuditTrail'
+    whatAppears: 'Telemetry page with event timeline, Merkle chain visualization, and bundle download',
+    why: 'Audit all system operations with immutable event trail',
+    context: 'Every operation (inference, lifecycle, policy) emits telemetry events',
+    route: '/telemetry',
+    mentalModelExplanation: '**Telemetry** (entity #6) captures all events in a Merkle chain. Each event references the previous hash, creating an immutable audit trail. Bundles are compressed, signed archives used for replay.'
   }
 };
 
@@ -195,13 +202,14 @@ const securityStage3: Stage = {
 };
 
 const securityStage4: Stage = {
-  id: 'threat-detection',
-  title: 'Threat Detection Dashboard',
+  id: 'golden-runs-replay',
+  title: 'Golden Runs & Replay',
   content: {
-    whatAppears: 'Real-time security event monitoring with anomaly detection',
-    why: 'Identify and respond to potential security threats',
-    context: 'Ongoing security operations',
-    mockComponent: 'SecurityThreatDashboard'
+    whatAppears: 'Golden runs page with verified executions, replay controls, and divergence reports',
+    why: 'Verify determinism by replaying golden runs and detecting divergences',
+    context: 'Determinism verification ensures outputs are reproducible',
+    route: '/golden-runs',
+    mentalModelExplanation: '**Golden Runs** (entity #7) are verified, deterministic executions. **Replay** re-executes them to verify byte-for-byte output matching. Divergences indicate non-determinism and are logged to telemetry.'
   }
 };
 

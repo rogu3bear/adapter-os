@@ -8,6 +8,7 @@ Complete index of all architecture documentation with quick navigation.
 
 | Document | Type | Status | Purpose |
 |----------|------|--------|---------|
+| **[Concepts](CONCEPTS.md)** | Mental Model | ✅ Current | **START HERE** - Unified mental model and glossary |
 | **[Precision Diagrams](architecture/precision-diagrams.md)** | Visual | ✅ Verified | Code-verified architecture diagrams |
 | **[Diagram Reference](DIAGRAM_REFERENCE.md)** | Index | ✅ Current | Quick lookup guide |
 | **[Diagram Summary](architecture/DIAGRAM_SUMMARY.md)** | Reference | ✅ Current | Diagram overview and metrics |
@@ -20,35 +21,51 @@ Complete index of all architecture documentation with quick navigation.
 
 ## 🎯 Start Here (Recommended Paths)
 
-### Path 1: Visual Learner (Recommended) ⭐
+### Path 0: First-Time User (Recommended) 🌟
+
+**Goal**: Understand what AdapterOS is and how entities relate
+
+1. **[Concepts](CONCEPTS.md)** - **START HERE** - Mental model and glossary
+   - What is a Tenant, Adapter, Stack, Router?
+   - How do entities relate?
+   - Key workflows explained
+
+**Time**: 30 minutes
+**Outcome**: Conceptual understanding of the system
+
+### Path 1: Visual Learner ⭐
 
 **Goal**: Understand AdapterOS through diagrams
 
-1. **[Precision Diagrams](architecture/precision-diagrams.md)** - Complete visual guide
+1. **[Concepts](CONCEPTS.md)** - Mental model (prerequisite)
+
+2. **[Precision Diagrams](architecture/precision-diagrams.md)** - Complete visual guide
    - System architecture
    - Request flow
    - Component details
-   
-2. **[Database ERD](database-schema/schema-diagram.md)** - Data model
-   
-3. **[Workflow Diagrams](database-schema/workflows/)** - Operational flows
 
-**Time**: 2-3 hours  
+3. **[Database ERD](database-schema/schema-diagram.md)** - Data model
+
+4. **[Workflow Diagrams](database-schema/workflows/)** - Operational flows
+
+**Time**: 2-3 hours
 **Outcome**: Comprehensive visual understanding
 
 ### Path 2: Code-First Developer
 
 **Goal**: Understand implementation through code
 
-1. **[CLAUDE.md](../CLAUDE.md)** - Developer guide with code examples
-   
-2. **[Precision Diagrams](architecture/precision-diagrams.md)** - Verify understanding
+1. **[Concepts](CONCEPTS.md)** - Mental model (prerequisite)
+
+2. **[CLAUDE.md](../CLAUDE.md)** - Developer guide with code examples
+
+3. **[Precision Diagrams](architecture/precision-diagrams.md)** - Verify understanding
    - Cross-reference with code paths
    - Check line numbers
-   
-3. **[API Documentation](api.md)** - Endpoint reference
 
-**Time**: 3-4 hours  
+4. **[API Documentation](api.md)** - Endpoint reference
+
+**Time**: 3-4 hours
 **Outcome**: Code-level understanding with visual context
 
 ### Path 3: Operations & SRE
@@ -171,7 +188,7 @@ Located in `runtime-diagrams.md` - ⚠️ May be outdated
 ### Beginner (0-1 week experience)
 
 **Week 1 - System Overview**:
-- Day 1: Read `QUICKSTART.md` + `architecture.md`
+- Day 1: Read `CONCEPTS.md` + `QUICKSTART.md`
 - Day 2: Study `precision-diagrams.md` § 1-2
 - Day 3: Review `database-schema/schema-diagram.md`
 - Day 4: Read `control-plane.md`
