@@ -18,6 +18,7 @@ use axum::response::Response;
 use sqlx::Row;
 
 pub mod adapter_stacks;
+pub mod adapters;
 pub mod batch;
 pub mod code;
 pub mod domain_adapters;
@@ -25,6 +26,9 @@ pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod replay;
+
+// Re-export adapter lifecycle and lineage handlers
+pub use adapters::*;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;

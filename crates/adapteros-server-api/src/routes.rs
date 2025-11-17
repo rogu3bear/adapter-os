@@ -409,9 +409,23 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/activations",
             get(handlers::get_adapter_activations),
         )
+        // PRD-07: Lifecycle promotion/demotion
         .route(
             "/v1/adapters/:adapter_id/promote",
-            post(handlers::promote_adapter_state),
+            post(handlers::promote_adapter_lifecycle),
+        )
+        .route(
+            "/v1/adapters/:adapter_id/demote",
+            post(handlers::demote_adapter_lifecycle),
+        )
+        // PRD-08: Lineage and detail views
+        .route(
+            "/v1/adapters/:adapter_id/lineage",
+            get(handlers::get_adapter_lineage),
+        )
+        .route(
+            "/v1/adapters/:adapter_id/detail",
+            get(handlers::get_adapter_detail),
         )
         .route(
             "/v1/adapters/:adapter_id/manifest",

@@ -391,6 +391,24 @@ pub enum AdapterCommand {
         tenant: Option<String>,
     },
 
+    /// Show adapter lineage tree (ancestors and descendants)
+    #[command(
+        after_help = "Examples:\n  aosctl adapter lineage adapter-1\n  aosctl adapter lineage adapter-1 --json\n  aosctl adapter lineage adapter-1 --tree"
+    )]
+    Lineage {
+        /// Adapter ID
+        #[arg()]
+        adapter_id: String,
+
+        /// Output format
+        #[arg(long)]
+        json: bool,
+
+        /// Display as tree (ASCII art)
+        #[arg(long)]
+        tree: bool,
+    },
+
     /// Evict adapter from memory
     #[command(
         after_help = "Examples:\n  aosctl adapter evict adapter-1\n  aosctl adapter evict adapter-1 --tenant dev --reason \"Low activation\""
@@ -463,6 +481,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Demote { .. } => "adapter_demote".to_string(),
         AdapterCommand::Pin { .. } => "adapter_pin".to_string(),
         AdapterCommand::Unpin { .. } => "adapter_unpin".to_string(),
+        AdapterCommand::Lineage { .. } => "adapter_lineage".to_string(),
         AdapterCommand::Evict { .. } => "adapter_evict".to_string(),
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
         AdapterCommand::VerifyGpu { .. } => "adapter_verify_gpu".to_string(),
@@ -478,6 +497,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Demote { tenant, .. } => tenant.clone(),
         AdapterCommand::Pin { tenant, .. } => tenant.clone(),
         AdapterCommand::Unpin { tenant, .. } => tenant.clone(),
+        AdapterCommand::Lineage { .. } => None, // Lineage doesn't have tenant parameter
         AdapterCommand::Evict { tenant, .. } => tenant.clone(),
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
@@ -519,6 +539,11 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
         AdapterCommand::Unpin { adapter_id, tenant } => {
             unpin_adapter(&adapter_id, tenant, output).await
         }
+        AdapterCommand::Lineage {
+            adapter_id,
+            json,
+            tree,
+        } => lineage_adapter(&adapter_id, json, tree, output).await,
         AdapterCommand::Evict {
             adapter_id,
             tenant,
@@ -1234,6 +1259,158 @@ async fn unpin_adapter(
         }
     }
 
+    Ok(())
+}
+
+/// Show adapter lineage tree (ancestors and descendants)
+///
+/// **PRD-08:** Displays full lineage tree including parent, children, and fork relationships.
+async fn lineage_adapter(
+    adapter_id: &str,
+    json_output: bool,
+    tree_view: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    use reqwest::Client;
+    use serde_json::Value;
+
+    validate_adapter_id(adapter_id)?;
+    info!(adapter_id = %adapter_id, "Fetching adapter lineage");
+
+    // Call lineage API endpoint
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:8080/api/v1/adapters/{}/lineage", adapter_id);
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AosError::Network(format!("Failed to fetch lineage: {}", e)))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(AosError::Network(format!(
+            "API error {}: {}",
+            status, error_text
+        )));
+    }
+
+    let lineage_data: Value = response
+        .json()
+        .await
+        .map_err(|e| AosError::Network(format!("Failed to parse response: {}", e)))?;
+
+    // Output based on format
+    if json_output {
+        output.result(&serde_json::to_string_pretty(&lineage_data)?);
+        return Ok(());
+    }
+
+    // Parse lineage structure
+    let ancestors = lineage_data["ancestors"].as_array().unwrap_or(&vec![]);
+    let self_node = &lineage_data["self_node"];
+    let descendants = lineage_data["descendants"].as_array().unwrap_or(&vec![]);
+    let total_nodes = lineage_data["total_nodes"].as_u64().unwrap_or(0);
+
+    output.info(&format!("Lineage tree for adapter: {}", adapter_id));
+    output.kv("Total nodes", &total_nodes.to_string());
+    println!();
+
+    if tree_view {
+        // ASCII tree view
+        if !ancestors.is_empty() {
+            output.section("Ancestors");
+            for (i, ancestor) in ancestors.iter().enumerate() {
+                let indent = "  ".repeat(ancestors.len() - i - 1);
+                let name = ancestor["adapter_name"]
+                    .as_str()
+                    .unwrap_or(ancestor["adapter_id"].as_str().unwrap_or("unknown"));
+                let state = ancestor["current_state"].as_str().unwrap_or("unknown");
+                let revision = ancestor["revision"].as_str().unwrap_or("r???");
+
+                println!("{}└── {} ({}) [{}]", indent, name, revision, state);
+            }
+        }
+
+        // Self node
+        let self_name = self_node["adapter_name"]
+            .as_str()
+            .unwrap_or(self_node["adapter_id"].as_str().unwrap_or("unknown"));
+        let self_state = self_node["current_state"].as_str().unwrap_or("unknown");
+        let self_revision = self_node["revision"].as_str().unwrap_or("r???");
+        println!(">>> {} ({}) [{}] <<<", self_name, self_revision, self_state);
+
+        if !descendants.is_empty() {
+            output.section("Descendants");
+            for (i, descendant) in descendants.iter().enumerate() {
+                let indent = "  ".repeat(i + 1);
+                let name = descendant["adapter_name"]
+                    .as_str()
+                    .unwrap_or(descendant["adapter_id"].as_str().unwrap_or("unknown"));
+                let state = descendant["current_state"].as_str().unwrap_or("unknown");
+                let revision = descendant["revision"].as_str().unwrap_or("r???");
+                let fork_type = descendant["fork_type"].as_str();
+
+                let fork_indicator = fork_type.map(|ft| format!(" [fork: {}]", ft)).unwrap_or_default();
+                println!("{}└── {} ({}) [{}]{}", indent, name, revision, state, fork_indicator);
+            }
+        }
+    } else {
+        // Tabular view
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .set_header(vec![
+                "Relation",
+                "Adapter Name",
+                "Revision",
+                "State",
+                "Fork Type",
+            ]);
+
+        // Add ancestors
+        for ancestor in ancestors {
+            table.add_row(vec![
+                "Ancestor",
+                ancestor["adapter_name"]
+                    .as_str()
+                    .unwrap_or(ancestor["adapter_id"].as_str().unwrap_or("-")),
+                ancestor["revision"].as_str().unwrap_or("-"),
+                ancestor["current_state"].as_str().unwrap_or("-"),
+                ancestor["fork_type"].as_str().unwrap_or("-"),
+            ]);
+        }
+
+        // Add self
+        table.add_row(vec![
+            ">>> SELF <<<",
+            self_node["adapter_name"]
+                .as_str()
+                .unwrap_or(self_node["adapter_id"].as_str().unwrap_or("-")),
+            self_node["revision"].as_str().unwrap_or("-"),
+            self_node["current_state"].as_str().unwrap_or("-"),
+            "-",
+        ]);
+
+        // Add descendants
+        for descendant in descendants {
+            table.add_row(vec![
+                "Descendant",
+                descendant["adapter_name"]
+                    .as_str()
+                    .unwrap_or(descendant["adapter_id"].as_str().unwrap_or("-")),
+                descendant["revision"].as_str().unwrap_or("-"),
+                descendant["current_state"].as_str().unwrap_or("-"),
+                descendant["fork_type"].as_str().unwrap_or("-"),
+            ]);
+        }
+
+        println!("{}", table);
+    }
+
+    output.success("Lineage retrieved successfully");
     Ok(())
 }
 

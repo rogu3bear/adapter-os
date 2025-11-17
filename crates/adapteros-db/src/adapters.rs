@@ -951,11 +951,11 @@ impl Db {
         &self,
     ) -> Result<Vec<(String, String, String, i64, i64, f64, Option<String>)>> {
         let summary = sqlx::query(
-            "SELECT category, scope, current_state, COUNT(*) as count, 
-                    SUM(memory_bytes) as total_memory_bytes, 
+            "SELECT category, scope, current_state, COUNT(*) as count,
+                    SUM(memory_bytes) as total_memory_bytes,
                     AVG(activation_count) as avg_activations,
                     MAX(last_activated) as most_recent_activation
-             FROM adapters 
+             FROM adapters
              WHERE active = 1
              GROUP BY category, scope, current_state
              ORDER BY category, scope, current_state",
@@ -985,5 +985,239 @@ impl Db {
         }
 
         Ok(result)
+    }
+
+    // ============================================================================
+    // PRD-08: Adapter Lineage Queries
+    // ============================================================================
+
+    /// Get full lineage tree for an adapter (ancestors and descendants)
+    ///
+    /// Returns all adapters in the lineage tree, including:
+    /// - Ancestors (parent, grandparent, etc.)
+    /// - The adapter itself
+    /// - Descendants (children, grandchildren, etc.)
+    ///
+    /// Uses recursive CTEs to traverse parent_id relationships.
+    pub async fn get_adapter_lineage(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "WITH RECURSIVE
+             -- Get ancestors (walk up parent_id chain)
+             ancestors AS (
+                 SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                        languages_json, framework, category, scope, framework_id, framework_version,
+                        repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                        activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                        adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                        created_at, updated_at, active, 1 as depth
+                 FROM adapters
+                 WHERE adapter_id = ?
+                 UNION ALL
+                 SELECT a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, a.targets_json, a.acl_json,
+                        a.languages_json, a.framework, a.category, a.scope, a.framework_id, a.framework_version,
+                        a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
+                        a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
+                        a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
+                        a.created_at, a.updated_at, a.active, anc.depth + 1
+                 FROM adapters a
+                 JOIN ancestors anc ON a.adapter_id = anc.parent_id
+                 WHERE anc.depth < 10  -- Prevent infinite loops
+             ),
+             -- Get descendants (walk down parent_id references)
+             descendants AS (
+                 SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                        languages_json, framework, category, scope, framework_id, framework_version,
+                        repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                        activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                        adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                        created_at, updated_at, active, 1 as depth
+                 FROM adapters
+                 WHERE adapter_id = ?
+                 UNION ALL
+                 SELECT a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, a.targets_json, a.acl_json,
+                        a.languages_json, a.framework, a.category, a.scope, a.framework_id, a.framework_version,
+                        a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
+                        a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
+                        a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
+                        a.created_at, a.updated_at, a.active, desc.depth + 1
+                 FROM adapters a
+                 JOIN descendants desc ON a.parent_id = desc.adapter_id
+                 WHERE desc.depth < 10  -- Prevent infinite loops
+             )
+             SELECT DISTINCT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM (
+                 SELECT * FROM ancestors
+                 UNION
+                 SELECT * FROM descendants
+             )
+             ORDER BY created_at ASC"
+        )
+        .bind(adapter_id)
+        .bind(adapter_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(adapters)
+    }
+
+    /// Get direct children of an adapter
+    ///
+    /// Returns all adapters that have this adapter as their parent_id.
+    pub async fn get_adapter_children(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM adapters
+             WHERE parent_id = ? AND active = 1
+             ORDER BY revision ASC, created_at ASC"
+        )
+        .bind(adapter_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(adapters)
+    }
+
+    /// Get lineage path from root to adapter
+    ///
+    /// Returns ordered list of adapters from root ancestor to the specified adapter,
+    /// tracing the parent_id chain upwards.
+    pub async fn get_lineage_path(&self, adapter_id: &str) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "WITH RECURSIVE lineage AS (
+                 SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                        languages_json, framework, category, scope, framework_id, framework_version,
+                        repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                        activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                        adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                        created_at, updated_at, active, 0 as depth
+                 FROM adapters
+                 WHERE adapter_id = ?
+                 UNION ALL
+                 SELECT a.id, a.tenant_id, a.adapter_id, a.name, a.hash_b3, a.rank, a.alpha, a.tier, a.targets_json, a.acl_json,
+                        a.languages_json, a.framework, a.category, a.scope, a.framework_id, a.framework_version,
+                        a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
+                        a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
+                        a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
+                        a.created_at, a.updated_at, a.active, lin.depth + 1
+                 FROM adapters a
+                 JOIN lineage lin ON a.adapter_id = lin.parent_id
+                 WHERE lin.depth < 10  -- Prevent infinite loops
+             )
+             SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    created_at, updated_at, active
+             FROM lineage
+             ORDER BY depth DESC"  -- Root first, then children
+        )
+        .bind(adapter_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(adapters)
+    }
+
+    /// Find latest revision number for a given adapter family
+    ///
+    /// Searches for adapters with matching tenant_namespace, domain, and purpose,
+    /// and returns the highest revision number found (e.g., "r042" -> 42).
+    ///
+    /// Returns None if no adapters found or if revisions don't follow rNNN format.
+    pub async fn find_latest_revision(
+        &self,
+        tenant_namespace: &str,
+        domain: &str,
+        purpose: &str,
+    ) -> Result<Option<i32>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT revision FROM adapters
+             WHERE tenant_namespace = ? AND domain = ? AND purpose = ? AND active = 1
+             ORDER BY revision DESC
+             LIMIT 1"
+        )
+        .bind(tenant_namespace)
+        .bind(domain)
+        .bind(purpose)
+        .fetch_optional(self.pool())
+        .await?;
+
+        if let Some((revision_str,)) = row {
+            // Parse revision string (e.g., "r042" -> 42)
+            if let Some(stripped) = revision_str.strip_prefix('r') {
+                if let Ok(rev_num) = stripped.parse::<i32>() {
+                    return Ok(Some(rev_num));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Validate revision gap constraint
+    ///
+    /// Ensures that the difference between the highest and lowest revision numbers
+    /// in an adapter family does not exceed max_gap (default: 5).
+    ///
+    /// Returns Ok(()) if constraint is satisfied, Err otherwise.
+    pub async fn validate_revision_gap(
+        &self,
+        tenant_namespace: &str,
+        domain: &str,
+        purpose: &str,
+        max_gap: i32,
+    ) -> Result<()> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT revision FROM adapters
+             WHERE tenant_namespace = ? AND domain = ? AND purpose = ? AND active = 1
+             ORDER BY revision ASC"
+        )
+        .bind(tenant_namespace)
+        .bind(domain)
+        .bind(purpose)
+        .fetch_all(self.pool())
+        .await?;
+
+        if rows.len() < 2 {
+            return Ok(()); // No gap if only 0-1 adapters
+        }
+
+        let mut revisions: Vec<i32> = Vec::new();
+        for (revision_str,) in rows {
+            if let Some(stripped) = revision_str.strip_prefix('r') {
+                if let Ok(rev_num) = stripped.parse::<i32>() {
+                    revisions.push(rev_num);
+                }
+            }
+        }
+
+        if revisions.is_empty() {
+            return Ok(());
+        }
+
+        let min_rev = *revisions.iter().min().unwrap();
+        let max_rev = *revisions.iter().max().unwrap();
+        let gap = max_rev - min_rev;
+
+        if gap > max_gap {
+            return Err(anyhow::anyhow!(
+                "Revision gap ({}) exceeds maximum allowed ({}) for adapter family {}/{}/{}",
+                gap,
+                max_gap,
+                tenant_namespace,
+                domain,
+                purpose
+            ));
+        }
+
+        Ok(())
     }
 }
