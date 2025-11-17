@@ -91,7 +91,16 @@ pub async fn log_success(
     resource_type: &str,
     resource_id: Option<&str>,
 ) -> Result<()> {
-    log_action(db, claims, action, resource_type, resource_id, "success", None).await
+    log_action(
+        db,
+        claims,
+        action,
+        resource_type,
+        resource_id,
+        "success",
+        None,
+    )
+    .await
 }
 
 /// Log a failed action

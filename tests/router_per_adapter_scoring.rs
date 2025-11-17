@@ -51,10 +51,7 @@ fn test_per_adapter_scores_differ() {
 
     // The python adapter (index 0) should have the highest score
     // Check that it's in the top position
-    let python_position = decision
-        .candidates
-        .iter()
-        .position(|c| c.adapter_idx == 0);
+    let python_position = decision.candidates.iter().position(|c| c.adapter_idx == 0);
     assert!(
         python_position.is_some(),
         "Python adapter should be selected"
@@ -186,10 +183,9 @@ fn test_orthogonality_penalty_reduces_similar_selection() {
 
     // Enable orthogonal constraints
     router.set_orthogonal_constraints(
-        true,
-        0.7,  // similarity threshold
-        0.1,  // penalty weight
-        5,    // history window
+        true, 0.7, // similarity threshold
+        0.1, // penalty weight
+        5,   // history window
     );
 
     // Create adapter infos

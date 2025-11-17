@@ -252,7 +252,7 @@ adapteros-manifest = { path = "crates/adapteros-manifest" }
 adapteros-chat = { path = "crates/adapteros-chat" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
-adapteros-telemetry = { path = "crates/adapteros-telemetry" }
+adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.1" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
@@ -266,6 +266,7 @@ adapteros-client = { path = "crates/adapteros-client" }
 adapteros-node = { path = "crates/adapteros-node" }
 adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
 adapteros-orchestrator = { path = "crates/adapteros-orchestrator" }
+axum-test = "16"
 adapteros-profiler = { path = "crates/adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
 adapteros-registry = { path = "crates/adapteros-registry" }

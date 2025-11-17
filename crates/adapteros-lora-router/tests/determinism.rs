@@ -10,6 +10,9 @@
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
 use adapteros_lora_router::Router;
+use proptest::prelude::*;
+use rand_chacha::ChaChaRng;
+use std::collections::HashSet;
 
 #[test]
 fn test_deterministic_top_k_ordering() {
@@ -169,4 +172,112 @@ fn test_q15_range_properties() {
     // Verify we got exactly K gates
     assert_eq!(decision.indices.len(), 5);
     assert_eq!(decision.gates_q15.len(), 5);
+}
+
+#[test]
+fn test_router_ring_invariants() {
+    let seed = [42u8; 32];
+    let weights_vec = vec![1.0; 8];
+    let mut router = Router::new(weights_vec, 4, 1.0, 0.01, seed);
+
+    let priors = vec![0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+    let decision = router.route(&[], &priors);
+
+    // 1:1 mapping
+    assert_eq!(decision.indices.len(), 4);
+    assert_eq!(decision.indices.len(), decision.gates_q15.len());
+
+    // Unique indices
+    let mut indices_sorted = decision.indices.clone();
+    indices_sorted.sort_unstable();
+    for i in 1..indices_sorted.len() {
+        assert_ne!(indices_sorted[i], indices_sorted[i - 1]);
+    }
+
+    // For K=0 case
+    let mut router_k0 = Router::new(vec![1.0; 8], 0, 1.0, 0.01, seed);
+    let decision_k0 = router_k0.route(&[], &priors);
+    assert!(decision_k0.indices.is_empty());
+    assert!(decision_k0.gates_q15.is_empty());
+}
+
+// Add more tests for varying K up to MAX_K
+#[test]
+fn test_varying_k_stability() {
+    let seed = [42u8; 32];
+    let priors = vec![1.0; 8];
+
+    for k in 0..=super::MAX_K {
+        let weights_vec = vec![1.0; 8];
+        let mut router = Router::new(weights_vec, k, 1.0, 0.01, seed);
+        let decision = router.route(&[], &priors);
+
+        assert_eq!(decision.indices.len(), k);
+        assert_eq!(decision.gates_q15.len(), k);
+    }
+}
+
+#[test]
+fn test_router_event_wire_format() {
+    use adapteros_telemetry::RouterCandidate;
+    use adapteros_telemetry::RouterDecisionEvent;
+    use bincode;
+
+    let event = RouterDecisionEvent {
+        step: 5,
+        input_token_id: Some(123),
+        candidate_adapters: vec![
+            RouterCandidate {
+                adapter_idx: 1,
+                raw_score: 0.8,
+                gate_q15: 32768,
+            },
+            RouterCandidate {
+                adapter_idx: 2,
+                raw_score: 0.6,
+                gate_q15: 24576,
+            },
+        ],
+        entropy: 0.9,
+        tau: 1.0,
+        entropy_floor: 1e-6,
+        stack_hash: Some("b3:deadbeef".to_string()),
+    };
+
+    // Bincode roundtrip
+    let encoded = bincode::serialize(&event).unwrap();
+    let decoded: RouterDecisionEvent = bincode::deserialize(&encoded).unwrap();
+    assert_eq!(event, decoded);
+
+    // JSON roundtrip
+    let json = serde_json::to_string(&event).unwrap();
+    let decoded_json: RouterDecisionEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(event, decoded_json);
+}
+
+proptest! {
+    #[test]
+    fn prop_router_determinism priors in prop::collection::vec(0.0..1.0f32, 1..10), seed in any::<u64>() {
+        let mut rng = ChaChaRng::seed_from_u64(seed);
+        let router = Router::new(priors, 3, 1.0, 1e-6, [0u8;32]); // Fixed seed for prop
+        let features = vec![1.0; priors.len()]; // Fixed features
+        let decision1 = router.decide(&features, &mut rng).unwrap();
+        let decision2 = router.decide(&features, &mut rng).unwrap(); // Same rng state? No, but since seeded same, but rng is mutated.
+        // For determinism, seed per test
+        let seed_bytes: [u8; 8] = seed.to_le_bytes(); // u64 to [u8;8]
+        let mut rng1 = ChaChaRng::from_seed([seed_bytes; 4]); // Repeat to 32 bytes
+        let mut rng2 = ChaChaRng::from_seed([seed_bytes; 4]);
+        let decision1 = router.decide(&features, &mut rng1).unwrap();
+        let decision2 = router.decide(&features, &mut rng2).unwrap();
+        prop_assert_eq!(decision1, decision2);
+
+        // Properties
+        prop_assert_eq!(decision1.indices.len(), 3);
+        let indices_set: HashSet<_> = decision1.indices.iter().cloned().collect();
+        prop_assert_eq!(indices_set.len(), 3usize); // Unique
+        let sum_gates: f32 = decision1.gates.iter().sum();
+        prop_assert!((sum_gates - 1.0).abs() < 1e-5f32); // Sum ~1.0
+        let entropy = -decision1.gates.iter().map(|&g| if g > 0.0 { g * g.log2() } else { 0.0 }).sum::<f32>();
+        prop_assert!(entropy > 1e-6f32); // > floor
+    }
 }

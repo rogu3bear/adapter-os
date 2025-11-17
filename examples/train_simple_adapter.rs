@@ -43,15 +43,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 2: Configure trainer
     println!("\nStep 2: Configuring trainer...");
     let config = TrainingConfig {
-        rank: 4,           // Small rank for quick training
-        alpha: 8.0,        // LoRA alpha scaling
+        rank: 4,    // Small rank for quick training
+        alpha: 8.0, // LoRA alpha scaling
         learning_rate: 1e-3,
         batch_size: 2,
         epochs: 3,
-        hidden_dim: 64,    // Small dimension for testing
+        hidden_dim: 64, // Small dimension for testing
     };
-    println!("   Config: rank={}, alpha={}, lr={}, epochs={}",
-        config.rank, config.alpha, config.learning_rate, config.epochs);
+    println!(
+        "   Config: rank={}, alpha={}, lr={}, epochs={}",
+        config.rank, config.alpha, config.learning_rate, config.epochs
+    );
 
     // Step 3: Train adapter
     println!("\nStep 3: Training adapter (this may take a moment)...");
@@ -70,9 +72,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 4: Quantizing weights to Q15...");
     let quantizer = LoRAQuantizer::new();
     let quantized = quantizer.quantize(&result.weights)?;
-    println!("   ✅ Quantized: {} lora_a matrices, {} lora_b matrices",
+    println!(
+        "   ✅ Quantized: {} lora_a matrices, {} lora_b matrices",
         quantized.lora_a_quantized.len(),
-        quantized.lora_b_quantized.len());
+        quantized.lora_b_quantized.len()
+    );
 
     // Step 5: Package adapter as .aos archive
     println!("\nStep 5: Packaging adapter as .aos archive...");
@@ -80,7 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::fs::create_dir_all(&output_dir).await?;
 
     let packager = AdapterPackager::new(&output_dir);
-    let packaged = packager.package_aos(&result.adapter_id, &quantized, &config).await?;
+    let packaged = packager
+        .package_aos(&result.adapter_id, &quantized, &config)
+        .await?;
 
     println!("   ✅ Packaged adapter: {}", packaged.adapter_id);
     println!("      Hash: {}", &packaged.hash_b3[..16]);
@@ -92,12 +98,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aos_path = &packaged.weights_path;
 
     assert!(aos_path.exists(), ".aos file should exist");
-    assert!(aos_path.extension().and_then(|s| s.to_str()) == Some("aos"), "Should have .aos extension");
+    assert!(
+        aos_path.extension().and_then(|s| s.to_str()) == Some("aos"),
+        "Should have .aos extension"
+    );
 
     // Get file size
     let metadata = tokio::fs::metadata(aos_path).await?;
     println!("   ✅ Archive valid:");
-    println!("      File: {}", aos_path.file_name().unwrap().to_str().unwrap());
+    println!(
+        "      File: {}",
+        aos_path.file_name().unwrap().to_str().unwrap()
+    );
     println!("      Size: {} KB", metadata.len() / 1024);
     println!("      Hash: {}", &packaged.hash_b3[..32]);
 

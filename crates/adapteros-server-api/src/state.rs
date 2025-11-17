@@ -1,11 +1,13 @@
 use adapteros_crypto::Keypair;
-use adapteros_db::{sqlx, Db};
 use adapteros_db::git::FileChangeEvent;
+use adapteros_db::{sqlx, Db};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_lora_worker::UmaPressureMonitor;
 use adapteros_lora_worker::Worker;
 use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
 
@@ -70,8 +72,10 @@ pub struct AppState {
     pub lifecycle_manager: Option<Arc<Mutex<LifecycleManager>>>,
     pub code_job_manager: Option<Arc<CodeJobManager>>,
     pub worker: Option<Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>>,
-    pub active_stack: Arc<RwLock<Option<String>>>,
+    pub active_stack: Arc<RwLock<HashMap<String, Option<String>>>>,
     pub db_pool: sqlx::SqlitePool,
+    pub plugin_registry: Arc<adapteros_server::PluginRegistry>,
+    pub uma_monitor: Arc<UmaPressureMonitor>,
 }
 
 impl AppState {
@@ -80,6 +84,7 @@ impl AppState {
         jwt_secret: Vec<u8>,
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
+        uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
         Self {
@@ -94,8 +99,10 @@ impl AppState {
             lifecycle_manager: None,
             code_job_manager: None,
             worker: None,
-            active_stack: Arc::new(RwLock::new(None)),
+            active_stack: Arc::new(RwLock::new(HashMap::new())),
             db_pool,
+            plugin_registry: Arc::new(adapteros_server::PluginRegistry::new(db.clone())),
+            uma_monitor,
         }
     }
 
@@ -119,8 +126,16 @@ impl AppState {
         self
     }
 
-    pub fn with_worker(mut self, worker: Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>) -> Self {
+    pub fn with_worker(
+        mut self,
+        worker: Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>,
+    ) -> Self {
         self.worker = Some(worker);
+        self
+    }
+
+    pub fn with_plugin_registry(mut self, registry: Arc<adapteros_server::PluginRegistry>) -> Self {
+        self.plugin_registry = registry;
         self
     }
 

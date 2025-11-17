@@ -141,20 +141,23 @@ impl FusedMlpKernel {
 
             // Pass gate projection LoRA weights (using index 3 = mlp_down)
             if first_adapter.lora_a_buffers.len() > 3 && first_adapter.lora_b_buffers.len() > 3 {
-                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[3]), 0);  // gate_lora_a
-                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[3]), 0);  // gate_lora_b
+                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[3]), 0); // gate_lora_a
+                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[3]), 0);
+                // gate_lora_b
             }
 
             // Pass up projection LoRA weights (using index 4 = mlp_up)
             if first_adapter.lora_a_buffers.len() > 4 && first_adapter.lora_b_buffers.len() > 4 {
                 encoder.set_buffer(10, Some(&first_adapter.lora_a_buffers[4]), 0); // up_lora_a
-                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[4]), 0); // up_lora_b
+                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[4]), 0);
+                // up_lora_b
             }
 
             // Pass down projection LoRA weights (using index 3 again for now - needs verification)
             if first_adapter.lora_a_buffers.len() > 3 && first_adapter.lora_b_buffers.len() > 3 {
                 encoder.set_buffer(12, Some(&first_adapter.lora_a_buffers[3]), 0); // down_lora_a
-                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[3]), 0); // down_lora_b
+                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[3]), 0);
+                // down_lora_b
             }
         }
 
@@ -170,13 +173,14 @@ impl FusedMlpKernel {
             }
         };
 
-        let lora_config_bytes = serde_json::to_vec(&lora_config).map_err(AosError::Serialization)?;
+        let lora_config_bytes =
+            serde_json::to_vec(&lora_config).map_err(AosError::Serialization)?;
         let lora_config_buffer = self.device.new_buffer_with_data(
             lora_config_bytes.as_ptr() as *const std::ffi::c_void,
             lora_config_bytes.len() as u64,
             MTLResourceOptions::StorageModeShared,
         );
-        encoder.set_buffer(14, Some(&lora_config_buffer), 0);  // Buffer 14 for lora_config
+        encoder.set_buffer(14, Some(&lora_config_buffer), 0); // Buffer 14 for lora_config
 
         // Set ring buffer
         encoder.set_buffer(15, self.ring_buffer.get_buffer().map(|v| &**v), 0);

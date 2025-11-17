@@ -80,7 +80,10 @@ impl TestCleanupContext {
         for db_file in &self.db_files {
             if db_file.exists() {
                 if let Err(e) = fs::remove_file(db_file) {
-                    eprintln!("Warning: Failed to remove database file {:?}: {}", db_file, e);
+                    eprintln!(
+                        "Warning: Failed to remove database file {:?}: {}",
+                        db_file, e
+                    );
                 }
             }
         }
@@ -89,7 +92,10 @@ impl TestCleanupContext {
         for temp_dir in &self.temp_dirs {
             if temp_dir.exists() {
                 if let Err(e) = fs::remove_dir_all(temp_dir) {
-                    eprintln!("Warning: Failed to remove temp directory {:?}: {}", temp_dir, e);
+                    eprintln!(
+                        "Warning: Failed to remove temp directory {:?}: {}",
+                        temp_dir, e
+                    );
                 }
             }
         }
@@ -138,7 +144,9 @@ pub async fn execute_global_cleanup() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 /// Cleanup database files and connections
-pub fn cleanup_database_files<P: AsRef<Path>>(paths: &[P]) -> Result<(), Box<dyn std::error::Error>> {
+pub fn cleanup_database_files<P: AsRef<Path>>(
+    paths: &[P],
+) -> Result<(), Box<dyn std::error::Error>> {
     for path in paths {
         let path = path.as_ref();
         if path.exists() {
@@ -160,7 +168,9 @@ pub fn cleanup_temp_dirs<P: AsRef<Path>>(paths: &[P]) -> Result<(), Box<dyn std:
 }
 
 /// Restore environment variables to their original values
-pub fn restore_env_vars(vars: &HashMap<String, Option<String>>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn restore_env_vars(
+    vars: &HashMap<String, Option<String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     for (key, original_value) in vars {
         match original_value {
             Some(value) => env::set_var(key, value),
@@ -258,8 +268,8 @@ macro_rules! test_cleanup {
 #[macro_export]
 macro_rules! setup_test_env {
     ($prefix:expr) => {{
-        use $crate::common::cleanup::*;
         use std::env;
+        use $crate::common::cleanup::*;
 
         // Create unique database path
         let db_path = create_test_db_path($prefix);

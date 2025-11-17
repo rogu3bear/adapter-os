@@ -4,6 +4,7 @@
 //! verification for cross-host consistency checks.
 
 use crate::{ExecutorEvent, TaskId};
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
 use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
@@ -234,10 +235,17 @@ impl GlobalTickLedger {
 
         // Log to telemetry
         if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                self.tenant_id.clone(),
+                "deterministic-exec".to_string(),
+                "ledger".to_string(),
+                IdentityEnvelope::default_revision(),
+            );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("tick_ledger.entry".to_string()),
                 LogLevel::Debug,
                 format!("Tick ledger entry recorded: tick {}", tick),
+                identity,
             )
             .component("adapteros-deterministic-exec".to_string())
             .metadata(json!({
@@ -364,6 +372,12 @@ impl GlobalTickLedger {
 
         // Log to telemetry
         if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                self.tenant_id.clone(),
+                "deterministic-exec".to_string(),
+                "consistency".to_string(),
+                IdentityEnvelope::default_revision(),
+            );
             let event_type = if consistent {
                 "tick_ledger.consistent"
             } else {
@@ -382,6 +396,7 @@ impl GlobalTickLedger {
                     if consistent { "PASS" } else { "FAIL" },
                     divergence_count
                 ),
+                identity,
             )
             .component("adapteros-deterministic-exec".to_string())
             .metadata(json!({
@@ -488,9 +503,9 @@ impl GlobalTickLedger {
         })?;
 
         // Commit transaction
-        tx.commit()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to commit ledger transaction: {}", e)))?;
+        tx.commit().await.map_err(|e| {
+            AosError::Database(format!("Failed to commit ledger transaction: {}", e))
+        })?;
 
         Ok(())
     }
@@ -580,11 +595,7 @@ impl GlobalTickLedger {
         }
 
         // Find all unique ticks
-        let mut all_ticks: Vec<u64> = our_map
-            .keys()
-            .chain(peer_map.keys())
-            .copied()
-            .collect();
+        let mut all_ticks: Vec<u64> = our_map.keys().chain(peer_map.keys()).copied().collect();
         all_ticks.sort_unstable();
         all_ticks.dedup();
 
@@ -838,11 +849,7 @@ mod tests {
 
         // Verify no duplicates
         for i in 0..ticks.len() - 1 {
-            assert_ne!(
-                ticks[i], ticks[i + 1],
-                "Duplicate tick found: {}",
-                ticks[i]
-            );
+            assert_ne!(ticks[i], ticks[i + 1], "Duplicate tick found: {}", ticks[i]);
         }
 
         // Verify sequential (0, 1, 2, ..., 499)
@@ -908,10 +915,8 @@ mod tests {
             let current_entry = &entries[i];
 
             // Recompute what the previous entry's hash should be
-            let expected_prev_hash = ledger.compute_entry_hash(
-                &prev_entry.event_hash,
-                prev_entry.prev_entry_hash.as_ref(),
-            );
+            let expected_prev_hash = ledger
+                .compute_entry_hash(&prev_entry.event_hash, prev_entry.prev_entry_hash.as_ref());
 
             // Current entry should reference this hash
             assert_eq!(
@@ -985,10 +990,6 @@ mod tests {
             );
         }
 
-        assert_eq!(
-            tick_set.len(),
-            total_events,
-            "All ticks should be unique"
-        );
+        assert_eq!(tick_set.len(), total_events, "All ticks should be unique");
     }
 }

@@ -168,20 +168,23 @@ impl FusedQkvKernel {
 
             // Pass Q projection LoRA weights (index 0)
             if first_adapter.lora_a_buffers.len() > 0 && first_adapter.lora_b_buffers.len() > 0 {
-                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[0]), 0);  // q_lora_a
-                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[0]), 0);  // q_lora_b
+                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[0]), 0); // q_lora_a
+                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[0]), 0);
+                // q_lora_b
             }
 
             // Pass K projection LoRA weights (index 1)
             if first_adapter.lora_a_buffers.len() > 1 && first_adapter.lora_b_buffers.len() > 1 {
                 encoder.set_buffer(10, Some(&first_adapter.lora_a_buffers[1]), 0); // k_lora_a
-                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[1]), 0); // k_lora_b
+                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[1]), 0);
+                // k_lora_b
             }
 
             // Pass V projection LoRA weights (index 2)
             if first_adapter.lora_a_buffers.len() > 2 && first_adapter.lora_b_buffers.len() > 2 {
                 encoder.set_buffer(12, Some(&first_adapter.lora_a_buffers[2]), 0); // v_lora_a
-                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[2]), 0); // v_lora_b
+                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[2]), 0);
+                // v_lora_b
             }
         }
 
@@ -207,7 +210,8 @@ impl FusedQkvKernel {
             }
         };
 
-        let lora_config_bytes = serde_json::to_vec(&lora_config).map_err(AosError::Serialization)?;
+        let lora_config_bytes =
+            serde_json::to_vec(&lora_config).map_err(AosError::Serialization)?;
         let lora_config_buffer = self.device.new_buffer_with_data(
             lora_config_bytes.as_ptr() as *const std::ffi::c_void,
             lora_config_bytes.len() as u64,

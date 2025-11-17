@@ -23,11 +23,9 @@ fn test_manifest_based_executor_seeding() {
         return;
     }
 
-    let json = std::fs::read_to_string(&manifest_path)
-        .expect("Failed to read manifest file");
+    let json = std::fs::read_to_string(&manifest_path).expect("Failed to read manifest file");
 
-    let manifest: ManifestV3 = serde_json::from_str(&json)
-        .expect("Failed to parse manifest");
+    let manifest: ManifestV3 = serde_json::from_str(&json).expect("Failed to parse manifest");
 
     // Validate manifest (this is what main.rs does)
     manifest.validate().expect("Manifest validation failed");
@@ -48,11 +46,7 @@ fn test_manifest_based_executor_seeding() {
     );
 
     // Verify seed is 32 bytes
-    assert_eq!(
-        executor_seed.len(),
-        32,
-        "Executor seed should be 32 bytes"
-    );
+    assert_eq!(executor_seed.len(), 32, "Executor seed should be 32 bytes");
 }
 
 #[test]
@@ -82,11 +76,9 @@ fn test_manifest_vs_default_seed_differ() {
         return;
     }
 
-    let json = std::fs::read_to_string(&manifest_path)
-        .expect("Failed to read manifest file");
+    let json = std::fs::read_to_string(&manifest_path).expect("Failed to read manifest file");
 
-    let manifest: ManifestV3 = serde_json::from_str(&json)
-        .expect("Failed to parse manifest");
+    let manifest: ManifestV3 = serde_json::from_str(&json).expect("Failed to parse manifest");
 
     let manifest_hash = manifest
         .compute_hash()
@@ -149,10 +141,7 @@ fn test_manifest_validation_catches_invalid() {
     let result: Result<ManifestV3, _> = serde_json::from_str(invalid_json);
 
     // Should fail to parse due to missing fields
-    assert!(
-        result.is_err(),
-        "Invalid manifest should fail to parse"
-    );
+    assert!(result.is_err(), "Invalid manifest should fail to parse");
 }
 
 #[test]

@@ -6,7 +6,6 @@ use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
-use adapteros_core::B3Hash;
 // TODO: Re-enable once adapteros-system-metrics SQLx issues are resolved
 // Using local stubs instead
 use crate::system_metrics_stubs as adapteros_system_metrics;
@@ -160,7 +159,8 @@ pub async fn upsert_directory_adapter(
         tenant_id = %req.tenant_id,
         root_path = %req.root,
         activate = req.activate
-    ).entered();
+    )
+    .entered();
 
     // Require admin or operator
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
@@ -278,7 +278,6 @@ pub async fn upsert_directory_adapter(
             Ok((adapter_id, hash_hex, hash_b3, analysis))
         })
     )
-    .await
     // Error handling chain (triple-nested Result unwrapping):
     // 1. First .map_err: Handle timeout::Elapsed from tokio::time::timeout
     .map_err(|_| {
@@ -354,14 +353,17 @@ pub async fn upsert_directory_adapter(
     let mut activated = false;
     if req.activate {
         let adapter_result = {
-            let _db_span = info_span!("db_get_adapter_for_activation", adapter_id = %adapter_id).entered();
+            let _db_span =
+                info_span!("db_get_adapter_for_activation", adapter_id = %adapter_id).entered();
             state.db.get_adapter(&adapter_id).await
         };
 
         match adapter_result {
             Ok(Some(a)) => {
                 {
-                    let _db_span = info_span!("db_update_adapter_state_loading", adapter_id = %adapter_id).entered();
+                    let _db_span =
+                        info_span!("db_update_adapter_state_loading", adapter_id = %adapter_id)
+                            .entered();
                     let _ = state
                         .db
                         .update_adapter_state(&adapter_id, "loading", "directory_upsert")
@@ -382,14 +384,18 @@ pub async fn upsert_directory_adapter(
                         .await
                         .is_ok()
                     {
-                        let _db_span = info_span!("db_update_adapter_state_success", adapter_id = %adapter_id).entered();
+                        let _db_span =
+                            info_span!("db_update_adapter_state_success", adapter_id = %adapter_id)
+                                .entered();
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
                             .await;
                         activated = true;
                     } else {
-                        let _db_span = info_span!("db_update_adapter_state_failure", adapter_id = %adapter_id).entered();
+                        let _db_span =
+                            info_span!("db_update_adapter_state_failure", adapter_id = %adapter_id)
+                                .entered();
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "cold", "load_failed")
@@ -397,7 +403,9 @@ pub async fn upsert_directory_adapter(
                     }
                 } else {
                     // Simulate load
-                    let _db_span = info_span!("db_update_adapter_state_simulated", adapter_id = %adapter_id).entered();
+                    let _db_span =
+                        info_span!("db_update_adapter_state_simulated", adapter_id = %adapter_id)
+                            .entered();
                     let _ = state
                         .db
                         .update_adapter_state(&adapter_id, "warm", "simulated_load")
@@ -799,6 +807,552 @@ pub async fn archive_tenant(
 
     Ok(StatusCode::NO_CONTENT)
 }
+use adapteros_lora_lifecycle::{AllocationTier, LifecycleManager};
+use adapteros_lora_worker::UmaPressureMonitor; // Assume
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[utoipa::path(
+    get,
+    path = "/v1/system/memory",
+    responses(
+        (status = 200, description = "UMA memory stats", body = UmaMemoryResponse)
+    )
+)]
+pub async fn get_uma_memory(
+    State(state): State<AppState>,
+) -> Result<Json<UmaMemoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Assume state has uma_monitor: Arc<UmaPressureMonitor>
+    let stats = state.uma_monitor.get_uma_stats().await;
+    let pressure = state.uma_monitor.get_current_pressure();
+
+    let candidates = sqlx::query_as::<_, (String,)>(
+        "SELECT adapter_id FROM adapters WHERE current_state IN ('warm', 'cold') AND (pinned_until IS NULL OR pinned_until < datetime('now'))"
+    )
+    .fetch_all(&state.db.pool())
+    .await
+    .map(|rows| rows.into_iter().map(|(id,)| id).collect())
+    .unwrap_or_default();
+
+    Ok(Json(UmaMemoryResponse {
+        total_mb: stats.total_mb,
+        used_mb: stats.used_mb,
+        available_mb: stats.available_mb,
+        headroom_pct: stats.headroom_pct,
+        pressure_level: pressure.to_string(),
+        eviction_candidates: candidates,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct UmaMemoryResponse {
+    total_mb: u64,
+    used_mb: u64,
+    available_mb: u64,
+    headroom_pct: f32,
+    pressure_level: String,
+    eviction_candidates: Vec<String>,
+    timestamp: String,
+}
+
+// In AppState, add uma_monitor: Arc<UmaPressureMonitor> = Arc::new(UmaPressureMonitor::new(15, Some(telemetry.clone())));
+
+// Start polling in main or builder
+#[utoipa::path(
+    get,
+    path = "/v1/tenant/{tenant_id}/indexes/hash",
+    responses(
+        (status = 200, body = IndexHashesResponse),
+    ),
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID"),
+    ),
+    tag = "indexes"
+)]
+pub async fn get_tenant_index_hashes(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<IndexHashesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TenantView)?;
+
+    if state.db.get_tenant(&tenant_id).await?.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Tenant not found")),
+        ));
+    }
+
+    let types = vec![
+        "adapter_graph",
+        "stacks",
+        "router_table",
+        "telemetry_secondary",
+    ];
+    let mut hashes = std::collections::HashMap::new();
+    for typ in types {
+        if let Some(hash) = state.db.get_index_hash(&tenant_id, typ).await? {
+            hashes.insert(typ.to_string(), hash.to_hex());
+        }
+    }
+
+    Ok(Json(IndexHashesResponse { tenant_id, hashes }))
+}
+
+#[derive(Serialize)]
+pub struct IndexHashesResponse {
+    pub tenant_id: String,
+    pub hashes: std::collections::HashMap<String, String>,
+}
+use adapteros_core::tenant_snapshot::TenantStateSnapshot;
+// ...
+
+// Add imports if needed
+use adapteros_core::tenant_snapshot::TenantStateSnapshot;
+use adapteros_core::{AosError, B3Hash};
+use serde_json::Value;
+use sqlx::Sqlite;
+use sqlx::Transaction; // assume sqlite
+
+// In the function, replace from line ~917
+
+pub async fn hydrate_tenant_from_bundle(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<HydrateTenantRequest>,
+) -> Result<Json<TenantHydrationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_role(&claims, Role::Admin)?;
+
+    let events = state
+        .telemetry_bundle_store
+        .get_bundle_events(&req.bundle_id)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new(&e.to_string())),
+            )
+        })?;
+
+    // Sort events canonical: timestamp asc, then event_type asc
+    let mut sorted_events: Vec<_> = events.iter().collect();
+    sorted_events.sort_by(|e1, e2| {
+        let ts1 = e1.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        let ts2 = e2.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        ts1.cmp(&ts2).then_with(|| {
+            e1.get("event_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .cmp(e2.get("event_type").and_then(|v| v.as_str()).unwrap_or(""))
+        })
+    });
+
+    let sim_snapshot =
+        TenantStateSnapshot::from_bundle_events(&sorted_events.iter().cloned().collect::<Vec<_>>());
+    let sim_hash = sim_snapshot.compute_hash();
+
+    if req.dry_run {
+        if let Some(expected) = &req.expected_state_hash {
+            if expected != &sim_hash.to_hex() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse::new(
+                        "Computed state hash does not match expected",
+                    )),
+                ));
+            }
+        }
+        return Ok(Json(TenantHydrationResponse {
+            tenant_id: req.tenant_id.clone(),
+            state_hash: sim_hash.to_hex(),
+            status: "dry_run_success".to_string(),
+            errors: vec![],
+        }));
+    }
+
+    // Full hydration
+    let current_opt = state
+        .db
+        .get_tenant_snapshot_hash(&req.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&e.to_string())),
+            )
+        })?;
+
+    if let Some(current_hash) = current_opt {
+        if current_hash != sim_hash {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new(
+                    "Tenant state mismatch: cannot hydrate non-idempotently",
+                )),
+            ));
+        }
+        // Already hydrated with same bundle, idempotent ok
+        tracing::info!(
+            "Tenant {} already hydrated with matching state hash {}",
+            req.tenant_id,
+            sim_hash
+        );
+        let tenant = state.db.get_tenant(&req.tenant_id).await.unwrap().unwrap();
+        return Ok(Json(TenantHydrationResponse {
+            tenant_id: req.tenant_id.clone(),
+            state_hash: sim_hash.to_hex(),
+            status: "already_hydrated".to_string(),
+            errors: vec![],
+        }));
+    }
+
+    // New tenant or mismatch (but mismatch already errored), create and apply
+    if state.db.get_tenant(&req.tenant_id).await.unwrap().is_none() {
+        state
+            .db
+            .create_tenant(&req.tenant_id, false)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new(&e.to_string())),
+                )
+            })?;
+    }
+
+    // Apply in transaction
+    let mut tx = state.db.pool().begin().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(&e.to_string())),
+        )
+    })?;
+
+    for event in &sorted_events {
+        if let Err(e) = apply_event(&mut tx, &req.tenant_id, event) {
+            tracing::error!(identity = ?event.get("identity"), error = %e, "Failed to apply event in hydration");
+            let _ = tx.rollback().await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new(&format!(
+                    "Hydration failed on event: {}",
+                    e
+                ))),
+            ));
+        }
+    }
+
+    tx.commit().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(&e.to_string())),
+        )
+    })?;
+
+    // Build and store snapshot
+    let snapshot = state
+        .db
+        .build_tenant_snapshot(&req.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&e.to_string())),
+            )
+        })?;
+
+    let final_hash = snapshot.compute_hash();
+    // Verify matches sim
+    if final_hash != sim_hash {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(
+                "Post-hydration state hash mismatch (internal error)",
+            )),
+        ));
+    }
+
+    state
+        .db
+        .store_tenant_snapshot_hash(&req.tenant_id, &final_hash)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&e.to_string())),
+            )
+        })?;
+
+    // Rebuild indexes
+    state
+        .db
+        .rebuild_all_indexes(&req.tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&e.to_string())),
+            )
+        })?;
+
+    let tenant = state.db.get_tenant(&req.tenant_id).await.unwrap().unwrap();
+
+    Ok(Json(TenantHydrationResponse {
+        tenant_id: req.tenant_id.clone(),
+        state_hash: final_hash.to_hex(),
+        status: "hydrated".to_string(),
+        errors: vec![],
+    }))
+}
+
+// Define response
+#[derive(Serialize)]
+pub struct TenantHydrationResponse {
+    pub tenant_id: String,
+    pub state_hash: String,
+    pub status: String,
+    pub errors: Vec<String>,
+}
+
+// Update apply_event to full impl
+
+async fn apply_event<'a>(
+    tx: &mut Transaction<'a, Sqlite>,
+    tenant_id: &str,
+    event: &Value,
+) -> Result<()> {
+    let event_type = event
+        .get("event_type")
+        .and_then(|v| v.as_str())
+        .ok_or(AosError::Invalid("Missing event_type".to_string()))?;
+
+    let meta = event
+        .get("metadata")
+        .ok_or(AosError::Invalid("Missing metadata".to_string()))?;
+
+    match event_type {
+        "adapter.registered" => {
+            let id = meta
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing adapter id".to_string()))?
+                .to_string();
+            let name = meta
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&id)
+                .to_string();
+            let rank =
+                meta.get("rank")
+                    .and_then(|v| v.as_i64())
+                    .ok_or(AosError::Invalid("Missing rank".to_string()))? as i32;
+            let version = meta
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0.0")
+                .to_string();
+            let hash_b3 = meta
+                .get("hash_b3")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing hash_b3".to_string()))?
+                .to_string();
+
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO adapters 
+                (tenant_id, adapter_id, name, rank, version, hash_b3, current_state, tier, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?, 'unloaded', 'cold', datetime('now'), datetime('now'))
+                "#
+            )
+            .bind(tenant_id)
+            .bind(&id)
+            .bind(&name)
+            .bind(rank)
+            .bind(&version)
+            .bind(&hash_b3)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to register adapter {}: {}", id, e)))?;
+        }
+        "stack.created" => {
+            let name = meta
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing stack name".to_string()))?
+                .to_string();
+            let adapter_ids: Vec<String> = meta
+                .get("adapter_ids")
+                .and_then(|v| v.as_array())
+                .ok_or(AosError::Invalid("Missing adapter_ids".to_string()))?
+                .iter()
+                .filter_map(|vi| vi.as_str().map(|s| s.to_string()))
+                .collect();
+            let adapter_ids_json =
+                serde_json::to_string(&adapter_ids).map_err(|e| AosError::Serialization(e))?;
+            let workflow_type = meta
+                .get("workflow_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            let id = uuid::Uuid::new_v7().to_string(); // or use name as id if unique
+
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO adapter_stacks 
+                (id, name, adapter_ids_json, workflow_type, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+                "#,
+            )
+            .bind(&id)
+            .bind(&name)
+            .bind(&adapter_ids_json)
+            .bind(&workflow_type)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to create stack {}: {}", name, e)))?;
+        }
+        "policy.updated" => {
+            let name = meta
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing policy name".to_string()))?
+                .to_string();
+            let rules: Vec<String> = meta
+                .get("rules")
+                .and_then(|v| v.as_array())
+                .unwrap_or(&vec![])
+                .iter()
+                .filter_map(|vi| vi.as_str().map(|s| s.to_string()))
+                .collect();
+            let rules_json =
+                serde_json::to_string(&rules).map_err(|e| AosError::Serialization(e))?;
+
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO router_policies 
+                (tenant_id, name, rules_json, updated_at) 
+                VALUES (?, ?, ?, datetime('now'))
+                "#,
+            )
+            .bind(tenant_id)
+            .bind(&name)
+            .bind(&rules_json)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update policy {}: {}", name, e)))?;
+        }
+        "config.updated" => {
+            let key = meta
+                .get("key")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing config key".to_string()))?
+                .to_string();
+            let value = meta
+                .get("value")
+                .ok_or(AosError::Invalid("Missing config value".to_string()))?
+                .clone();
+
+            let value_json =
+                serde_json::to_string(&value).map_err(|e| AosError::Serialization(e))?;
+
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO tenant_configs 
+                (tenant_id, key, value_json, updated_at) 
+                VALUES (?, ?, ?, datetime('now'))
+                "#,
+            )
+            .bind(tenant_id)
+            .bind(&key)
+            .bind(&value_json)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update config {}: {}", key, e)))?;
+        }
+        "plugin.config.updated" => {
+            let plugin = meta
+                .get("plugin")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing plugin".to_string()))?;
+            let config_key = meta
+                .get("config_key")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing config_key".to_string()))?;
+            let value = meta
+                .get("value")
+                .ok_or(AosError::Invalid("Missing value".to_string()))?
+                .clone();
+
+            let key = format!("plugin.{}.{}", plugin, config_key);
+            let value_json =
+                serde_json::to_string(&value).map_err(|e| AosError::Serialization(e))?;
+
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO tenant_configs 
+                (tenant_id, key, value_json, updated_at) 
+                VALUES (?, ?, ?, datetime('now'))
+                "#,
+            )
+            .bind(tenant_id)
+            .bind(&key)
+            .bind(&value_json)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update plugin config {}: {}", key, e))
+            })?;
+        }
+        "feature.flag.toggled" => {
+            let flag = meta
+                .get("flag")
+                .and_then(|v| v.as_str())
+                .ok_or(AosError::Invalid("Missing flag".to_string()))?;
+            let enabled = meta
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .ok_or(AosError::Invalid("Missing enabled".to_string()))?;
+
+            let key = format!("flag.{}", flag);
+            let value_json =
+                serde_json::to_string(&enabled).map_err(|e| AosError::Serialization(e))?;
+
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO tenant_configs 
+                (tenant_id, key, value_json, updated_at) 
+                VALUES (?, ?, ?, datetime('now'))
+                "#,
+            )
+            .bind(tenant_id)
+            .bind(&key)
+            .bind(&value_json)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to toggle flag {}: {}", flag, e)))?;
+        }
+        _ => {
+            tracing::debug!(
+                "Ignored unknown event type: {} for tenant {}",
+                event_type,
+                tenant_id
+            );
+        }
+    }
+
+    Ok(())
+}
+
+// Update Request to have expected_state_hash: Option<String>
+#[derive(Deserialize)]
+pub struct HydrateTenantRequest {
+    pub bundle_id: String,
+    pub tenant_id: String,
+    pub dry_run: bool,
+    pub expected_state_hash: Option<String>,
+}
+
+// Update utoipa path to match
 
 /// Assign policies to tenant
 pub async fn assign_tenant_policies(
@@ -1410,7 +1964,6 @@ pub async fn list_jobs(
 
     Ok(Json(response))
 }
-
 /// Build plan (stub)
 pub async fn build_plan(
     State(state): State<AppState>,
@@ -1444,7 +1997,7 @@ pub async fn build_plan(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to create job")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -1457,7 +2010,6 @@ pub async fn build_plan(
         created_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
-
 /// Promote CP with quality gates
 pub async fn cp_promote(
     State(state): State<AppState>,
@@ -2000,7 +2552,22 @@ pub async fn list_plans(
             id: p.id,
             tenant_id: p.tenant_id,
             manifest_hash_b3: p.manifest_hash_b3,
-            kernel_hash_b3: None,         // Not stored in Plan model
+            kernel_hash_b3: {
+                // Query kernel hash from plan metadata
+                match sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT kernel_hash FROM plan_metadata WHERE plan_id = ?",
+                )
+                .bind(&p.id)
+                .fetch_optional(state.db.pool())
+                .await
+                {
+                    Ok(hash) => hash.flatten(),
+                    Err(e) => {
+                        tracing::warn!("Failed to fetch kernel hash for plan {}: {}", p.id, e);
+                        None
+                    }
+                }
+            },
             layout_hash_b3: None,         // Not stored in Plan model
             status: "active".to_string(), // Default status
             created_at: p.created_at,
@@ -2014,7 +2581,6 @@ pub async fn list_plans(
 pub struct ListPlansQuery {
     tenant_id: Option<String>,
 }
-
 /// Get plan details
 pub async fn get_plan_details(
     State(state): State<AppState>,
@@ -2180,7 +2746,6 @@ pub async fn rebuild_plan(
         }
     }
 }
-
 /// Compare plans
 pub async fn compare_plans(
     State(state): State<AppState>,
@@ -2251,7 +2816,6 @@ pub async fn compare_plans(
         identical: plan1.manifest_hash_b3 == plan2.manifest_hash_b3,
     }))
 }
-
 /// Export plan manifest
 pub async fn export_plan_manifest(
     State(state): State<AppState>,
@@ -2388,7 +2952,10 @@ pub async fn validate_policy(
     Json(req): Json<ValidatePolicyRequest>,
 ) -> Result<Json<PolicyValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Compliance and Admin can validate policies
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyValidate)?;
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::PolicyValidate,
+    )?;
 
     // Basic JSON validation
     match serde_json::from_str::<serde_json::Value>(&req.content) {
@@ -2644,7 +3211,7 @@ pub async fn cp_rollback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to get current CP pointer")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -2692,7 +3259,7 @@ pub async fn cp_rollback(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to query previous CP")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -2718,7 +3285,7 @@ pub async fn cp_rollback(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to start transaction")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -2734,7 +3301,7 @@ pub async fn cp_rollback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to deactivate CP pointers")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -2750,7 +3317,7 @@ pub async fn cp_rollback(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to activate previous CP pointer")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -2762,7 +3329,7 @@ pub async fn cp_rollback(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to commit transaction")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -2784,7 +3351,6 @@ pub async fn cp_rollback(
         rolled_back_at: rollback_timestamp.to_rfc3339(),
     }))
 }
-
 /// Dry run CP promotion (validate gates without executing)
 pub async fn cp_dry_run_promote(
     State(_state): State<AppState>,
@@ -2869,7 +3435,7 @@ pub async fn propose_patch(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -3016,16 +3582,36 @@ pub async fn propose_patch(
 pub async fn infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Extension(identity): Extension<IdentityEnvelope>,
     Json(req): Json<InferRequest>,
 ) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::InferenceExecute)?;
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::InferenceExecute,
+    )?;
 
     // Validate request
     if req.prompt.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse::new("prompt cannot be empty").with_code("INTERNAL_ERROR")),
+        ));
+    }
+
+    // Check UMA pressure
+    let pressure = state.uma_monitor.get_current_pressure();
+    if matches!(
+        pressure,
+        MemoryPressureLevel::High | MemoryPressureLevel::Critical
+    ) {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(BackpressureResponse {
+                level: pressure.to_string(),
+                retry_after_secs: 30,
+                suggested_action: "reduce max_tokens or retry later".to_string(),
+            }),
         ));
     }
 
@@ -3042,7 +3628,7 @@ pub async fn infer(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to list workers")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -3642,7 +4228,6 @@ pub async fn create_process_monitoring_report(
         created_by: Some(claims.sub.clone()),
     }))
 }
-
 // ===== Adapter Management Endpoints =====
 
 /// List all adapters
@@ -3671,7 +4256,7 @@ pub async fn list_adapters(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 ErrorResponse::new("failed to list adapters")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_code("INTERNAL_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -3808,7 +4393,6 @@ pub async fn get_adapter(
         }),
     }))
 }
-
 /// Register new adapter
 #[utoipa::path(
     post,
@@ -3825,7 +4409,10 @@ pub async fn register_adapter(
     Json(req): Json<RegisterAdapterRequest>,
 ) -> Result<(StatusCode, Json<AdapterResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator and Admin can register adapters
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterRegister)?;
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::AdapterRegister,
+    )?;
 
     // Validate inputs
     if req.adapter_id.is_empty() || req.name.is_empty() || req.hash_b3.is_empty() {
@@ -4593,7 +5180,6 @@ pub async fn download_adapter_manifest(
 
     Ok(Json(manifest))
 }
-
 /// Get adapter health (activation logs, memory usage, policy violations)
 pub async fn get_adapter_health(
     State(state): State<AppState>,
@@ -5370,7 +5956,6 @@ pub async fn telemetry_events_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 /// SSE stream for adapter state transitions
 /// Streams adapter lifecycle events
 pub async fn adapter_state_stream(
@@ -5770,7 +6355,6 @@ pub async fn list_contacts(
 
     Ok(Json(ContactsResponse { contacts }))
 }
-
 /// Create or update a contact
 ///
 /// Creates a new contact or updates an existing one based on (tenant_id, name, category) uniqueness.
@@ -6004,7 +6588,6 @@ pub async fn get_contact_interactions(
 
     Ok(Json(ContactInteractionsResponse { interactions }))
 }
-
 // ========== Training Handlers ==========
 
 /// List all training jobs
@@ -6090,7 +6673,12 @@ pub async fn start_training(
 
     let job = state
         .training_service
-        .start_training(req.adapter_name.clone(), config, req.template_id, req.repo_id)
+        .start_training(
+            req.adapter_name.clone(),
+            config,
+            req.template_id,
+            req.repo_id,
+        )
         .await
         .map_err(|e| {
             (
@@ -6133,7 +6721,10 @@ pub async fn cancel_training(
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator and Admin can cancel training
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingCancel)?;
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::TrainingCancel,
+    )?;
 
     state
         .training_service
@@ -6162,7 +6753,6 @@ pub async fn cancel_training(
 
     Ok(StatusCode::OK)
 }
-
 /// Get training logs
 #[utoipa::path(
     get,
@@ -6180,7 +6770,10 @@ pub async fn get_training_logs(
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: All roles can view training logs
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingViewLogs)?;
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::TrainingViewLogs,
+    )?;
 
     let logs = state
         .training_service
@@ -6815,7 +7408,6 @@ pub async fn update_anomaly_status(
         anomaly_id
     )
     .execute(state.db.pool())
-    .await
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -6958,7 +7550,6 @@ pub async fn get_performance_baselines(
 
     Ok(Json(baselines))
 }
-
 /// Recalculate baseline
 #[utoipa::path(
     post,
@@ -7248,7 +7839,6 @@ pub async fn anomalies_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
-
 /// SSE stream for dashboard-specific metrics
 /// Pushes metrics tailored for dashboard widgets
 pub async fn dashboard_metrics_stream(
@@ -7757,7 +8347,6 @@ pub async fn get_compliance_audit(
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
 }
-
 /// Query audit logs with filtering and pagination
 #[utoipa::path(
     get,
@@ -7814,7 +8403,7 @@ pub async fn query_audit_logs(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to query audit logs")
-                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
@@ -8065,11 +8654,13 @@ pub async fn validate_stack_name(
     let result = policy.validate_stack_name(&validation_req);
 
     // Try to parse the name
-    let parsed = StackName::parse(&req.name).ok().map(|name| ParsedStackName {
-        namespace: name.namespace().to_string(),
-        identifier: name.identifier().map(|s| s.to_string()),
-        full_name: name.to_string(),
-    });
+    let parsed = StackName::parse(&req.name)
+        .ok()
+        .map(|name| ParsedStackName {
+            namespace: name.namespace().to_string(),
+            identifier: name.identifier().map(|s| s.to_string()),
+            full_name: name.to_string(),
+        });
 
     // Convert error to violation if validation failed
     let violations = if let Err(e) = result {
@@ -8111,15 +8702,12 @@ pub async fn get_next_revision(
     Path((tenant, domain, purpose)): Path<(String, String, String)>,
 ) -> Result<Json<NextRevisionResponse>, (StatusCode, String)> {
     // Get registry from database
-    let registry = state
-        .registry
-        .as_ref()
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Registry not available".to_string(),
-            )
-        })?;
+    let registry = state.registry.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Registry not available".to_string(),
+        )
+    })?;
 
     // Get next revision number
     let next_rev = registry

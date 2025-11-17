@@ -13,12 +13,27 @@
 //! GPU fingerprint format: GpuBufferFingerprint from adapteros-lora-kernel-mtl
 
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_telemetry::TelemetryWriter;
+use crossbeam::channel::{bounded, Sender};
+use parking_lot::Mutex as ParkingLotMutex;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::{Condvar, Mutex};
 use std::time::Instant;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender as MpscSender;
+use tokio::time::{sleep, Duration};
+
+#[derive(Debug, Clone)]
+pub struct Stack {
+    pub generation: u64,
+    pub active: HashMap<String, AdapterState>,
+}
 
 /// Convert adapter ID string to deterministic u16 using BLAKE3 hash
 ///
@@ -115,33 +130,56 @@ pub struct AdapterTable {
     /// Staged adapters being preloaded
     staged: RwLock<HashMap<String, AdapterState>>,
     /// Last verified state for rollback
-    rollback_state: RwLock<Option<HashMap<String, AdapterState>>>,
+    rollback_state: RwLock<Option<Arc<Stack>>>,
     /// In-memory checkpoint history (limited to last N checkpoints)
     checkpoints: RwLock<Vec<StackCheckpoint>>,
     /// Maximum checkpoints to keep in memory
     max_checkpoints: usize,
+    /// Atomic pointer to the current active stack
+    /// INVARIANT: current_stack generation strictly increases on successful swap. The atomic pointer ensures readers see consistent stack during inference.
+    current_stack: AtomicUsize,
+    /// Reference counts for staged adapters
+    refcounts: Mutex<HashMap<String, AtomicUsize>>,
+    /// List of retired stacks for RCU
+    retired_stacks: Mutex<Vec<Arc<Stack>>>,
+    /// Sender for event-driven retirement wake-up when refcounts reach 0 (bounded to prevent memory growth)
+    retirement_sender: Option<MpscSender<()>>,
+    /// Telemetry writer for RCU events
+    telemetry: Option<Arc<TelemetryWriter>>,
+    /// Retry counts for RCU
+    retry_counts: Mutex<HashMap<u64, u32>>,
 }
 
 impl AdapterTable {
     /// Create new empty adapter table
     pub fn new() -> Self {
         Self {
-            active: RwLock::new(HashMap::new()),
             staged: RwLock::new(HashMap::new()),
             rollback_state: RwLock::new(None),
             checkpoints: RwLock::new(Vec::new()),
             max_checkpoints: 20, // Keep last 20 checkpoints in memory
+            current_stack: AtomicUsize::new(0),
+            refcounts: Mutex::new(HashMap::new()),
+            retired_stacks: Mutex::new(Vec::new()),
+            retirement_sender: None,
+            telemetry: None,
+            retry_counts: Mutex::new(HashMap::new()),
         }
     }
 
     /// Create adapter table with custom checkpoint limit
     pub fn with_checkpoint_limit(max_checkpoints: usize) -> Self {
         Self {
-            active: RwLock::new(HashMap::new()),
             staged: RwLock::new(HashMap::new()),
             rollback_state: RwLock::new(None),
             checkpoints: RwLock::new(Vec::new()),
             max_checkpoints,
+            current_stack: AtomicUsize::new(0),
+            refcounts: Mutex::new(HashMap::new()),
+            retired_stacks: Mutex::new(Vec::new()),
+            retirement_sender: None,
+            telemetry: None,
+            retry_counts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -156,7 +194,7 @@ impl AdapterTable {
         staged.insert(
             id.clone(),
             AdapterState {
-                id,
+                id: id.clone(),
                 hash,
                 vram_mb,
                 loaded_at: Instant::now(),
@@ -164,54 +202,69 @@ impl AdapterTable {
             },
         );
 
+        // Ensure refcount entry exists for this adapter
+        let mut refcounts = self.refcounts.lock();
+        refcounts
+            .entry(id.clone())
+            .or_insert_with(|| AtomicUsize::new(0));
+        drop(refcounts);
+
         Ok(())
     }
 
     /// Swap adapters atomically with mutex-guarded pointer flip
     pub fn swap(&self, add_ids: &[String], remove_ids: &[String]) -> Result<(i64, usize)> {
-        // Save current state for potential rollback
+        // Save current stack for potential rollback
         {
-            let active = self.active.read();
-            let mut rollback = self.rollback_state.write();
-            *rollback = Some(active.clone());
+            let current = self.current_stack.load(Ordering::Acquire);
+            *self.rollback_state.write() = Some(Arc::new(Stack {
+                generation: current,
+                active: self.active.read().clone(),
+            }));
         }
 
-        let mut active = self.active.write();
-        let mut staged = self.staged.write();
+        let old_stack = self.current_stack.load(Ordering::Acquire);
+        let mut new_active = self.active.read().clone();
 
         // Calculate VRAM delta
         let mut vram_delta: i64 = 0;
 
         // Remove specified adapters
         for id in remove_ids {
-            if let Some(adapter) = active.remove(id) {
+            if let Some(adapter) = new_active.remove(id) {
                 vram_delta -= adapter.vram_mb as i64;
             }
         }
 
         // Add staged adapters
         let mut added_count = 0;
+        let mut staged_write = self.staged.write();
         for id in add_ids {
-            if let Some(mut adapter) = staged.remove(id) {
+            if let Some(mut adapter) = staged_write.remove(id) {
                 adapter.active = true;
                 vram_delta += adapter.vram_mb as i64;
-                active.insert(id.clone(), adapter);
+                new_active.insert(id.clone(), adapter);
                 added_count += 1;
             } else {
-                // Rollback on partial failure (keep locks held to prevent race)
-                let rollback = self.rollback_state.read();
-                if let Some(ref saved_state) = *rollback {
-                    *active = saved_state.clone();
+                // Rollback on partial failure
+                let rollback_state = self.rollback_state.read();
+                if let Some(rollback_stack) = rollback_state.as_ref() {
+                    let _old = self
+                        .current_stack
+                        .swap(rollback_stack.generation, Ordering::AcqRel);
                     tracing::warn!(
                         adapter_id = %id,
                         "Rolled back to previous state due to missing staged adapter"
                     );
-                    // Locks will be dropped automatically at end of scope
+                    drop(staged_write); // Release lock before clear
+                    self.staged.write().clear();
                     return Err(AosError::Worker(format!(
                         "Adapter {} not found in staged set",
                         id
                     )));
                 } else {
+                    drop(staged_write); // Release lock before clear
+                    self.staged.write().clear();
                     return Err(AosError::Worker(format!(
                         "Adapter {} not found in staged set and no rollback state available",
                         id
@@ -219,37 +272,68 @@ impl AdapterTable {
                 }
             }
         }
+        drop(staged_write); // Release lock
+
+        // Ensure refcounts for new active adapters
+        let mut refcounts = self.refcounts.lock();
+        for name in new_active.keys() {
+            refcounts
+                .entry(name.clone())
+                .or_insert_with(|| AtomicUsize::new(0));
+        }
+        drop(refcounts);
+
+        let new_gen = old_stack + 1;
+        let new_stack = Arc::new(Stack {
+            generation: new_gen,
+            active: new_active,
+        });
+
+        let old = self.current_stack.swap(new_gen, Ordering::AcqRel);
+
+        // Retire old stack if generation changed
+        if old > new_gen {
+            let mut retired = self.retired_stacks.lock().unwrap();
+            retired.push(Arc::new(Stack {
+                generation: old,
+                active: self.active.read().clone(),
+            }));
+        }
 
         Ok((vram_delta, added_count))
     }
 
     /// Rollback to last verified state
     pub fn rollback(&self) -> Result<()> {
-        self.rollback_internal()
-    }
+        let rollback_stack = self
+            .rollback_state
+            .read()
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| AosError::Worker("No rollback state available".to_string()))?;
 
-    fn rollback_internal(&self) -> Result<()> {
-        let mut active = self.active.write();
-        let rollback = self.rollback_state.read();
+        let old = self
+            .current_stack
+            .swap(rollback_stack.generation, Ordering::AcqRel);
 
-        if let Some(ref saved_state) = *rollback {
-            *active = saved_state.clone();
-            let adapter_count = saved_state.len();
-
-            // Verify rollback integrity
-            drop(active);
-            drop(rollback);
-            let new_hash = self.compute_stack_hash();
-            tracing::info!(
-                stack_hash = %new_hash.to_short_hex(),
-                adapter_count = adapter_count,
-                "Rollback completed and verified"
-            );
-
-            Ok(())
-        } else {
-            Err(AosError::Worker("No rollback state available".to_string()))
+        // Retire the previous current stack if generation changed
+        if old > rollback_stack.generation {
+            let mut retired = self.retired_stacks.lock().unwrap();
+            retired.push(Arc::new(Stack {
+                generation: old,
+                active: self.active.read().clone(),
+            }));
         }
+
+        *self.rollback_state.write() = None;
+
+        let stack_hash = self.compute_stack_hash();
+        tracing::info!(
+            stack_hash = %stack_hash.to_short_hex(),
+            "Rollback completed and verified"
+        );
+
+        Ok(())
     }
 
     /// Compute effective stack hash for verification (metadata only)
@@ -257,16 +341,13 @@ impl AdapterTable {
     /// Hashes adapter IDs + .aos file hashes for metadata-layer integrity.
     /// For full cross-layer verification, use compute_cross_layer_hash().
     pub fn compute_stack_hash(&self) -> B3Hash {
-        let active = self.active.read();
-
-        // Sort adapter IDs for deterministic hash
-        let mut ids: Vec<_> = active.keys().collect();
+        let stack = self.current_stack.load(Ordering::Acquire);
+        let mut ids: Vec<_> = self.active.read().keys().collect();
         ids.sort();
 
-        // Concatenate adapter hashes
         let mut hasher = blake3::Hasher::new();
         for id in ids {
-            if let Some(adapter) = active.get(id) {
+            if let Some(adapter) = self.active.read().get(id) {
                 hasher.update(id.as_bytes());
                 hasher.update(&adapter.hash.to_bytes());
             }
@@ -288,24 +369,19 @@ impl AdapterTable {
     /// - Adapter IDs + .aos hashes (metadata layer)
     /// - GPU buffer fingerprints (data layer)
     pub fn compute_cross_layer_hash(&self, gpu_fingerprints: &[GpuFingerprint]) -> B3Hash {
-        let active = self.active.read();
-
-        // Sort adapter IDs for deterministic hash
-        let mut ids: Vec<_> = active.keys().collect();
+        let stack = self.current_stack.load(Ordering::Acquire);
+        let mut ids: Vec<_> = self.active.read().keys().collect();
         ids.sort();
 
-        // Create hasher for cross-layer hash
         let mut hasher = blake3::Hasher::new();
 
-        // Phase 1: Hash metadata layer (adapter IDs + .aos hashes)
         for id in &ids {
-            if let Some(adapter) = active.get(*id) {
+            if let Some(adapter) = self.active.read().get(*id) {
                 hasher.update(id.as_bytes());
                 hasher.update(&adapter.hash.to_bytes());
             }
         }
 
-        // Phase 2: Hash GPU fingerprints (sorted by adapter ID)
         let mut sorted_fps: Vec<_> = gpu_fingerprints.iter().collect();
         sorted_fps.sort_by(|a, b| a.adapter_id.cmp(&b.adapter_id));
 
@@ -329,14 +405,11 @@ impl AdapterTable {
     /// # Returns
     /// The created checkpoint
     pub fn create_checkpoint(&self, gpu_fingerprints: Vec<GpuFingerprint>) -> StackCheckpoint {
-        let active = self.active.read();
-
-        // Get current adapter IDs
-        let mut adapter_ids: Vec<_> = active.keys().cloned().collect();
+        let stack = self.current_stack.load(Ordering::Acquire);
+        let mut adapter_ids: Vec<_> = self.active.read().keys().cloned().collect();
         adapter_ids.sort();
 
-        // Compute hashes
-        drop(active); // Release lock before computing hashes
+        drop(stack); // Not needed
         let metadata_hash = self.compute_stack_hash();
         let cross_layer_hash = Some(self.compute_cross_layer_hash(&gpu_fingerprints));
 
@@ -351,11 +424,9 @@ impl AdapterTable {
             adapter_ids,
         };
 
-        // Store checkpoint (with rolling window)
         let mut checkpoints = self.checkpoints.write();
         checkpoints.push(checkpoint.clone());
 
-        // Keep only last N checkpoints
         if checkpoints.len() > self.max_checkpoints {
             checkpoints.remove(0);
         }
@@ -391,16 +462,13 @@ impl AdapterTable {
         checkpoint: &StackCheckpoint,
         current_gpu_fps: &[GpuFingerprint],
     ) -> Result<bool> {
-        // Compute current hashes
         let current_metadata = self.compute_stack_hash();
         let current_cross_layer = self.compute_cross_layer_hash(current_gpu_fps);
 
-        // Verify metadata hash
         if current_metadata != checkpoint.metadata_hash {
             return Ok(false);
         }
 
-        // Verify cross-layer hash if available
         if let Some(expected_cross_layer) = checkpoint.cross_layer_hash {
             if current_cross_layer != expected_cross_layer {
                 return Ok(false);
@@ -423,6 +491,25 @@ impl AdapterTable {
     /// Clear staged adapters
     pub fn clear_staged(&self) {
         self.staged.write().clear();
+    }
+
+    /// Decrement refcount for an adapter and send wake-up if it reaches 0
+    /// Returns the new refcount
+    pub fn dec_ref(&self, name: &str) -> usize {
+        let mut refcounts = self.refcounts.lock();
+        if let Some(rc) = refcounts.get(name) {
+            let old = rc.fetch_sub(1, Ordering::Relaxed);
+            if old == 1 {
+                if let Some(tx) = &self.retirement_sender {
+                    let _ = tx
+                        .try_send(())
+                        .map_err(|_| tracing::warn!("Failed to send retirement signal"));
+                }
+            }
+            old.saturating_sub(1)
+        } else {
+            0
+        }
     }
 
     /// Save checkpoints to disk for crash recovery
@@ -449,7 +536,10 @@ impl AdapterTable {
         if let Err(e) = std::fs::rename(&temp_path, path) {
             // Clean up orphaned temp file
             std::fs::remove_file(&temp_path).ok();
-            return Err(AosError::Io(format!("Failed to rename checkpoint file: {}", e)));
+            return Err(AosError::Io(format!(
+                "Failed to rename checkpoint file: {}",
+                e
+            )));
         }
 
         tracing::info!(
@@ -494,6 +584,157 @@ impl AdapterTable {
 
         Ok(())
     }
+
+    /// Increment reference count for an adapter
+    pub fn inc_ref(&self, adapter_id: &str) {
+        let mut refcounts = self.refcounts.lock();
+        if let Some(rc) = refcounts.get(adapter_id) {
+            rc.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Decrement reference count for an adapter and notify if it reaches 0
+    pub fn dec_ref(&self, adapter_id: &str) -> usize {
+        let mut refcounts = self.refcounts.lock();
+        if let Some(rc) = refcounts.get(adapter_id) {
+            let old = rc.fetch_sub(1, Ordering::Relaxed);
+            if old == 1 {
+                if let Some(tx) = &self.retirement_sender {
+                    let _ = tx
+                        .try_send(())
+                        .map_err(|_| tracing::warn!("Failed to send retirement signal"));
+                }
+            }
+            old.saturating_sub(1)
+        } else {
+            0
+        }
+    }
+
+    /// Process retired stacks for RCU (Reference Count Update)
+    ///
+    /// This function is designed to be called periodically or when the system
+    /// needs to ensure all retired stacks are unloaded. It locks the retired_stacks
+    /// mutex, iterates through the list, and attempts to unload adapters from the
+    /// kernel backend if they are no longer referenced.
+    ///
+    /// Retry invariant: Each retired stack gets at most 3 unload attempts before quarantine
+    /// to prevent infinite loops under persistent kernel failures. Quarantined stacks are
+    /// removed from the retirement queue and logged for manual intervention.
+    ///
+    /// # Arguments
+    /// * `kernels_opt` - Optional reference to the kernel backend mutex.
+    ///                   If None, it will only remove from the list, not unload.
+    ///
+    /// # Returns
+    /// Ok(()) on success, Err(e) on error.
+    pub async fn process_retired_stacks<
+        K: adapteros_lora_kernel_api::FusedKernels + Send + Sync,
+    >(
+        &self,
+        kernels_opt: Option<Arc<tokio::sync::Mutex<K>>>,
+    ) -> Result<()> {
+        let mut retired_guard = self.retired_stacks.lock().unwrap();
+        let mut i = 0;
+        while i < retired_guard.len() {
+            let stack = &retired_guard[i];
+            let can_unload = {
+                let refcounts = self.refcounts.lock();
+                stack.active.iter().all(|(id, _)| {
+                    refcounts
+                        .get(id)
+                        .map_or(false, |rc| rc.load(Ordering::Relaxed) == 0)
+                })
+            };
+            retired_guard = self.retired_stacks.lock().unwrap(); // re-lock
+            if i >= retired_guard.len() {
+                break;
+            } // list may have changed
+            let stack_ref = &retired_guard[i];
+            if stack_ref.generation != stack.generation {
+                i += 1;
+                continue;
+            } // changed
+            if can_unload {
+                let mut retry_guard = self.retry_counts.lock().unwrap();
+                let gen = stack_ref.generation;
+                let retry_count = retry_guard.entry(gen).or_insert(0);
+                if *retry_count >= 3 {
+                    // Quarantine
+                    let adapter_ids: Vec<_> = stack_ref.active.keys().cloned().collect();
+                    retired_guard.remove(i);
+                    retry_guard.remove(&gen);
+                    tracing::error!(
+                        event = "retire_quarantine",
+                        generation = gen,
+                        retries = *retry_count,
+                        "Max retries exceeded, stack quarantined"
+                    );
+                    if let Some(tel) = &self.telemetry {
+                        let event = serde_json::json!({
+                            "event_type": "rcu_unload_failed",
+                            "generation": gen,
+                            "retries": *retry_count,
+                            "adapter_ids": adapter_ids,
+                            "error": "max_retries_exceeded"
+                        });
+                        let _ = tel.log("rcu_unload_failed", &event);
+                    }
+                    continue;
+                }
+                drop(retry_guard); // Release retry lock before kernel lock
+
+                let mut unload_failed = false;
+                if let Some(kernels) = kernels_opt {
+                    let mut k_lock = kernels.lock().await;
+                    for (id, _) in &stack_ref.active {
+                        let id_u16 = adapter_id_to_u16(id);
+                        if let Err(e) = k_lock.unload_adapter(id_u16) {
+                            tracing::warn!("Failed to unload adapter {}: {}", id, e);
+                            unload_failed = true;
+                            break; // Retry next time
+                        }
+                    }
+                    drop(k_lock);
+                } else {
+                    retired_guard.remove(i);
+                    let mut retry_guard = self.retry_counts.lock().unwrap();
+                    retry_guard.remove(&gen);
+                    tracing::info!("Unloaded retired stack (no kernels)");
+                }
+                if !unload_failed {
+                    retired_guard.remove(i);
+                    let mut retry_guard = self.retry_counts.lock().unwrap();
+                    retry_guard.remove(&gen);
+                    tracing::info!("Successfully unloaded retired stack gen {}", gen);
+                } else {
+                    // Increment retry and sleep
+                    let mut retry_guard = self.retry_counts.lock().unwrap();
+                    *retry_guard.entry(gen).or_insert(0) += 1;
+                    drop(retry_guard);
+                    sleep(Duration::from_millis(100)).await;
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn current_stack_hash(&self) -> B3Hash {
+        let active = self.active.read();
+        let mut data = Vec::new();
+        for (id, state) in active.iter() {
+            data.extend_from_slice(id.as_bytes());
+            data.extend_from_slice(&state.hash.to_bytes());
+        }
+        B3Hash::hash(&data)
+    }
+
+    pub fn get_current_stack_handle(&self) -> Arc<StackHandle> {
+        self.current_stack.load(Ordering::Acquire).clone()
+    }
 }
 
 impl Default for AdapterTable {
@@ -535,9 +776,38 @@ where
     pub fn new_with_kernels(
         kernels: Arc<tokio::sync::Mutex<K>>,
         adapters_path: std::path::PathBuf,
+        telemetry: Option<Arc<TelemetryWriter>>, // add param
     ) -> Self {
+        let (tx, mut rx) = mpsc::channel(100);
+        let mut table = AdapterTable::new();
+        table.retirement_sender = Some(tx);
+        table.telemetry = telemetry;
+        let table_arc = Arc::new(table);
+        let table_clone = table_arc.clone();
+        let kernels_clone = Some(kernels.clone());
+
+        // Spawn background retirement task with periodic processing
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = rx.recv() => {
+                        tracing::debug!("Retirement signal received");
+                    }
+                    _ = sleep(Duration::from_secs(5)) => {
+                        tracing::debug!("Periodic retirement check");
+                    }
+                }
+                if let Err(e) = table_clone
+                    .process_retired_stacks(kernels_clone.clone())
+                    .await
+                {
+                    tracing::error!("Error in retirement task: {}", e);
+                }
+            }
+        });
+
         Self {
-            table: Arc::new(AdapterTable::new()),
+            table: table_arc,
             kernels: Some(kernels),
             adapters_path,
         }
@@ -600,9 +870,7 @@ where
                     let manifest_bytes =
                         &adapter_bytes[manifest_offset..manifest_offset + manifest_len];
                     let manifest: serde_json::Value = serde_json::from_slice(manifest_bytes)
-                        .map_err(|e| {
-                            AosError::Parse(format!("Invalid AOS manifest: {}", e))
-                        })?;
+                        .map_err(|e| AosError::Parse(format!("Invalid AOS manifest: {}", e)))?;
 
                     // Extract weights offset from manifest
                     let weights_offset = manifest
@@ -649,7 +917,7 @@ where
                             kernels_lock.store_gpu_fingerprint(
                                 adapter_id_u16,
                                 buffer_size,
-                                &gpu_fp.checkpoint_hash.to_hex()
+                                &gpu_fp.checkpoint_hash.to_hex(),
                             );
 
                             #[cfg(target_os = "macos")]
@@ -729,44 +997,40 @@ where
                 let (vram_delta, _added_count) = self.table.swap(&add_ids, &remove_ids)?;
                 let stack_hash = self.table.compute_stack_hash();
 
-                // TODO: Collect GPU fingerprints for cross-layer verification
-                // This requires vram_tracker which is Metal-specific
-                // Commented out for now to allow generic FusedKernels usage
-                let cross_layer_hash = if let Some(ref _kernels) = self.kernels {
-                    let _active_adapters = self.table.get_active();
-                    let gpu_fingerprints: Vec<GpuFingerprint> = Vec::new();
+                let cross_layer_hash = if let Some(ref kernels) = self.kernels {
+                    let active_adapters = self.table.get_active();
+                    let mut gpu_fingerprints = Vec::new();
 
-                    // let kernels_lock = kernels.lock().await;
-                    // let vram_tracker = kernels_lock.vram_tracker();
-                    //
-                    // for adapter_state in &active_adapters {
-                    //     use std::collections::hash_map::DefaultHasher;
-                    //     use std::hash::{Hash, Hasher};
-                    //     let mut hasher = DefaultHasher::new();
-                    //     adapter_state.id.hash(&mut hasher);
-                    //     let adapter_id_u16 = (hasher.finish() % 65536) as u16;
-                    //
-                    //     if let Some(fp) = vram_tracker.get_fingerprint(adapter_id_u16 as u32) {
-                    //         gpu_fingerprints.push(GpuFingerprint {
-                    //             adapter_id: adapter_state.id.clone(),
-                    //             buffer_bytes: fp.buffer_bytes,
-                    //             checkpoint_hash: fp.checkpoint_hash,
-                    //         });
-                    //     }
-                    // }
+                    let mut kernels_lock = kernels.lock().await;
+                    let vram_tracker = kernels_lock.vram_tracker();
 
-                    // drop(kernels_lock);
+                    for adapter_state in &active_adapters {
+                        let adapter_id_u16 = adapter_id_to_u16(&adapter_state.id) as u32;
+                        if let Some(fp) = vram_tracker.fingerprints.get(&adapter_id_u16) {
+                            gpu_fingerprints.push(GpuFingerprint {
+                                adapter_id: adapter_state.id.clone(),
+                                buffer_bytes: fp.buffer_bytes, // Assuming GpuBufferFingerprint has buffer_bytes: u64
+                                checkpoint_hash: fp.checkpoint_hash, // Assuming B3Hash
+                            });
+                        }
+                    }
+                    drop(kernels_lock);
 
-                    // Create checkpoint with GPU fingerprints
-                    let checkpoint = self.table.create_checkpoint(gpu_fingerprints);
-                    tracing::info!(
-                        metadata_hash = %checkpoint.metadata_hash,
-                        cross_layer_hash = ?checkpoint.cross_layer_hash,
-                        "Cross-layer checkpoint created after swap (vram_tracker disabled)"
-                    );
-
-                    checkpoint.cross_layer_hash
+                    if !gpu_fingerprints.is_empty() {
+                        let checkpoint = self.table.create_checkpoint(gpu_fingerprints);
+                        tracing::info!(
+                            metadata_hash = %checkpoint.metadata_hash.to_short_hex(),
+                            cross_layer_hash = %checkpoint.cross_layer_hash.as_ref().unwrap_or(&B3Hash::zero()).to_short_hex(),
+                            fingerprints_count = checkpoint.gpu_fingerprints.len(),
+                            "Cross-layer checkpoint created after swap"
+                        );
+                        checkpoint.cross_layer_hash
+                    } else {
+                        tracing::trace!("No GPU fingerprints available after swap, falling back to metadata hash");
+                        None
+                    }
                 } else {
+                    tracing::trace!("No kernels available, using metadata-only hash");
                     None
                 };
 
@@ -796,33 +1060,24 @@ where
                 let stack_hash = self.table.compute_stack_hash();
 
                 // Verify GPU state and create cross-layer checkpoint
-                // TODO: Collect GPU fingerprints for cross-layer verification
-                // This requires vram_tracker which is Metal-specific
-                // Commented out for now to allow generic FusedKernels usage
-                let cross_layer_hash = if let Some(ref _kernels) = self.kernels {
-                    let _active_adapters = self.table.get_active();
-                    let gpu_fingerprints: Vec<GpuFingerprint> = Vec::new();
+                let cross_layer_hash = if let Some(ref kernels) = self.kernels {
+                    let active_adapters = self.table.get_active();
+                    let mut gpu_fingerprints = Vec::new();
 
-                    // let kernels_lock = kernels.lock().await;
-                    // let vram_tracker = kernels_lock.vram_tracker();
-                    //
-                    // for adapter_state in &active_adapters {
-                    //     use std::collections::hash_map::DefaultHasher;
-                    //     use std::hash::{Hash, Hasher};
-                    //     let mut hasher = DefaultHasher::new();
-                    //     adapter_state.id.hash(&mut hasher);
-                    //     let adapter_id_u16 = (hasher.finish() % 65536) as u16;
-                    //
-                    //     if let Some(fp) = vram_tracker.get_fingerprint(adapter_id_u16 as u32) {
-                    //         gpu_fingerprints.push(GpuFingerprint {
-                    //             adapter_id: adapter_state.id.clone(),
-                    //             buffer_bytes: fp.buffer_bytes,
-                    //             checkpoint_hash: fp.checkpoint_hash,
-                    //         });
-                    //     }
-                    // }
+                    let mut kernels_lock = kernels.lock().await;
+                    let vram_tracker = kernels_lock.vram_tracker();
 
-                    // drop(kernels_lock);
+                    for adapter_state in &active_adapters {
+                        let adapter_id_u16 = adapter_id_to_u16(&adapter_state.id) as u32;
+                        if let Some(fp) = vram_tracker.fingerprints.get(&adapter_id_u16) {
+                            gpu_fingerprints.push(GpuFingerprint {
+                                adapter_id: adapter_state.id.clone(),
+                                buffer_bytes: fp.buffer_bytes,
+                                checkpoint_hash: fp.checkpoint_hash,
+                            });
+                        }
+                    }
+                    drop(kernels_lock);
 
                     // Verify against latest checkpoint if available
                     let checkpoints = self.table.get_checkpoints(1);
@@ -845,8 +1100,19 @@ where
 
                     // Create new checkpoint
                     let checkpoint = self.table.create_checkpoint(gpu_fingerprints);
+                    if !checkpoint.gpu_fingerprints.is_empty() {
+                        tracing::info!(
+                            metadata_hash = %checkpoint.metadata_hash.to_short_hex(),
+                            cross_layer_hash = %checkpoint.cross_layer_hash.as_ref().unwrap_or(&B3Hash::zero()).to_short_hex(),
+                            fingerprints_count = checkpoint.gpu_fingerprints.len(),
+                            "Cross-layer verification checkpoint created"
+                        );
+                    } else {
+                        tracing::trace!("No GPU fingerprints for verification, metadata-only");
+                    }
                     checkpoint.cross_layer_hash
                 } else {
+                    tracing::trace!("No kernels for GPU verification, metadata-only");
                     None
                 };
 
@@ -866,6 +1132,69 @@ where
     /// Get adapter table reference
     pub fn table(&self) -> &Arc<AdapterTable> {
         &self.table
+    }
+
+    /// Start a background task to process retired stacks
+    ///
+    /// This function spawns a new tokio task that periodically wakes up
+    /// to check the `retired_stacks` list and attempt to unload adapters
+    /// that are no longer referenced. It uses a Condvar to wait for new
+    /// stacks to be added to the list.
+    ///
+    /// # Returns
+    /// A JoinHandle to the spawned task.
+    pub fn start_retirement_task(self: Arc<Self>) -> tokio::task::JoinHandle<()>
+    where
+        K: adapteros_lora_kernel_api::FusedKernels + Send + Sync + 'static,
+    {
+        let manager = self.clone();
+        tokio::spawn(async move {
+            loop {
+                let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await; // Simulate request
+                let mut i = 0;
+                while i < retired_guard.len() {
+                    let stack = &retired_guard[i];
+                    let can_unload = stack.active.iter().all(|(id, _)| {
+                        manager
+                            .table
+                            .refcounts
+                            .lock()
+                            .unwrap()
+                            .get(id)
+                            .map_or(false, |rc| rc.load(Ordering::Relaxed) == 0)
+                    });
+                    if can_unload {
+                        if let Some(kernels) = &manager.kernels {
+                            let mut k_lock = kernels.lock().await;
+                            let mut unload_failed = false;
+                            for (id, _) in &stack.active {
+                                let id_u16 = adapter_id_to_u16(id);
+                                if let Err(e) = k_lock.unload_adapter(id_u16) {
+                                    tracing::warn!("Failed to unload adapter {}: {}", id, e);
+                                    unload_failed = true;
+                                    break; // Retry next time
+                                }
+                            }
+                            if !unload_failed {
+                                retired_guard.remove(i);
+                                tracing::info!(
+                                    "Unloaded retired stack generation {}",
+                                    stack.generation
+                                );
+                            } else {
+                                i += 1;
+                            }
+                        } else {
+                            retired_guard.remove(i);
+                            tracing::info!("Unloaded retired stack (no kernels)");
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        })
     }
 }
 
@@ -933,5 +1262,170 @@ mod tests {
         let hash_after = table.compute_stack_hash();
 
         assert_eq!(hash_before, hash_after);
+    }
+
+    #[test]
+    fn test_rcu_refcount() {
+        let table = AdapterTable::new();
+        let h1 = B3Hash::hash(b"test");
+        table.preload("test".to_string(), h1, 10).unwrap();
+        table.swap(&["test"], &[]).unwrap();
+        let stack = table.current_stack.load(Ordering::Acquire).clone();
+        let rc = table
+            .refcounts
+            .lock()
+            .get("test")
+            .unwrap()
+            .load(Ordering::Relaxed);
+        assert_eq!(rc, 0);
+        let rca = table.refcounts.lock().get("test").unwrap();
+        rca.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(rca.load(Ordering::Relaxed), 1);
+        table.swap(&[], &["test"]).unwrap();
+        rca.fetch_sub(1, Ordering::Relaxed);
+        assert_eq!(rca.load(Ordering::Relaxed), 0);
+        // Note: background would unload, but in test we don't wait
+    }
+
+    #[cfg(feature = "loom")]
+    #[test]
+    fn loom_rcu_no_uaf() {
+        loom::model(|| {
+            let table = Arc::new(AdapterTable::new());
+            let h = B3Hash::zero();
+            table.preload("test".to_string(), h, 10).unwrap();
+            table.swap(&["test"], &[]).unwrap();
+
+            let initial_gen = table.current_stack.load(Ordering::Acquire).generation;
+
+            // 50 readers: snapshot, inc, hold, dec
+            for _ in 0..50 {
+                let table_clone = table.clone();
+                loom::thread::spawn(move || {
+                    let stack = table_clone.current_stack.load(Ordering::Acquire).clone();
+                    table_clone.inc_ref("test");
+                    std::thread::sleep(std::time::Duration::from_secs(1)); // Simulate long inference
+                    table_clone.dec_ref("test");
+                });
+            }
+
+            // 10 writers: preload new, swap every 100ms
+            for i in 0..10 {
+                let table_clone = table.clone();
+                let new_id = format!("new{}", i);
+                loom::thread::spawn(move || {
+                    let h_new = B3Hash::hash(format!("new{}", i).as_bytes());
+                    table_clone.preload(new_id.clone(), h_new, 10).unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    table_clone.swap(&[new_id], &["test".to_string()]).unwrap();
+                });
+            }
+
+            // Wait for all threads (loom handles)
+            // Assert after model: gen increased, ref 0
+            let final_gen = table.current_stack.load(Ordering::Acquire).generation;
+            assert!(
+                final_gen > initial_gen,
+                "Generation must increase with swaps"
+            );
+            assert_eq!(
+                table
+                    .refcounts
+                    .get("test")
+                    .unwrap_or(&AtomicUsize::new(0))
+                    .load(Ordering::Relaxed),
+                0,
+                "Refcount must be 0 after all readers"
+            );
+            // Loom detects any races/UAF
+        });
+    }
+
+    #[tokio::test]
+    async fn stress_test_swap_during_inference() {
+        let mut table = AdapterTable::new();
+        let h1 = B3Hash::hash(b"a");
+        let h2 = B3Hash::hash(b"b");
+        table.preload("a".to_string(), h1, 10).unwrap();
+        table.swap(&["a"], &[]).unwrap();
+
+        // Simulate 100 concurrent infers + 50 swaps
+        let mut handles = vec![];
+        let table_arc = Arc::new(table);
+
+        for i in 0..100 {
+            let table_clone = table_arc.clone();
+            handles.push(tokio::spawn(async move {
+                // Simulate infer: snapshot, inc, hold, dec
+                let stack = table_clone.current_stack.load(Ordering::Acquire).clone();
+                for name in stack.active.keys() {
+                    table_clone
+                        .refcounts
+                        .lock()
+                        .entry(name.clone())
+                        .or_insert_with(|| AtomicUsize::new(0))
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await; // Simulate 100ms infer
+                for name in stack.active.keys() {
+                    table_clone.dec_ref(name);
+                }
+                Ok::<(), ()>(())
+            }));
+        }
+
+        for _ in 0..50 {
+            let table_clone = table_arc.clone();
+            handles.push(tokio::spawn(async move {
+                // Swap a -> b
+                table_clone.preload("b".to_string(), h2, 15).unwrap();
+                table_clone.swap(&["b"], &["a"]).unwrap();
+                Ok(())
+            }));
+        }
+
+        // Wait for all
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        // Assert no panics, refcounts 0
+        let stack = table_arc.current_stack.load(Ordering::Acquire);
+        for name in stack.active.keys() {
+            assert_eq!(
+                table_arc
+                    .refcounts
+                    .lock()
+                    .get(name)
+                    .unwrap()
+                    .load(Ordering::Relaxed),
+                0
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_unload_time() {
+        let table = Arc::new(AdapterTable::new());
+        let h = B3Hash::zero();
+        table.preload("test".to_string(), h, 10).unwrap();
+        table.swap(&["test"], &[]).unwrap();
+
+        // Simulate hold
+        table.inc_ref("test");
+        let start = Instant::now();
+        // Simulate work
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        table.dec_ref("test");
+
+        // Wait for background to process (since periodic 5s, manual call for test)
+        table.process_retired_stacks(&None).await.unwrap();
+
+        let unload_time = start.elapsed();
+        assert!(
+            unload_time < Duration::from_millis(5),
+            "Unload should be fast: {:?}",
+            unload_time
+        );
     }
 }

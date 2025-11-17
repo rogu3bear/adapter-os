@@ -7,7 +7,7 @@
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - CLAUDE.md L132: "Telemetry via `TelemetryWriter::log(event_type, data)`"
 
-use adapteros_core::B3Hash;
+use adapteros_core::{identity::IdentityEnvelope, B3Hash};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -32,8 +32,8 @@ pub struct TelemetryEvent {
     /// Component that generated the event
     pub component: Option<String>,
 
-    /// Tenant ID (if applicable)
-    pub tenant_id: Option<String>,
+    /// Required identity envelope for all events
+    pub identity: IdentityEnvelope,
 
     /// User ID (if applicable)
     pub user_id: Option<String>,
@@ -242,8 +242,13 @@ pub struct TelemetryEventBuilder {
 }
 
 impl TelemetryEventBuilder {
-    /// Create a new event builder
-    pub fn new(event_type: EventType, level: LogLevel, message: String) -> Self {
+    /// Create a new event builder - requires identity envelope
+    pub fn new(
+        event_type: EventType,
+        level: LogLevel,
+        message: String,
+        identity: IdentityEnvelope,
+    ) -> Self {
         Self {
             event: TelemetryEvent {
                 id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
@@ -252,7 +257,7 @@ impl TelemetryEventBuilder {
                 level,
                 message,
                 component: None,
-                tenant_id: None,
+                identity,
                 user_id: None,
                 metadata: None,
                 trace_id: None,
@@ -268,12 +273,6 @@ impl TelemetryEventBuilder {
         self
     }
 
-    /// Set the tenant ID
-    pub fn tenant_id(mut self, tenant_id: String) -> Self {
-        self.event.tenant_id = Some(tenant_id);
-        self
-    }
-
     /// Set the user ID
     pub fn user_id(mut self, user_id: String) -> Self {
         self.event.user_id = Some(user_id);
@@ -286,25 +285,17 @@ impl TelemetryEventBuilder {
         self
     }
 
-    /// Set trace ID for distributed tracing
-    pub fn trace_id(mut self, trace_id: String) -> Self {
-        self.event.trace_id = Some(trace_id);
-        self
-    }
-
-    /// Set span ID for distributed tracing
-    pub fn span_id(mut self, span_id: String) -> Self {
-        self.event.span_id = Some(span_id);
-        self
-    }
-
-    /// Build the final event
+    /// Build the final event and compute hash
     pub fn build(mut self) -> TelemetryEvent {
-        // Compute event hash for integrity verification
-        if let Ok(event_json) = serde_json::to_string(&self.event) {
-            let hash_bytes = blake3::hash(event_json.as_bytes());
-            self.event.event_hash = Some(B3Hash::from_bytes(hash_bytes.into()));
+        // Validate identity
+        if let Err(e) = self.event.identity.validate() {
+            panic!("Invalid identity envelope: {}", e);
         }
+
+        // Compute event hash for integrity
+        let event_data = serde_json::to_vec(&self.event).unwrap();
+        self.event.event_hash = Some(B3Hash::hash(&event_data));
+
         self.event
     }
 }
@@ -341,20 +332,27 @@ mod tests {
 
     #[test]
     fn test_telemetry_event_builder() {
+        let identity = IdentityEnvelope::new(
+            "test-tenant".to_string(),
+            "test-domain".to_string(),
+            "test-purpose".to_string(),
+            "test-rev".to_string(),
+        );
         let event = TelemetryEventBuilder::new(
             EventType::SystemStart,
             LogLevel::Info,
             "System started successfully".to_string(),
+            identity,
         )
         .component("adapteros-core".to_string())
-        .tenant_id("default".to_string())
+        .user_id("test-user".to_string())
         .build();
 
-        assert_eq!(event.event_type, "system.start");
-        assert_eq!(event.level, LogLevel::Info);
+        assert_eq!(event.event_type, "SystemStart");
         assert_eq!(event.message, "System started successfully");
         assert_eq!(event.component, Some("adapteros-core".to_string()));
-        assert_eq!(event.tenant_id, Some("default".to_string()));
+        assert_eq!(event.user_id, Some("test-user".to_string()));
+        assert_eq!(event.identity.tenant_id, "test-tenant");
         assert!(event.event_hash.is_some());
     }
 

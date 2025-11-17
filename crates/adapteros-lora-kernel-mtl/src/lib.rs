@@ -1078,7 +1078,10 @@ impl FusedKernels for MetalKernels {
         // Check if adapter already loaded (atomic check-and-remove to avoid TOCTOU race)
         use std::collections::hash_map::Entry;
         if let Entry::Occupied(entry) = self.adapter_weights.entry(id) {
-            warn!(adapter_id = id, "Adapter already loaded, removing existing entry");
+            warn!(
+                adapter_id = id,
+                "Adapter already loaded, removing existing entry"
+            );
             entry.remove();
         }
 
@@ -1092,9 +1095,9 @@ impl FusedKernels for MetalKernels {
 
         // Find rank from first A matrix shape
         let rank = if let Some(a_name) = tensor_names.iter().find(|n| n.contains("lora_A")) {
-            let tensor_info = tensors.tensor(a_name).map_err(|e| {
-                AosError::Parse(format!("Failed to get tensor info: {}", e))
-            })?;
+            let tensor_info = tensors
+                .tensor(a_name)
+                .map_err(|e| AosError::Parse(format!("Failed to get tensor info: {}", e)))?;
             tensor_info.shape()[0] // First dimension is rank
         } else {
             return Err(AosError::Validation(
@@ -1108,18 +1111,29 @@ impl FusedKernels for MetalKernels {
         // 2. Raw SafeTensors (no manifest)
         let alpha = if weights.len() >= 8 {
             // Try to parse AOS2 manifest
-            let manifest_offset = u32::from_le_bytes([weights[0], weights[1], weights[2], weights[3]]) as usize;
-            let manifest_len = u32::from_le_bytes([weights[4], weights[5], weights[6], weights[7]]) as usize;
+            let manifest_offset =
+                u32::from_le_bytes([weights[0], weights[1], weights[2], weights[3]]) as usize;
+            let manifest_len =
+                u32::from_le_bytes([weights[4], weights[5], weights[6], weights[7]]) as usize;
 
             if weights.len() >= manifest_offset + manifest_len {
                 let manifest_bytes = &weights[manifest_offset..manifest_offset + manifest_len];
                 if let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(manifest_bytes) {
                     if let Some(alpha_val) = manifest.get("lora_alpha").and_then(|v| v.as_f64()) {
-                        info!(adapter_id = id, alpha = alpha_val, "Found lora_alpha in AOS2 manifest");
+                        info!(
+                            adapter_id = id,
+                            alpha = alpha_val,
+                            "Found lora_alpha in AOS2 manifest"
+                        );
                         alpha_val as f32
                     } else {
                         let default_alpha = (2 * rank) as f32;
-                        warn!(adapter_id = id, rank = rank, "No lora_alpha in AOS2 manifest, using 2*rank={}", default_alpha);
+                        warn!(
+                            adapter_id = id,
+                            rank = rank,
+                            "No lora_alpha in AOS2 manifest, using 2*rank={}",
+                            default_alpha
+                        );
                         default_alpha
                     }
                 } else {
@@ -1255,7 +1269,7 @@ impl FusedKernels for MetalKernels {
             let sample: Vec<f32> = unsafe {
                 std::slice::from_raw_parts(
                     contents,
-                    10.min(first_a_buffer.length() as usize / std::mem::size_of::<f32>())
+                    10.min(first_a_buffer.length() as usize / std::mem::size_of::<f32>()),
                 )
             }
             .to_vec();
@@ -1405,8 +1419,8 @@ impl FusedKernels for MetalKernels {
     }
 
     fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
-        use adapteros_core::B3Hash;
         use crate::vram::GpuBufferFingerprint;
+        use adapteros_core::B3Hash;
 
         // Parse hex hash back to B3Hash
         let checkpoint_hash = match B3Hash::from_hex(checkpoint_hash_hex) {
@@ -1440,8 +1454,8 @@ impl FusedKernels for MetalKernels {
         buffer_size: u64,
         checkpoint_hash_hex: &str,
     ) -> Result<bool> {
-        use adapteros_core::B3Hash;
         use crate::vram::GpuBufferFingerprint;
+        use adapteros_core::B3Hash;
 
         // Parse hex hash back to B3Hash
         let checkpoint_hash = B3Hash::from_hex(checkpoint_hash_hex)
@@ -1456,12 +1470,18 @@ impl FusedKernels for MetalKernels {
             checkpoint_hash,
         };
 
-        self.vram_tracker.verify_fingerprint(id as u32, &current_fp)
+        self.vram_tracker
+            .verify_fingerprint(id as u32, &current_fp)
             .map_err(|msg| AosError::Validation(msg))
     }
 
-    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+    fn check_memory_footprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+    ) -> (bool, f64, Option<(f64, f64, usize)>) {
         // Use interior mutability in VramTracker to enable baseline learning from &self
-        self.vram_tracker.check_memory_footprint(id as u32, buffer_size)
+        self.vram_tracker
+            .check_memory_footprint(id as u32, buffer_size)
     }
 }

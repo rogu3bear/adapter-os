@@ -3,29 +3,15 @@
 //! This example demonstrates advanced usage of the patch proposal system
 //! including custom evidence retrieval, policy configuration, and telemetry integration.
 
-<<<<<<< HEAD
-#[cfg(feature = "extended-tests")]
-=======
->>>>>>> integration-branch
 use adapteros_lora_worker::{
     evidence::{EvidencePolicy, EvidenceRequest, EvidenceRetriever, EvidenceSpan, EvidenceType},
     patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator},
     patch_telemetry::{EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics},
     patch_validator::{CodePolicy, PatchValidator, ValidationResult},
 };
-<<<<<<< HEAD
-#[cfg(feature = "extended-tests")]
-use adapteros_manifest::Policies;
-#[cfg(feature = "extended-tests")]
-use adapteros_policy::PolicyEngine;
-#[cfg(feature = "extended-tests")]
-use adapteros_telemetry::TelemetryWriter;
-#[cfg(feature = "extended-tests")]
-=======
 use adapteros_manifest::Policies;
 use adapteros_policy::PolicyEngine;
 use adapteros_telemetry::TelemetryWriter;
->>>>>>> integration-branch
 use std::collections::HashMap;
 #[cfg(feature = "extended-tests")]
 use std::time::Instant;

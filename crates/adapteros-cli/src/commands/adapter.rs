@@ -3,6 +3,7 @@
 use crate::output::OutputWriter;
 use adapteros_client::{AdapterOSClient, UdsClient};
 use adapteros_core::Result;
+use adapteros_core::{validation, AosError};
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::time::Duration;
@@ -79,7 +80,10 @@ async fn directory_upsert(
     output: &OutputWriter,
 ) -> Result<()> {
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/adapters/directory/upsert", base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/adapters/directory/upsert",
+        base_url.trim_end_matches('/')
+    );
     let body = serde_json::json!({
         "tenant_id": tenant,
         "root": root,
@@ -95,17 +99,19 @@ async fn directory_upsert(
         output.kv("Activate", "true");
     }
 
-    let resp = client.post(&url).json(&body).send().await.map_err(|e| {
-        adapteros_core::AosError::Io(format!("HTTP request failed: {}", e))
-    })?;
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| adapteros_core::AosError::Io(format!("HTTP request failed: {}", e)))?;
 
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         return Err(adapteros_core::AosError::Other(format!(
             "Upsert failed: {} {}",
-            status,
-            text
+            status, text
         )));
     }
 
@@ -129,29 +135,7 @@ async fn directory_upsert(
 
 /// Validate adapter ID format
 fn validate_adapter_id(adapter_id: &str) -> Result<()> {
-    if adapter_id.is_empty() {
-        return Err(adapteros_core::AosError::Parse(
-            "Adapter ID cannot be empty".to_string(),
-        ));
-    }
-
-    if adapter_id.len() > 64 {
-        return Err(adapteros_core::AosError::Parse(
-            "Adapter ID must be 64 characters or less".to_string(),
-        ));
-    }
-
-    if !adapter_id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(adapteros_core::AosError::Parse(
-            "Adapter ID must contain only alphanumeric characters, hyphens, and underscores"
-                .to_string(),
-        ));
-    }
-
-    Ok(())
+    validation::validate_adapter_id(adapter_id).map_err(|e| AosError::from(e))
 }
 
 /// Connect to worker via UDS and fetch adapter states with retry logic
@@ -513,7 +497,11 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
     let _ = crate::cli_telemetry::emit_cli_command(&command_name, tenant_id.as_deref(), true).await;
 
     match cmd {
-        AdapterCommand::List { json, tenant, pinned_only } => list_adapters(json, tenant, pinned_only, output).await,
+        AdapterCommand::List {
+            json,
+            tenant,
+            pinned_only,
+        } => list_adapters(json, tenant, pinned_only, output).await,
         AdapterCommand::Profile {
             adapter_id,
             json,
@@ -558,7 +546,12 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
 }
 
 /// List all adapters with their current states
-async fn list_adapters(json: bool, tenant: Option<String>, pinned_only: bool, output: &OutputWriter) -> Result<()> {
+async fn list_adapters(
+    json: bool,
+    tenant: Option<String>,
+    pinned_only: bool,
+    output: &OutputWriter,
+) -> Result<()> {
     info!("Listing adapter lifecycle status");
 
     let socket_path = get_worker_socket_path(tenant.as_deref());

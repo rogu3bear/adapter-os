@@ -63,7 +63,7 @@ async fn test_health_cache_functionality() {
 mod integration_tests {
     use super::*;
     use adapteros_server_api::routes;
-    use adapteros_server_api::state::{AppState, ApiConfig, MetricsConfig};
+    use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
     use axum_test::TestServer;
     use sqlx::SqlitePool;
     use std::sync::Arc;

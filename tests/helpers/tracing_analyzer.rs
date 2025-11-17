@@ -134,7 +134,11 @@ impl TimingMetrics {
         ];
         let filesystem_time_ms: u64 = spans
             .iter()
-            .filter(|s| filesystem_spans.iter().any(|pattern| s.name.contains(pattern)))
+            .filter(|s| {
+                filesystem_spans
+                    .iter()
+                    .any(|pattern| s.name.contains(pattern))
+            })
             .map(|s| {
                 span_breakdown.insert(s.name.clone(), s.duration_ms);
                 s.duration_ms
@@ -247,11 +251,7 @@ impl ImprovementReport {
     }
 
     /// Assert that improvements meet expected thresholds
-    pub fn assert_improvements(
-        &self,
-        min_total_improvement_pct: f64,
-        max_acceptable_ratio: f64,
-    ) {
+    pub fn assert_improvements(&self, min_total_improvement_pct: f64, max_acceptable_ratio: f64) {
         assert!(
             self.total_time_improvement_pct >= min_total_improvement_pct,
             "Total time improvement {}% is below threshold {}%",
@@ -271,28 +271,41 @@ impl ImprovementReport {
     pub fn print_report(&self) {
         println!("\n=== Performance Comparison Report ===");
         println!("\nBaseline:");
-        println!("  Total time:      {} ms", self.baseline.total_handler_time_ms);
+        println!(
+            "  Total time:      {} ms",
+            self.baseline.total_handler_time_ms
+        );
         println!("  Filesystem time: {} ms", self.baseline.filesystem_time_ms);
         println!("  Database time:   {} ms", self.baseline.database_time_ms);
         println!("  FS/DB ratio:     {:.2}", self.baseline.fs_db_ratio);
 
         println!("\nCurrent:");
-        println!("  Total time:      {} ms", self.current.total_handler_time_ms);
+        println!(
+            "  Total time:      {} ms",
+            self.current.total_handler_time_ms
+        );
         println!("  Filesystem time: {} ms", self.current.filesystem_time_ms);
         println!("  Database time:   {} ms", self.current.database_time_ms);
         println!("  FS/DB ratio:     {:.2}", self.current.fs_db_ratio);
 
         println!("\nImprovements:");
         println!("  Total time:      {:.1}%", self.total_time_improvement_pct);
-        println!("  Filesystem time: {:.1}%", self.filesystem_time_improvement_pct);
-        println!("  Database time:   {:.1}%", self.database_time_improvement_pct);
+        println!(
+            "  Filesystem time: {:.1}%",
+            self.filesystem_time_improvement_pct
+        );
+        println!(
+            "  Database time:   {:.1}%",
+            self.database_time_improvement_pct
+        );
         println!("  Ratio change:    {:.2}", self.ratio_improvement);
 
         println!("\nSpan Breakdown:");
         for (span_name, duration) in &self.current.span_breakdown {
             let baseline_duration = self.baseline.span_breakdown.get(span_name).unwrap_or(&0);
             let change = if *baseline_duration > 0 {
-                (((*baseline_duration as f64) - (*duration as f64)) / (*baseline_duration as f64)) * 100.0
+                (((*baseline_duration as f64) - (*duration as f64)) / (*baseline_duration as f64))
+                    * 100.0
             } else {
                 0.0
             };

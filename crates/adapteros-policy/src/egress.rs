@@ -65,9 +65,7 @@ fn validate_pf_macos() -> Result<()> {
             current_rules = %rules,
             "No explicit deny-all outbound rule detected in PF configuration"
         );
-        tracing::info!(
-            "To add deny-all egress: echo 'block out all' | sudo pfctl -f -"
-        );
+        tracing::info!("To add deny-all egress: echo 'block out all' | sudo pfctl -f -");
 
         // In strict mode, return error
         return Err(AosError::EgressViolation(

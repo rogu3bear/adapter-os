@@ -14,7 +14,10 @@ async fn test_backend_detection() {
 
     // Test that we can generate keys
     let key_id = "backend-test-key";
-    let handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let handle = provider
+        .generate(key_id, KeyAlgorithm::Ed25519)
+        .await
+        .unwrap();
     assert_eq!(handle.algorithm, KeyAlgorithm::Ed25519);
 
     // Test signing
@@ -44,12 +47,18 @@ async fn test_password_fallback() {
     } else {
         // If password fallback feature is not enabled, the provider may use a different backend
         // but we can still test that the provider works
-        println!("⚠️  Backend: {} (password fallback feature may not be enabled)", backend_str);
+        println!(
+            "⚠️  Backend: {} (password fallback feature may not be enabled)",
+            backend_str
+        );
     }
 
     // Test key operations
     let key_id = "fallback-test-key";
-    let handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let handle = provider
+        .generate(key_id, KeyAlgorithm::Ed25519)
+        .await
+        .unwrap();
     assert_eq!(handle.algorithm, KeyAlgorithm::Ed25519);
 
     let message = b"Password fallback test";
@@ -58,7 +67,10 @@ async fn test_password_fallback() {
 
     // Test symmetric encryption
     let sym_key_id = "fallback-sym-key";
-    provider.generate(sym_key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
+    provider
+        .generate(sym_key_id, KeyAlgorithm::Aes256Gcm)
+        .await
+        .unwrap();
 
     let plaintext = b"Secret data";
     let ciphertext = provider.seal(sym_key_id, plaintext).await.unwrap();
@@ -80,7 +92,10 @@ async fn test_key_rotation_integration() {
     let key_id = "rotation-integration-test";
 
     // Generate initial key
-    let _ = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider
+        .generate(key_id, KeyAlgorithm::Ed25519)
+        .await
+        .unwrap();
 
     // Sign a message with initial key
     let message = b"Message before rotation";
@@ -151,21 +166,26 @@ async fn test_concurrent_key_operations() {
     let key_id = "concurrent-test-key";
 
     // Spawn multiple tasks that generate and use the same key
-    let tasks: Vec<_> = (0..num_tasks).map(|i| {
-        let provider = provider.clone();
-        tokio::spawn(async move {
-            // Generate key (should be idempotent)
-            let handle = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
-            assert_eq!(handle.algorithm, KeyAlgorithm::Ed25519);
+    let tasks: Vec<_> = (0..num_tasks)
+        .map(|i| {
+            let provider = provider.clone();
+            tokio::spawn(async move {
+                // Generate key (should be idempotent)
+                let handle = provider
+                    .generate(key_id, KeyAlgorithm::Ed25519)
+                    .await
+                    .unwrap();
+                assert_eq!(handle.algorithm, KeyAlgorithm::Ed25519);
 
-            // Sign a unique message
-            let message = format!("Concurrent message {}", i);
-            let signature = provider.sign(key_id, message.as_bytes()).await.unwrap();
-            assert!(!signature.is_empty());
+                // Sign a unique message
+                let message = format!("Concurrent message {}", i);
+                let signature = provider.sign(key_id, message.as_bytes()).await.unwrap();
+                assert!(!signature.is_empty());
 
-            (i, signature.len())
+                (i, signature.len())
+            })
         })
-    }).collect();
+        .collect();
 
     // Wait for all tasks to complete
     let results = futures::future::join_all(tasks).await;
@@ -190,8 +210,11 @@ async fn test_missing_key_error_handling() {
     assert!(result.is_err(), "Expected error for missing key");
 
     let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("not found") || error_msg.contains("NotFound"),
-        "Error message should indicate key not found: {}", error_msg);
+    assert!(
+        error_msg.contains("not found") || error_msg.contains("NotFound"),
+        "Error message should indicate key not found: {}",
+        error_msg
+    );
 
     println!("✅ Missing key error handling working correctly");
 }
@@ -205,7 +228,10 @@ async fn test_chacha20_poly1305_support() {
     let key_id = "chacha-test-key";
 
     // Generate ChaCha20Poly1305 key
-    let handle = provider.generate(key_id, KeyAlgorithm::ChaCha20Poly1305).await.unwrap();
+    let handle = provider
+        .generate(key_id, KeyAlgorithm::ChaCha20Poly1305)
+        .await
+        .unwrap();
     assert_eq!(handle.algorithm, KeyAlgorithm::ChaCha20Poly1305);
 
     // Test encryption/decryption
@@ -228,7 +254,10 @@ async fn test_large_data_handling() {
     let key_id = "large-data-test";
 
     // Generate encryption key
-    provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
+    provider
+        .generate(key_id, KeyAlgorithm::Aes256Gcm)
+        .await
+        .unwrap();
 
     // Test with 1MB of data
     let large_data = vec![0x42u8; 1024 * 1024];
@@ -259,7 +288,10 @@ async fn test_key_isolation() {
     let key_id = "isolation-test";
 
     // Generate key in provider1
-    let _ = provider1.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider1
+        .generate(key_id, KeyAlgorithm::Ed25519)
+        .await
+        .unwrap();
 
     // Try to access from provider2 (should fail or be different)
     let _ = provider2.sign(key_id, b"test").await;
@@ -267,7 +299,10 @@ async fn test_key_isolation() {
     // The important thing is that operations work correctly for each provider
 
     // Both providers should work independently
-    let _ = provider2.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider2
+        .generate(key_id, KeyAlgorithm::Ed25519)
+        .await
+        .unwrap();
     let sig2 = provider2.sign(key_id, b"test").await.unwrap();
     assert!(!sig2.is_empty());
 
@@ -286,7 +321,10 @@ async fn test_backend_health_checking() {
 
     // Test that we can still perform operations after health check
     let key_id = "health-check-test";
-    let _ = provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+    let _ = provider
+        .generate(key_id, KeyAlgorithm::Ed25519)
+        .await
+        .unwrap();
     let signature = provider.sign(key_id, b"health check").await.unwrap();
     assert!(!signature.is_empty());
 
@@ -308,34 +346,40 @@ async fn test_error_message_formats() {
     assert!(error_msg.contains("["));
     assert!(error_msg.contains("]"));
     assert!(error_msg.contains("failed"));
-    println!("✅ Error messages follow standardized format: {}", error_msg);
+    println!(
+        "✅ Error messages follow standardized format: {}",
+        error_msg
+    );
 }
 
 /// Test concurrent backend health checks
 #[tokio::test]
 async fn test_concurrent_health_checks() {
     let config = KeyProviderConfig::default();
-    let provider = std::sync::Arc::new(
-        adapteros_crypto::KeychainProvider::new(config).unwrap()
-    );
+    let provider = std::sync::Arc::new(adapteros_crypto::KeychainProvider::new(config).unwrap());
 
     let num_tasks = 5;
-    let tasks: Vec<_> = (0..num_tasks).map(|i| {
-        let provider = provider.clone();
-        tokio::spawn(async move {
-            // Each task performs a health check
-            // Note: check_backend_health requires &mut, so we need to handle this differently
-            // For concurrent tests, we'll skip the health check and just test operations
-            
-            // Then performs some operations
-            let key_id = format!("concurrent-health-{}", i);
-            let _handle = provider.generate(&key_id, KeyAlgorithm::Ed25519).await.unwrap();
-            let sig = provider.sign(&key_id, b"concurrent test").await.unwrap();
-            assert!(!sig.is_empty());
+    let tasks: Vec<_> = (0..num_tasks)
+        .map(|i| {
+            let provider = provider.clone();
+            tokio::spawn(async move {
+                // Each task performs a health check
+                // Note: check_backend_health requires &mut, so we need to handle this differently
+                // For concurrent tests, we'll skip the health check and just test operations
 
-            i
+                // Then performs some operations
+                let key_id = format!("concurrent-health-{}", i);
+                let _handle = provider
+                    .generate(&key_id, KeyAlgorithm::Ed25519)
+                    .await
+                    .unwrap();
+                let sig = provider.sign(&key_id, b"concurrent test").await.unwrap();
+                assert!(!sig.is_empty());
+
+                i
+            })
         })
-    }).collect();
+        .collect();
 
     // Wait for all tasks to complete
     let results = futures::future::join_all(tasks).await;
@@ -356,7 +400,10 @@ async fn test_cross_backend_rotation() {
     let key_id = "cross-backend-rotation";
 
     // Generate initial key
-    let _ = provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
+    let _ = provider
+        .generate(key_id, KeyAlgorithm::Aes256Gcm)
+        .await
+        .unwrap();
 
     // Sign some data with initial key
     let test_data = b"data to encrypt before rotation";
@@ -395,7 +442,10 @@ async fn test_secure_memory_handling() {
     let key_id = "memory-test";
 
     // Generate a key and perform operations
-    provider.generate(key_id, KeyAlgorithm::Aes256Gcm).await.unwrap();
+    provider
+        .generate(key_id, KeyAlgorithm::Aes256Gcm)
+        .await
+        .unwrap();
 
     let test_data = vec![0x42u8; 1000]; // 1KB of test data
     let ciphertext = provider.seal(key_id, &test_data).await.unwrap();
@@ -431,16 +481,18 @@ async fn test_backend_specific_errors() {
 
     // Test invalid key ID formats
     let invalid_key_ids = vec![
-        "",  // Empty
-        "key with spaces",  // Spaces
-        "key\nwith\nnewlines",  // Newlines
-        "key\twith\ttabs",  // Tabs
-        "key/with/slashes",  // Slashes
+        "",                    // Empty
+        "key with spaces",     // Spaces
+        "key\nwith\nnewlines", // Newlines
+        "key\twith\ttabs",     // Tabs
+        "key/with/slashes",    // Slashes
     ];
 
     for invalid_key_id in invalid_key_ids {
         // These should either work or fail gracefully, not cause security issues
-        let generate_result = provider.generate(invalid_key_id, KeyAlgorithm::Ed25519).await;
+        let generate_result = provider
+            .generate(invalid_key_id, KeyAlgorithm::Ed25519)
+            .await;
         // We don't assert success/failure, just that it doesn't panic or cause security issues
         match generate_result {
             Ok(_) => {
@@ -486,7 +538,10 @@ mod macos_specific {
 
         // Test that Secure Enclave signing works (may fall back to software)
         let key_id = "secure-enclave-test";
-        provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+        provider
+            .generate(key_id, KeyAlgorithm::Ed25519)
+            .await
+            .unwrap();
 
         let message = b"Secure Enclave test";
         let signature = provider.sign(key_id, message).await.unwrap();
@@ -525,7 +580,10 @@ mod linux_specific {
 
         // Test basic functionality regardless of backend
         let key_id = "linux-backend-test";
-        provider.generate(key_id, KeyAlgorithm::Ed25519).await.unwrap();
+        provider
+            .generate(key_id, KeyAlgorithm::Ed25519)
+            .await
+            .unwrap();
         let signature = provider.sign(key_id, b"Linux backend test").await.unwrap();
         assert!(!signature.is_empty());
 

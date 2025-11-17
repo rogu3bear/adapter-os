@@ -7,6 +7,7 @@
 
 use adapteros_core::Result;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_worker::adapter_hotswap::AdapterTable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -398,11 +399,9 @@ impl AdapterExecutionBackend for MockAdapterBackend {
 /// 2. **Option B**: Create workflows outside Worker with separate kernel instances
 /// 3. **Option C**: Use MockAdapterBackend for testing (current Worker approach)
 pub struct KernelAdapterBackend<K: FusedKernels> {
-    /// Kernel implementation (Metal or MLX)
+    table: Arc<AdapterTable>,
     kernels: Arc<Mutex<K>>,
-    /// Mapping from adapter names to indices
     adapter_name_to_index: HashMap<String, u16>,
-    /// Vocabulary size for output logits
     vocab_size: usize,
 }
 
@@ -413,7 +412,12 @@ impl<K: FusedKernels> KernelAdapterBackend<K> {
     /// * `kernels` - Kernel implementation
     /// * `adapter_names` - List of adapter names in order (index = position)
     /// * `vocab_size` - Vocabulary size (e.g., 152064 for Qwen2.5)
-    pub fn new(kernels: Arc<Mutex<K>>, adapter_names: Vec<String>, vocab_size: usize) -> Self {
+    pub fn new(
+        table: Arc<AdapterTable>,
+        kernels: Arc<Mutex<K>>,
+        adapter_names: Vec<String>,
+        vocab_size: usize,
+    ) -> Self {
         let adapter_name_to_index = adapter_names
             .into_iter()
             .enumerate()
@@ -421,6 +425,7 @@ impl<K: FusedKernels> KernelAdapterBackend<K> {
             .collect();
 
         Self {
+            table,
             kernels,
             adapter_name_to_index,
             vocab_size,
@@ -435,6 +440,9 @@ impl<K: FusedKernels + Send + Sync> AdapterExecutionBackend for KernelAdapterBac
         input_tokens: &[u32],
         _model_state: &HashMap<String, Vec<f32>>,
     ) -> Result<AdapterExecutionResult> {
+        // Inc ref
+        self.table.inc_ref(adapter_id);
+
         debug!(
             "Kernel execution of adapter {} with {} input tokens",
             adapter_id,
@@ -486,6 +494,9 @@ impl<K: FusedKernels + Send + Sync> AdapterExecutionBackend for KernelAdapterBac
             "Kernel execution complete: {} output tokens",
             output_tokens.len()
         );
+
+        // Dec ref
+        let _new_ref = self.table.dec_ref(adapter_id);
 
         Ok(AdapterExecutionResult {
             output_tokens,

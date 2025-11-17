@@ -10,7 +10,8 @@ pub mod traits;
 
 // Re-export commonly used types
 pub use traits::{
-    CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig, StackRecord,
+    AdapterRecord, CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig,
+    StackRecord,
 };
 
 // PostgreSQL backend for production (legacy - to be deprecated)
@@ -131,10 +132,7 @@ impl Db {
     ///
     /// Checks that the last applied migration matches the latest migration file.
     /// Prevents version drift where code expects newer schema than DB has.
-    pub async fn verify_migration_version(
-        &self,
-        migrations_path: &std::path::Path,
-    ) -> Result<()> {
+    pub async fn verify_migration_version(&self, migrations_path: &std::path::Path) -> Result<()> {
         use tracing::{info, warn};
 
         // Get latest migration version from database
@@ -149,13 +147,7 @@ impl Db {
         let migration_files: Vec<_> = std::fs::read_dir(migrations_path)
             .map_err(|e| AosError::Database(format!("Failed to read migrations directory: {}", e)))?
             .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    == Some("sql")
-            })
+            .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("sql"))
             .collect();
 
         let expected_count = migration_files.len();
@@ -358,9 +350,7 @@ impl Db {
                 .bind(&adapter_id)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| {
-                    AosError::Database(format!("Failed to reset stale adapter: {}", e))
-                })?;
+                .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
 
                 recovered_ids.push(adapter_id);
             }
@@ -460,6 +450,130 @@ impl Db {
         Ok(())
     }
 
+    /// Get adapter by ID and tenant
+    pub async fn get_adapter_by_id(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<Option<AdapterRecord>> {
+        let row = sqlx::query_as!(
+            AdapterRecord,
+            r#"
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason
+            FROM adapters
+            WHERE tenant_id = ? AND id = ?
+            "#,
+            tenant_id,
+            adapter_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;
+
+        Ok(row)
+    }
+
+    /// List stacks for a tenant
+    pub async fn list_stacks_for_tenant(&self, tenant_id: &str) -> Result<Vec<StackRecord>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
+            FROM adapter_stacks
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC
+            "#,
+            tenant_id
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| StackRecord {
+                id: r.id,
+                tenant_id: r.tenant_id,
+                name: r.name,
+                description: r.description,
+                adapter_ids_json: r.adapter_ids_json,
+                workflow_type: r.workflow_type,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                created_by: r.created_by,
+            })
+            .collect())
+    }
+
+    /// Get a stack by ID and tenant
+    pub async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
+            FROM adapter_stacks
+            WHERE tenant_id = ? AND id = ?
+            "#,
+            tenant_id,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
+
+        Ok(row.map(|r| StackRecord {
+            id: r.id,
+            tenant_id: r.tenant_id,
+            name: r.name,
+            description: r.description,
+            adapter_ids_json: r.adapter_ids_json,
+            workflow_type: r.workflow_type,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            created_by: r.created_by,
+        }))
+    }
+
+    /// Delete a stack by ID and tenant
+    pub async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM adapter_stacks
+            WHERE tenant_id = ? AND id = ?
+            "#,
+            tenant_id,
+            id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update a stack
+    pub async fn update_stack(&self, id: &str, stack: &CreateStackRequest) -> Result<bool> {
+        let adapter_ids_json =
+            serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
+        let workflow_type_str = stack.workflow_type.as_ref().map(|w| format!("{:?}", w));
+
+        let result = sqlx::query!(
+            r#"
+            UPDATE adapter_stacks
+            SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, updated_at = datetime('now')
+            WHERE id = ?
+            "#,
+            stack.name,
+            stack.description,
+            adapter_ids_json,
+            workflow_type_str,
+            id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Get the underlying pool for custom queries
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
@@ -505,16 +619,15 @@ pub mod patch_proposals;
 pub use patch_proposals::PatchProposal;
 pub mod pinned_adapters;
 pub mod plans;
+pub mod plugin_enables;
 pub mod policies;
 pub mod policy_hash;
+pub mod tenants;
 pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;
 pub mod telemetry_bundles;
-pub mod tenants;
-pub mod users;
-pub mod workers;
 
 // Re-export unified access types
 pub use unified_access::{

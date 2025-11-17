@@ -10,6 +10,7 @@
 
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -153,6 +154,41 @@ impl BundleStore {
         }
 
         Ok(bundle_data)
+    }
+
+    /// Get bundle events by bundle ID (hex hash)
+    pub fn get_bundle_events(&self, bundle_id_hex: &str) -> Result<Vec<Value>> {
+        let bundle_hash = B3Hash::from_hex(bundle_id_hex)
+            .map_err(|_| AosError::Parse("Invalid bundle ID format".to_string()))?;
+
+        let data = self.get_bundle(&bundle_hash)?;
+
+        let data_str = std::str::from_utf8(&data)
+            .map_err(|e| AosError::Telemetry(format!("Invalid UTF-8 in bundle: {}", e)))?;
+
+        let mut events = Vec::new();
+
+        for line in data_str.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                match serde_json::from_str::<Value>(trimmed) {
+                    Ok(event) => events.push(event),
+                    Err(e) => tracing::warn!(
+                        "Failed to parse event line in bundle {}: {}",
+                        bundle_id_hex,
+                        e
+                    ),
+                }
+            }
+        }
+
+        if events.is_empty() {
+            return Err(AosError::Telemetry(
+                "No valid events found in bundle".to_string(),
+            ));
+        }
+
+        Ok(events)
     }
 
     /// Get bundle metadata

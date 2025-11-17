@@ -63,4 +63,3 @@ pub async fn run(output: &OutputWriter) -> Result<i32> {
 
     Ok(exit_code)
 }
-

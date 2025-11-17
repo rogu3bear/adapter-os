@@ -3,8 +3,8 @@
 //! Tests to verify that Rust buffer layouts match Metal shader struct expectations.
 //! These tests validate memory layout correctness without requiring Metal runtime.
 
-use adapteros_lora_kernel_mtl::ring_buffer::{ActiveAdapter, RingBuffer};
 use adapteros_core::Result;
+use adapteros_lora_kernel_mtl::ring_buffer::{ActiveAdapter, RingBuffer};
 
 /// Test that RingBuffer memory layout matches Metal struct definition
 ///
@@ -30,9 +30,18 @@ fn test_ring_buffer_memory_layout() -> Result<()> {
 
     // Set known values
     let adapters = vec![
-        ActiveAdapter { id: 100, gate: 16384 },  // 50% strength
-        ActiveAdapter { id: 200, gate: 32767 },  // 100% strength
-        ActiveAdapter { id: 300, gate: 8192 },   // 25% strength
+        ActiveAdapter {
+            id: 100,
+            gate: 16384,
+        }, // 50% strength
+        ActiveAdapter {
+            id: 200,
+            gate: 32767,
+        }, // 100% strength
+        ActiveAdapter {
+            id: 300,
+            gate: 8192,
+        }, // 25% strength
     ];
 
     ring_buffer.update(&adapters)?;
@@ -40,9 +49,8 @@ fn test_ring_buffer_memory_layout() -> Result<()> {
     // Get raw buffer contents
     let buffer = ring_buffer.get_buffer().expect("Buffer not initialized");
     let contents = buffer.contents();
-    let data = unsafe {
-        std::slice::from_raw_parts(contents as *const u8, buffer.length() as usize)
-    };
+    let data =
+        unsafe { std::slice::from_raw_parts(contents as *const u8, buffer.length() as usize) };
 
     // Verify buffer size (should be 56 bytes minimum)
     assert!(data.len() >= 56, "Buffer too small: {} bytes", data.len());
@@ -61,9 +69,21 @@ fn test_ring_buffer_memory_layout() -> Result<()> {
     let adapter_1 = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
     let adapter_2 = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
 
-    assert_eq!(adapter_0, 100, "adapter_indices[0] should be 100, got {}", adapter_0);
-    assert_eq!(adapter_1, 200, "adapter_indices[1] should be 200, got {}", adapter_1);
-    assert_eq!(adapter_2, 300, "adapter_indices[2] should be 300, got {}", adapter_2);
+    assert_eq!(
+        adapter_0, 100,
+        "adapter_indices[0] should be 100, got {}",
+        adapter_0
+    );
+    assert_eq!(
+        adapter_1, 200,
+        "adapter_indices[1] should be 200, got {}",
+        adapter_1
+    );
+    assert_eq!(
+        adapter_2, 300,
+        "adapter_indices[2] should be 300, got {}",
+        adapter_2
+    );
 
     // Remaining adapter_indices should be 0
     for i in 3..8 {
@@ -74,7 +94,11 @@ fn test_ring_buffer_memory_layout() -> Result<()> {
             data[offset + 2],
             data[offset + 3],
         ]);
-        assert_eq!(adapter_id, 0, "adapter_indices[{}] should be 0, got {}", i, adapter_id);
+        assert_eq!(
+            adapter_id, 0,
+            "adapter_indices[{}] should be 0, got {}",
+            i, adapter_id
+        );
     }
 
     // Verify gates at offset 40 (8 × 2 = 16 bytes)
@@ -82,9 +106,21 @@ fn test_ring_buffer_memory_layout() -> Result<()> {
     let gate_1 = u16::from_le_bytes([data[42], data[43]]);
     let gate_2 = u16::from_le_bytes([data[44], data[45]]);
 
-    assert_eq!(gate_0, 16384, "gates[0] should be 16384 (50%), got {}", gate_0);
-    assert_eq!(gate_1, 32767, "gates[1] should be 32767 (100%), got {}", gate_1);
-    assert_eq!(gate_2, 8192, "gates[2] should be 8192 (25%), got {}", gate_2);
+    assert_eq!(
+        gate_0, 16384,
+        "gates[0] should be 16384 (50%), got {}",
+        gate_0
+    );
+    assert_eq!(
+        gate_1, 32767,
+        "gates[1] should be 32767 (100%), got {}",
+        gate_1
+    );
+    assert_eq!(
+        gate_2, 8192,
+        "gates[2] should be 8192 (25%), got {}",
+        gate_2
+    );
 
     // Remaining gates should be 0
     for i in 3..8 {
@@ -118,7 +154,7 @@ fn test_q15_gate_conversion() {
 
     // Test clamping
     assert_eq!(RingBuffer::float_to_q15(1.5), 32768); // Clamps to 1.0
-    assert_eq!(RingBuffer::float_to_q15(-0.5), 0);    // Clamps to 0.0
+    assert_eq!(RingBuffer::float_to_q15(-0.5), 0); // Clamps to 0.0
 
     // Test edge cases
     assert_eq!(RingBuffer::float_to_q15(0.25), 8192);
@@ -138,14 +174,16 @@ fn test_ring_buffer_update_various_counts() -> Result<()> {
     // Test K=1
     {
         let mut ring_buffer = RingBuffer::new(device.clone(), 1)?;
-        let adapters = vec![ActiveAdapter { id: 42, gate: 32767 }];
+        let adapters = vec![ActiveAdapter {
+            id: 42,
+            gate: 32767,
+        }];
         ring_buffer.update(&adapters)?;
 
         let buffer = ring_buffer.get_buffer().expect("Buffer not initialized");
         let contents = buffer.contents();
-        let data = unsafe {
-            std::slice::from_raw_parts(contents as *const u8, buffer.length() as usize)
-        };
+        let data =
+            unsafe { std::slice::from_raw_parts(contents as *const u8, buffer.length() as usize) };
 
         let top_k = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
         assert_eq!(top_k, 1);
@@ -170,9 +208,8 @@ fn test_ring_buffer_update_various_counts() -> Result<()> {
 
         let buffer = ring_buffer.get_buffer().expect("Buffer not initialized");
         let contents = buffer.contents();
-        let data = unsafe {
-            std::slice::from_raw_parts(contents as *const u8, buffer.length() as usize)
-        };
+        let data =
+            unsafe { std::slice::from_raw_parts(contents as *const u8, buffer.length() as usize) };
 
         let top_k = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
         assert_eq!(top_k, 8);

@@ -240,8 +240,9 @@ fn get_process_memory() -> Result<u64> {
         if line.starts_with("VmRSS:") {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
-                let kb = parts[1].parse::<u64>()
-                    .map_err(|e| AosError::Worker(format!("Failed to parse memory value: {}", e)))?;
+                let kb = parts[1].parse::<u64>().map_err(|e| {
+                    AosError::Worker(format!("Failed to parse memory value: {}", e))
+                })?;
                 return Ok(kb * 1024); // Convert KB to bytes
             }
         }

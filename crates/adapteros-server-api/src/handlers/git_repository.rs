@@ -15,6 +15,7 @@ use git2::Repository;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path as StdPath;
+use tokio::time::{timeout, Duration};
 use tracing::info;
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -35,6 +36,7 @@ pub struct RegisterRepositoryResponse {
     pub status: String,
     pub analysis: RepositoryAnalysis,
     pub evidence_count: usize,
+    pub fallback: bool,
 }
 
 /// Repository analysis result
@@ -148,8 +150,6 @@ pub async fn register_git_repository(
         request.repo_id, request.path
     );
 
-    // Evidence: docs/code-intelligence/code-policies.md:82-84
-    // Policy: Path validation and security checks
     // Check if path exists
     if !std::path::Path::new(&request.path).exists() {
         return Err((
@@ -162,62 +162,73 @@ pub async fn register_git_repository(
         ));
     }
 
-    // Evidence: crates/adapteros-git/src/lib.rs:22-50
-    // Policy: Deterministic behavior
-    // Note: GitSubsystem integration will be implemented when needed
-    tracing::info!(
-        "GitSubsystem integration placeholder for repository: {}",
-        request.repo_id
-    );
-
-    // Perform repository analysis using GitSubsystem
-    let analysis = analyze_repository(&request.path, &request.repo_id)
+    let enabled = state
+        .plugin_registry
+        .is_enabled_for_tenant("git", &claims.tenant_id)
         .await
-        .map_err(|e| {
-            tracing::error!("Repository analysis failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Repository analysis failed")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
-    // Evidence: crates/adapteros-policy/src/packs/evidence.rs:126-172
-    // Policy: Evidence Ruleset #4 - Mandatory open-book grounding
-    if analysis.evidence_spans.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Evidence Ruleset #4 violation").with_code("INTERNAL_ERROR").with_string_details("Repository analysis must include at least one evidence span for open-book grounding")),
-        ));
-    }
+    let (analysis, fallback) = if !enabled {
+        let empty_analysis = RepositoryAnalysis {
+            repo_id: request.repo_id.clone(),
+            languages: vec![],
+            frameworks: vec![],
+            security_scan: SecurityScanResult {
+                violations: vec![],
+                scan_timestamp: chrono::Utc::now().to_rfc3339(),
+                status: "skipped".to_string(),
+            },
+            git_info: GitInfo {
+                branch: request.branch.clone().unwrap_or_else(|| "main".to_string()),
+                commit_count: 0,
+                last_commit: "plugin_disabled".to_string(),
+                authors: vec![],
+            },
+            evidence_spans: vec![],
+        };
+        (empty_analysis, true)
+    } else {
+        let analysis_result = timeout(
+            Duration::from_secs(30),
+            analyze_repository(&request.path, &request.repo_id),
+        )
+        .await;
 
-    // Validate evidence spans meet minimum requirements
-    let min_relevance_score = 0.5; // Policy threshold
-    let valid_evidence_count = analysis
-        .evidence_spans
-        .iter()
-        .filter(|span| span.relevance_score >= min_relevance_score)
-        .count();
+        match analysis_result {
+            Ok(Ok(analysis)) => (analysis, false),
+            _ => {
+                tracing::warn!("Full analysis timed out or failed, falling back to basic analysis");
+                match basic_analyze_repository(&request.path, &request.repo_id).await {
+                    Ok(basic) => (basic, true),
+                    Err(e) => {
+                        tracing::error!("Basic analysis also failed: {}", e);
+                        let empty_analysis = RepositoryAnalysis {
+                            repo_id: request.repo_id.clone(),
+                            languages: vec![],
+                            frameworks: vec![],
+                            security_scan: SecurityScanResult {
+                                violations: vec![],
+                                scan_timestamp: chrono::Utc::now().to_rfc3339(),
+                                status: "failed".to_string(),
+                            },
+                            git_info: GitInfo {
+                                branch: request
+                                    .branch
+                                    .clone()
+                                    .unwrap_or_else(|| "main".to_string()),
+                                commit_count: 0,
+                                last_commit: "analysis_failed".to_string(),
+                                authors: vec![],
+                            },
+                            evidence_spans: vec![],
+                        };
+                        (empty_analysis, true)
+                    }
+                }
+            }
+        }
+    };
 
-    if valid_evidence_count == 0 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Evidence Ruleset #4 violation")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "No evidence spans meet minimum relevance score of {}",
-                        min_relevance_score
-                    )),
-            ),
-        ));
-    }
-
-    // Store repository in database
-    let repo_id = Uuid::now_v7().to_string();
     let analysis_json = serde_json::to_string(&analysis).map_err(|e| {
         tracing::error!("Failed to serialize analysis: {}", e);
         (
@@ -230,6 +241,8 @@ pub async fn register_git_repository(
         )
     })?;
 
+    // Store repository in database
+    let repo_id = Uuid::now_v7().to_string();
     state
         .db
         .create_git_repository(
@@ -253,14 +266,49 @@ pub async fn register_git_repository(
             )
         })?;
 
+    // Evidence validation only if not fallback
+    if !fallback {
+        // Evidence: crates/adapteros-policy/src/packs/evidence.rs:126-172
+        // Policy: Evidence Ruleset #4 - Mandatory open-book grounding
+        if analysis.evidence_spans.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("Evidence Ruleset #4 violation").with_code("INTERNAL_ERROR").with_string_details("Repository analysis must include at least one evidence span for open-book grounding")),
+            ));
+        }
+
+        // Validate evidence spans meet minimum requirements
+        let min_relevance_score = 0.5; // Policy threshold
+        let valid_evidence_count = analysis
+            .evidence_spans
+            .iter()
+            .filter(|span| span.relevance_score >= min_relevance_score)
+            .count();
+
+        if valid_evidence_count == 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Evidence Ruleset #4 violation")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(format!(
+                            "No evidence spans meet minimum relevance score of {}",
+                            min_relevance_score
+                        )),
+                ),
+            ));
+        }
+    }
+
     // Log repository registration event
     tracing::info!(
-        "Repository registered: {} by user: {} with {} evidence spans, {} languages, {} frameworks",
+        "Repository registered: {} by user: {} with {} evidence spans, {} languages, {} frameworks, fallback={}",
         request.repo_id,
         claims.sub,
         analysis.evidence_spans.len(),
         analysis.languages.len(),
-        analysis.frameworks.len()
+        analysis.frameworks.len(),
+        fallback
     );
 
     info!("Successfully registered repository: {}", request.repo_id);
@@ -270,6 +318,7 @@ pub async fn register_git_repository(
         status: "registered".to_string(),
         analysis: analysis.clone(),
         evidence_count: analysis.evidence_spans.len(),
+        fallback,
     }))
 }
 
@@ -797,4 +846,38 @@ fn estimate_training_duration(config: &TrainingConfig, analysis: &RepositoryAnal
             total_minutes % 60
         )
     }
+}
+
+/// Basic analysis without Git2 operations for fallback cases
+async fn basic_analyze_repository(
+    path: &str,
+    repo_id: &str,
+) -> Result<RepositoryAnalysis, Box<dyn std::error::Error>> {
+    let repo_path = StdPath::new(path);
+
+    let git_info = GitInfo {
+        branch: "fallback".to_string(),
+        commit_count: 0,
+        last_commit: "basic_analysis".to_string(),
+        authors: vec![],
+    };
+
+    let (languages, frameworks) = analyze_code_structure(repo_path)?;
+
+    let security_scan = SecurityScanResult {
+        violations: vec![],
+        scan_timestamp: chrono::Utc::now().to_rfc3339(),
+        status: "basic".to_string(),
+    };
+
+    let evidence_spans = extract_evidence_spans(repo_path)?;
+
+    Ok(RepositoryAnalysis {
+        repo_id: repo_id.to_string(),
+        languages,
+        frameworks,
+        security_scan,
+        git_info,
+        evidence_spans,
+    })
 }

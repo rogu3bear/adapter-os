@@ -336,6 +336,81 @@ impl KvCache {
             .get(&seq_id)
             .map(|alloc| (alloc.k_offset, alloc.k_size, alloc.v_offset, alloc.v_size))
     }
+
+    /// Reset all KV cache allocations (called on adapter swap if stack changes)
+    pub fn reset_all(&mut self) {
+        self.used_bytes = 0;
+        self.allocations.clear();
+        self.next_seq_id = 1;
+        self.free_regions.clear();
+        #[cfg(target_os = "macos")]
+        if let (Some(k_buf), Some(v_buf)) = (&mut self.k_buffer, &mut self.v_buffer) {
+            // Zeroize Metal buffers
+            unsafe {
+                std::ptr::write_bytes(
+                    k_buf.contents() as *mut u8,
+                    0,
+                    (self.capacity_bytes / std::mem::size_of::<u8>()) as usize,
+                );
+                std::ptr::write_bytes(
+                    v_buf.contents() as *mut u8,
+                    0,
+                    (self.capacity_bytes / std::mem::size_of::<u8>()) as usize,
+                );
+            }
+        }
+    }
+
+    /// Zeroize all KV cache buffers and reset state
+    pub fn zeroize_all(&mut self) {
+        self.allocations.clear();
+        self.used_bytes = 0;
+        self.free_regions = vec![(0, self.capacity_bytes)];
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ref mut k_buffer) = &mut self.k_buffer {
+                let contents = k_buffer.contents();
+                let zero_slice = vec![0u8; self.capacity_bytes as usize];
+                // Alignment check for safety
+                assert_eq!(
+                    contents.as_ptr() as usize % std::mem::align_of::<u8>(),
+                    0,
+                    "K buffer misaligned"
+                );
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        zero_slice.as_ptr(),
+                        contents.as_mut_ptr() as *mut u8,
+                        zero_slice.len(),
+                    );
+                }
+            }
+
+            if let Some(ref mut v_buffer) = &mut self.v_buffer {
+                let contents = v_buffer.contents();
+                let zero_slice = vec![0u8; self.capacity_bytes as usize];
+                // Alignment check for safety
+                assert_eq!(
+                    contents.as_ptr() as usize % std::mem::align_of::<u8>(),
+                    0,
+                    "V buffer misaligned"
+                );
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        zero_slice.as_ptr(),
+                        contents.as_mut_ptr() as *mut u8,
+                        zero_slice.len(),
+                    );
+                }
+            }
+        }
+
+        tracing::debug!(
+            "KV cache zeroized: {} allocations cleared",
+            self.active_sequences()
+        );
+    }
 }
 
 impl ZeroizableBuffer for KvCache {
@@ -445,5 +520,54 @@ mod tests {
         assert!(cache.is_allocated(seq1));
         assert!(!cache.is_allocated(seq2));
         assert!(cache.is_allocated(seq3));
+    }
+
+    #[test]
+    fn test_reset_all() {
+        let mut cache = KvCache::new(1024 * 1024);
+        let seq1 = cache.allocate(10).unwrap();
+        assert!(!cache.allocations.is_empty());
+        assert!(cache.used_bytes > 0);
+
+        cache.reset_all();
+
+        assert!(cache.allocations.is_empty());
+        assert_eq!(cache.used_bytes, 0);
+        assert!(cache.free_regions.is_empty());
+        assert_eq!(cache.next_seq_id, 1);
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        # [test]
+        fn prop_kv_allocate_no_overlap(seqs in prop::collection::vec(1usize..1000, 1..10)) {
+            let mut cache = KvCache::new(1024*1024*10); // 10MB
+            let mut offsets = Vec::new();
+            for seq_len in seqs {
+                let id = cache.allocate(seq_len).unwrap();
+                let alloc = cache.allocations.get(&id).unwrap();
+                prop_assert!(!offsets.contains(&alloc.k_offset));
+                offsets.push(alloc.k_offset);
+                prop_assert!(alloc.k_size > 0);
+                prop_assert!(alloc.v_offset == alloc.k_offset + alloc.k_size);
+            }
+        }
+
+        # [test]
+        fn prop_kv_reset_reallocates_from_zero(seq_len in 1usize..512) {
+            let mut cache = KvCache::new(1024*1024);
+            let _id1 = cache.allocate(seq_len).unwrap();
+            cache.reset_all();
+            let id2 = cache.allocate(seq_len).unwrap();
+            let alloc2 = cache.allocations.get(&id2).unwrap();
+            prop_assert_eq!(alloc2.k_offset, 0);
+            prop_assert_eq!(cache.next_seq_id, 2);
+            prop_assert_eq!(cache.used_bytes, alloc2.k_size + alloc2.v_size);
+        }
     }
 }

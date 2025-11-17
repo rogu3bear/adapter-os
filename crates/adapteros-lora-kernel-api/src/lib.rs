@@ -159,7 +159,11 @@ pub trait FusedKernels: Send + Sync {
     /// * baseline_stats: Option<(mean, stddev, sample_count)>
     ///
     /// Default implementation returns (true, 0.0, None) for backends without tracking
-    fn check_memory_footprint(&self, _id: u16, _buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+    fn check_memory_footprint(
+        &self,
+        _id: u16,
+        _buffer_size: u64,
+    ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (true, 0.0, None) // No anomaly detection for non-GPU backends
     }
 }
@@ -261,7 +265,11 @@ impl FusedKernels for Box<dyn FusedKernels> {
         (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
     }
 
-    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+    fn check_memory_footprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+    ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
     }
 }
@@ -309,7 +317,11 @@ impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
         (**self).verify_gpu_fingerprint(id, buffer_size, checkpoint_hash_hex)
     }
 
-    fn check_memory_footprint(&self, id: u16, buffer_size: u64) -> (bool, f64, Option<(f64, f64, usize)>) {
+    fn check_memory_footprint(
+        &self,
+        id: u16,
+        buffer_size: u64,
+    ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
     }
 }

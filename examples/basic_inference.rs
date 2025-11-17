@@ -17,17 +17,8 @@
 //! cargo run --example basic_inference
 //! ```
 
-<<<<<<< HEAD
-#[cfg(feature = "extended-tests")]
-use adapteros_core::{AosError, Result};
-#[cfg(feature = "extended-tests")]
-use adapteros_manifest::ManifestV3;
-#[cfg(feature = "extended-tests")]
-use std::fs;
-=======
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use mplora_mlx::{LoRAAdapter, LoRAConfig, MLXBackend, MLXModel};
->>>>>>> integration-branch
 
 #[cfg(not(feature = "extended-tests"))]
 fn main() {

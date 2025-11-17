@@ -86,8 +86,11 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         .await?;
 
     println!("      ✓ Path: {}", large_packaged.weights_path.display());
-    println!("      ✓ Size: {} bytes (larger for anomaly detection)",
-        tokio::fs::metadata(&large_packaged.weights_path).await?.len()
+    println!(
+        "      ✓ Size: {} bytes (larger for anomaly detection)",
+        tokio::fs::metadata(&large_packaged.weights_path)
+            .await?
+            .len()
     );
 
     // Step 4: Create corrupted adapter for mismatch testing

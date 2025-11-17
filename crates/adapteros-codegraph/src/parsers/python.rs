@@ -6,8 +6,15 @@
 use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
+use std::ffi::c_void;
+use std::mem;
 use std::path::Path;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
+
+fn language_from_ptr(ptr: *const c_void) -> TSLanguage {
+    assert!(!ptr.is_null(), "tree_sitter_python returned null language");
+    unsafe { mem::transmute::<*const c_void, TSLanguage>(ptr) }
+}
 
 /// Python-specific parser implementation
 pub struct PythonParser {
@@ -35,15 +42,16 @@ impl PythonParser {
     /// Create a new Python parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let python_lang = tree_sitter_python::language();
+
+        let python_lang_fn = tree_sitter_python::LANGUAGE;
+        let python_lang = unsafe { python_lang_fn.into_raw()() as *const c_void };
+        let python_lang = language_from_ptr(python_lang);
 
         parser
             .set_language(python_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Python language: {}", e)))?;
-
-        // Define queries for different symbol types
         let function_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (function_definition
                 name: (identifier) @name
@@ -55,7 +63,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let async_function_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (async_function_definition
                 name: (identifier) @name
@@ -67,7 +75,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create async function query: {}", e)))?;
 
         let class_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (class_definition
                 name: (identifier) @name
@@ -78,7 +86,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let import_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (import_statement
                 (dotted_name) @module_name
@@ -88,7 +96,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let import_from_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (import_from_statement
                 module_name: (dotted_name)? @module_name
@@ -99,7 +107,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import from query: {}", e)))?;
 
         let assignment_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (assignment
                 left: (identifier) @name
@@ -110,7 +118,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create assignment query: {}", e)))?;
 
         let method_query = Query::new(
-            python_lang,
+            python_lang.clone(),
             r#"
             (class_definition
                 name: (identifier) @class_name

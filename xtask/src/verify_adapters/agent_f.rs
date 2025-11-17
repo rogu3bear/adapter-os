@@ -44,8 +44,10 @@ fn check_pinning_table_migration() -> Check {
     match fs::read_to_string(migration_path) {
         Ok(content) => {
             let has_table = content.contains("CREATE TABLE") && content.contains("pinned_adapters");
-            let has_view = content.contains("CREATE VIEW") && content.contains("active_pinned_adapters");
-            let has_ttl_filter = content.contains("pinned_until IS NULL") || content.contains("pinned_until >");
+            let has_view =
+                content.contains("CREATE VIEW") && content.contains("active_pinned_adapters");
+            let has_ttl_filter =
+                content.contains("pinned_until IS NULL") || content.contains("pinned_until >");
 
             if has_table && has_view && has_ttl_filter {
                 Check::pass(
@@ -86,7 +88,8 @@ fn check_active_pinned_adapters_view() -> Check {
             // View should filter by pinned_until being NULL or > now()
             let has_view = content.contains("active_pinned_adapters");
             let filters_null = content.contains("pinned_until IS NULL");
-            let filters_time = content.contains("datetime('now')") || content.contains("CURRENT_TIMESTAMP");
+            let filters_time =
+                content.contains("datetime('now')") || content.contains("CURRENT_TIMESTAMP");
 
             if has_view && (filters_null || filters_time) {
                 Check::pass(
@@ -181,8 +184,8 @@ fn check_delete_protection() -> Check {
         Ok(content) => {
             let has_delete_fn = content.contains("pub async fn delete_adapter");
             let checks_view = content.contains("active_pinned_adapters");
-            let returns_error = content.contains("AosError::PolicyViolation")
-                && content.contains("active pin");
+            let returns_error =
+                content.contains("AosError::PolicyViolation") && content.contains("active pin");
 
             if has_delete_fn && checks_view && returns_error {
                 Check::pass(
@@ -221,10 +224,10 @@ fn check_find_expired_adapters() -> Check {
     match fs::read_to_string(adapters_path) {
         Ok(content) => {
             let has_function = content.contains("pub async fn find_expired_adapters");
-            let queries_expires_at = content.contains("expires_at IS NOT NULL")
-                && content.contains("expires_at <");
-            let uses_datetime_now = content.contains("datetime('now')")
-                || content.contains("CURRENT_TIMESTAMP");
+            let queries_expires_at =
+                content.contains("expires_at IS NOT NULL") && content.contains("expires_at <");
+            let uses_datetime_now =
+                content.contains("datetime('now')") || content.contains("CURRENT_TIMESTAMP");
 
             if has_function && queries_expires_at && uses_datetime_now {
                 Check::pass(
@@ -269,8 +272,8 @@ fn check_ttl_cleanup_loop() -> Check {
 
     match fs::read_to_string(main_path) {
         Ok(content) => {
-            let has_spawn = content.contains("spawn_deterministic")
-                || content.contains("tokio::spawn");
+            let has_spawn =
+                content.contains("spawn_deterministic") || content.contains("tokio::spawn");
             let has_interval = content.contains("tokio::time::interval");
             let calls_find_expired = content.contains("find_expired_adapters");
             let deletes_adapters = content.contains("delete_adapter");
@@ -314,8 +317,8 @@ fn check_lifecycle_ttl_integration() -> Check {
         Ok(content) => {
             let has_check_memory = content.contains("pub async fn check_memory_pressure");
             let calls_find_expired = content.contains("find_expired_adapters");
-            let evicts_adapters = content.contains("evict_adapter")
-                || content.contains("self.evict");
+            let evicts_adapters =
+                content.contains("evict_adapter") || content.contains("self.evict");
 
             if has_check_memory && calls_find_expired && evicts_adapters {
                 Check::pass(
@@ -324,7 +327,8 @@ fn check_lifecycle_ttl_integration() -> Check {
                         "check_memory_pressure() function found".to_string(),
                         "Calls find_expired_adapters()".to_string(),
                         "Evicts expired adapters before memory check".to_string(),
-                        "Location: crates/adapteros-lora-lifecycle/src/lib.rs:1073-1092".to_string(),
+                        "Location: crates/adapteros-lora-lifecycle/src/lib.rs:1073-1092"
+                            .to_string(),
                     ],
                 )
             } else {
@@ -356,8 +360,8 @@ fn check_transactional_state_updates() -> Check {
             let has_function = content.contains("pub async fn update_adapter_state_tx");
             let begins_tx = content.contains("begin().await");
             let commits_tx = content.contains("commit().await");
-            let has_concurrency_doc = content.contains("Concurrency Safety")
-                || content.contains("SQLite transactions");
+            let has_concurrency_doc =
+                content.contains("Concurrency Safety") || content.contains("SQLite transactions");
 
             if has_function && begins_tx && commits_tx && has_concurrency_doc {
                 Check::pass(
@@ -450,7 +454,8 @@ fn check_stability_reinforcement_tests() -> Check {
 
     match fs::read_to_string(tests_path) {
         Ok(content) => {
-            let has_concurrent_test = content.contains("test_concurrent_state_update_race_condition");
+            let has_concurrent_test =
+                content.contains("test_concurrent_state_update_race_condition");
             let has_pin_test = content.contains("test_pinned_adapter_delete_prevention")
                 || content.contains("test_time_based_pinned_adapter_delete_prevention");
             let has_ttl_test = content.contains("test_ttl_automatic_cleanup")

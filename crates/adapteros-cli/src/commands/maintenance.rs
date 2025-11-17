@@ -240,4 +240,3 @@ async fn gc_bundles(args: GcBundlesArgs, output: &OutputWriter) -> Result<()> {
 
     Ok(())
 }
-

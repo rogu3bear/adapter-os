@@ -72,7 +72,14 @@ async fn adapters_status(output: &OutputWriter) -> Result<()> {
 
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
-    table.set_header(vec!["Name", "Tenant", "Active", "Pinned", "Expires At", "Memory"]);
+    table.set_header(vec![
+        "Name",
+        "Tenant",
+        "Active",
+        "Pinned",
+        "Expires At",
+        "Memory",
+    ]);
 
     let mut rows = Vec::new();
 
@@ -364,4 +371,3 @@ fn format_bytes(bytes: i64) -> String {
         format!("{} B", bytes.max(0))
     }
 }
-

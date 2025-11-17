@@ -12,6 +12,7 @@ pub mod scoring;
 use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
+use std::collections::HashSet;
 
 pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
@@ -134,6 +135,8 @@ impl RouterWeights {
     }
 }
 
+pub const MAX_K: usize = 8;
+
 /// Router for selecting K adapters with quantized gates
 pub struct Router {
     /// Feature weights for scoring
@@ -190,9 +193,19 @@ impl Router {
     }
 
     /// Create a new router with default weights (for backward compatibility)
-    pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Self {
+    pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Result<Self> {
+        if k > MAX_K {
+            return Err(adapteros_core::AosError::Config(
+                "K cannot exceed MAX_K=8".to_string(),
+            ));
+        }
         // Legacy constructor - ignores old weights vector, uses default RouterWeights
-        Self::new_with_weights(RouterWeights::default(), k, tau, eps)
+        Ok(Self::new_with_weights(
+            RouterWeights::default(),
+            k,
+            tau,
+            eps,
+        ))
     }
 
     /// Get temperature (tau) for telemetry
@@ -555,6 +568,17 @@ impl Router {
             .iter()
             .map(|candidate| candidate.adapter_idx)
             .collect();
+
+        // Assert 1:1 mapping
+        assert_eq!(
+            indices.len(),
+            gates_q15.len(),
+            "RouterRing must match gate count"
+        );
+        assert!(
+            indices.len() == indices.iter().collect::<HashSet<_>>().len(),
+            "Indices must be unique"
+        );
 
         // Apply orthogonal constraints if enabled
         if self.orthogonal_enabled {
@@ -1033,7 +1057,7 @@ mod tests {
     #[test]
     fn test_router_topk() {
         let weights = vec![1.0; 10];
-        let mut router = Router::new(weights, 3, 1.0, 0.02, [0u8; 32]);
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
         let features = vec![0.5; 10];
         let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6, 0.0];
@@ -1051,7 +1075,7 @@ mod tests {
     #[test]
     fn test_entropy_floor() {
         let weights = vec![1.0; 5];
-        let mut router = Router::new(weights, 3, 1.0, 0.1, [0u8; 32]);
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.1);
 
         let features = vec![0.0; 5];
         let priors = vec![1.0, 0.0, 0.0, 0.0, 0.0]; // One dominant prior
@@ -1069,7 +1093,7 @@ mod tests {
     #[test]
     fn test_route_with_code_features() {
         let weights = vec![1.0; 21]; // 21-dim feature vector
-        let mut router = Router::new(weights, 3, 1.0, 0.02, [0u8; 32]);
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
         let code_features = CodeFeatures::from_context("Fix this python bug in django app");
 

@@ -146,8 +146,7 @@ pub fn is_symlink(path: impl AsRef<Path>) -> bool {
 
 /// Get symlink target
 pub fn get_symlink_target(path: impl AsRef<Path>) -> Result<PathBuf> {
-    std::fs::read_link(path)
-        .map_err(|e| AosError::Io(format!("Failed to read symlink: {}", e)))
+    std::fs::read_link(path).map_err(|e| AosError::Io(format!("Failed to read symlink: {}", e)))
 }
 
 /// Create a safe symlink

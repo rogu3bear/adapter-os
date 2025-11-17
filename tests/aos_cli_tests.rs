@@ -86,9 +86,5 @@ fn aos_status_json_is_structured() {
 
     assert!(have_backend, "status JSON should include backend service");
     assert!(have_ui, "status JSON should include ui service");
-    assert!(
-        have_menubar,
-        "status JSON should include menu-bar service"
-    );
+    assert!(have_menubar, "status JSON should include menu-bar service");
 }
-

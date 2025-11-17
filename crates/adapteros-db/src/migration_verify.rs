@@ -400,13 +400,19 @@ mod tests {
         // Run with: cargo test test_verify_actual_migrations -- --ignored
         let migrations_dir = "../../migrations";
 
-        let verifier = MigrationVerifier::new(migrations_dir)
-            .expect("Failed to create verifier");
+        let verifier = MigrationVerifier::new(migrations_dir).expect("Failed to create verifier");
 
-        verifier.verify_all()
+        verifier
+            .verify_all()
             .expect("Migration verification failed");
 
-        println!("✓ Successfully verified {} migrations", verifier.signature_count());
-        println!("✓ Public key fingerprint: {}", verifier.public_key_fingerprint());
+        println!(
+            "✓ Successfully verified {} migrations",
+            verifier.signature_count()
+        );
+        println!(
+            "✓ Public key fingerprint: {}",
+            verifier.public_key_fingerprint()
+        );
     }
 }

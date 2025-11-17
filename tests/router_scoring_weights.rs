@@ -108,12 +108,8 @@ fn test_routing_decision_changes_with_weights() {
 
     // Test with different weights
     let mut router1 = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
-    let mut router2 = Router::new_with_weights(
-        RouterWeights::new(0.5, 0.3, 0.1, 0.05, 0.05),
-        3,
-        1.0,
-        0.02,
-    );
+    let mut router2 =
+        Router::new_with_weights(RouterWeights::new(0.5, 0.3, 0.1, 0.05, 0.05), 3, 1.0, 0.02);
 
     let priors = vec![1.0, 1.2, 0.8, 1.5, 0.9];
 

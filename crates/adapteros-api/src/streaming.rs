@@ -220,8 +220,12 @@ pub async fn streaming_inference_handler<K: FusedKernels + Send + Sync + 'static
                         code: None,
                     },
                 };
-                let json = serde_json::to_string(&error_response)
-                    .unwrap_or_else(|_| format!(r#"{{"error":{{"message":"{}","type":"inference_error"}}}}"#, error));
+                let json = serde_json::to_string(&error_response).unwrap_or_else(|_| {
+                    format!(
+                        r#"{{"error":{{"message":"{}","type":"inference_error"}}}}"#,
+                        error
+                    )
+                });
                 return Ok::<_, Infallible>(Event::default().data(json));
             }
         };

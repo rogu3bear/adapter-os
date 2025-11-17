@@ -59,15 +59,8 @@ async fn test_gpu_verification_full_flow() -> Result<()> {
     let report = worker.verify_gpu_integrity().await?;
 
     // Assertions
-    assert_eq!(
-        report.total_checked, 1,
-        "Should have checked 1 adapter"
-    );
-    assert_eq!(
-        report.verified.len(),
-        1,
-        "Should have verified 1 adapter"
-    );
+    assert_eq!(report.total_checked, 1, "Should have checked 1 adapter");
+    assert_eq!(report.verified.len(), 1, "Should have verified 1 adapter");
     assert!(
         report.failed.is_empty(),
         "No adapters should have failed verification"
@@ -80,10 +73,7 @@ async fn test_gpu_verification_full_flow() -> Result<()> {
     // Verify the adapter ID matches
     let (verified_idx, verified_id) = &report.verified[0];
     assert_eq!(*verified_idx, 1, "Adapter index should be 1");
-    assert!(
-        !verified_id.is_empty(),
-        "Adapter ID should not be empty"
-    );
+    assert!(!verified_id.is_empty(), "Adapter ID should not be empty");
 
     Ok(())
 }
@@ -110,7 +100,11 @@ async fn test_gpu_fingerprint_mismatch() -> Result<()> {
 
     // First verification should succeed and store baseline
     let report1 = worker.verify_gpu_integrity().await?;
-    assert_eq!(report1.verified.len(), 1, "First verification should succeed");
+    assert_eq!(
+        report1.verified.len(),
+        1,
+        "First verification should succeed"
+    );
     assert!(report1.failed.is_empty(), "No failures on first verify");
 
     // Simulate GPU buffer corruption by reloading with different data
@@ -224,8 +218,12 @@ async fn test_verification_after_rollback() -> Result<()> {
     hotswap.preload("adapter_2".to_string(), B3Hash::hash(&adapter2_bytes), 100)?;
 
     // Perform swap to activate them
-    let (vram_delta_1, _) = hotswap.swap(&["adapter_1".to_string(), "adapter_2".to_string()], &[])?;
-    assert!(vram_delta_1 > 0, "VRAM should increase after loading adapters");
+    let (vram_delta_1, _) =
+        hotswap.swap(&["adapter_1".to_string(), "adapter_2".to_string()], &[])?;
+    assert!(
+        vram_delta_1 > 0,
+        "VRAM should increase after loading adapters"
+    );
 
     // Get checkpoint after initial state
     let table = hotswap.table();
@@ -244,10 +242,8 @@ async fn test_verification_after_rollback() -> Result<()> {
     }
 
     hotswap.preload("adapter_3".to_string(), B3Hash::hash(&adapter3_bytes), 100)?;
-    let (_vram_delta_2, _) = hotswap.swap(
-        &["adapter_3".to_string()],
-        &["adapter_1".to_string()],
-    )?;
+    let (_vram_delta_2, _) =
+        hotswap.swap(&["adapter_3".to_string()], &["adapter_1".to_string()])?;
 
     // Get checkpoint after swap
     let checkpoints_after_swap = table.get_checkpoints(10);
@@ -255,8 +251,7 @@ async fn test_verification_after_rollback() -> Result<()> {
 
     // Verify stack hash changed
     assert_ne!(
-        initial_checkpoint.metadata_hash,
-        swap_checkpoint.metadata_hash,
+        initial_checkpoint.metadata_hash, swap_checkpoint.metadata_hash,
         "Stack hash should change after swap"
     );
 
@@ -337,8 +332,7 @@ async fn test_checkpoint_persistence() -> Result<()> {
 
     if !original_checkpoints.is_empty() {
         assert_eq!(
-            original_checkpoints[0].metadata_hash,
-            restored_checkpoints[0].metadata_hash,
+            original_checkpoints[0].metadata_hash, restored_checkpoints[0].metadata_hash,
             "Restored checkpoint should match original"
         );
     }
