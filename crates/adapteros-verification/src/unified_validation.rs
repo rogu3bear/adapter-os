@@ -1429,6 +1429,8 @@ impl UnifiedVerificationFramework {
     }
 
     fn emit_telemetry(&self, event_type: &str, message: &str, payload: serde_json::Value) {
+        use adapteros_core::{Domain, Purpose};
+
         if let Some(writer) = &self.telemetry {
             let event = TelemetryEventBuilder::new(
                 EventType::Custom(event_type.to_string()),
@@ -1436,9 +1438,9 @@ impl UnifiedVerificationFramework {
                 message.to_string(),
                 IdentityEnvelope::new(
                     "system".to_string(),
-                    "verification".to_string(),
-                    "unified".to_string(),
-                    "v1.0".to_string(),
+                    Domain::Policy,
+                    Purpose::Audit,
+                    IdentityEnvelope::default_revision(),
                 ),
             )
             .metadata(payload)

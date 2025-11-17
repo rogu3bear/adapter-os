@@ -332,11 +332,13 @@ mod tests {
 
     #[test]
     fn test_telemetry_event_builder() {
+        use adapteros_core::{Domain, Purpose, B3Hash};
+
         let identity = IdentityEnvelope::new(
             "test-tenant".to_string(),
-            "test-domain".to_string(),
-            "test-purpose".to_string(),
-            "test-rev".to_string(),
+            Domain::Worker,
+            Purpose::Inference,
+            B3Hash::hash(b"test-rev"),
         );
         let event = TelemetryEventBuilder::new(
             EventType::SystemStart,
@@ -348,11 +350,13 @@ mod tests {
         .user_id("test-user".to_string())
         .build();
 
-        assert_eq!(event.event_type, "SystemStart");
+        assert_eq!(event.event_type, "system.start");
         assert_eq!(event.message, "System started successfully");
         assert_eq!(event.component, Some("adapteros-core".to_string()));
         assert_eq!(event.user_id, Some("test-user".to_string()));
         assert_eq!(event.identity.tenant_id, "test-tenant");
+        assert_eq!(event.identity.domain, Domain::Worker);
+        assert_eq!(event.identity.purpose, Purpose::Inference);
         assert!(event.event_hash.is_some());
     }
 

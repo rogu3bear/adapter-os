@@ -8,7 +8,7 @@
 //!
 //! Per Determinism Ruleset #2: "refuse to serve if policy hashes don't match"
 
-use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash, Domain, Purpose, Result};
 use adapteros_db::Db;
 use adapteros_telemetry::{PolicyHashValidationEvent, TelemetryWriter, ValidationStatus};
 use serde::{Deserialize, Serialize};
@@ -360,9 +360,9 @@ impl PolicyHashWatcher {
                 format!("Policy quarantine triggered: {}", reason),
                 IdentityEnvelope::new(
                     "system".to_string(),
-                    "policy".to_string(),
-                    "hash_validation".to_string(),
-                    "v1.0".to_string(),
+                    Domain::Policy,
+                    Purpose::Audit,
+                    IdentityEnvelope::default_revision(),
                 ),
             )
             .component("adapteros-policy".to_string())

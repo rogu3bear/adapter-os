@@ -1,4 +1,5 @@
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::{Domain, Purpose};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
@@ -43,15 +44,34 @@ pub enum Commands {
 
 impl Cli {
     pub fn get_identity(&self) -> IdentityEnvelope {
-        let revision = self
-            .revision
-            .clone()
-            .unwrap_or_else(|| IdentityEnvelope::default_revision());
+        // Map string domain to Domain enum
+        let domain = match self.domain.as_str() {
+            "cli" => Domain::CLI,
+            "router" => Domain::Router,
+            "worker" => Domain::Worker,
+            "lifecycle" => Domain::Lifecycle,
+            "telemetry" => Domain::Telemetry,
+            "policy" => Domain::Policy,
+            "plugin" => Domain::Plugin,
+            _ => Domain::CLI, // default to CLI
+        };
+
+        // Map string purpose to Purpose enum
+        let purpose = match self.purpose.as_str() {
+            "inference" => Purpose::Inference,
+            "training" => Purpose::Training,
+            "replay" => Purpose::Replay,
+            "maintenance" => Purpose::Maintenance,
+            "plugin_io" => Purpose::PluginIO,
+            "audit" => Purpose::Audit,
+            _ => Purpose::Maintenance, // default to Maintenance
+        };
+
         IdentityEnvelope::new(
             self.tenant_id.clone(),
-            self.domain.clone(),
-            self.purpose.clone(),
-            revision,
+            domain,
+            purpose,
+            IdentityEnvelope::default_revision(),
         )
     }
 }

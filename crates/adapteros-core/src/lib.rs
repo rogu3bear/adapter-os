@@ -39,6 +39,7 @@ pub mod tenant_snapshot;
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
+pub use identity::{Domain, IdentityEnvelope, Purpose};
 pub use naming::{AdapterName, ForkType, StackName};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;

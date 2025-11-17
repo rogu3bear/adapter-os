@@ -3,6 +3,7 @@ use crate::ip_extraction::{extract_client_ip, ClientIp};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::{Domain, Purpose};
 use adapteros_db::users::Role;
 use axum::{
     extract::State,
@@ -48,8 +49,8 @@ pub async fn auth_middleware(
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
                     claims.tenant_id.clone(),
-                    "api".to_string(),
-                    "middleware".to_string(), // or specific
+                    Domain::Worker,
+                    Purpose::Inference,
                     IdentityEnvelope::default_revision(),
                 );
                 req.extensions_mut().insert(identity);
@@ -118,8 +119,8 @@ pub async fn dual_auth_middleware(
             req.extensions_mut().insert(claims);
             let identity = IdentityEnvelope::new(
                 claims.tenant_id.clone(),
-                "api".to_string(),
-                "middleware".to_string(), // or specific
+                Domain::Worker,
+                Purpose::Inference,
                 IdentityEnvelope::default_revision(),
             );
             req.extensions_mut().insert(identity);
@@ -131,8 +132,8 @@ pub async fn dual_auth_middleware(
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
                     claims.tenant_id.clone(),
-                    "api".to_string(),
-                    "middleware".to_string(), // or specific
+                    Domain::Worker,
+                    Purpose::Inference,
                     IdentityEnvelope::default_revision(),
                 );
                 req.extensions_mut().insert(identity);

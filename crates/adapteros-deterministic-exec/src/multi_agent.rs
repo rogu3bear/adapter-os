@@ -2,7 +2,7 @@
 //!
 //! Provides tick-synchronized barriers and global sequencing for multi-agent workflows.
 
-use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::{identity::IdentityEnvelope, Domain, Purpose};
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use parking_lot::Mutex;
 use serde_json::json;
@@ -15,6 +15,16 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::Notify;
 use tracing::{debug, info, warn};
+
+/// Helper to create identity envelope for barrier telemetry events
+fn barrier_identity(tenant_id: &str) -> IdentityEnvelope {
+    IdentityEnvelope::new(
+        tenant_id.to_string(),
+        Domain::Worker,
+        Purpose::Maintenance,
+        IdentityEnvelope::default_revision(),
+    )
+}
 
 /// Global cross-agent sequence counter
 /// This ensures deterministic ordering across all agents
@@ -150,12 +160,7 @@ impl AgentBarrier {
 
         // Emit barrier.agent.removed telemetry (Phase 3)
         if let Some(ref telemetry) = self.telemetry {
-            let identity = IdentityEnvelope::new(
-                "default".to_string(), // TODO: from config
-                "multi-agent".to_string(),
-                "barrier".to_string(),
-                IdentityEnvelope::default_revision(),
-            );
+            let identity = barrier_identity("default"); // TODO: from config
             let event = TelemetryEventBuilder::new(
                 EventType::Custom("barrier.agent.removed".to_string()),
                 LogLevel::Warn,
@@ -217,12 +222,7 @@ impl AgentBarrier {
 
         // Emit barrier.wait_start telemetry
         if let Some(ref telemetry) = self.telemetry {
-            let identity = IdentityEnvelope::new(
-                "default".to_string(),
-                "multi-agent".to_string(),
-                "barrier".to_string(),
-                IdentityEnvelope::default_revision(),
-            );
+            let identity = barrier_identity("default");
             let event = TelemetryEventBuilder::new(
                 EventType::Custom("barrier.wait_start".to_string()),
                 LogLevel::Debug,
@@ -276,12 +276,7 @@ impl AgentBarrier {
 
                 // Emit barrier.timeout telemetry
                 if let Some(ref telemetry) = self.telemetry {
-                    let identity = IdentityEnvelope::new(
-                        "default".to_string(),
-                        "multi-agent".to_string(),
-                        "barrier".to_string(),
-                        IdentityEnvelope::default_revision(),
-                    );
+                    let identity = barrier_identity("default");
                     let event = TelemetryEventBuilder::new(
                         EventType::Custom("barrier.timeout".to_string()),
                         LogLevel::Error,
@@ -352,12 +347,7 @@ impl AgentBarrier {
                         if let Some(ref telemetry) = self.telemetry {
                             let dead_count = self.dead_agents.lock().len();
                             let living_count = self.agent_ids.len() - dead_count;
-                            let cas_identity = IdentityEnvelope::new(
-                                "default".to_string(),
-                                "multi-agent".to_string(),
-                                "cas".to_string(),
-                                IdentityEnvelope::default_revision(),
-                            );
+                            let cas_identity = barrier_identity("default");
                             let event =
                                 TelemetryEventBuilder::new(
                                     EventType::Custom("barrier.generation_advanced".to_string()),
@@ -399,12 +389,7 @@ impl AgentBarrier {
 
                             // Emit barrier.cas_loser_proceed telemetry
                             if let Some(ref telemetry) = self.telemetry {
-                                let identity = IdentityEnvelope::new(
-                                    "default".to_string(),
-                                    "multi-agent".to_string(),
-                                    "cas".to_string(),
-                                    IdentityEnvelope::default_revision(),
-                                );
+                                let identity = barrier_identity("default");
                                 let event = TelemetryEventBuilder::new(
                                     EventType::Custom("barrier.cas_loser_proceed".to_string()),
                                     LogLevel::Debug,

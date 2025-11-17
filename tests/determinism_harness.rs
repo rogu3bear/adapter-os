@@ -508,8 +508,14 @@ proptest! {
         metadata in prop::collection::hash_map(any::<String>(), any::<serde_json::Value>(), 0..5),
     ) {
         use adapteros_telemetry::unified_events::{TelemetryEventBuilder, EventType, UnifiedTelemetryEvent};
+        use adapteros_core::{Domain, Purpose, B3Hash};
 
-        let identity = IdentityEnvelope::new("test_tenant".to_string(), "test_domain".to_string(), "test_purpose".to_string(), "test_rev".to_string());
+        let identity = IdentityEnvelope::new(
+            "test_tenant".to_string(),
+            Domain::Worker,
+            Purpose::Replay,
+            B3Hash::hash(b"test_rev"),
+        );
 
         let event = TelemetryEventBuilder::new(EventType::Custom(event_type_str), level, message, identity)
             .metadata(serde_json::Value::Object(metadata.into_iter().collect()))

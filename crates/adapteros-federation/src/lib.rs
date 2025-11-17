@@ -23,7 +23,7 @@ pub mod output_hash;
 pub mod peer;
 pub mod signature;
 
-use adapteros_core::{identity::IdentityEnvelope, AosError, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, Domain, Purpose, Result};
 use adapteros_crypto::{Keypair, PublicKey, Signature};
 use adapteros_db::Db;
 use adapteros_telemetry::{LogLevel, StoredBundleMetadata, TelemetryEventBuilder, TelemetryWriter};
@@ -172,9 +172,9 @@ impl FederationManager {
         if let Some(ref telemetry) = self.telemetry {
             let identity = IdentityEnvelope::new(
                 "system".to_string(),
-                "federation".to_string(),
-                "signing".to_string(),
-                "1.0".to_string(),
+                Domain::Worker,
+                Purpose::Audit,
+                IdentityEnvelope::default_revision(),
             );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("federation.bundle_signed".to_string()),
@@ -276,9 +276,9 @@ impl FederationManager {
                     if let Some(ref telemetry) = self.telemetry {
                         let identity = IdentityEnvelope::new(
                             "system".to_string(),
-                            "federation".to_string(),
-                            "verification".to_string(),
-                            "1.0".to_string(),
+                            Domain::Worker,
+                            Purpose::Audit,
+                            IdentityEnvelope::default_revision(),
                         );
                         let event = TelemetryEventBuilder::new(
                             adapteros_telemetry::EventType::Custom(
@@ -328,9 +328,9 @@ impl FederationManager {
         if let Some(ref telemetry) = self.telemetry {
             let identity = IdentityEnvelope::new(
                 "system".to_string(),
-                "federation".to_string(),
-                "verification".to_string(),
-                "1.0".to_string(),
+                Domain::Worker,
+                Purpose::Audit,
+                IdentityEnvelope::default_revision(),
             );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("federation.chain_verified".to_string()),

@@ -150,11 +150,13 @@ impl<S: TelemetrySink> MonitoringTelemetry<S> {
         message: String,
         metadata: T,
     ) -> Result<()> {
+        use adapteros_core::{Domain, Purpose};
+
         let identity = IdentityEnvelope::new(
             "system".to_string(),
-            "monitoring".to_string(),
-            "alert".to_string(),
-            "1.0".to_string(),
+            Domain::Telemetry,
+            Purpose::Maintenance,
+            IdentityEnvelope::default_revision(),
         );
         let mut builder = TelemetryEventBuilder::new(event_type, level, message, identity);
         if let Some(component) = &self.component {

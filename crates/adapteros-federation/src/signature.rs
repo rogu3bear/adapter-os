@@ -2,7 +2,7 @@
 //!
 //! Implements multi-host signature collection and quorum verification
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{AosError, B3Hash, Domain, Purpose, Result};
 use adapteros_crypto::{PublicKey, Signature};
 use adapteros_db::Db;
 use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
@@ -175,9 +175,9 @@ impl QuorumManager {
             if let Some(ref telemetry) = self.telemetry {
                 let identity = adapteros_core::identity::IdentityEnvelope::new(
                     "system".to_string(),
-                    "federation".to_string(),
-                    "quorum".to_string(),
-                    "1.0".to_string(),
+                    Domain::Worker,
+                    Purpose::Audit,
+                    adapteros_core::identity::IdentityEnvelope::default_revision(),
                 );
                 let event = TelemetryEventBuilder::new(
                     adapteros_telemetry::EventType::Custom("federation.quorum_reached".to_string()),

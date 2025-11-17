@@ -141,11 +141,13 @@ impl TelemetryWriter {
 
     /// Legacy log method - uses system identity
     pub fn log<T: Serialize>(&self, event_type_str: &str, payload: T) -> Result<()> {
+        use adapteros_core::{Domain, Purpose};
+
         let identity = IdentityEnvelope::new(
             "system".to_string(),
-            "telemetry".to_string(),
-            "event".to_string(),
-            "1.0".to_string(),
+            Domain::Telemetry,
+            Purpose::Maintenance,
+            IdentityEnvelope::default_revision(),
         );
         let event_type = EventType::Custom(event_type_str.to_string());
         let message = format!("Legacy event: {}", event_type_str);
@@ -506,12 +508,14 @@ mod tests {
 
     #[test]
     fn test_log_with_identity() {
+        use adapteros_core::{Domain, Purpose, B3Hash};
+
         let writer = TelemetryWriter::new("test_bundles", 10, 1024).unwrap();
         let identity = IdentityEnvelope::new(
             "test".to_string(),
-            "test".to_string(),
-            "test".to_string(),
-            "test".to_string(),
+            Domain::Telemetry,
+            Purpose::Audit,
+            B3Hash::hash(b"test"),
         );
         writer
             .log_with_identity(

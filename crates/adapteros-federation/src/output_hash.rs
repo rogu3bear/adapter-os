@@ -3,7 +3,7 @@
 //! Compares inference output hashes across multiple hosts to verify
 //! deterministic execution
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{AosError, B3Hash, Domain, Purpose, Result};
 use adapteros_db::Db;
 use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use serde::{Deserialize, Serialize};
@@ -210,9 +210,9 @@ impl OutputHashManager {
 
             let identity = adapteros_core::identity::IdentityEnvelope::new(
                 "system".to_string(),
-                "federation".to_string(),
-                "verification".to_string(),
-                "1.0".to_string(),
+                Domain::Worker,
+                Purpose::Audit,
+                adapteros_core::identity::IdentityEnvelope::default_revision(),
             );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom(event_type.to_string()),

@@ -4,8 +4,7 @@
 //! verification for cross-host consistency checks.
 
 use crate::{ExecutorEvent, TaskId};
-use adapteros_core::identity::IdentityEnvelope;
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash, Domain, Purpose, Result};
 use adapteros_db::Db;
 use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use serde::{Deserialize, Serialize};
@@ -15,6 +14,16 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
+
+/// Helper to create identity envelope for ledger telemetry events
+fn ledger_identity(tenant_id: &str) -> IdentityEnvelope {
+    IdentityEnvelope::new(
+        tenant_id.to_string(),
+        Domain::Worker,
+        Purpose::Audit,
+        IdentityEnvelope::default_revision(),
+    )
+}
 
 /// Entry in the global tick ledger
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,12 +244,7 @@ impl GlobalTickLedger {
 
         // Log to telemetry
         if let Some(ref telemetry) = self.telemetry {
-            let identity = IdentityEnvelope::new(
-                self.tenant_id.clone(),
-                "deterministic-exec".to_string(),
-                "ledger".to_string(),
-                IdentityEnvelope::default_revision(),
-            );
+            let identity = ledger_identity(&self.tenant_id);
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("tick_ledger.entry".to_string()),
                 LogLevel::Debug,
@@ -372,12 +376,7 @@ impl GlobalTickLedger {
 
         // Log to telemetry
         if let Some(ref telemetry) = self.telemetry {
-            let identity = IdentityEnvelope::new(
-                self.tenant_id.clone(),
-                "deterministic-exec".to_string(),
-                "consistency".to_string(),
-                IdentityEnvelope::default_revision(),
-            );
+            let identity = ledger_identity(&self.tenant_id);
             let event_type = if consistent {
                 "tick_ledger.consistent"
             } else {
