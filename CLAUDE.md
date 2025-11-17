@@ -1,5 +1,7 @@
 # AdapterOS Developer Guide
 
+**Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
+
 **Purpose:** Technical reference for developers. For contribution process, see [CONTRIBUTING.md](CONTRIBUTING.md)
 **Last Updated:** 2025-01-16
 **Maintained by:** James KC Auchterlonie
