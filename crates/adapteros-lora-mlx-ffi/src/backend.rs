@@ -305,7 +305,9 @@ mod tests {
 
     #[test]
     fn test_router_ring_creation() {
-        let ring = RouterRing::new(3);
+        let mut ring = RouterRing::new(3);
+        // RouterRing starts empty, use set() to populate
+        ring.set(&[0, 1, 2], &[100, 200, 300]).unwrap();
         assert_eq!(ring.indices.len(), 3);
         assert_eq!(ring.gates_q15.len(), 3);
         assert_eq!(ring.position, 0);
