@@ -140,7 +140,7 @@ pub async fn hydrate_tenant_from_db(
     let snapshot_hash = state.db.hydrate_from_db(&tenant_id).await.map_err(|e| {
         // Check if it's a validation error (DB inconsistency)
         let error_msg = e.to_string();
-        if error_msg.contains("references missing adapters")
+        if error_msg.contains("references invalid or cross-tenant adapters")
             || error_msg.contains("Validation")
         {
             error!(

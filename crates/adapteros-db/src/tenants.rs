@@ -127,9 +127,6 @@ impl Db {
             .filter(|a| a.tenant_id == tenant_id)
             .collect();
 
-        // Build set of valid adapter IDs for validation
-        let valid_adapter_ids: HashSet<String> = adapters.iter().map(|a| a.id.clone()).collect();
-
         let adapter_infos: Vec<AdapterInfo> = adapters
             .iter()
             .map(|a| AdapterInfo {
@@ -145,21 +142,25 @@ impl Db {
         let mut stack_infos: Vec<StackInfo> = Vec::new();
 
         // Validate stack references before building snapshot
+        // SECURITY: Ensure adapters belong to same tenant (tenant isolation)
         for stack in &stacks {
             let adapter_ids: Vec<String> =
                 serde_json::from_str(&stack.adapter_ids_json).unwrap_or_default();
 
-            // Check for missing adapter references
-            let missing_adapters: Vec<String> = adapter_ids
+            // Check for missing or cross-tenant adapter references
+            let invalid_adapters: Vec<String> = adapter_ids
                 .iter()
-                .filter(|id| !valid_adapter_ids.contains(*id))
+                .filter(|id| {
+                    // Adapter must exist AND belong to the same tenant
+                    !adapters.iter().any(|a| &a.id == *id && a.tenant_id == tenant_id)
+                })
                 .cloned()
                 .collect();
 
-            if !missing_adapters.is_empty() {
+            if !invalid_adapters.is_empty() {
                 return Err(AosError::Validation(format!(
-                    "Stack '{}' (id: {}) references missing adapters: {:?}",
-                    stack.name, stack.id, missing_adapters
+                    "Stack '{}' (id: {}) references invalid or cross-tenant adapters: {:?}",
+                    stack.name, stack.id, invalid_adapters
                 ))
                 .into());
             }

@@ -165,8 +165,8 @@ async fn test_validation_fails_on_invalid_stack_reference() -> Result<()> {
     let err = result.unwrap_err();
     let err_msg = err.to_string();
     assert!(
-        err_msg.contains("references missing adapters"),
-        "Error should indicate missing adapter reference, got: {}",
+        err_msg.contains("references invalid or cross-tenant adapters"),
+        "Error should indicate invalid adapter reference, got: {}",
         err_msg
     );
 
