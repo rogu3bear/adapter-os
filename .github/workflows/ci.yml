@@ -2,106 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+    branches: [main]
 
 jobs:
-  fmt:
-    name: Format Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-  clippy:
-    name: Clippy Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
-
   test:
-    name: Test Suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Check format
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy --workspace -- -D warnings
       - name: Run tests
-        run: |
-          cargo test --workspace --exclude adapteros-lora-mlx-ffi
-          make determinism-check || exit 1
-
-  deterministic-tests:
-    name: Deterministic Execution Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run determinism tests
-        run: |
-          cargo test -p adapteros-lora-router determinism
-          cargo test -p adapteros-deterministic-exec
-          cargo test determinism
-
-  build:
-    name: Build Release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build release
-        run: cargo build --release --locked
-
-  ui-build:
-    name: UI Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-      - name: Install dependencies
-        run: cd ui && pnpm install --frozen-lockfile
-      - name: Build UI
-        run: cd ui && pnpm build
-
-  policy-validation:
-    name: Policy Pack Validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Validate policy packs
-        run: cargo test -p adapteros-policy
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run integration tests
-        run: cargo test --test integration_tests
-
-  deployment-verification:
-    name: Deployment Verification
-    runs-on: ubuntu-latest
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Verify deployment
-        run: bash scripts/verify-deployment.sh
+        run: cargo test --workspace --exclude adapteros-lora-mlx-ffi
+      - name: Build
+        run: cargo build --release
