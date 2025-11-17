@@ -35,6 +35,7 @@ pub mod plugins;
 pub mod policy;
 pub mod seed;
 pub mod stack;
+pub mod tenant_hydration;
 pub mod tenant_snapshot;
 
 pub use error::{AosError, Result, ResultExt};

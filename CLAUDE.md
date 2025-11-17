@@ -386,6 +386,239 @@ Barrier operations emit structured telemetry events for observability:
 
 ---
 
+## Deterministic Tenant Hydration (PRD 2)
+
+**Purpose:** Reproducible tenant state reconstruction from telemetry bundles.
+
+**Status:** ✅ Fully implemented (2025-11-17)
+
+### Core Guarantees
+
+1. **Determinism**: Same events → same state hash (canonical ordering)
+2. **Idempotency**: Hydrate twice → identical results
+3. **Chain Integrity**: Verifies `prev_bundle_hash` links (Merkle chain)
+4. **Schema Versioning**: Handles bundle format migrations (v1 baseline)
+5. **Failure Semantics**: Partial bundles, missing fields, retry logic
+
+### Main Entry Point
+
+```rust
+use adapteros_core::tenant_hydration::{hydrate_tenant_from_bundle, HydrationConfig};
+use adapteros_core::B3Hash;
+
+let config = HydrationConfig {
+    bundle_root: "./telemetry".into(),
+    max_schema_version: 1,
+    verify_chain: true,
+    strict_mode: false,
+    allow_partial: false,
+};
+
+let result = hydrate_tenant_from_bundle(
+    "tenant-a",
+    &B3Hash::hash(b"bundle-hash"),
+    &config,
+).await?;
+
+println!("State hash: {}", result.state_hash.to_hex());
+println!("Adapters: {}", result.snapshot.adapters.len());
+```
+
+### Canonical Ordering Rules
+
+Events sorted by:
+1. **Timestamp** (RFC3339, ascending)
+2. **Event type** (lexicographic)
+3. **Event ID** (if present)
+
+**Deduplication:** Last-writer-wins for same entity (adapter ID, stack name)
+
+```rust
+use adapteros_core::tenant_hydration::apply_canonical_ordering;
+
+let mut events = vec![/* unsorted events */];
+apply_canonical_ordering(&mut events);
+// Events now sorted deterministically
+```
+
+### Idempotency Verification
+
+```rust
+use adapteros_core::tenant_hydration::verify_idempotency;
+
+// Hydrates twice, verifies state hashes match
+let state_hash = verify_idempotency("tenant-a", &bundle_hash, &config).await?;
+
+// Throws AosError::DeterminismViolation if hashes differ
+```
+
+### Schema Versioning
+
+**Current version:** 1 (baseline)
+
+**Migration support:**
+```rust
+use adapteros_core::tenant_hydration::migrate_bundle_events;
+
+let migrated = migrate_bundle_events(old_events, from_version)?;
+// Migrates events to current schema format
+```
+
+**Database migration:** `0070_bundle_chain_schema_version.sql` adds `prev_bundle_hash` and `schema_version` columns to `telemetry_bundles` table.
+
+### Failure Semantics
+
+**Failure modes:**
+- **Strict**: Fail on any error (validation, missing fields)
+- **BestEffort**: Skip malformed events, log warnings
+- **Retry**: Exponential backoff (100ms * 2^attempt)
+
+```rust
+use adapteros_core::tenant_hydration::{hydrate_partial_bundle, FailureMode};
+
+// Best-effort mode (skip malformed events)
+let result = hydrate_partial_bundle(
+    "tenant-a",
+    &bundle_hash,
+    &config,
+    FailureMode::BestEffort,
+).await?;
+
+println!("Warnings: {:?}", result.warnings);
+
+// Retry mode (3 attempts with backoff)
+let result = hydrate_partial_bundle(
+    "tenant-a",
+    &bundle_hash,
+    &config,
+    FailureMode::Retry { max_attempts: 3 },
+).await?;
+```
+
+**Error handling:**
+- `AosError::NotFound`: Bundle file missing
+- `AosError::Validation`: Schema version mismatch, event count mismatch
+- `AosError::Crypto`: Chain verification failed
+- `AosError::Io`: File read errors
+
+### Bundle Querying (Database)
+
+```rust
+use adapteros_db::Db;
+
+let db = Db::open("./var/aos-cp.sqlite3").await?;
+
+// List all bundles for tenant
+let bundles = db.list_bundles_for_tenant("tenant-a", 50).await?;
+for bundle in bundles {
+    println!("Bundle: {} (seq {})", bundle.bundle_hash, bundle.sequence_no);
+}
+
+// Get specific bundle by hash
+let metadata = db.get_bundle_by_hash("a3f2b1...").await?;
+
+// Get latest bundle
+let latest = db.get_latest_bundle("tenant-a").await?;
+
+// Verify chain integrity
+let is_valid = db.verify_bundle_chain("tenant-a").await?;
+if !is_valid {
+    eprintln!("Bundle chain integrity violated!");
+}
+```
+
+### Bundle Storage Format
+
+**Directory structure:**
+```
+telemetry/
+  {tenant_id}/
+    bundles/
+      {bundle_hash}.ndjson       # NDJSON events (one per line)
+      {bundle_hash}.ndjson.sig   # Signature metadata
+```
+
+**Signature metadata format:**
+```json
+{
+  "merkle_root": "a3f2b1c4...",
+  "signature": "ed25519_signature_hex",
+  "public_key": "ed25519_pubkey_hex",
+  "event_count": 42,
+  "sequence_no": 7,
+  "prev_bundle_hash": "9e8d7c...",
+  "version": 1
+}
+```
+
+### Tenant State Components
+
+Hydrated snapshot includes:
+- **Adapters**: id, name, rank, version
+- **Stacks**: name, adapter_ids
+- **Router policies**: name, rules
+- **Plugin configs**: BTreeMap<String, Value>
+- **Feature flags**: BTreeMap<String, bool>
+- **Configs**: BTreeMap<String, Value>
+
+All collections sorted for determinism (adapters by ID, stacks/policies by name).
+
+### Testing Coverage
+
+**Test file:** `tests/tenant_hydration_tests.rs`
+
+**Coverage:**
+1. ✅ Deterministic state hash (same events → same hash)
+2. ✅ Idempotency verification (hydrate twice → identical)
+3. ✅ Canonical ordering (timestamp → event_type → event_id)
+4. ✅ Chain integrity verification (prev_bundle_hash links)
+5. ✅ Schema version handling (reject unsupported versions)
+6. ✅ Partial bundle best-effort mode (skip malformed events)
+7. ✅ Missing bundle error handling
+8. ✅ Event count mismatch validation
+9. ✅ Retry failure mode with exponential backoff
+10. ✅ Snapshot field ordering (adapters sorted by ID)
+
+**Run tests:**
+```bash
+cargo test tenant_hydration_tests --test tenant_hydration_tests
+```
+
+### Production Checklist
+
+- [ ] Bundle root directory exists and is writable
+- [ ] Schema version matches max_schema_version in config
+- [ ] Chain integrity enabled (`verify_chain: true`) for production
+- [ ] Signature files (.ndjson.sig) present for all bundles
+- [ ] Database has `prev_bundle_hash` and `schema_version` columns (migration 0070 applied)
+- [ ] Telemetry events include `timestamp` (RFC3339), `event_type`, and `identity.tenant_id`
+- [ ] Bundle rotation configured (max_events, max_bytes in BundleWriter)
+
+### Architecture
+
+**Location:** `crates/adapteros-core/src/tenant_hydration.rs`
+
+**Key functions:**
+- `hydrate_tenant_from_bundle()`: Main entry point (lines 165-305)
+- `apply_canonical_ordering()`: Event sorting (lines 115-163)
+- `verify_idempotency()`: Determinism check (lines 328-351)
+- `migrate_bundle_events()`: Schema migration (lines 361-372)
+- `hydrate_partial_bundle()`: Failure handling (lines 411-449)
+
+**Database integration:** `crates/adapteros-db/src/telemetry_bundles.rs`
+
+**Bundle writing:** `crates/adapteros-telemetry/src/bundle.rs`
+
+**Snapshot reconstruction:** `crates/adapteros-core/src/tenant_snapshot.rs:47-218`
+
+### Related PRDs
+
+- **PRD 2**: Deterministic Tenant Hydration (this section)
+- **PRD 3**: Cross-host consistency verification (see Global Tick Ledger)
+- **PRD 9**: Telemetry bundle rotation and retention (see BundleWriter)
+
+---
+
 ## Document Processing & Training
 
 ### Pipeline (5 Steps)

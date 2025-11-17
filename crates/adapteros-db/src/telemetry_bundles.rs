@@ -5,6 +5,22 @@ use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+/// Bundle metadata from database
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BundleMetadata {
+    /// Bundle hash (BLAKE3 Merkle root)
+    #[sqlx(rename = "merkle_root_b3")]
+    pub bundle_hash: String,
+    pub tenant_id: String,
+    /// Sequence number (using end_seq from database)
+    #[sqlx(rename = "end_seq")]
+    pub sequence_no: i64,
+    pub event_count: i32,
+    pub prev_bundle_hash: Option<String>,
+    pub schema_version: i32,
+    pub created_at: String,
+}
+
 /// Builder for creating telemetry batch parameters
 #[derive(Debug, Default)]
 pub struct TelemetryBatchBuilder {
@@ -248,5 +264,166 @@ impl Db {
         .await?;
 
         Ok(records)
+    }
+
+    /// List all bundles for a tenant (ordered by sequence_no)
+    ///
+    /// Returns bundle metadata from the telemetry_bundles table.
+    /// Used for hydration to find available bundles.
+    ///
+    /// # Arguments
+    ///
+    /// * `tenant_id` - Tenant identifier
+    /// * `limit` - Maximum number of bundles to return
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// let bundles = db.list_bundles_for_tenant("tenant-a", 50).await?;
+    /// for bundle in bundles {
+    ///     println!("Bundle: {} (seq {})", bundle.bundle_hash, bundle.sequence_no);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list_bundles_for_tenant(
+        &self,
+        tenant_id: &str,
+        limit: i32,
+    ) -> Result<Vec<BundleMetadata>> {
+        let bundles = sqlx::query_as::<_, BundleMetadata>(
+            r#"
+            SELECT merkle_root_b3, tenant_id, end_seq, event_count,
+                   prev_bundle_hash, COALESCE(schema_version, 1) as schema_version, created_at
+            FROM telemetry_bundles
+            WHERE tenant_id = ?
+            ORDER BY end_seq DESC
+            LIMIT ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await?;
+
+        Ok(bundles)
+    }
+
+    /// Get bundle metadata by hash
+    ///
+    /// Returns bundle information for a specific content-addressed hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `bundle_hash` - BLAKE3 hash of bundle (hex string)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if bundle not found in database.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// let hash = "a3f2b1..."; // BLAKE3 hash
+    /// let metadata = db.get_bundle_by_hash(hash).await?;
+    /// println!("Bundle for tenant: {}", metadata.tenant_id);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_bundle_by_hash(&self, bundle_hash: &str) -> Result<BundleMetadata> {
+        let bundle = sqlx::query_as::<_, BundleMetadata>(
+            r#"
+            SELECT merkle_root_b3, tenant_id, end_seq, event_count,
+                   prev_bundle_hash, COALESCE(schema_version, 1) as schema_version, created_at
+            FROM telemetry_bundles
+            WHERE merkle_root_b3 = ?
+            "#,
+        )
+        .bind(bundle_hash)
+        .fetch_one(self.pool())
+        .await?;
+
+        Ok(bundle)
+    }
+
+    /// Get latest bundle for a tenant
+    ///
+    /// Returns the most recent bundle (highest sequence_no).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// let latest = db.get_latest_bundle("tenant-a").await?;
+    /// println!("Latest bundle: {} (seq {})", latest.bundle_hash, latest.sequence_no);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_latest_bundle(&self, tenant_id: &str) -> Result<BundleMetadata> {
+        let bundle = sqlx::query_as::<_, BundleMetadata>(
+            r#"
+            SELECT merkle_root_b3, tenant_id, end_seq, event_count,
+                   prev_bundle_hash, COALESCE(schema_version, 1) as schema_version, created_at
+            FROM telemetry_bundles
+            WHERE tenant_id = ?
+            ORDER BY end_seq DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_one(self.pool())
+        .await?;
+
+        Ok(bundle)
+    }
+
+    /// Verify bundle chain integrity
+    ///
+    /// Checks that prev_bundle_hash links are valid for a tenant.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(true)` if chain is valid, `Ok(false)` if broken.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// let is_valid = db.verify_bundle_chain("tenant-a").await?;
+    /// if !is_valid {
+    ///     eprintln!("Bundle chain integrity violated!");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn verify_bundle_chain(&self, tenant_id: &str) -> Result<bool> {
+        let bundles = self.list_bundles_for_tenant(tenant_id, 1000).await?;
+
+        // Reverse to check from oldest to newest
+        let mut bundles_asc = bundles;
+        bundles_asc.reverse();
+
+        for i in 1..bundles_asc.len() {
+            let current = &bundles_asc[i];
+            let prev = &bundles_asc[i - 1];
+
+            // Check if prev_bundle_hash matches previous bundle
+            if let Some(ref prev_hash) = current.prev_bundle_hash {
+                if prev_hash != &prev.bundle_hash {
+                    return Ok(false);
+                }
+            } else if i > 0 {
+                // First bundle (seq 0) can have None, others must have prev_hash
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 }
