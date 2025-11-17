@@ -3669,6 +3669,31 @@ pub async fn infer(
                     latency_ms: 0,            // Not tracked in current response
                 },
             };
+
+            // Validate response schema before returning
+            let response_value = serde_json::to_value(&response).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("response serialization failed")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+            state.response_validator.validate_response(&response_value, "inference_response").await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("response validation failed")
+                                .with_code("VALIDATION_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+
             Ok(Json(response))
         }
         Err(UdsClientError::WorkerNotAvailable(msg)) => Err((
