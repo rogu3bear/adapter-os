@@ -39,6 +39,8 @@ pub struct StackResponse {
     pub created_at: String,
     pub updated_at: String,
     pub is_active: bool,
+    /// Stack version for telemetry correlation (PRD-03)
+    pub version: i64,
 }
 
 /// Workflow type for adapter stacks
@@ -122,6 +124,7 @@ pub async fn create_stack(
             created_at: now.clone(),
             updated_at: now,
             is_active: false,
+            version: 1, // New stacks start at version 1
         }),
     ))
 }
@@ -169,6 +172,7 @@ pub async fn list_stacks(
             created_at: row.created_at,
             updated_at: row.updated_at,
             is_active: false,
+            version: row.version,
         });
     }
 
@@ -237,6 +241,7 @@ pub async fn get_stack(
         created_at: row.created_at,
         updated_at: row.updated_at,
         is_active: false,
+        version: row.version,
     }))
 }
 

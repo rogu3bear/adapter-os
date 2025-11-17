@@ -59,6 +59,12 @@ pub struct InferenceEvent {
     /// Worker ID for cross-worker verification
     #[serde(default)]
     pub worker_id: u32,
+    /// Stack ID for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_version: Option<i64>,
 }
 
 impl InferenceEvent {
@@ -132,6 +138,13 @@ impl InferenceEvent {
         self.error = Some(error);
         self
     }
+
+    /// Attach stack metadata for telemetry correlation (PRD-03)
+    pub fn with_stack_metadata(mut self, stack_id: Option<String>, stack_version: Option<i64>) -> Self {
+        self.stack_id = stack_id;
+        self.stack_version = stack_version;
+        self
+    }
 }
 
 /// Canonical `router.decision` payload that must remain frozen (tests assert the exact shape).
@@ -151,6 +164,12 @@ pub struct RouterDecisionEvent {
     pub entropy_floor: f32,
     /// Optional hash of the active adapter stack
     pub stack_hash: Option<String>,
+    /// Stack ID for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_version: Option<i64>,
 }
 
 /// Candidate adapter entry inside the canonical router decision stream.

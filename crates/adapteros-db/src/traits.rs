@@ -63,6 +63,13 @@ pub struct StackRecord {
     pub created_at: String,
     pub updated_at: String,
     pub created_by: Option<String>,
+    /// Stack version (auto-incremented on updates for telemetry correlation)
+    #[serde(default = "default_version")]
+    pub version: i64,
+}
+
+fn default_version() -> i64 {
+    1
 }
 
 /// Request to create a new adapter stack
