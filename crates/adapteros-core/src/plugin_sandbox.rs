@@ -10,11 +10,11 @@
 //! - Docker containers
 //! - Firecracker microVMs
 
-use crate::{AosError, Result};
+use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Sandbox policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

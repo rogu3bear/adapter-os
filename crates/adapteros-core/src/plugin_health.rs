@@ -3,7 +3,7 @@
 //! Implements watchdog, circuit breaker, and restart backoff for plugin isolation.
 //! Citation: PRD 7 - Operator / Plugin Isolation
 
-use crate::{AosError, Result};
+use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -170,7 +170,8 @@ impl CircuitBreaker {
 struct RestartState {
     attempt_count: u32,
     last_restart: Option<Instant>,
-    next_backoff: Duration,
+    current_backoff: Duration,  // Backoff to wait after last restart
+    next_backoff: Duration,      // Backoff to use for next restart
     circuit_breaker: Arc<CircuitBreaker>,
 }
 
@@ -179,25 +180,26 @@ impl RestartState {
         Self {
             attempt_count: 0,
             last_restart: None,
+            current_backoff: policy.initial_backoff,
             next_backoff: policy.initial_backoff,
             circuit_breaker: Arc::new(CircuitBreaker::new(policy.clone())),
         }
     }
 
-    fn calculate_backoff(&mut self, policy: &RestartPolicy) -> Duration {
-        let backoff = self.next_backoff;
+    fn advance_backoff(&mut self, policy: &RestartPolicy) {
+        // Move next_backoff to current_backoff
+        self.current_backoff = self.next_backoff;
 
-        // Exponential backoff with cap
+        // Calculate new next_backoff with exponential growth
         let next_secs = (self.next_backoff.as_secs_f64() * policy.backoff_multiplier)
             .min(policy.max_backoff.as_secs_f64());
         self.next_backoff = Duration::from_secs_f64(next_secs);
-
-        backoff
     }
 
     fn reset(&mut self, policy: &RestartPolicy) {
         self.attempt_count = 0;
         self.last_restart = None;
+        self.current_backoff = policy.initial_backoff;
         self.next_backoff = policy.initial_backoff;
     }
 }
@@ -253,9 +255,9 @@ impl PluginWatchdog {
 
         // Check backoff period
         if let Some(last_restart) = state.last_restart {
-            let backoff = state.calculate_backoff(&self.policy);
-            if last_restart.elapsed() < backoff {
-                let remaining = backoff.saturating_sub(last_restart.elapsed());
+            // Use CURRENT backoff (the one set when we last restarted)
+            if last_restart.elapsed() < state.current_backoff {
+                let remaining = state.current_backoff.saturating_sub(last_restart.elapsed());
                 info!(
                     plugin_name,
                     remaining_secs = remaining.as_secs(),
@@ -278,10 +280,14 @@ impl PluginWatchdog {
         state.attempt_count += 1;
         state.last_restart = Some(Instant::now());
 
+        // Advance backoff for next restart
+        state.advance_backoff(&self.policy);
+
         info!(
             plugin_name,
             attempt = state.attempt_count,
             max_attempts = self.policy.max_attempts,
+            current_backoff_secs = state.current_backoff.as_secs(),
             next_backoff_secs = state.next_backoff.as_secs(),
             "Plugin restart attempt recorded"
         );

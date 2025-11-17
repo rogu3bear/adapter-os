@@ -165,11 +165,7 @@ impl PluginRegistry {
                 return Err(e);
             }
             Err(_) => {
-                let err = AosError::Timeout(format!(
-                    "Plugin {} load timed out after {:?}",
-                    name, self.config.operation_timeout
-                ));
-                error!(plugin_name = %name, "Plugin load timed out");
+                error!(plugin_name = %name, timeout = ?self.config.operation_timeout, "Plugin load timed out");
                 self.emit_event(
                     EventType::PluginTimeout,
                     LogLevel::Error,
@@ -177,7 +173,9 @@ impl PluginRegistry {
                     json!({"plugin_name": name, "timeout_secs": self.config.operation_timeout.as_secs()}),
                 )
                 .await;
-                return Err(err);
+                return Err(AosError::Timeout {
+                    duration: self.config.operation_timeout,
+                });
             }
         }
 
@@ -223,11 +221,7 @@ impl PluginRegistry {
                 return Err(e);
             }
             Err(_) => {
-                let err = AosError::Timeout(format!(
-                    "Plugin {} start timed out after {:?}",
-                    name, self.config.operation_timeout
-                ));
-                error!(plugin_name = %name, "Plugin start timed out");
+                error!(plugin_name = %name, timeout = ?self.config.operation_timeout, "Plugin start timed out");
                 self.emit_event(
                     EventType::PluginTimeout,
                     LogLevel::Error,
@@ -235,7 +229,9 @@ impl PluginRegistry {
                     json!({"plugin_name": name, "timeout_secs": self.config.operation_timeout.as_secs()}),
                 )
                 .await;
-                return Err(err);
+                return Err(AosError::Timeout {
+                    duration: self.config.operation_timeout,
+                });
             }
         }
 
