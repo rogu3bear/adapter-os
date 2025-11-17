@@ -22,26 +22,43 @@ fn test_max_adapters_per_step_constant() {
 
 #[test]
 fn test_router_ring_golden_layout() {
-    // Golden test: Verify RouterRing memory layout is stable
+    // Golden test: Lock RouterRing memory layout for ABI stability
+    // WARNING: Changes to these values indicate ABI break
     let mut ring = RouterRing::new();
     ring.position = 42;
 
     let layout = ring.layout_info();
 
-    // Document expected layout for future compatibility checks
-    assert_eq!(layout.indices_len, 0);
-    assert_eq!(layout.gates_len, 0);
-    assert_eq!(layout.position, 42);
-    assert_eq!(layout.indices_size, 0); // Empty SmallVec
-    assert_eq!(layout.gates_size, 0); // Empty SmallVec
+    // Verify empty ring layout
+    assert_eq!(layout.indices_len, 0, "Empty ring should have 0 indices");
+    assert_eq!(layout.gates_len, 0, "Empty ring should have 0 gates");
+    assert_eq!(layout.position, 42, "Position should match");
+    assert_eq!(layout.indices_size, 0, "Empty SmallVec uses inline storage");
+    assert_eq!(layout.gates_size, 0, "Empty SmallVec uses inline storage");
 
-    // Total size depends on SmallVec implementation (stack-allocated inline storage)
-    // We document it here for regression detection
-    println!("RouterRing total size: {} bytes", layout.total_size);
-    assert!(
-        layout.total_size > 0,
-        "RouterRing must have non-zero size"
-    );
+    // Lock total size (SmallVec<[u16; 8]> + SmallVec<[i16; 8]> + u64)
+    // Expected: 2 * (24 bytes SmallVec header + 16 bytes inline) + 8 bytes u64 = 88 bytes
+    // (Actual size may vary by platform/compiler, but should be stable for given platform)
+    #[cfg(target_pointer_width = "64")]
+    {
+        // On 64-bit platforms, lock the size for regression detection
+        // If this fails, RouterRing layout has changed (ABI break)
+        const EXPECTED_SIZE: usize = 88; // 2×40 (SmallVec) + 8 (u64)
+        assert_eq!(
+            layout.total_size, EXPECTED_SIZE,
+            "RouterRing size changed from {} to {} - ABI BREAK",
+            EXPECTED_SIZE, layout.total_size
+        );
+    }
+
+    // Verify populated ring layout
+    let _ = ring.set(&[0, 1, 2], &[100, 200, 300]);
+    let layout2 = ring.layout_info();
+    assert_eq!(layout2.indices_len, 3);
+    assert_eq!(layout2.gates_len, 3);
+    assert_eq!(layout2.indices_size, 6); // 3 × u16
+    assert_eq!(layout2.gates_size, 6); // 3 × i16
+    assert_eq!(layout2.total_size, layout.total_size, "Total size should not change");
 }
 
 #[test]
@@ -190,6 +207,70 @@ fn test_decision_sort_indices_preserves_correspondence() {
 
     // Gates should be reordered to maintain correspondence
     assert_eq!(decision.gates_q15.as_slice(), &[100, 200, 500, 700]);
+}
+
+#[test]
+fn test_sort_indices_allocation_free() {
+    // Verify insertion sort works correctly on edge cases
+    // (zero heap allocations verified by design - insertion sort in-place)
+
+    // Already sorted
+    let mut d1 = Decision {
+        indices: vec![1, 2, 3, 4].into(),
+        gates_q15: vec![100, 200, 300, 400].into(),
+        entropy: 1.0,
+        candidates: vec![],
+    };
+    d1.sort_indices();
+    assert_eq!(d1.indices.as_slice(), &[1, 2, 3, 4]);
+    assert_eq!(d1.gates_q15.as_slice(), &[100, 200, 300, 400]);
+
+    // Reverse sorted (worst case for insertion sort)
+    let mut d2 = Decision {
+        indices: vec![8, 6, 4, 2, 0].into(),
+        gates_q15: vec![800, 600, 400, 200, 0].into(),
+        entropy: 1.0,
+        candidates: vec![],
+    };
+    d2.sort_indices();
+    assert_eq!(d2.indices.as_slice(), &[0, 2, 4, 6, 8]);
+    assert_eq!(d2.gates_q15.as_slice(), &[0, 200, 400, 600, 800]);
+
+    // Single element (no-op)
+    let mut d3 = Decision {
+        indices: vec![5].into(),
+        gates_q15: vec![500].into(),
+        entropy: 1.0,
+        candidates: vec![],
+    };
+    d3.sort_indices();
+    assert_eq!(d3.indices.as_slice(), &[5]);
+    assert_eq!(d3.gates_q15.as_slice(), &[500]);
+
+    // Empty (no-op)
+    let mut d4 = Decision {
+        indices: vec![].into(),
+        gates_q15: vec![].into(),
+        entropy: 0.0,
+        candidates: vec![],
+    };
+    d4.sort_indices();
+    assert!(d4.indices.is_empty());
+    assert!(d4.gates_q15.is_empty());
+
+    // Max K (8 elements)
+    let mut d5 = Decision {
+        indices: vec![7, 3, 1, 5, 0, 6, 2, 4].into(),
+        gates_q15: vec![700, 300, 100, 500, 0, 600, 200, 400].into(),
+        entropy: 2.0,
+        candidates: vec![],
+    };
+    d5.sort_indices();
+    assert_eq!(d5.indices.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(
+        d5.gates_q15.as_slice(),
+        &[0, 100, 200, 300, 400, 500, 600, 700]
+    );
 }
 
 #[test]

@@ -18,13 +18,20 @@ pub const MAX_ADAPTERS_PER_STEP: usize = 8;
 /// 4. `gates_q15` MUST be in Q15 range: [-32768, 32767]
 /// 5. Router MUST enforce K <= MAX_ADAPTERS_PER_STEP
 /// 6. All backends MUST consume RouterRing as defined and MUST NOT reinterpret layout
+///
+/// # Design Notes
+/// - `position: u64` chosen over `usize` for:
+///   - Platform-independent serialization (no 32/64-bit differences)
+///   - Support for sequences > 4B tokens (future-proof)
+///   - FFI-safe fixed-size type (no pointer-width dependencies)
+/// - `SmallVec<[T; 8]>` provides stack allocation for K≤8 (zero heap overhead)
 #[derive(Debug, Clone)]
 pub struct RouterRing {
     /// Adapter indices (up to K=8), MUST be sorted ascending
     pub indices: SmallVec<[u16; MAX_ADAPTERS_PER_STEP]>,
     /// Q15 quantized gates in range [-32768, 32767]
     pub gates_q15: SmallVec<[i16; MAX_ADAPTERS_PER_STEP]>,
-    /// Token position (u64 for large sequence support)
+    /// Token position: u64 for platform-independent, large-sequence support
     pub position: u64,
 }
 
@@ -336,7 +343,10 @@ impl FusedKernels for MockKernels {
         Ok(())
     }
 
-    fn run_step(&mut self, _ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // PRD 6: MockKernels validates contract to catch violations in all tests
+        ring.validate_invariants()?;
+
         // Mock implementation - generate deterministic logits for testing
         for (i, logit) in io.output_logits.iter_mut().enumerate() {
             *logit = (i as f32 * 0.001) % 1.0; // Deterministic pattern

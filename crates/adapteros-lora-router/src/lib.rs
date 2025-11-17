@@ -381,16 +381,23 @@ impl Router {
 
     /// Get safe K value with truncation if needed (PRD 6)
     ///
-    /// Returns min(self.k, MAX_K) and logs if truncation occurs.
+    /// Returns min(self.k, MAX_K) and emits structured telemetry if truncation occurs.
     /// This is a defensive measure - construction should prevent K > MAX_K,
     /// but this ensures we never violate the RouterRing contract.
+    ///
+    /// **Telemetry:** Emits `router.k_truncation` event (queryable in database)
     fn safe_k(&self) -> usize {
         let k_safe = self.k.min(MAX_K);
         if self.k > MAX_K {
+            // PRD 6: Emit structured telemetry event for K truncation
             tracing::error!(
+                target: "router.k_truncation",
                 requested_k = self.k,
                 max_k = MAX_K,
-                "Router K exceeds MAX_K, truncating (PRD 6 safety)"
+                truncated_to = k_safe,
+                tau = self.tau,
+                eps = self.eps,
+                "Router K exceeds MAX_K, truncating to enforce contract (PRD 6)"
             );
         }
         k_safe
@@ -1092,27 +1099,24 @@ impl Decision {
     ///
     /// Sorts indices in ascending order and reorders gates to match.
     /// This ensures compatibility with the RouterRing contract.
+    ///
+    /// **Performance:** Uses insertion sort (optimal for K≤8) with zero heap allocations.
+    /// Average case: O(K²), but K≤8 so this is faster than heap-based sorting.
     pub fn sort_indices(&mut self) {
-        if self.indices.is_empty() {
+        if self.indices.len() <= 1 {
             return;
         }
 
-        // Create pairs of (index, gate) and sort by index
-        let mut pairs: Vec<(u16, i16)> = self
-            .indices
-            .iter()
-            .zip(self.gates_q15.iter())
-            .map(|(&idx, &gate)| (idx, gate))
-            .collect();
-
-        pairs.sort_by_key(|(idx, _)| *idx);
-
-        // Unzip back into separate arrays
-        self.indices.clear();
-        self.gates_q15.clear();
-        for (idx, gate) in pairs {
-            self.indices.push(idx);
-            self.gates_q15.push(gate);
+        // Insertion sort: optimal for small K (≤8), zero allocations
+        // Maintains correspondence between indices and gates via parallel swaps
+        for i in 1..self.indices.len() {
+            let mut j = i;
+            // Bubble current element down until it's in sorted position
+            while j > 0 && self.indices[j] < self.indices[j - 1] {
+                self.indices.swap(j, j - 1);
+                self.gates_q15.swap(j, j - 1);
+                j -= 1;
+            }
         }
     }
 
