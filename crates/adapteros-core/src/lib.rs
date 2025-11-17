@@ -25,7 +25,9 @@
 //! let seed = derive_seed(&hash, "component_a");
 //! ```
 
+pub mod circuit_breaker;
 pub mod error;
+pub mod timeout;
 pub mod hash;
 pub mod id;
 pub mod identity;
@@ -37,6 +39,10 @@ pub mod seed;
 pub mod stack;
 pub mod tenant_snapshot;
 
+pub use circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, SharedCircuitBreaker, StandardCircuitBreaker,
+};
+pub use timeout::TimeoutExt;
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
@@ -55,6 +61,7 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        AdapterName, AosError, B3Hash, DriftPolicy, ForkType, Result, ResultExt, StackName, CPID,
+        AdapterName, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
+        DriftPolicy, ForkType, Result, ResultExt, StackName, CPID, SharedCircuitBreaker, StandardCircuitBreaker,
     };
 }

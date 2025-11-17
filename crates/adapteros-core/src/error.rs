@@ -247,6 +247,12 @@ pub enum AosError {
     #[error("Timeout waiting for response after {duration:?}")]
     Timeout { duration: std::time::Duration },
 
+    #[error("Circuit breaker is open for service '{service}'")]
+    CircuitBreakerOpen { service: String },
+
+    #[error("Circuit breaker is half-open for service '{service}'")]
+    CircuitBreakerHalfOpen { service: String },
+
     #[error("Encryption failed: {reason}")]
     EncryptionFailed { reason: String },
 
