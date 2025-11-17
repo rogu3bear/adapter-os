@@ -8,7 +8,9 @@
 //! - Metal Shading Language: https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{
+    attestation, FusedKernels, IoBuffers, RouterRing, MAX_ADAPTERS_PER_STEP,
+};
 
 #[cfg(target_os = "macos")]
 use metal::*;
@@ -970,6 +972,37 @@ impl FusedKernels for MetalKernels {
     ///
     /// This is more efficient than doing the lookup in Rust and copying to GPU.
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // PRD 6: Validate RouterRing contract invariants in debug builds
+        #[cfg(debug_assertions)]
+        {
+            if let Err(e) = ring.validate_invariants() {
+                tracing::error!(
+                    error = %e,
+                    indices_len = ring.indices.len(),
+                    gates_len = ring.gates_q15.len(),
+                    "RouterRing contract violation in Metal backend"
+                );
+                return Err(AosError::Validation(format!(
+                    "RouterRing contract violation: {}",
+                    e
+                )));
+            }
+
+            // Additional validation: check for dimension mismatches
+            if ring.indices.len() > MAX_ADAPTERS_PER_STEP {
+                tracing::error!(
+                    ring_len = ring.indices.len(),
+                    max_adapters = MAX_ADAPTERS_PER_STEP,
+                    "RouterRing exceeds maximum adapter count"
+                );
+                return Err(AosError::Validation(format!(
+                    "RouterRing length {} exceeds MAX_ADAPTERS_PER_STEP={}",
+                    ring.indices.len(),
+                    MAX_ADAPTERS_PER_STEP
+                )));
+            }
+        }
+
         // Convert RouterRing to ActiveAdapter list
         let adapters: Vec<ActiveAdapter> = ring
             .indices

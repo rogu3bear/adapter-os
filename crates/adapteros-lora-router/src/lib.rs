@@ -10,6 +10,7 @@ pub mod path_routing;
 pub mod scoring;
 
 use adapteros_core::{B3Hash, Result};
+use adapteros_lora_kernel_api::{RouterRing, MAX_ADAPTERS_PER_STEP};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::HashSet;
@@ -135,7 +136,8 @@ impl RouterWeights {
     }
 }
 
-pub const MAX_K: usize = 8;
+/// Maximum K value (references kernel API contract)
+pub const MAX_K: usize = MAX_ADAPTERS_PER_STEP;
 
 /// Router for selecting K adapters with quantized gates
 pub struct Router {
@@ -377,6 +379,23 @@ impl Router {
         self.eps
     }
 
+    /// Get safe K value with truncation if needed (PRD 6)
+    ///
+    /// Returns min(self.k, MAX_K) and logs if truncation occurs.
+    /// This is a defensive measure - construction should prevent K > MAX_K,
+    /// but this ensures we never violate the RouterRing contract.
+    fn safe_k(&self) -> usize {
+        let k_safe = self.k.min(MAX_K);
+        if self.k > MAX_K {
+            tracing::error!(
+                requested_k = self.k,
+                max_k = MAX_K,
+                "Router K exceeds MAX_K, truncating (PRD 6 safety)"
+            );
+        }
+        k_safe
+    }
+
     /// Compute weighted feature score from 22-dimensional feature vector
     ///
     /// Feature vector layout:
@@ -518,8 +537,9 @@ impl Router {
                 .then_with(|| a.0.cmp(&b.0))
         });
 
-        // Take top K
-        let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
+        // Take top K (with PRD 6 safety check)
+        let k = self.safe_k();
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
 
         // Softmax with temperature
         let max_score = top_k
@@ -534,7 +554,7 @@ impl Router {
 
         // Normalize and apply entropy floor
         let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
-        let min_gate = self.eps / self.k as f32;
+        let min_gate = self.eps / k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
         }
@@ -592,12 +612,17 @@ impl Router {
             }
         }
 
-        Decision {
+        let mut decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
-        }
+        };
+
+        // Ensure indices are sorted ascending (PRD 6 contract requirement)
+        decision.sort_indices();
+
+        decision
     }
 
     /// Compute Shannon entropy of gate distribution
@@ -681,8 +706,9 @@ impl Router {
                 .then_with(|| a.0.cmp(&b.0))
         });
 
-        // Take top K
-        let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
+        // Take top K (with PRD 6 safety check)
+        let k = self.safe_k();
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
 
         // Softmax with temperature
         let max_score = top_k
@@ -697,7 +723,7 @@ impl Router {
 
         // Normalize and apply entropy floor
         let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
-        let min_gate = self.eps / self.k as f32;
+        let min_gate = self.eps / k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
         }
@@ -741,12 +767,17 @@ impl Router {
             }
         }
 
-        Decision {
+        let mut decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
-        }
+        };
+
+        // Ensure indices are sorted ascending (PRD 6 contract requirement)
+        decision.sort_indices();
+
+        decision
     }
 
     /// Route with k0 detection (no adapters qualify)
@@ -796,8 +827,9 @@ impl Router {
                 .then_with(|| a.0.cmp(&b.0))
         });
 
-        // Take top K
-        let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
+        // Take top K (with PRD 6 safety check)
+        let k = self.safe_k();
+        let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
 
         // Softmax with temperature
         let max_score = top_k
@@ -812,7 +844,7 @@ impl Router {
 
         // Normalize and apply entropy floor
         let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
-        let min_gate = self.eps / self.k as f32;
+        let min_gate = self.eps / k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
         }
@@ -849,12 +881,17 @@ impl Router {
             .map(|candidate| candidate.adapter_idx)
             .collect();
 
-        Decision {
+        let mut decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
-        }
+        };
+
+        // Ensure indices are sorted ascending (PRD 6 contract requirement)
+        decision.sort_indices();
+
+        decision
     }
 
     /// Log k0 event when no adapters are selected
@@ -1049,6 +1086,54 @@ impl Decision {
     /// Convert Q15 gates back to float
     pub fn gates_f32(&self) -> Vec<f32> {
         self.gates_q15.iter().map(|&q| q as f32 / 32767.0).collect()
+    }
+
+    /// Ensure indices are sorted ascending (PRD 6 contract requirement)
+    ///
+    /// Sorts indices in ascending order and reorders gates to match.
+    /// This ensures compatibility with the RouterRing contract.
+    pub fn sort_indices(&mut self) {
+        if self.indices.is_empty() {
+            return;
+        }
+
+        // Create pairs of (index, gate) and sort by index
+        let mut pairs: Vec<(u16, i16)> = self
+            .indices
+            .iter()
+            .zip(self.gates_q15.iter())
+            .map(|(&idx, &gate)| (idx, gate))
+            .collect();
+
+        pairs.sort_by_key(|(idx, _)| *idx);
+
+        // Unzip back into separate arrays
+        self.indices.clear();
+        self.gates_q15.clear();
+        for (idx, gate) in pairs {
+            self.indices.push(idx);
+            self.gates_q15.push(gate);
+        }
+    }
+
+    /// Convert Decision to RouterRing with validation
+    ///
+    /// # Errors
+    /// Returns error if Decision violates RouterRing contract invariants
+    pub fn to_router_ring(&self, position: u64) -> Result<RouterRing> {
+        let mut ring = RouterRing::new();
+        ring.position = position;
+        ring.set(&self.indices, &self.gates_q15)?;
+        ring.validate_invariants()?;
+        Ok(ring)
+    }
+
+    /// Check if indices are sorted ascending
+    pub fn is_sorted(&self) -> bool {
+        self.indices
+            .windows(2)
+            .all(|w| w[0] < w[1])
+            || self.indices.len() <= 1
     }
 }
 

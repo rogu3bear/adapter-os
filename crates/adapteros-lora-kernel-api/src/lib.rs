@@ -1,34 +1,182 @@
 //! Safe API for fused kernels
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 pub mod attestation;
 
+/// Maximum number of adapters per routing step (K-sparse constraint)
+pub const MAX_ADAPTERS_PER_STEP: usize = 8;
+
 /// Ring buffer for router decisions (Q15 gates)
+///
+/// # Contract Invariants (PRD 6)
+/// 1. `indices.len() == gates_q15.len()` for every ring
+/// 2. `indices` MUST be sorted ascending by adapter index
+/// 3. `indices.len()` MUST NOT exceed MAX_ADAPTERS_PER_STEP
+/// 4. `gates_q15` MUST be in Q15 range: [-32768, 32767]
+/// 5. Router MUST enforce K <= MAX_ADAPTERS_PER_STEP
+/// 6. All backends MUST consume RouterRing as defined and MUST NOT reinterpret layout
 #[derive(Debug, Clone)]
 pub struct RouterRing {
-    /// Adapter indices (up to K=8)
-    pub indices: Vec<u16>,
-    /// Q15 quantized gates
-    pub gates_q15: Vec<i16>,
-    /// Token position
-    pub position: usize,
+    /// Adapter indices (up to K=8), MUST be sorted ascending
+    pub indices: SmallVec<[u16; MAX_ADAPTERS_PER_STEP]>,
+    /// Q15 quantized gates in range [-32768, 32767]
+    pub gates_q15: SmallVec<[i16; MAX_ADAPTERS_PER_STEP]>,
+    /// Token position (u64 for large sequence support)
+    pub position: u64,
 }
 
 impl RouterRing {
-    pub fn new(k: usize) -> Self {
+    /// Create a new empty RouterRing
+    pub fn new() -> Self {
         Self {
-            indices: vec![0; k],
-            gates_q15: vec![0; k],
+            indices: SmallVec::new(),
+            gates_q15: SmallVec::new(),
             position: 0,
         }
     }
 
-    pub fn set(&mut self, indices: &[u16], gates: &[i16]) {
-        self.indices[..indices.len()].copy_from_slice(indices);
-        self.gates_q15[..gates.len()].copy_from_slice(gates);
+    /// Create a RouterRing with pre-allocated capacity
+    pub fn with_capacity(k: usize) -> Result<Self> {
+        if k > MAX_ADAPTERS_PER_STEP {
+            return Err(AosError::Validation(format!(
+                "K={} exceeds MAX_ADAPTERS_PER_STEP={}",
+                k, MAX_ADAPTERS_PER_STEP
+            )));
+        }
+        Ok(Self {
+            indices: SmallVec::with_capacity(k),
+            gates_q15: SmallVec::with_capacity(k),
+            position: 0,
+        })
     }
+
+    /// Set indices and gates with validation
+    ///
+    /// # Errors
+    /// Returns error if:
+    /// - Lengths don't match
+    /// - Exceeds MAX_ADAPTERS_PER_STEP
+    /// - Indices not sorted ascending
+    /// - Gates outside Q15 range
+    pub fn set(&mut self, indices: &[u16], gates: &[i16]) -> Result<()> {
+        // Validate contract invariants
+        if indices.len() != gates.len() {
+            return Err(AosError::Validation(format!(
+                "RouterRing length mismatch: indices={}, gates={}",
+                indices.len(),
+                gates.len()
+            )));
+        }
+
+        if indices.len() > MAX_ADAPTERS_PER_STEP {
+            return Err(AosError::Validation(format!(
+                "RouterRing length {} exceeds MAX_ADAPTERS_PER_STEP={}",
+                indices.len(),
+                MAX_ADAPTERS_PER_STEP
+            )));
+        }
+
+        // Check sorted ascending
+        if !Self::is_sorted_ascending(indices) {
+            return Err(AosError::Validation(
+                "RouterRing indices must be sorted ascending".to_string(),
+            ));
+        }
+
+        // Check Q15 range (i16 is inherently in range, but document the invariant)
+        // Q15 format: [-32768, 32767] is the full i16 range
+
+        self.indices.clear();
+        self.indices.extend_from_slice(indices);
+        self.gates_q15.clear();
+        self.gates_q15.extend_from_slice(gates);
+
+        Ok(())
+    }
+
+    /// Validate all contract invariants
+    ///
+    /// # Errors
+    /// Returns error if any invariant is violated
+    pub fn validate_invariants(&self) -> Result<()> {
+        // Invariant 1: lengths match
+        if self.indices.len() != self.gates_q15.len() {
+            return Err(AosError::Validation(format!(
+                "RouterRing length mismatch: indices={}, gates={}",
+                self.indices.len(),
+                self.gates_q15.len()
+            )));
+        }
+
+        // Invariant 3: not exceed max
+        if self.indices.len() > MAX_ADAPTERS_PER_STEP {
+            return Err(AosError::Validation(format!(
+                "RouterRing length {} exceeds MAX_ADAPTERS_PER_STEP={}",
+                self.indices.len(),
+                MAX_ADAPTERS_PER_STEP
+            )));
+        }
+
+        // Invariant 2: sorted ascending
+        if !Self::is_sorted_ascending(&self.indices) {
+            return Err(AosError::Validation(
+                "RouterRing indices not sorted ascending".to_string(),
+            ));
+        }
+
+        // Invariant 4: Q15 range (i16 inherently satisfies this)
+        // Gates are i16, so they're always in [-32768, 32767]
+
+        Ok(())
+    }
+
+    /// Check if indices are sorted in ascending order
+    fn is_sorted_ascending(indices: &[u16]) -> bool {
+        indices.windows(2).all(|w| w[0] < w[1])
+            || indices.len() <= 1 // Empty or single element is sorted
+    }
+
+    /// Get the number of adapters in this ring
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+
+    /// Check if ring is empty
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
+    /// Get memory layout info for testing/debugging
+    pub fn layout_info(&self) -> RouterRingLayout {
+        RouterRingLayout {
+            indices_len: self.indices.len(),
+            gates_len: self.gates_q15.len(),
+            position: self.position,
+            indices_size: std::mem::size_of_val(self.indices.as_slice()),
+            gates_size: std::mem::size_of_val(self.gates_q15.as_slice()),
+            total_size: std::mem::size_of::<Self>(),
+        }
+    }
+}
+
+impl Default for RouterRing {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Layout information for RouterRing (for golden tests)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterRingLayout {
+    pub indices_len: usize,
+    pub gates_len: usize,
+    pub position: u64,
+    pub indices_size: usize,
+    pub gates_size: usize,
+    pub total_size: usize,
 }
 
 /// IO buffers for kernel execution
