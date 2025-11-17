@@ -67,6 +67,8 @@ impl Plugin for GitSubsystem {
         Ok(PluginHealth {
             status,
             details: None,
+            last_error: None,
+            last_healthy_at: Some(chrono::Utc::now().timestamp()),
         })
     }
 

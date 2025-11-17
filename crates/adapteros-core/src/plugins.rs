@@ -24,6 +24,10 @@ pub enum PluginStatus {
 pub struct PluginHealth {
     pub status: PluginStatus,
     pub details: Option<String>,
+    /// Last error message if the plugin failed
+    pub last_error: Option<String>,
+    /// Unix timestamp of last successful health check
+    pub last_healthy_at: Option<i64>,
 }
 
 #[async_trait]

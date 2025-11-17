@@ -141,6 +141,17 @@ pub enum EventType {
     PerformanceAlert,
     PerformanceDegradation,
 
+    // Plugin events
+    PluginStarted,
+    PluginStopped,
+    PluginDegraded,
+    PluginPanic,
+    PluginTimeout,
+    PluginHealthCheck,
+    PluginRestart,
+    PluginDisabled,
+    PluginEnabled,
+
     // Custom events
     Custom(String),
 }
@@ -200,6 +211,15 @@ impl EventType {
             EventType::PerformanceMetric => "performance.metric",
             EventType::PerformanceAlert => "performance.alert",
             EventType::PerformanceDegradation => "performance.degradation",
+            EventType::PluginStarted => "plugin.started",
+            EventType::PluginStopped => "plugin.stopped",
+            EventType::PluginDegraded => "plugin.degraded",
+            EventType::PluginPanic => "plugin.panic",
+            EventType::PluginTimeout => "plugin.timeout",
+            EventType::PluginHealthCheck => "plugin.health_check",
+            EventType::PluginRestart => "plugin.restart",
+            EventType::PluginDisabled => "plugin.disabled",
+            EventType::PluginEnabled => "plugin.enabled",
             EventType::Custom(s) => s,
         }
     }
