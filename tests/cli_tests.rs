@@ -24,3 +24,4 @@ async fn test_infer_backpressure() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("System under pressure"));
 }
+

@@ -148,6 +148,7 @@ pub struct Router {
     /// Entropy floor to prevent collapse
     eps: f32,
     /// Token counter for sampling
+    #[allow(dead_code)]
     token_count: usize,
     /// Log first N tokens fully (default: 128 per Telemetry Ruleset #9)
     full_log_tokens: usize,
@@ -349,6 +350,7 @@ impl Router {
     }
 
     /// Check if an adapter is in the active stack
+    #[allow(dead_code)]
     fn is_in_active_stack(&self, adapter_id: &str) -> bool {
         match &self.active_stack_adapter_ids {
             Some(allowed_ids) => allowed_ids.contains(&adapter_id.to_string()),
@@ -455,7 +457,7 @@ impl Router {
         // Framework affinity: Check if adapter's framework matches detected framework
         // features[8..11] are framework scores
         if features.len() >= 11 {
-            if let Some(ref adapter_framework) = adapter_info.framework {
+            if let Some(ref _adapter_framework) = adapter_info.framework {
                 // Framework scores are already extracted in features[8..11]
                 // We give a boost if the adapter has a framework specialization
                 let framework_strength = features[8..11].iter().sum::<f32>();

@@ -47,6 +47,28 @@ pub enum AdapterState {
     Resident,
 }
 
+/// Memory allocation tiers for eviction decisions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AllocationTier {
+    /// Extra capacity - least critical for eviction
+    Extra,
+    /// Critical capacity - most critical for eviction
+    Critical,
+}
+
+impl From<AdapterState> for AllocationTier {
+    fn from(state: AdapterState) -> Self {
+        match state {
+            AdapterState::Unloaded => AllocationTier::Extra,
+            AdapterState::Cold => AllocationTier::Extra,
+            AdapterState::Warm => AllocationTier::Extra,
+            AdapterState::Hot => AllocationTier::Critical,
+            AdapterState::Resident => AllocationTier::Critical,
+        }
+    }
+}
+
 impl AdapterState {
     /// Get the next higher state
     pub fn promote(&self) -> Option<Self> {

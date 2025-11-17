@@ -7,7 +7,7 @@
 
 use adapteros_core::Result;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-use adapteros_lora_worker::adapter_hotswap::AdapterTable;
+// use adapteros_lora_worker::adapter_hotswap::AdapterTable; // FIXME: circular dependency
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -398,113 +398,15 @@ impl AdapterExecutionBackend for MockAdapterBackend {
 /// 1. **Option A**: Refactor Worker to store `kernels: Arc<Mutex<K>>` instead of `K`
 /// 2. **Option B**: Create workflows outside Worker with separate kernel instances
 /// 3. **Option C**: Use MockAdapterBackend for testing (current Worker approach)
-pub struct KernelAdapterBackend<K: FusedKernels> {
-    table: Arc<AdapterTable>,
-    kernels: Arc<Mutex<K>>,
-    adapter_name_to_index: HashMap<String, u16>,
-    vocab_size: usize,
-}
+// FIXME: circular dependency with adapteros-lora-worker
+// pub struct KernelAdapterBackend<K: FusedKernels> {
+//     table: Arc<AdapterTable>,
+//     kernels: Arc<Mutex<K>>,
+//     adapter_name_to_index: HashMap<String, u16>,
+//     vocab_size: usize,
+// }
 
-impl<K: FusedKernels> KernelAdapterBackend<K> {
-    /// Create a new kernel-based backend
-    ///
-    /// # Arguments
-    /// * `kernels` - Kernel implementation
-    /// * `adapter_names` - List of adapter names in order (index = position)
-    /// * `vocab_size` - Vocabulary size (e.g., 152064 for Qwen2.5)
-    pub fn new(
-        table: Arc<AdapterTable>,
-        kernels: Arc<Mutex<K>>,
-        adapter_names: Vec<String>,
-        vocab_size: usize,
-    ) -> Self {
-        let adapter_name_to_index = adapter_names
-            .into_iter()
-            .enumerate()
-            .map(|(idx, name)| (name, idx as u16))
-            .collect();
-
-        Self {
-            table,
-            kernels,
-            adapter_name_to_index,
-            vocab_size,
-        }
-    }
-}
-
-impl<K: FusedKernels + Send + Sync> AdapterExecutionBackend for KernelAdapterBackend<K> {
-    async fn execute_adapter(
-        &self,
-        adapter_id: &str,
-        input_tokens: &[u32],
-        _model_state: &HashMap<String, Vec<f32>>,
-    ) -> Result<AdapterExecutionResult> {
-        // Inc ref
-        self.table.inc_ref(adapter_id);
-
-        debug!(
-            "Kernel execution of adapter {} with {} input tokens",
-            adapter_id,
-            input_tokens.len()
-        );
-
-        // Get adapter index from name
-        let adapter_index = self
-            .adapter_name_to_index
-            .get(adapter_id)
-            .copied()
-            .ok_or_else(|| {
-                adapteros_core::AosError::Lifecycle(format!(
-                    "Adapter '{}' not found in name-to-index mapping",
-                    adapter_id
-                ))
-            })?;
-
-        // Create RouterRing with just this adapter at full activation
-        let router_ring = RouterRing {
-            indices: vec![adapter_index],
-            gates_q15: vec![32767], // Max Q15 value = 1.0
-            position: 0,
-        };
-
-        // Run inference through kernels
-        let mut output_tokens = Vec::new();
-        let mut current_input = input_tokens.to_vec();
-
-        // Simple single-step execution
-        // In practice, this would run multiple autoregressive steps
-        let mut io_buffers = IoBuffers {
-            input_ids: current_input.clone(),
-            output_logits: vec![0.0; self.vocab_size],
-            position: 0,
-        };
-
-        // Execute kernel step
-        {
-            let mut kernels = self.kernels.lock().await;
-            kernels.run_step(&router_ring, &mut io_buffers)?;
-        }
-
-        // For workflow execution, we return the input tokens
-        // (actual token generation would happen in Worker's autoregressive loop)
-        output_tokens = current_input;
-
-        debug!(
-            "Kernel execution complete: {} output tokens",
-            output_tokens.len()
-        );
-
-        // Dec ref
-        let _new_ref = self.table.dec_ref(adapter_id);
-
-        Ok(AdapterExecutionResult {
-            output_tokens,
-            state_updates: HashMap::new(),
-        })
-    }
-}
-
+// FIXME: KernelAdapterBackend temporarily removed due to circular dependency
 #[cfg(test)]
 mod tests {
     use super::*;

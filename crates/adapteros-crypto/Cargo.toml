@@ -5,6 +5,11 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+password-fallback = []
+linux-keychain = []
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 anyhow = { workspace = true }

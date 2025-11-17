@@ -585,12 +585,15 @@ pub struct PerformanceMetrics {
 /// Unified testing framework implementation
 pub struct UnifiedTestingFramework {
     /// Test configuration
+    #[allow(dead_code)]
     config: TestConfig,
 
     /// Test environments
+    #[allow(dead_code)]
     environments: HashMap<String, TestEnvironment>,
 
     /// Test results history
+    #[allow(dead_code)]
     test_results_history: Vec<TestResult>,
 
     /// Performance metrics
@@ -618,6 +621,7 @@ impl UnifiedTestingFramework {
     }
 
     /// Update performance metrics
+    #[allow(dead_code)]
     fn update_performance_metrics(&mut self, test_result: &TestResult) {
         self.performance_metrics.total_execution_time_ms += test_result.execution_time_ms;
 

@@ -23,6 +23,7 @@ pub struct UnifiedMemoryManager {
 #[derive(Debug)]
 pub struct MemoryPool {
     /// Pool identifier
+    #[allow(dead_code)]
     id: String,
     /// Allocated blocks
     blocks: HashMap<String, MemoryBlock>,
@@ -44,6 +45,7 @@ pub struct MemoryBlock {
     /// Backend type
     backend: String,
     /// Allocation timestamp
+    #[allow(dead_code)]
     timestamp: u64,
 }
 
@@ -297,7 +299,7 @@ impl UnifiedMemoryManager {
     }
 
     /// Deallocate memory
-    fn deallocate_memory(&self, ptr: *mut u8, size: usize) -> Result<()> {
+    fn deallocate_memory(&self, ptr: *mut u8, _size: usize) -> Result<()> {
         unsafe {
             libc::free(ptr as *mut libc::c_void);
         }

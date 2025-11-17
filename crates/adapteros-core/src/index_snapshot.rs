@@ -1,4 +1,3 @@
-use crate::tenant_snapshot::{EventId, StackInfo};
 use crate::B3Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

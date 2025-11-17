@@ -43,3 +43,4 @@ impl Db {
         Ok(row.map(|r| r.get("enabled")))
     }
 }
+

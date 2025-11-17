@@ -208,6 +208,12 @@ impl OutputHashManager {
                 "federation.output_hash_mismatch"
             };
 
+            let identity = adapteros_core::identity::IdentityEnvelope::new(
+                "system".to_string(),
+                "federation".to_string(),
+                "verification".to_string(),
+                "1.0".to_string(),
+            );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom(event_type.to_string()),
                 if consistent {
@@ -219,6 +225,7 @@ impl OutputHashManager {
                     "Output hash comparison: {} (consistent: {})",
                     session_id, consistent
                 ),
+                identity,
             )
             .component("adapteros-federation".to_string())
             .metadata(json!({

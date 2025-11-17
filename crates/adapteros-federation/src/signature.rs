@@ -173,10 +173,17 @@ impl QuorumManager {
 
             // Emit telemetry event (100% sampling)
             if let Some(ref telemetry) = self.telemetry {
+                let identity = adapteros_core::identity::IdentityEnvelope::new(
+                    "system".to_string(),
+                    "federation".to_string(),
+                    "quorum".to_string(),
+                    "1.0".to_string(),
+                );
                 let event = TelemetryEventBuilder::new(
                     adapteros_telemetry::EventType::Custom("federation.quorum_reached".to_string()),
                     LogLevel::Info,
                     format!("Quorum reached for bundle: {}", bundle_hash.to_hex()),
+                    identity,
                 )
                 .component("adapteros-federation".to_string())
                 .metadata(json!({

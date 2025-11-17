@@ -81,7 +81,7 @@ impl TenantStateSnapshot {
         let mut plugin_configs = BTreeMap::new();
         let mut feature_flags = BTreeMap::new();
         let mut configs = BTreeMap::new();
-        let mut max_ts = NaiveDateTime::from_timestamp_opt(0, 0).unwrap();
+        let mut max_ts = Utc::now().naive_utc();
 
         for (_, event) in sorted_events {
             if let Some(event_type) = event.get("event_type").and_then(|t| t.as_str()) {
@@ -203,7 +203,7 @@ impl TenantStateSnapshot {
         stacks.sort_by(|s1, s2| s1.name.cmp(&s2.name));
         router_policies.sort_by(|p1, p2| p1.name.cmp(&p2.name));
 
-        let snapshot_timestamp = DateTime::from_utc(max_ts, Utc);
+        let snapshot_timestamp = DateTime::from_naive_utc_and_offset(max_ts, Utc);
 
         Self {
             tenant_id,
@@ -224,5 +224,5 @@ fn parse_timestamp(val: &Value) -> NaiveDateTime {
             return dt.naive_utc();
         }
     }
-    NaiveDateTime::from_timestamp_opt(0, 0).unwrap()
+    Utc::now().naive_utc()
 }

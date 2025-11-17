@@ -14,6 +14,7 @@ pub struct JavaScriptParser {
     /// Tree-sitter parser
     parser: Parser,
     /// JavaScript language
+    #[allow(dead_code)]
     javascript_lang: TSLanguage,
     /// Query for function declarations
     function_query: Query,

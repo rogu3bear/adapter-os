@@ -23,7 +23,7 @@ pub mod output_hash;
 pub mod peer;
 pub mod signature;
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, Result};
 use adapteros_crypto::{Keypair, PublicKey, Signature};
 use adapteros_db::Db;
 use adapteros_telemetry::{LogLevel, StoredBundleMetadata, TelemetryEventBuilder, TelemetryWriter};
@@ -170,10 +170,17 @@ impl FederationManager {
 
         // Emit telemetry event (100% sampling per Telemetry Ruleset #9)
         if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "federation".to_string(),
+                "signing".to_string(),
+                "1.0".to_string(),
+            );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("federation.bundle_signed".to_string()),
                 LogLevel::Info,
                 format!("Federation bundle signed: {}", metadata.merkle_root),
+                identity,
             )
             .component("adapteros-federation".to_string())
             .metadata(json!({
@@ -267,6 +274,12 @@ impl FederationManager {
                 if prev_hash != &prev.bundle_hash {
                     // Emit telemetry event for chain break (100% sampling)
                     if let Some(ref telemetry) = self.telemetry {
+                        let identity = IdentityEnvelope::new(
+                            "system".to_string(),
+                            "federation".to_string(),
+                            "verification".to_string(),
+                            "1.0".to_string(),
+                        );
                         let event = TelemetryEventBuilder::new(
                             adapteros_telemetry::EventType::Custom(
                                 "federation.chain_break".to_string(),
@@ -276,6 +289,7 @@ impl FederationManager {
                                 "Federation chain break: {} -> {}",
                                 prev.host_id, curr.host_id
                             ),
+                            identity,
                         )
                         .component("adapteros-federation".to_string())
                         .metadata(json!({
@@ -312,10 +326,17 @@ impl FederationManager {
 
         // Emit telemetry event (100% sampling per Telemetry Ruleset #9)
         if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "federation".to_string(),
+                "verification".to_string(),
+                "1.0".to_string(),
+            );
             let event = TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("federation.chain_verified".to_string()),
                 LogLevel::Info,
                 format!("Federation chain verified: {} signatures", host_chain.len()),
+                identity,
             )
             .component("adapteros-federation".to_string())
             .metadata(json!({
