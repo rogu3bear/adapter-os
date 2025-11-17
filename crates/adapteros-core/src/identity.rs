@@ -8,6 +8,38 @@
 
 use crate::B3Hash;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
+
+/// Global process revision hash - computed once at process startup
+///
+/// PRD 1 Invariant: "revision MUST equal the process build hash for this binary"
+/// This is the single source of truth for the current process revision.
+static PROCESS_REVISION: OnceLock<B3Hash> = OnceLock::new();
+
+/// Get the global process revision hash
+///
+/// This is computed from AOS_REVISION env var or git commit hash, exactly once per process.
+pub fn process_revision() -> B3Hash {
+    *PROCESS_REVISION.get_or_init(|| {
+        let rev_str = std::env::var("AOS_REVISION").unwrap_or_else(|_| {
+            // Fallback to git rev-parse HEAD if in git repo
+            if let Ok(output) = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()
+            {
+                if output.status.success() {
+                    String::from_utf8_lossy(&output.stdout).trim().to_string()
+                } else {
+                    "unknown".to_string()
+                }
+            } else {
+                "unknown".to_string()
+            }
+        });
+
+        B3Hash::hash(rev_str.as_bytes())
+    })
+}
 
 /// Domain of operation - canonical taxonomy for all AdapterOS subsystems
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -71,12 +103,55 @@ impl std::fmt::Display for Purpose {
     }
 }
 
+/// Trait for types that can provide identity context for telemetry events
+///
+/// PRD 1: "All existing event builders MUST take an IdentityEnvelope or a Context
+/// that can derive one"
+pub trait IdentityContext {
+    fn tenant_id(&self) -> &str;
+    fn domain(&self) -> Domain;
+    fn purpose(&self) -> Purpose;
+
+    /// Convert to an IdentityEnvelope using the global process revision
+    fn to_envelope(&self) -> IdentityEnvelope {
+        IdentityEnvelope::new_with_process_revision(
+            self.tenant_id().to_string(),
+            self.domain(),
+            self.purpose(),
+        )
+    }
+}
+
 /// Identity envelope containing required context for all events and logs
 ///
 /// # Invariants (PRD 1)
 /// - Every TelemetryEvent MUST have a non-empty tenant_id
 /// - domain and purpose MUST be from the enums above
 /// - revision MUST equal the process build hash for this binary
+///
+/// # Examples
+///
+/// Creating an envelope with the global process revision (preferred):
+/// ```
+/// use adapteros_core::{IdentityEnvelope, Domain, Purpose};
+///
+/// let envelope = IdentityEnvelope::new_with_process_revision(
+///     "tenant-a".to_string(),
+///     Domain::Router,
+///     Purpose::Inference,
+/// );
+/// ```
+///
+/// Attempting to create without required fields will fail to compile:
+/// ```compile_fail
+/// use adapteros_core::IdentityEnvelope;
+///
+/// // This will fail - IdentityEnvelope::new requires all 4 parameters
+/// let envelope = IdentityEnvelope::new(
+///     "tenant-a".to_string(),
+///     // Missing domain, purpose, and revision
+/// );
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IdentityEnvelope {
     /// Tenant identifier (e.g., "tenant-a")
@@ -92,9 +167,46 @@ pub struct IdentityEnvelope {
     pub revision: B3Hash,
 }
 
+// Implement IdentityContext for IdentityEnvelope itself
+impl IdentityContext for IdentityEnvelope {
+    fn tenant_id(&self) -> &str {
+        &self.tenant_id
+    }
+
+    fn domain(&self) -> Domain {
+        self.domain
+    }
+
+    fn purpose(&self) -> Purpose {
+        self.purpose
+    }
+
+    fn to_envelope(&self) -> IdentityEnvelope {
+        self.clone()
+    }
+}
+
 impl IdentityEnvelope {
     /// Create a new identity envelope with typed enums
+    ///
+    /// PRD 1 Invariant: In production, validates that revision matches process revision.
+    /// In test mode, allows arbitrary revisions for unit testing.
+    ///
+    /// # Panics
+    /// In production builds, panics if revision doesn't match the global process revision.
     pub fn new(tenant_id: String, domain: Domain, purpose: Purpose, revision: B3Hash) -> Self {
+        #[cfg(not(test))]
+        {
+            let process_rev = process_revision();
+            if revision != process_rev {
+                panic!(
+                    "PRD 1 violation: revision mismatch. Expected process revision {}, got {}",
+                    process_rev.to_hex(),
+                    revision.to_hex()
+                );
+            }
+        }
+
         Self {
             tenant_id,
             domain,
@@ -103,7 +215,25 @@ impl IdentityEnvelope {
         }
     }
 
+    /// Create a new identity envelope using the global process revision
+    ///
+    /// This is the preferred constructor that guarantees PRD 1 compliance.
+    pub fn new_with_process_revision(
+        tenant_id: String,
+        domain: Domain,
+        purpose: Purpose,
+    ) -> Self {
+        Self {
+            tenant_id,
+            domain,
+            purpose,
+            revision: process_revision(),
+        }
+    }
+
     /// Create identity envelope from strings (for backward compatibility)
+    ///
+    /// Note: The revision_str parameter is ignored. Always uses global process revision.
     ///
     /// # Errors
     /// Returns error if domain or purpose strings don't match enum variants
@@ -111,7 +241,7 @@ impl IdentityEnvelope {
         tenant_id: String,
         domain: &str,
         purpose: &str,
-        revision_str: &str,
+        _revision_str: &str, // Ignored - always use process revision
     ) -> Result<Self, &'static str> {
         let domain = match domain {
             "router" => Domain::Router,
@@ -134,10 +264,7 @@ impl IdentityEnvelope {
             _ => return Err("Invalid purpose string"),
         };
 
-        // Parse revision string as B3Hash
-        let revision = B3Hash::hash(revision_str.as_bytes());
-
-        Ok(Self::new(tenant_id, domain, purpose, revision))
+        Ok(Self::new_with_process_revision(tenant_id, domain, purpose))
     }
 
     /// Validate the envelope fields (basic non-empty check per PRD 1)
@@ -150,26 +277,11 @@ impl IdentityEnvelope {
         Ok(())
     }
 
-    /// Create default revision from environment AOS_REVISION or git commit hash
+    /// Get the default revision (global process revision)
+    ///
+    /// This is an alias for `process_revision()` for backward compatibility.
     pub fn default_revision() -> B3Hash {
-        let rev_str = std::env::var("AOS_REVISION").unwrap_or_else(|_| {
-            // Fallback to git rev-parse HEAD if in git repo
-            if let Ok(output) = std::process::Command::new("git")
-                .args(["rev-parse", "HEAD"])
-                .output()
-            {
-                if output.status.success() {
-                    String::from_utf8_lossy(&output.stdout).trim().to_string()
-                } else {
-                    "unknown".to_string()
-                }
-            } else {
-                "unknown".to_string()
-            }
-        });
-
-        // Hash the revision string to create a B3Hash
-        B3Hash::hash(rev_str.as_bytes())
+        process_revision()
     }
 }
 
