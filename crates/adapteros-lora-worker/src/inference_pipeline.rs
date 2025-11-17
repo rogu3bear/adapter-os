@@ -9,7 +9,7 @@
 //! - Policy enforcement
 //! - Telemetry and tracing
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, CircuitBreaker, Result, StandardCircuitBreaker, TimeoutExt};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_router::Router;
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
@@ -17,7 +17,7 @@ use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 use crate::generation::Generator;
@@ -114,6 +114,8 @@ pub struct InferencePipeline {
     config: InferencePipelineConfig,
     /// Quarantine manager for policy hash enforcement
     quarantine_manager: Arc<Mutex<QuarantineManager>>,
+    /// Circuit breaker for inference stability
+    circuit_breaker: Arc<StandardCircuitBreaker>,
 }
 
 impl InferencePipeline {
@@ -125,6 +127,7 @@ impl InferencePipeline {
         policy: PolicyEngine,
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
+        circuit_breaker: Arc<StandardCircuitBreaker>,
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
@@ -154,6 +157,7 @@ impl InferencePipeline {
             telemetry,
             config,
             quarantine_manager,
+            circuit_breaker,
         })
     }
 
@@ -193,25 +197,36 @@ impl InferencePipeline {
             telemetry,
             config,
             quarantine_manager,
+            circuit_breaker,
         })
     }
 
-    /// Run inference on a prompt
-    pub fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
-        let start_time = Instant::now();
+    /// Run inference on a prompt with circuit breaker protection
+    pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
+        // Use circuit breaker with timeout protection
+        let timeout_duration = Duration::from_secs(30); // 30 second timeout for inference
 
-        // Check quarantine before serving (Determinism Ruleset #2)
-        {
-            let quarantine = self.quarantine_manager.lock().unwrap();
-            quarantine.check_operation(QuarantineOperation::Inference)?;
-        }
+        self.circuit_breaker.call(async {
+            let start_time = Instant::now();
 
-        info!(
-            "Starting inference: prompt_len={}, max_tokens={}",
-            request.prompt.len(),
-            request.max_tokens
-        );
+            // Check quarantine before serving (Determinism Ruleset #2)
+            {
+                let quarantine = self.quarantine_manager.lock().unwrap();
+                quarantine.check_operation(QuarantineOperation::Inference)?;
+            }
 
+            info!(
+                "Starting inference: prompt_len={}, max_tokens={}",
+                request.prompt.len(),
+                request.max_tokens
+            );
+
+            self.infer_inner(request, start_time).await
+        }.with_timeout(timeout_duration)).await??
+    }
+
+    /// Internal inference implementation without circuit breaker
+    async fn infer_inner(&mut self, request: InferenceRequest, start_time: Instant) -> Result<InferenceResponse> {
         // 1. Apply chat template and tokenize
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
         let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
@@ -469,14 +484,14 @@ impl InferencePipeline {
     }
 
     /// Batch inference for multiple prompts
-    pub fn infer_batch(
+    pub async fn infer_batch(
         &mut self,
         requests: Vec<InferenceRequest>,
     ) -> Result<Vec<InferenceResponse>> {
         let mut responses = Vec::with_capacity(requests.len());
 
         for request in requests {
-            let response = self.infer(request)?;
+            let response = self.infer(request).await?;
             responses.push(response);
         }
 
