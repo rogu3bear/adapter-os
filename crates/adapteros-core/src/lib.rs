@@ -31,6 +31,8 @@ pub mod id;
 pub mod identity;
 pub mod index_snapshot;
 pub mod naming;
+pub mod plugin_health;
+pub mod plugin_sandbox;
 pub mod plugins;
 pub mod policy;
 pub mod seed;
@@ -41,6 +43,11 @@ pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
 pub use naming::{AdapterName, ForkType, StackName};
+pub use plugin_health::{CircuitBreaker, CircuitState, PluginWatchdog, RestartPolicy};
+pub use plugin_sandbox::{
+    NoOpSandboxProvider, SandboxContext, SandboxManager, SandboxOperation, SandboxPolicy,
+    SandboxProvider, SandboxStats, SandboxType,
+};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
 pub use stack::compute_stack_hash;

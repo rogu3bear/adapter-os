@@ -772,6 +772,239 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 ---
 
+## Plugin Isolation & Safety
+
+**Citation:** PRD 7 - Operator / Plugin Isolation
+**Status:** Production-ready with comprehensive safety guarantees
+
+### Overview
+
+The plugin system provides production-grade isolation ensuring broken plugins cannot crash the runtime or silently corrupt behavior. All plugins run with:
+- **Watchdog monitoring** - Automatic health checks with restart limits
+- **Circuit breaker** - Prevents cascading failures
+- **Timeout protection** - Bounded impact from slow plugins
+- **Tenant isolation** - Per-tenant enable/disable without affecting others
+- **Telemetry** - Comprehensive event logging for ops visibility
+- **Sandboxing hooks** - Pluggable interface for future OS/jail integration
+
+### Safety Guarantees
+
+**Runtime Protection:**
+1. **No crash propagation** - Plugin failures never crash the runtime
+2. **Timeout bounds** - All plugin operations have 30s default timeout
+3. **Graceful degradation** - Failed plugins isolated, other plugins continue
+4. **Circuit breaker** - Opens after 5 failures, prevents retry storms
+
+**Operational Safety:**
+5. **Max restart attempts** - Default 3 attempts with exponential backoff
+6. **Backoff strategy** - 5s initial → 2x multiplier → 300s max
+7. **Quiesce operation** - Admin can prevent further restarts
+8. **Reset operation** - Admin can clear restart counters
+
+**Tenant Isolation:**
+9. **Per-tenant enablement** - Plugin can be disabled for specific tenants
+10. **Independent failures** - Tenant A plugin failure doesn't affect Tenant B
+
+### Plugin Health Monitoring
+
+**Watchdog Configuration:**
+```rust
+use adapteros_core::RestartPolicy;
+use adapteros_server::plugin_registry::{PluginRegistry, PluginRegistryConfig};
+
+let config = PluginRegistryConfig {
+    operation_timeout: Duration::from_secs(30),      // Plugin op timeout
+    health_check_interval: Duration::from_secs(30),  // Health check frequency
+    restart_policy: RestartPolicy {
+        max_attempts: 3,                             // Max restart attempts
+        initial_backoff: Duration::from_secs(5),     // Initial backoff
+        max_backoff: Duration::from_secs(300),       // Max backoff (5min)
+        backoff_multiplier: 2.0,                     // Exponential backoff
+        enable_circuit_breaker: true,                // Enable circuit breaker
+        failure_threshold: 5,                        // Circuit opens after 5 failures
+        recovery_window: Duration::from_secs(60),    // Recovery window
+    },
+    enable_telemetry: true,
+};
+
+let registry = PluginRegistry::with_config(db, identity, config);
+```
+
+**Health Check States:**
+- `Started` - Plugin healthy and operational
+- `Degraded(reason)` - Partial failures, no restart triggered
+- `Failed(reason)` - Complete failure, triggers restart attempt
+- `Stopped` - Plugin stopped, no health checks
+
+**Restart Flow:**
+1. Health check detects `Failed` state
+2. Watchdog checks if restart allowed (attempts < max, backoff elapsed)
+3. If circuit breaker enabled, checks circuit state
+4. Calls `plugin.reload(config)`
+5. On success, monitors next health check for recovery
+6. On failure, records failure and opens circuit if threshold reached
+
+### Telemetry Events
+
+**Plugin Events** (see `adapteros-telemetry/src/unified_events.rs:147-164`):
+- `plugin.loaded` - Plugin loaded successfully
+- `plugin.started` - Plugin started successfully
+- `plugin.stopped` - Plugin stopped
+- `plugin.health_check.start` - Health check initiated (Debug)
+- `plugin.health_check.complete` - Health check completed (Debug)
+- `plugin.health_failed` - Health check detected failure (Warn)
+- `plugin.degraded` - Plugin degraded but functional (Warn)
+- `plugin.recovered` - Plugin recovered after failures (Info)
+- `plugin.restart.attempt` - Restart attempt initiated (Info)
+- `plugin.restart.success` - Restart successful (Info)
+- `plugin.restart.failed` - Restart failed (Error)
+- `plugin.restart.limit_reached` - Max attempts reached (Error)
+- `plugin.circuit_breaker.opened` - Circuit breaker opened (Error)
+- `plugin.circuit_breaker.closed` - Circuit breaker closed (Info)
+- `plugin.circuit_breaker.half_open` - Testing recovery (Info)
+- `plugin.quiesced` - Admin quiesced plugin (Warn)
+- `plugin.timeout` - Operation timed out (Warn/Error)
+
+**Querying Events:**
+```sql
+-- Find all plugin failures in last hour
+SELECT * FROM telemetry_events
+WHERE event_type LIKE 'plugin.%failed%'
+  AND timestamp >= datetime('now', '-1 hour')
+ORDER BY timestamp DESC;
+
+-- Find plugins with circuit breaker opened
+SELECT * FROM telemetry_events
+WHERE event_type = 'plugin.circuit_breaker.opened'
+  AND timestamp >= datetime('now', '-24 hours');
+```
+
+### Admin Operations
+
+**Quiesce Plugin** (prevent further restarts):
+```rust
+registry.quiesce_plugin("problematic_plugin").await?;
+// Plugin now blocked from restarting, emits plugin.quiesced event
+```
+
+**Reset Plugin State** (clear restart counters):
+```rust
+registry.reset_plugin("recovered_plugin").await?;
+// Restart counter reset to 0, circuit breaker closed
+```
+
+**Get Watchdog State** (monitoring):
+```rust
+if let Some((attempts, circuit_state)) = registry.get_watchdog_state("plugin_name").await {
+    println!("Attempts: {}, Circuit: {:?}", attempts, circuit_state);
+}
+```
+
+### Tenant-Level Isolation
+
+**Enable/Disable per Tenant:**
+```rust
+// Disable plugin for tenant_a (e.g., due to tenant-specific failures)
+registry.enable_for_tenant("plugin_name", "tenant_a", false).await?;
+
+// Other tenants unaffected
+assert!(registry.is_enabled_for_tenant("plugin_name", "tenant_b").await?);
+```
+
+**Health Status Query:**
+```rust
+// Get health status for all plugins across all tenants
+let health: HashMap<String, HashMap<String, PluginHealth>> = registry.health_all().await;
+
+for (plugin_name, tenant_healths) in health {
+    for (tenant_id, health) in tenant_healths {
+        println!("{}/{}: {:?}", plugin_name, tenant_id, health.status);
+    }
+}
+```
+
+### Sandboxing (Optional, Future)
+
+**Hook Interface** (`adapteros-core/src/plugin_sandbox.rs`):
+```rust
+use adapteros_core::{SandboxManager, SandboxPolicy, SandboxType};
+
+// Currently no-op, designed for future OS/jail integration
+let sandbox = SandboxManager::new_noop();
+let context = sandbox.create("plugin_name", "tenant_id")?;
+
+// Future: macOS Sandbox, FreeBSD jails, Linux namespaces, Docker, Firecracker
+let policy = SandboxPolicy {
+    sandbox_type: SandboxType::LinuxNamespaces, // Future
+    allow_network: false,
+    cpu_limit_millicores: Some(1000),
+    memory_limit_bytes: Some(1024 * 1024 * 1024),
+    ..Default::default()
+};
+```
+
+**Sandbox Providers** (pluggable):
+- `NoOpSandboxProvider` - Current default, allows all operations
+- `MacOSSandboxProvider` - Future: sandbox-exec integration
+- `LinuxNamespaceProvider` - Future: namespaces + cgroups
+- `DockerSandboxProvider` - Future: container isolation
+- `FirecrackerProvider` - Future: microVM isolation
+
+### Testing
+
+**Chaos Tests** (`tests/plugin_chaos_tests.rs`):
+- Plugin failure doesn't crash runtime (10 concurrent scenarios)
+- Slow plugin timeout protection (10s delay bounded to 100ms)
+- Circuit breaker prevents cascading failures
+- Max restart attempts enforcement
+- Exponential backoff verification
+- Graceful degradation across multiple plugins
+- Tenant isolation verification
+- Quiesce operation correctness
+
+**Integration Tests** (`tests/plugin_integration_tests.rs`):
+- Complete failure and recovery cycle
+- Multiple plugins with independent health
+- Watchdog state persistence
+- Admin operations (quiesce, reset)
+- Tenant-specific enablement
+- Degraded state monitoring (no restart)
+- Registry-wide health status
+
+**Run Tests:**
+```bash
+cargo test plugin_chaos_tests --test plugin_chaos_tests
+cargo test plugin_integration_tests --test plugin_integration_tests
+```
+
+### Implementation Locations
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Watchdog** | `adapteros-core/src/plugin_health.rs` | Restart policy, circuit breaker |
+| **Registry** | `adapteros-server/src/plugin_registry.rs` | Health monitoring, timeouts, telemetry |
+| **Sandbox Hooks** | `adapteros-core/src/plugin_sandbox.rs` | Pluggable sandbox interface |
+| **Telemetry Events** | `adapteros-telemetry/src/unified_events.rs:147-164` | Event definitions |
+| **DB Plugin Enables** | `adapteros-db/src/plugin_enables.rs` | Tenant-level enable/disable |
+| **Chaos Tests** | `tests/plugin_chaos_tests.rs` | Chaos engineering |
+| **Integration Tests** | `tests/plugin_integration_tests.rs` | End-to-end scenarios |
+
+### Production Readiness Checklist
+
+- [x] Watchdog with restart limits and backoff
+- [x] Circuit breaker for cascading failure prevention
+- [x] Timeout protection on all plugin operations
+- [x] Tenant-level degradation telemetry
+- [x] Graceful degradation (failed plugin doesn't crash runtime)
+- [x] Comprehensive chaos tests (process kill, slow plugin)
+- [x] Integration tests for health monitoring and recovery
+- [x] Sandboxing hooks (stubbed for future OS integration)
+- [x] Admin operations (quiesce, reset, monitoring)
+- [x] Telemetry event catalog with canonical JSON
+- [x] Documentation with safety guarantees
+
+---
+
 ## Key Subsystems (Locations)
 
 | Subsystem | Crate | Purpose |
@@ -787,6 +1020,7 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 | Training | `adapteros-lora-worker/training/` | Trainer, quantizer, packager |
 | Registry | `adapteros-registry` | SQLite WAL mode, adapter/tenant mgmt |
 | Pinning & TTL | `adapteros-db/src/pinned_adapters.rs` | Pin/unpin API, TTL enforcement |
+| Plugin System | `adapteros-server/src/plugin_registry.rs` | Watchdog, circuit breaker, health monitoring, tenant isolation |
 | Web UI | `adapteros-server-api`, `ui/` | React/TypeScript REST API |
 
 ---
