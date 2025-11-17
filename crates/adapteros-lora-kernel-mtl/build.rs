@@ -2,6 +2,14 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    // Only compile Metal shaders on macOS
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    if target_os != "macos" {
+        println!("cargo:warning=Skipping Metal shader compilation on non-macOS platform");
+        return;
+    }
+
     // Rebuild if any kernel sources change
     println!("cargo:rerun-if-changed=../../metal/src/kernels/adapteros_kernels.metal");
     println!("cargo:rerun-if-changed=../../metal/src/kernels/common.metal");
