@@ -263,7 +263,7 @@ fn severity_for_less(value: f64, warning: f64, critical: f64) -> Option<AlertSev
 mod tests {
     use super::*;
     use serde::de::DeserializeOwned;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Clone, Default)]
     struct TestSink(Arc<Mutex<Vec<UnifiedTelemetryEvent>>>);

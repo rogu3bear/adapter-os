@@ -34,6 +34,7 @@ pub mod naming;
 pub mod plugins;
 pub mod policy;
 pub mod seed;
+pub mod stack;
 pub mod tenant_snapshot;
 
 pub use error::{AosError, Result, ResultExt};
@@ -42,6 +43,7 @@ pub use id::CPID;
 pub use naming::{AdapterName, ForkType, StackName};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
+pub use stack::compute_stack_hash;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
     derive_seed_typed, hash_adapter_dir, SeedLabel,

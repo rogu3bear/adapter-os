@@ -83,17 +83,13 @@ impl DeterministicRng {
 
 /// Mock telemetry collector for testing
 pub struct MockTelemetryCollector {
-    events: Arc<Mutex<Vec<TelemetryEvent>>>,
+    events: Arc<Mutex<Vec<MockTelemetryEvent>>>,
     seed: B3Hash,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TelemetryEvent {
+pub struct MockTelemetryEvent {
     pub event_type: String,
-<<<<<<< HEAD
-    pub kind: Option<String>,
-=======
->>>>>>> integration-branch
     pub data: serde_json::Value,
     pub timestamp: u64,
 }
@@ -111,19 +107,15 @@ impl MockTelemetryCollector {
     pub fn record_event(&self, event_type: &str, data: serde_json::Value) {
         let mut events = self.events.lock().unwrap();
         let timestamp = events.len() as u64 * 1000; // Deterministic timestamps
-        events.push(TelemetryEvent {
+        events.push(MockTelemetryEvent {
             event_type: event_type.to_string(),
-<<<<<<< HEAD
-            kind: None,
-=======
->>>>>>> integration-branch
             data,
             timestamp,
         });
     }
 
     /// Get all recorded events
-    pub fn get_events(&self) -> Vec<TelemetryEvent> {
+    pub fn get_events(&self) -> Vec<MockTelemetryEvent> {
         self.events.lock().unwrap().clone()
     }
 

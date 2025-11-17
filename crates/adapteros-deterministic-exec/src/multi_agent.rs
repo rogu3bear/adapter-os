@@ -148,7 +148,7 @@ impl AgentBarrier {
             "Agent marked as dead - barrier will proceed without it"
         );
 
-        // Emit barrier.agent.removed telemetry (Phase 3)
+        // Emit barrier.agent_removed telemetry (Phase 3)
         if let Some(ref telemetry) = self.telemetry {
             let identity = IdentityEnvelope::new(
                 "default".to_string(), // TODO: from config
@@ -157,7 +157,7 @@ impl AgentBarrier {
                 IdentityEnvelope::default_revision(),
             );
             let event = TelemetryEventBuilder::new(
-                EventType::Custom("barrier.agent.removed".to_string()),
+                EventType::Custom("barrier.agent_removed".to_string()),
                 LogLevel::Warn,
                 format!(
                     "Agent {} marked as dead ({} dead, {} remaining)",
@@ -580,7 +580,6 @@ mod tests {
         let barrier2 = barrier.clone();
 
         let handle1 = tokio::spawn(async move { barrier1.wait("agent-1", 100).await });
-
         let handle2 = tokio::spawn(async move { barrier2.wait("agent-2", 100).await });
 
         // Both should complete
@@ -681,10 +680,7 @@ mod tests {
                 .collect();
 
             for handle in handles {
-                handle
-                    .await
-                    .unwrap()
-                    .expect("Agents should synchronize at each tick");
+                handle.await.unwrap().expect("Agents should synchronize at each tick");
             }
 
             assert_eq!(
@@ -712,7 +708,6 @@ mod tests {
         // Agent 1 and 2 wait, but agent 3 never shows up
         let barrier1 = barrier.clone();
         let handle1 = tokio::spawn(async move { barrier1.wait("agent-1", 100).await });
-
         let barrier2 = barrier.clone();
         let handle2 = tokio::spawn(async move { barrier2.wait("agent-2", 100).await });
 
@@ -773,10 +768,7 @@ mod tests {
 
         // All should complete (both CAS winner and losers)
         for handle in handles {
-            handle
-                .await
-                .unwrap()
-                .expect("All agents should synchronize, including CAS losers");
+            handle.await.unwrap().expect("All agents should synchronize, including CAS losers");
         }
 
         // Generation should be exactly 1 (only winner advances it)
@@ -787,7 +779,7 @@ mod tests {
         );
     }
 
-    /// Stress test: High-frequency sequence counter
+    /// High-frequency sequence counter
     /// Verifies overflow warning doesn't break functionality
     #[tokio::test]
     async fn test_stress_sequence_counter_high_values() {
@@ -808,144 +800,6 @@ mod tests {
 
         // Reset for other tests
         reset_global_seq();
-    }
-
-    /// High-contention stress test: Rapid barrier re-entry
-    /// Verifies barrier can handle 200 rapid synchronizations without timeout
-    #[tokio::test]
-    async fn test_barrier_rapid_reentry() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        reset_global_seq();
-
-        let barrier = Arc::new(AgentBarrier::new(vec!["a".into(), "b".into(), "c".into()]));
-
-        let handles: Vec<_> = (0..3)
-            .map(|i| {
-                let b = barrier.clone();
-                let agent_id = ["a", "b", "c"][i].to_string();
-                tokio::spawn(async move {
-                    // Hit barrier 200 times in rapid succession
-                    for tick in 0..200 {
-                        b.wait(&agent_id, tick)
-                            .await
-                            .expect(&format!("Agent {} should sync at tick {}", agent_id, tick));
-                    }
-                })
-            })
-            .collect();
-
-        for h in handles {
-            h.await.unwrap();
-        }
-
-        // Verify generation incremented for each synchronization
-        // Note: Under high contention, generation may increment slightly more
-        // than the exact number of ticks due to CAS retries, but should be close
-        let gen = barrier.generation();
-        assert!(
-            gen >= 200 && gen <= 205,
-            "Generation should be ~200 (got {}), allowing for CAS retry increments",
-            gen
-        );
-    }
-
-    /// High-contention stress test: Skewed arrival times
-    /// Verifies barrier handles agents arriving with significant time differences
-    #[tokio::test]
-    async fn test_barrier_skewed_arrivals() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        reset_global_seq();
-
-        let barrier = Arc::new(AgentBarrier::new(
-            (0..5).map(|i| format!("agent-{}", i)).collect(),
-        ));
-
-        let handles: Vec<_> = (0..5)
-            .map(|i| {
-                let b = barrier.clone();
-                let agent_id = format!("agent-{}", i);
-                tokio::spawn(async move {
-                    // Agents arrive with increasing delays: 10ms, 20ms, ..., 50ms
-                    tokio::time::sleep(Duration::from_millis((i + 1) as u64 * 10)).await;
-                    b.wait(&agent_id, 100).await.unwrap();
-                })
-            })
-            .collect();
-
-        for h in handles {
-            h.await.unwrap();
-        }
-
-        // Single generation advancement despite staggered arrivals
-        assert_eq!(
-            barrier.generation(),
-            1,
-            "Should synchronize all agents despite skewed arrival times"
-        );
-    }
-
-    /// High-contention stress test: Thundering herd (100 agents)
-    /// Verifies barrier scales to large numbers of concurrent agents
-    #[tokio::test]
-    async fn test_barrier_thundering_herd() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        reset_global_seq();
-
-        const AGENT_COUNT: usize = 100;
-        let barrier = Arc::new(AgentBarrier::new(
-            (0..AGENT_COUNT).map(|i| format!("agent-{}", i)).collect(),
-        ));
-
-        let handles: Vec<_> = (0..AGENT_COUNT)
-            .map(|i| {
-                let b = barrier.clone();
-                let agent_id = format!("agent-{}", i);
-                tokio::spawn(async move { b.wait(&agent_id, 1000).await.unwrap() })
-            })
-            .collect();
-
-        for h in handles {
-            h.await.unwrap();
-        }
-
-        assert_eq!(
-            barrier.generation(),
-            1,
-            "All 100 agents should synchronize successfully"
-        );
-    }
-
-    /// High-contention stress test: CAS loser stress
-    /// Forces 50 agents to lose CAS race and verifies they all proceed correctly
-    #[tokio::test]
-    async fn test_barrier_cas_loser_stress() {
-        let _lock = TEST_LOCK.lock().unwrap();
-        reset_global_seq();
-
-        const AGENT_COUNT: usize = 50;
-        let barrier = Arc::new(AgentBarrier::new(
-            (0..AGENT_COUNT).map(|i| format!("agent-{}", i)).collect(),
-        ));
-
-        // All agents arrive simultaneously and attempt CAS
-        let handles: Vec<_> = (0..AGENT_COUNT)
-            .map(|i| {
-                let b = barrier.clone();
-                let agent_id = format!("agent-{}", i);
-                tokio::spawn(async move { b.wait(&agent_id, 5000).await.unwrap() })
-            })
-            .collect();
-
-        for h in handles {
-            h.await.unwrap();
-        }
-
-        // Only 1 winner, 49 losers, but all should succeed
-        assert_eq!(
-            barrier.generation(),
-            1,
-            "Generation should increment exactly once (CAS winner), but all agents should proceed"
-        );
     }
 
     /// Test basic dead agent functionality

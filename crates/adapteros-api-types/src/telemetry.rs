@@ -1,18 +1,32 @@
 //! Telemetry types
 
 use adapteros_core::B3Hash;
+use adapteros_telemetry::TelemetryEvent;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use utoipa::ToSchema;
 
-/// Telemetry event
+/// API telemetry event (DTO for public API)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TelemetryEvent {
+pub struct ApiTelemetryEvent {
     pub event_type: String,
     pub timestamp: String,
     pub data: serde_json::Value,
     pub tenant_id: Option<String>,
     pub user_id: Option<String>,
+}
+
+/// Conversion from canonical TelemetryEvent to API DTO
+impl From<TelemetryEvent> for ApiTelemetryEvent {
+    fn from(ev: TelemetryEvent) -> Self {
+        ApiTelemetryEvent {
+            event_type: ev.event_type,
+            timestamp: ev.timestamp.to_rfc3339(),
+            data: ev.metadata.unwrap_or_else(|| serde_json::json!({})),
+            tenant_id: Some(ev.identity.tenant_id),
+            user_id: ev.user_id,
+        }
+    }
 }
 
 /// Telemetry bundle response

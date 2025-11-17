@@ -23,9 +23,9 @@ pub struct MetricValue {
     pub timestamp: u64,
 }
 
-/// Telemetry event from NDJSON bundle
+/// Code metrics event from NDJSON bundle (local parsing type)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct TelemetryEvent {
+struct CodeMetricsEvent {
     event_type: String,
     #[serde(default)]
     kind: Option<String>,
@@ -60,7 +60,7 @@ impl CodeMetrics {
     }
 
     /// Read telemetry events from NDJSON bundle
-    fn read_telemetry_bundle(&self, cpid: &str) -> Result<Vec<TelemetryEvent>, String> {
+    fn read_telemetry_bundle(&self, cpid: &str) -> Result<Vec<CodeMetricsEvent>, String> {
         let telemetry_path = match &self.telemetry_bundles_path {
             Some(path) => path,
             None => return Ok(Vec::new()), // No telemetry configured
@@ -93,7 +93,7 @@ impl CodeMetrics {
                     continue;
                 }
                 
-                let event: TelemetryEvent = serde_json::from_str(&line)
+                let event: CodeMetricsEvent = serde_json::from_str(&line)
                     .map_err(|e| format!("Failed to parse telemetry event: {}", e))?;
                 events.push(event);
             }

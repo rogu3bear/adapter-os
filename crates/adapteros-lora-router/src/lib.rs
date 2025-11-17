@@ -282,18 +282,17 @@ impl Router {
         &mut self,
         stack_name: Option<String>,
         adapter_ids: Option<Vec<String>>,
+        stack_hash: Option<B3Hash>,
     ) {
         tracing::debug!(
-            "Setting active stack: {:?} with {} adapters",
+            "Setting active stack: {:?} with {} adapters, hash: {:?}",
             stack_name,
-            adapter_ids.as_ref().map(|ids| ids.len()).unwrap_or(0)
+            adapter_ids.as_ref().map(|ids| ids.len()).unwrap_or(0),
+            stack_hash.as_ref().map(|h| h.to_short_hex())
         );
         self.active_stack_name = stack_name;
         self.active_stack_adapter_ids = adapter_ids;
-        self.active_stack_hash = Self::compute_stack_hash(
-            self.active_stack_name.as_ref(),
-            self.active_stack_adapter_ids.as_ref(),
-        );
+        self.active_stack_hash = stack_hash;
     }
 
     /// Get the currently active stack name
@@ -306,26 +305,6 @@ impl Router {
         self.active_stack_hash.map(|hash| hash.to_short_hex())
     }
 
-    fn compute_stack_hash(
-        stack_name: Option<&String>,
-        adapter_ids: Option<&Vec<String>>,
-    ) -> Option<B3Hash> {
-        if stack_name.is_none() && adapter_ids.is_none() {
-            return None;
-        }
-
-        let mut buffer = Vec::new();
-        if let Some(name) = stack_name {
-            buffer.extend_from_slice(b"name:");
-            buffer.extend_from_slice(name.as_bytes());
-        }
-        if let Some(ids) = adapter_ids {
-            buffer.extend_from_slice(b";adapters:");
-            buffer.extend_from_slice(ids.join(",").as_bytes());
-        }
-
-        Some(B3Hash::hash(&buffer))
-    }
 
     /// Filter adapter indices based on the active stack
     fn filter_by_stack(&self, adapter_info: &[AdapterInfo]) -> Vec<usize> {

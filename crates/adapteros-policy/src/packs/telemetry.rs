@@ -5,6 +5,8 @@
 
 use crate::{Audit, Policy, PolicyContext, PolicyId, Severity};
 use adapteros_core::{AosError, Result};
+use adapteros_core::identity::IdentityEnvelope;
+use adapteros_telemetry::unified_events::TelemetryEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -129,9 +131,9 @@ impl Default for TelemetryConfig {
     }
 }
 
-/// Telemetry event
+/// Policy telemetry view (projection for policy validation)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryEvent {
+pub struct PolicyTelemetryView {
     /// Event type
     pub event_type: String,
     /// Event timestamp
@@ -142,6 +144,19 @@ pub struct TelemetryEvent {
     pub hash: String,
     /// Sampling rate applied
     pub sampling_rate: f32,
+}
+
+/// Conversion from canonical TelemetryEvent to policy view
+impl From<TelemetryEvent> for PolicyTelemetryView {
+    fn from(ev: TelemetryEvent) -> Self {
+        PolicyTelemetryView {
+            event_type: ev.event_type,
+            timestamp: ev.timestamp.with_timezone(&chrono::Utc),
+            data: ev.metadata.unwrap_or_else(|| serde_json::Value::Null),
+            hash: ev.hash.unwrap_or_else(|| "b3:default".to_string()),
+            sampling_rate: ev.sampling_rate.unwrap_or(1.0),
+        }
+    }
 }
 
 /// Telemetry bundle
@@ -270,7 +285,7 @@ impl TelemetryPolicy {
     }
 
     /// Calculate event hash
-    pub fn calculate_event_hash(&self, event: &TelemetryEvent) -> String {
+    pub fn calculate_event_hash(&self, event: &PolicyTelemetryView) -> String {
         // In a real implementation, use BLAKE3 or similar
         format!("b3:{}", event.event_type.len())
     }
@@ -322,7 +337,7 @@ impl TelemetryPolicy {
     }
 
     /// Generate canonical JSON
-    pub fn generate_canonical_json(&self, event: &TelemetryEvent) -> Result<String> {
+    pub fn generate_canonical_json(&self, event: &PolicyTelemetryView) -> Result<String> {
         // In a real implementation, use JCS (JSON Canonicalization Scheme)
         serde_json::to_string(event).map_err(|e| AosError::PolicyViolation(e.to_string()))
     }
@@ -426,16 +441,27 @@ mod tests {
 
         // Test with too many events (simplified)
         let mut large_bundle = valid_bundle.clone();
-        large_bundle.events = vec![
-            TelemetryEvent {
-                event_type: "test".to_string(),
-                timestamp: Utc::now(),
-                data: serde_json::Value::Null,
-                hash: "hash".to_string(),
-                sampling_rate: 1.0,
-            };
-            600000 // Exceeds max_events
-        ];
+        let test_event = TelemetryEvent {
+            id: "test".to_string(),
+            timestamp: chrono::Utc::now(),
+            event_type: "test".to_string(),
+            level: adapteros_telemetry::LogLevel::Info,
+            message: "test".to_string(),
+            component: None,
+            identity: IdentityEnvelope::new(
+                "test".to_string(),
+                "test".to_string(),
+                "test".to_string(),
+                "test".to_string(),
+            ),
+            user_id: None,
+            metadata: Some(serde_json::Value::Null),
+            trace_id: None,
+            span_id: None,
+            hash: Some("hash".to_string()),
+            sampling_rate: Some(1.0),
+        };
+        large_bundle.events = vec![test_event; 600000]; // Exceeds max_events
 
         assert!(policy.validate_bundle_size(&large_bundle).is_err());
     }
@@ -527,7 +553,7 @@ mod tests {
         let config = TelemetryConfig::default();
         let policy = TelemetryPolicy::new(config);
 
-        let event = TelemetryEvent {
+        let event = PolicyTelemetryView {
             event_type: "test".to_string(),
             timestamp: Utc::now(),
             data: serde_json::Value::Null,
@@ -541,7 +567,26 @@ mod tests {
         let bundle = TelemetryBundle {
             bundle_id: "bundle1".to_string(),
             timestamp: Utc::now(),
-            events: vec![event],
+            events: vec![TelemetryEvent {
+                id: "test".to_string(),
+                timestamp: Utc::now(),
+                event_type: "test".to_string(),
+                level: adapteros_telemetry::LogLevel::Info,
+                message: "test".to_string(),
+                component: None,
+                identity: IdentityEnvelope::new(
+                    "test".to_string(),
+                    "test".to_string(),
+                    "test".to_string(),
+                    "test".to_string(),
+                ),
+                user_id: None,
+                metadata: Some(serde_json::Value::Null),
+                trace_id: None,
+                span_id: None,
+                hash: Some("hash".to_string()),
+                sampling_rate: Some(1.0),
+            }],
             bundle_hash: "hash1".to_string(),
             merkle_root: "root1".to_string(),
             signature: Some("sig1".to_string()),

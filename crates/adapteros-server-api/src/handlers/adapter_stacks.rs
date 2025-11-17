@@ -526,14 +526,6 @@ async fn compute_stack_hash(
         pairs.push((id.clone(), adapter.hash_b3));
     }
 
-    pairs.sort_by_key(|p| p.0.clone());
-
-    let serialized = serde_json::to_string(&pairs).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Serialize error: {}", e),
-        )
-    })?;
-
-    Ok(B3Hash::hash(serialized.as_bytes()))
+    // Use canonical compute_stack_hash from adapteros-core
+    Ok(adapteros_core::compute_stack_hash(pairs))
 }

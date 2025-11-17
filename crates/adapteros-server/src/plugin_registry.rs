@@ -31,7 +31,7 @@ impl PluginRegistry {
         let mut plugins = self.plugins.write().await;
         plugins.insert(name.clone(), arc_plugin.clone());
 
-        // Load the plugin
+        // Load the plugin (Unloaded -> Loading -> Loaded)
         arc_plugin.load(&config).await?;
 
         // Start and spawn supervisor task
@@ -46,6 +46,7 @@ impl PluginRegistry {
         plugin: Arc<dyn Plugin + Send + Sync>,
         config: PluginConfig,
     ) -> Result<()> {
+        // Start the plugin (Loaded -> Starting -> Started)
         plugin.start().await?;
 
         // Spawn supervisor task
@@ -58,8 +59,8 @@ impl PluginRegistry {
                 interval.tick().await;
                 match plugin_clone.health_check().await {
                     Ok(health) => match health.status {
-                        PluginStatus::Dead(_) => {
-                            warn!("Plugin {} is dead, attempting restart", name_clone);
+                        PluginStatus::Failed(_) => {
+                            warn!("Plugin {} has failed, attempting restart", name_clone);
                             if let Err(e) = plugin_clone.reload(&config_clone).await {
                                 error!("Failed to restart plugin {}: {}", name_clone, e);
                             }

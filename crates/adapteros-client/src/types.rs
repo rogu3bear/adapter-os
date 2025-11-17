@@ -65,9 +65,9 @@ pub struct TelemetryFilters {
     pub level: Option<String>,
 }
 
-/// Telemetry event structure
+/// Client telemetry event structure (DTO for client-side usage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryEvent {
+pub struct ClientTelemetryEvent {
     pub id: String,
     pub timestamp: String,
     pub event_type: String,
@@ -77,6 +77,23 @@ pub struct TelemetryEvent {
     pub tenant_id: Option<String>,
     pub user_id: Option<String>,
     pub metadata: Option<serde_json::Value>,
+}
+
+/// Conversion from canonical TelemetryEvent to client DTO
+impl From<adapteros_telemetry::TelemetryEvent> for ClientTelemetryEvent {
+    fn from(ev: adapteros_telemetry::TelemetryEvent) -> Self {
+        ClientTelemetryEvent {
+            id: ev.id,
+            timestamp: ev.timestamp.to_rfc3339(),
+            event_type: ev.event_type,
+            level: format!("{:?}", ev.level).to_lowercase(),
+            message: ev.message,
+            component: ev.component,
+            tenant_id: Some(ev.identity.tenant_id),
+            user_id: ev.user_id,
+            metadata: ev.metadata,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
