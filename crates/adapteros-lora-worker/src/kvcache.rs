@@ -129,9 +129,23 @@ impl KvCache {
 
         // Check capacity
         if self.used_bytes + required_bytes * 2 > self.capacity_bytes {
+            // Emit KV cache OOM telemetry
+            let available_bytes = self.capacity_bytes.saturating_sub(self.used_bytes);
+
+            tracing::error!(
+                requested_mb = (required_bytes * 2) / (1024 * 1024),
+                available_mb = available_bytes / (1024 * 1024),
+                capacity_mb = self.capacity_bytes / (1024 * 1024),
+                usage_pct = (self.used_bytes as f32 / self.capacity_bytes as f32) * 100.0,
+                seq_len = seq_len,
+                "KV cache OOM - allocation failed"
+            );
+
             return Err(AosError::MemoryPressure(format!(
-                "KV cache full: {} / {} bytes used",
-                self.used_bytes, self.capacity_bytes
+                "KV cache OOM: requested {} MB, available {} MB / {} MB capacity",
+                (required_bytes * 2) / (1024 * 1024),
+                available_bytes / (1024 * 1024),
+                self.capacity_bytes / (1024 * 1024)
             )));
         }
 

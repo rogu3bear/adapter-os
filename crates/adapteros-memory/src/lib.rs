@@ -21,7 +21,9 @@
 //! - Buffer relocations are detected and logged
 //! - Page migrations are tracked and recorded
 
+pub mod backpressure;
 pub mod buffer_relocation;
+pub mod gpu_collector;
 pub mod heap_observer;
 pub mod memory_map;
 pub mod optimization;
@@ -31,7 +33,11 @@ pub mod unified_interface;
 pub mod unified_memory;
 pub mod watchdog;
 
+pub use backpressure::{
+    BackpressureMonitor, EvictionAction, EvictionPolicy, KvCacheOom, MemorySnapshot, MemoryTier,
+};
 pub use buffer_relocation::BufferRelocationDetector;
+pub use gpu_collector::{collect_gpu_memory, collect_gpu_memory_with_vram_tracker, GpuMemoryStats};
 pub use heap_observer::MetalHeapObserver;
 pub use memory_map::MemoryMapHasher;
 pub use optimization::{MemoryOptimizationPlan, MemoryOptimizer, MemoryPressureReport};

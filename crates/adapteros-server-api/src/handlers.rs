@@ -834,6 +834,43 @@ pub async fn get_uma_memory(
     .map(|rows| rows.into_iter().map(|(id,)| id).collect())
     .unwrap_or_default();
 
+    // Collect GPU memory stats (best-effort)
+    #[cfg(target_os = "macos")]
+    let gpu_memory = {
+        use adapteros_memory::collect_gpu_memory;
+        let gpu_stats = collect_gpu_memory();
+        if gpu_stats.metrics_available {
+            Some(GpuMemoryInfo {
+                total_mb: gpu_stats.total_bytes / (1024 * 1024),
+                used_mb: gpu_stats.used_bytes / (1024 * 1024),
+                usage_pct: gpu_stats.usage_pct(),
+                metrics_available: true,
+            })
+        } else {
+            None
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let gpu_memory = None;
+
+    // TODO: Integrate with actual KV cache tracking
+    // For now, return 0 as placeholder
+    let kv_cache_used_mb = 0;
+
+    // Determine recommended eviction action
+    let eviction_action = match pressure {
+        adapteros_lora_worker::memory::MemoryPressureLevel::Critical => {
+            Some("block_new_requests".to_string())
+        }
+        adapteros_lora_worker::memory::MemoryPressureLevel::High => {
+            Some("unload_idle_adapters".to_string())
+        }
+        adapteros_lora_worker::memory::MemoryPressureLevel::Medium => {
+            Some("drop_cache".to_string())
+        }
+        _ => None,
+    };
+
     Ok(Json(UmaMemoryResponse {
         total_mb: stats.total_mb,
         used_mb: stats.used_mb,
@@ -842,18 +879,48 @@ pub async fn get_uma_memory(
         pressure_level: pressure.to_string(),
         eviction_candidates: candidates,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        gpu_memory,
+        kv_cache_used_mb,
+        eviction_action,
     }))
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct UmaMemoryResponse {
-    total_mb: u64,
-    used_mb: u64,
-    available_mb: u64,
-    headroom_pct: f32,
-    pressure_level: String,
-    eviction_candidates: Vec<String>,
-    timestamp: String,
+    /// Host memory total (MB)
+    pub total_mb: u64,
+    /// Host memory used (MB)
+    pub used_mb: u64,
+    /// Host memory available (MB)
+    pub available_mb: u64,
+    /// Host memory headroom percentage
+    pub headroom_pct: f32,
+    /// Overall memory pressure level
+    pub pressure_level: String,
+    /// Eviction candidates (adapter IDs)
+    pub eviction_candidates: Vec<String>,
+    /// Timestamp (RFC3339)
+    pub timestamp: String,
+    /// GPU memory stats (best-effort, may be null if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory: Option<GpuMemoryInfo>,
+    /// KV cache memory usage (MB)
+    pub kv_cache_used_mb: u64,
+    /// Recommended eviction action based on pressure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eviction_action: Option<String>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct GpuMemoryInfo {
+    /// GPU memory total (MB)
+    pub total_mb: u64,
+    /// GPU memory used (MB)
+    pub used_mb: u64,
+    /// GPU memory usage percentage
+    pub usage_pct: f32,
+    /// Whether GPU metrics are available
+    pub metrics_available: bool,
 }
 
 // In AppState, add uma_monitor: Arc<UmaPressureMonitor> = Arc::new(UmaPressureMonitor::new(15, Some(telemetry.clone())));
