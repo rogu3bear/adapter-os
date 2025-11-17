@@ -2,32 +2,141 @@
 
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 pub mod attestation;
 
+/// Maximum adapters per routing step (PRD 6 contract)
+pub const MAX_ADAPTERS_PER_STEP: usize = 8;
+
 /// Ring buffer for router decisions (Q15 gates)
+///
+/// # Invariants (PRD 6)
+/// 1. `indices.len() == gates_q15.len()` (1:1 mapping)
+/// 2. `indices` MUST be sorted ascending
+/// 3. `indices.len() <= MAX_ADAPTERS_PER_STEP`
+/// 4. `gates_q15` values MUST be in Q15 range: [-32768, 32767]
+/// 5. All backends MUST validate these invariants in debug builds
 #[derive(Debug, Clone)]
 pub struct RouterRing {
-    /// Adapter indices (up to K=8)
-    pub indices: Vec<u16>,
-    /// Q15 quantized gates
-    pub gates_q15: Vec<i16>,
-    /// Token position
-    pub position: usize,
+    /// Adapter indices (up to MAX_ADAPTERS_PER_STEP=8), sorted ascending
+    pub indices: SmallVec<[u16; MAX_ADAPTERS_PER_STEP]>,
+    /// Q15 quantized gates (range: [-32768, 32767])
+    pub gates_q15: SmallVec<[i16; MAX_ADAPTERS_PER_STEP]>,
+    /// Token position in sequence
+    pub position: u64,
 }
 
 impl RouterRing {
+    /// Create new RouterRing with capacity k (must be <= MAX_ADAPTERS_PER_STEP)
+    ///
+    /// # Panics
+    /// Panics if k > MAX_ADAPTERS_PER_STEP
     pub fn new(k: usize) -> Self {
+        assert!(
+            k <= MAX_ADAPTERS_PER_STEP,
+            "RouterRing k={} exceeds MAX_ADAPTERS_PER_STEP={}",
+            k,
+            MAX_ADAPTERS_PER_STEP
+        );
         Self {
-            indices: vec![0; k],
-            gates_q15: vec![0; k],
+            indices: SmallVec::new(),
+            gates_q15: SmallVec::new(),
             position: 0,
         }
     }
 
-    pub fn set(&mut self, indices: &[u16], gates: &[i16]) {
-        self.indices[..indices.len()].copy_from_slice(indices);
-        self.gates_q15[..gates.len()].copy_from_slice(gates);
+    /// Set indices and gates, validating invariants
+    ///
+    /// # Errors
+    /// Returns error if:
+    /// - indices.len() != gates.len()
+    /// - indices.len() > MAX_ADAPTERS_PER_STEP
+    /// - indices are not sorted ascending
+    /// - any gate is outside Q15 range (though i16 guarantees this)
+    pub fn set(&mut self, indices: &[u16], gates: &[i16]) -> Result<()> {
+        // Invariant 1: lengths must match
+        if indices.len() != gates.len() {
+            return Err(adapteros_core::AosError::Kernel(format!(
+                "RouterRing invariant violated: indices.len()={} != gates.len()={}",
+                indices.len(),
+                gates.len()
+            )));
+        }
+
+        // Invariant 3: must not exceed MAX_ADAPTERS_PER_STEP
+        if indices.len() > MAX_ADAPTERS_PER_STEP {
+            return Err(adapteros_core::AosError::Kernel(format!(
+                "RouterRing invariant violated: len={} exceeds MAX_ADAPTERS_PER_STEP={}",
+                indices.len(),
+                MAX_ADAPTERS_PER_STEP
+            )));
+        }
+
+        // Invariant 2: indices must be sorted ascending
+        if !indices.windows(2).all(|w| w[0] < w[1]) {
+            return Err(adapteros_core::AosError::Kernel(format!(
+                "RouterRing invariant violated: indices not sorted ascending: {:?}",
+                indices
+            )));
+        }
+
+        // Invariant 4: Q15 range (i16 type already guarantees this, but we document it)
+        // All i16 values are by definition in [-32768, 32767]
+
+        self.indices.clear();
+        self.indices.extend_from_slice(indices);
+        self.gates_q15.clear();
+        self.gates_q15.extend_from_slice(gates);
+
+        Ok(())
+    }
+
+    /// Validate all invariants (for debug builds and tests)
+    ///
+    /// # Errors
+    /// Returns error if any invariant is violated
+    pub fn validate(&self) -> Result<()> {
+        // Invariant 1: lengths match
+        if self.indices.len() != self.gates_q15.len() {
+            return Err(adapteros_core::AosError::Kernel(format!(
+                "RouterRing validation failed: indices.len()={} != gates.len()={}",
+                self.indices.len(),
+                self.gates_q15.len()
+            )));
+        }
+
+        // Invariant 3: length limit
+        if self.indices.len() > MAX_ADAPTERS_PER_STEP {
+            return Err(adapteros_core::AosError::Kernel(format!(
+                "RouterRing validation failed: len={} exceeds MAX_ADAPTERS_PER_STEP={}",
+                self.indices.len(),
+                MAX_ADAPTERS_PER_STEP
+            )));
+        }
+
+        // Invariant 2: sorted ascending
+        if !self.indices.windows(2).all(|w| w[0] < w[1]) {
+            return Err(adapteros_core::AosError::Kernel(format!(
+                "RouterRing validation failed: indices not sorted: {:?}",
+                self.indices.as_slice()
+            )));
+        }
+
+        // Invariant 4: Q15 range (always satisfied for i16)
+        // No validation needed - type system guarantees this
+
+        Ok(())
+    }
+
+    /// Get length (number of active adapters)
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+
+    /// Check if empty (no adapters selected)
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
     }
 }
 
@@ -323,6 +432,163 @@ impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
         buffer_size: u64,
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// PRD 6 Test: RouterRing golden layout (size, alignment)
+    #[test]
+    fn test_router_ring_layout() {
+        use std::mem::{align_of, size_of};
+
+        // RouterRing should have expected size and alignment
+        let size = size_of::<RouterRing>();
+        let align = align_of::<RouterRing>();
+
+        // SmallVec<[u16; 8]> = 8 * 2 = 16 bytes + overhead
+        // SmallVec<[i16; 8]> = 8 * 2 = 16 bytes + overhead
+        // position: u64 = 8 bytes
+        // SmallVec has 24-byte overhead (len, cap, union)
+        // Total should be ~80 bytes on 64-bit systems
+
+        println!("RouterRing size: {} bytes, align: {} bytes", size, align);
+
+        // Ensure reasonable bounds
+        assert!(size >= 48, "RouterRing too small: {} bytes", size);
+        assert!(size <= 128, "RouterRing too large: {} bytes", size);
+        assert_eq!(align, 8, "RouterRing alignment should be 8 bytes");
+    }
+
+    /// PRD 6 Test: Invariant 1 - lengths must match
+    #[test]
+    fn test_router_ring_length_mismatch() {
+        let mut ring = RouterRing::new(4);
+        let indices = vec![0, 1, 2];
+        let gates = vec![100, 200]; // Mismatched length
+
+        let result = ring.set(&indices, &gates);
+        assert!(
+            result.is_err(),
+            "RouterRing should reject mismatched lengths"
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("indices.len()=3 != gates.len()=2"));
+    }
+
+    /// PRD 6 Test: Invariant 2 - indices must be sorted ascending
+    #[test]
+    fn test_router_ring_unsorted_indices() {
+        let mut ring = RouterRing::new(4);
+        let indices = vec![0, 2, 1, 3]; // Not sorted
+        let gates = vec![100, 200, 300, 400];
+
+        let result = ring.set(&indices, &gates);
+        assert!(
+            result.is_err(),
+            "RouterRing should reject unsorted indices"
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not sorted ascending"));
+    }
+
+    /// PRD 6 Test: Invariant 3 - must not exceed MAX_ADAPTERS_PER_STEP
+    #[test]
+    fn test_router_ring_exceeds_max() {
+        let mut ring = RouterRing::new(8);
+        let indices: Vec<u16> = (0..9).collect(); // 9 > MAX_ADAPTERS_PER_STEP
+        let gates: Vec<i16> = vec![100; 9];
+
+        let result = ring.set(&indices, &gates);
+        assert!(
+            result.is_err(),
+            "RouterRing should reject len > MAX_ADAPTERS_PER_STEP"
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("exceeds MAX_ADAPTERS_PER_STEP"));
+    }
+
+    /// PRD 6 Test: Valid RouterRing with sorted indices
+    #[test]
+    fn test_router_ring_valid() {
+        let mut ring = RouterRing::new(4);
+        let indices = vec![0, 2, 5, 7]; // Sorted ascending
+        let gates = vec![100, 200, 300, 400]; // Q15 range
+
+        let result = ring.set(&indices, &gates);
+        assert!(result.is_ok(), "Valid RouterRing should succeed");
+
+        assert_eq!(ring.indices.as_slice(), &[0, 2, 5, 7]);
+        assert_eq!(ring.gates_q15.as_slice(), &[100, 200, 300, 400]);
+        assert_eq!(ring.len(), 4);
+        assert!(!ring.is_empty());
+
+        // Validate should pass
+        assert!(ring.validate().is_ok());
+    }
+
+    /// PRD 6 Test: Empty RouterRing
+    #[test]
+    fn test_router_ring_empty() {
+        let mut ring = RouterRing::new(4);
+        let indices: Vec<u16> = vec![];
+        let gates: Vec<i16> = vec![];
+
+        let result = ring.set(&indices, &gates);
+        assert!(result.is_ok(), "Empty RouterRing should be valid");
+
+        assert_eq!(ring.len(), 0);
+        assert!(ring.is_empty());
+        assert!(ring.validate().is_ok());
+    }
+
+    /// PRD 6 Test: Q15 range (i16 type guarantees this)
+    #[test]
+    fn test_router_ring_q15_range() {
+        let mut ring = RouterRing::new(3);
+        let indices = vec![0, 1, 2];
+        let gates = vec![-32768, 0, 32767]; // Full Q15 range
+
+        let result = ring.set(&indices, &gates);
+        assert!(result.is_ok(), "Q15 range should be valid");
+        assert_eq!(ring.gates_q15.as_slice(), &[-32768, 0, 32767]);
+    }
+
+    /// PRD 6 Test: Maximum capacity (MAX_ADAPTERS_PER_STEP = 8)
+    #[test]
+    fn test_router_ring_max_capacity() {
+        let mut ring = RouterRing::new(MAX_ADAPTERS_PER_STEP);
+        let indices: Vec<u16> = (0..8).collect();
+        let gates: Vec<i16> = vec![1000; 8];
+
+        let result = ring.set(&indices, &gates);
+        assert!(
+            result.is_ok(),
+            "MAX_ADAPTERS_PER_STEP adapters should be valid"
+        );
+        assert_eq!(ring.len(), 8);
+    }
+
+    /// PRD 6 Test: Duplicate indices (not allowed - violates sorted ascending)
+    #[test]
+    fn test_router_ring_duplicate_indices() {
+        let mut ring = RouterRing::new(4);
+        let indices = vec![0, 1, 1, 2]; // Duplicate
+        let gates = vec![100, 200, 300, 400];
+
+        let result = ring.set(&indices, &gates);
+        assert!(
+            result.is_err(),
+            "Duplicate indices should fail (not strictly ascending)"
+        );
     }
 }
 

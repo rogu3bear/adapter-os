@@ -970,6 +970,36 @@ impl FusedKernels for MetalKernels {
     ///
     /// This is more efficient than doing the lookup in Rust and copying to GPU.
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // PRD 6: Validate RouterRing invariants in debug builds
+        #[cfg(debug_assertions)]
+        {
+            ring.validate().map_err(|e| {
+                AosError::Kernel(format!("Metal backend: RouterRing validation failed: {}", e))
+            })?;
+        }
+
+        // PRD 6: Runtime validation for dimension mismatches
+        if ring.indices.len() != ring.gates_q15.len() {
+            return Err(AosError::Kernel(format!(
+                "Metal backend: RouterRing invariant violated - indices.len()={} != gates.len()={}",
+                ring.indices.len(),
+                ring.gates_q15.len()
+            )));
+        }
+
+        if ring.indices.len() > adapteros_lora_kernel_api::MAX_ADAPTERS_PER_STEP {
+            tracing::error!(
+                "Metal backend: RouterRing exceeds MAX_ADAPTERS_PER_STEP: {} > {}",
+                ring.indices.len(),
+                adapteros_lora_kernel_api::MAX_ADAPTERS_PER_STEP
+            );
+            return Err(AosError::Kernel(format!(
+                "RouterRing exceeds MAX_ADAPTERS_PER_STEP: {} > {}",
+                ring.indices.len(),
+                adapteros_lora_kernel_api::MAX_ADAPTERS_PER_STEP
+            )));
+        }
+
         // Convert RouterRing to ActiveAdapter list
         let adapters: Vec<ActiveAdapter> = ring
             .indices

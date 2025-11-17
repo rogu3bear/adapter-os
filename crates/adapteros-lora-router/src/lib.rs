@@ -12,7 +12,6 @@ pub mod scoring;
 use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::collections::HashSet;
 
 pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
@@ -545,21 +544,8 @@ impl Router {
             })
             .collect();
 
-        let indices: SmallVec<[u16; 8]> = candidate_entries
-            .iter()
-            .map(|candidate| candidate.adapter_idx)
-            .collect();
-
-        // Assert 1:1 mapping
-        assert_eq!(
-            indices.len(),
-            gates_q15.len(),
-            "RouterRing must match gate count"
-        );
-        assert!(
-            indices.len() == indices.iter().collect::<HashSet<_>>().len(),
-            "Indices must be unique"
-        );
+        // Create Decision with sorted indices (PRD 6)
+        let decision = Decision::from_candidates(candidate_entries, entropy);
 
         // Apply orthogonal constraints if enabled
         if self.orthogonal_enabled {
@@ -567,16 +553,11 @@ impl Router {
                 // Update activation history for diversity tracking
                 // Note: Penalty-based rescoring deferred to post-alpha (MPLoRA full implementation)
                 // See: https://openreview.net/pdf?id=jqz6Msm3AF
-                constraints.update_history(&indices, &gates_q15);
+                constraints.update_history(&decision.indices, &decision.gates_q15);
             }
         }
 
-        Decision {
-            indices,
-            gates_q15,
-            entropy,
-            candidates: candidate_entries,
-        }
+        decision
     }
 
     /// Compute Shannon entropy of gate distribution
@@ -708,24 +689,17 @@ impl Router {
             })
             .collect();
 
-        let indices: SmallVec<[u16; 8]> = candidate_entries
-            .iter()
-            .map(|candidate| candidate.adapter_idx)
-            .collect();
+        // Create Decision with sorted indices (PRD 6)
+        let decision = Decision::from_candidates(candidate_entries, entropy);
 
         // Update activation history (orthogonality tracking)
         if self.orthogonal_enabled {
             if let Some(ref mut constraints) = self.orthogonal_constraints {
-                constraints.update_history(&indices, &gates_q15);
+                constraints.update_history(&decision.indices, &decision.gates_q15);
             }
         }
 
-        Decision {
-            indices,
-            gates_q15,
-            entropy,
-            candidates: candidate_entries,
-        }
+        decision
     }
 
     /// Route with k0 detection (no adapters qualify)
@@ -823,17 +797,8 @@ impl Router {
             })
             .collect();
 
-        let indices: SmallVec<[u16; 8]> = candidate_entries
-            .iter()
-            .map(|candidate| candidate.adapter_idx)
-            .collect();
-
-        Decision {
-            indices,
-            gates_q15,
-            entropy,
-            candidates: candidate_entries,
-        }
+        // Create Decision with sorted indices (PRD 6)
+        Decision::from_candidates(candidate_entries, entropy)
     }
 
     /// Log k0 event when no adapters are selected
@@ -1016,6 +981,11 @@ pub struct DecisionCandidate {
 }
 
 /// Router decision with indices and quantized gates
+///
+/// # Invariants (PRD 6)
+/// - `indices` MUST be sorted ascending by adapter index
+/// - `gates_q15` MUST match the corresponding indices (1:1 mapping)
+/// - Length MUST NOT exceed MAX_K=8
 #[derive(Debug, Clone)]
 pub struct Decision {
     pub indices: SmallVec<[u16; 8]>,
@@ -1028,6 +998,39 @@ impl Decision {
     /// Convert Q15 gates back to float
     pub fn gates_f32(&self) -> Vec<f32> {
         self.gates_q15.iter().map(|&q| q as f32 / 32767.0).collect()
+    }
+
+    /// Create Decision from candidates, ensuring indices are sorted ascending (PRD 6)
+    ///
+    /// This method sorts candidates by adapter_idx to satisfy the RouterRing contract
+    /// that indices must be in ascending order.
+    fn from_candidates(mut candidates: Vec<DecisionCandidate>, entropy: f32) -> Self {
+        // PRD 6: Sort candidates by adapter_idx ascending
+        candidates.sort_by_key(|c| c.adapter_idx);
+
+        let indices: SmallVec<[u16; 8]> = candidates.iter().map(|c| c.adapter_idx).collect();
+        let gates_q15: SmallVec<[i16; 8]> = candidates.iter().map(|c| c.gate_q15).collect();
+
+        // Enforce MAX_K limit (should already be satisfied, but double-check)
+        if indices.len() > MAX_K {
+            tracing::error!(
+                event_type = "router.k_truncation",
+                adapter_count = indices.len(),
+                max_k = MAX_K,
+                "Router exceeded MAX_K, truncating to MAX_ADAPTERS_PER_STEP"
+            );
+
+            // Truncate to MAX_K
+            let truncated_candidates = candidates.into_iter().take(MAX_K).collect();
+            return Self::from_candidates(truncated_candidates, entropy);
+        }
+
+        Decision {
+            indices,
+            gates_q15,
+            entropy,
+            candidates,
+        }
     }
 }
 
