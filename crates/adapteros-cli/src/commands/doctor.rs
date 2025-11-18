@@ -23,7 +23,7 @@ pub struct DoctorCommand {
 }
 
 /// Component health status from server
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ComponentStatus {
     Healthy,

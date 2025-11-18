@@ -82,10 +82,6 @@ pub struct AdapterMeta {
     // TTL
     pub expires_at: Option<String>,
 
-    // .aos file support (from migration 0045)
-    pub aos_file_path: Option<String>,
-    pub aos_file_hash: Option<String>,
-
     // Timestamps
     pub created_at: String,
     pub updated_at: String,
@@ -250,8 +246,6 @@ impl From<crate::adapters::Adapter> for AdapterMeta {
             last_activated: adapter.last_activated,
             activation_count: adapter.activation_count,
             expires_at: adapter.expires_at,
-            aos_file_path: adapter.aos_file_path,
-            aos_file_hash: adapter.aos_file_hash,
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
             last_loaded_at: adapter.last_loaded_at,
