@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Inference request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InferRequest {
@@ -24,6 +26,8 @@ pub struct InferRequest {
 /// Inference response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InferResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub text: String,
     pub tokens: Vec<u32>,
     pub finish_reason: String,

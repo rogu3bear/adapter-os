@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Register adapter request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RegisterAdapterRequest {
@@ -18,6 +20,8 @@ pub struct RegisterAdapterRequest {
 /// Adapter response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AdapterResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub adapter_id: String,
     pub name: String,
@@ -42,6 +46,8 @@ pub struct AdapterStats {
 /// Adapter activation response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AdapterActivationResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub adapter_id: String,
     pub request_id: Option<String>,
@@ -53,6 +59,8 @@ pub struct AdapterActivationResponse {
 /// Adapter state transition response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AdapterStateResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub adapter_id: String,
     pub old_state: String,
     pub new_state: String,
@@ -83,6 +91,8 @@ pub struct AdapterManifest {
 /// Adapter health status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AdapterHealthResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub adapter_id: String,
     pub total_activations: i32,
     pub selected_count: i32,

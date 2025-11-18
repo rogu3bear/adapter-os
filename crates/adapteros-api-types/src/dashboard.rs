@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Dashboard widget configuration for a single widget
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardWidgetConfig {
@@ -25,6 +27,8 @@ pub struct GetDashboardConfigRequest {
 /// Response containing all widget configurations for a user
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GetDashboardConfigResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub widgets: Vec<DashboardWidgetConfig>,
 }
 
@@ -45,6 +49,8 @@ pub struct UpdateDashboardConfigRequest {
 /// Response after updating dashboard configuration
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateDashboardConfigResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub success: bool,
     pub updated_count: usize,
 }
@@ -58,6 +64,8 @@ pub struct ResetDashboardConfigRequest {
 /// Response after resetting dashboard configuration
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ResetDashboardConfigResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub success: bool,
     pub message: String,
 }

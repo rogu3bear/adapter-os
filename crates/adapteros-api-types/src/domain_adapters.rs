@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Create domain adapter request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateDomainAdapterRequest {
@@ -21,6 +23,8 @@ pub struct CreateDomainAdapterRequest {
 /// Domain adapter response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DomainAdapterResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub name: String,
     pub version: String,
@@ -42,6 +46,8 @@ pub struct DomainAdapterResponse {
 /// Epsilon statistics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EpsilonStatsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub mean_error: f64,
     pub max_error: f64,
     pub error_count: u64,
@@ -60,6 +66,8 @@ pub struct TestDomainAdapterRequest {
 /// Test domain adapter response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TestDomainAdapterResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub test_id: String,
     pub adapter_id: String,
     pub input_data: String,
@@ -75,6 +83,8 @@ pub struct TestDomainAdapterResponse {
 /// Domain adapter test response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DomainAdapterTestResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub adapter_id: String,
     pub success: bool,
     pub output: Option<serde_json::Value>,
@@ -85,6 +95,8 @@ pub struct DomainAdapterTestResponse {
 /// Domain adapter manifest response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DomainAdapterManifestResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub adapter_id: String,
     pub name: String,
     pub version: String,
@@ -109,6 +121,8 @@ pub struct LoadDomainAdapterRequest {
 /// Domain adapter execution response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DomainAdapterExecutionResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub execution_id: String,
     pub adapter_id: String,
     pub input_hash: String,
