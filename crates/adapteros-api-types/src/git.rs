@@ -3,9 +3,13 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Git status response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GitStatusResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub enabled: bool,
     pub active_sessions: u32,
     pub repositories_tracked: u32,
@@ -22,6 +26,8 @@ pub struct StartGitSessionRequest {
 /// Git session response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GitSessionResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub session_id: String,
     pub repository_path: String,
     pub branch: String,

@@ -3,9 +3,13 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Quality metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct QualityMetricsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub arr: f32,  // Answer Relevance Rate
     pub ecs5: f32, // Evidence Citation Score @ 5
     pub hlr: f32,  // Hallucination Rate
@@ -16,6 +20,8 @@ pub struct QualityMetricsResponse {
 /// Adapter metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AdapterMetricsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub adapters: Vec<AdapterPerformance>,
 }
 
@@ -32,6 +38,8 @@ pub struct AdapterPerformance {
 /// System metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SystemMetricsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub cpu_usage: f32,
     pub memory_usage: f32,
     pub active_workers: i32,
@@ -49,6 +57,8 @@ pub struct SystemMetricsResponse {
 /// Load average response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoadAverageResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub load_1min: f64,
     pub load_5min: f64,
     pub load_15min: f64,

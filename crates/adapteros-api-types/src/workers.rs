@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Spawn worker request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SpawnWorkerRequest {
@@ -15,6 +17,8 @@ pub struct SpawnWorkerRequest {
 /// Worker response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WorkerResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub tenant_id: String,
     pub node_id: String,
