@@ -70,5 +70,6 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 
 [features]
-experimental-backends = ["adapteros-lora-mlx-ffi"]
+mlx-backend = ["adapteros-lora-mlx-ffi"]
+experimental-backends = ["mlx-backend"]  # Legacy alias for backward compatibility
 secd-support = ["adapteros-secd"]

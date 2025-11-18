@@ -8,7 +8,6 @@ description = "Unified Memory Watchdog for AdapterOS - monitors page-outs and OS
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -20,13 +19,14 @@ blake3 = "1.5"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1.0", features = ["rt", "test-util"] }
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = "0.30"
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+metal = { workspace = true }
 core-foundation = "0.9"
 core-graphics = "0.23"
 objc = "0.2"
-libc = "0.2"
 
 [dev-dependencies]
 criterion = "0.5"

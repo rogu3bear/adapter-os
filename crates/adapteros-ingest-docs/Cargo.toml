@@ -7,7 +7,8 @@ license.workspace = true
 
 [features]
 default = []
-experimental-backends = ["adapteros-lora-mlx-ffi"]
+mlx-backend = ["adapteros-lora-mlx-ffi"]
+experimental-backends = ["mlx-backend"]  # Legacy alias for backward compatibility
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

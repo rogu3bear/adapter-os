@@ -16,16 +16,6 @@ members = [
     "crates/adapteros-artifacts",
     "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
-    # Metal kernel crates - macOS only (requires Metal toolchain and precompiled shaders)
-    # TODO PRD-12: Add cross-platform cfg guards or stub implementations
-    # "crates/adapteros-lora-kernel-mtl",
-    # "crates/adapteros-lora-kernel-prof",
-    # system-metrics - requires DATABASE_URL for sqlx macros
-    # TODO PRD-12: Set up sqlx offline mode or provide test database
-    # "crates/adapteros-system-metrics",
-    # MLX FFI - experimental backend with PyO3 linker issues
-    # Excluded from workspace until C++ compilation issues are fixed
-    # "crates/adapteros-lora-mlx-ffi",
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -39,10 +29,6 @@ members = [
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
-    # Server crates - temporarily excluded due to compilation errors
-    # TODO: Fix and re-enable in PRD-12
-    # "crates/adapteros-server",
-    # "crates/adapteros-server-api",
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
@@ -66,11 +52,75 @@ members = [
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
-    # codegraph-viewer disabled due to SQLite version conflict
-    # "crates/adapteros-codegraph-viewer/src-tauri",
     "xtask",
     "fuzz",
 ]
+
+# Exclude broken/experimental/platform-specific crates from workspace to prevent build failures
+exclude = [
+    # macOS-only Metal kernel crates (require Metal toolchain and precompiled shaders)
+    "crates/adapteros-lora-kernel-mtl",
+    "crates/adapteros-lora-kernel-prof",
+    # MLX FFI - experimental backend with C++ compilation errors
+    "crates/adapteros-lora-mlx-ffi",
+    # Server crates with 62+ compilation errors
+    "crates/adapteros-server",
+    "crates/adapteros-server-api",
+    # System metrics - requires DATABASE_URL for sqlx
+    "crates/adapteros-system-metrics",
+    # Tauri viewer with SQLite version conflicts
+    "crates/adapteros-codegraph-viewer/src-tauri",
+]
+
+# Default members: cross-platform crates that build on Linux
+# Platform-specific crates (Metal) are workspace members but not default members
+default-members = [
+    "crates/adapteros-core",
+    "crates/adapteros-crypto",
+    "crates/adapteros-manifest",
+    "crates/adapteros-registry",
+    "crates/adapteros-artifacts",
+    "crates/adapteros-aos",
+    "crates/adapteros-lora-kernel-api",
+    "crates/adapteros-autograd",
+    "crates/adapteros-lora-plan",
+    "crates/adapteros-lora-router",
+    "crates/adapteros-lora-rag",
+    "crates/adapteros-ingest-docs",
+    "crates/adapteros-lora-worker",
+    "crates/adapteros-telemetry",
+    "crates/adapteros-policy",
+    "crates/adapteros-config",
+    "crates/adapteros-cli",
+    "crates/adapteros-api",
+    "crates/adapteros-sbom",
+    "crates/adapteros-lora-quant",
+    "crates/adapteros-db",
+    "crates/adapteros-client",
+    "crates/adapteros-node",
+    "crates/adapteros-chat",
+    "crates/adapteros-metrics-exporter",
+    "crates/adapteros-orchestrator",
+    "crates/adapteros-profiler",
+    "crates/adapteros-lora-lifecycle",
+    "crates/adapteros-git",
+    "crates/adapteros-deterministic-exec",
+    "crates/adapteros-graph",
+    "crates/adapteros-codegraph",
+    "crates/adapteros-replay",
+    "crates/adapteros-trace",
+    "crates/adapteros-numerics",
+    "crates/adapteros-lint",
+    "crates/adapteros-federation",
+    "crates/adapteros-domain",
+    "crates/adapteros-base-llm",
+    "crates/adapteros-testing",
+    "crates/adapteros-verification",
+    "xtask",
+]
+
+# Note: Platform-specific crates (adapteros-memory, adapteros-verify, adapteros-lora-kernel-mtl)
+# are workspace members but not default members to avoid cross-platform build issues
 
 [workspace.package]
 version = "0.1.0"
@@ -89,15 +139,14 @@ telemetry = []
 metrics = []
 replay = []
 
-# Backend feature flags (mutually exclusive in practice)
-metal-backend = []  # macOS Metal GPU acceleration (requires macOS)
+# Backend feature flags
 mlx-backend = ["dep:pyo3"]  # MLX Python backend (experimental, PyO3 linker issues)
+no-metal = []  # Explicitly disable Metal (for Linux/CI builds)
 
 # Combined feature sets for common use cases
 full = ["telemetry", "metrics", "replay"]
-no-metal = []  # Explicitly disable Metal (for Linux/CI)
 
-# Legacy compatibility
+# Legacy compatibility aliases
 experimental-backends = ["mlx-backend"]
 
 [dependencies]
@@ -281,8 +330,6 @@ adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
 adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
-# adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
-# adapteros-server-api = { path = "crates/adapteros-server-api" }  # 62 compilation errors
 adapteros-db = { path = "crates/adapteros-db" }
 adapteros-config = { path = "crates/adapteros-config" }
 adapteros-codegraph = { path = "crates/adapteros-codegraph" }
@@ -296,9 +343,6 @@ adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
 adapteros-registry = { path = "crates/adapteros-registry" }
 adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-# adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only
-# adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
-# adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-crypto = { path = "crates/adapteros-crypto" }
 adapteros-sbom = { path = "crates/adapteros-sbom" }
 adapteros-api = { path = "crates/adapteros-api" }
