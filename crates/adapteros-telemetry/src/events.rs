@@ -97,6 +97,8 @@ impl InferenceEvent {
             seed_checksum: String::new(),
             rng_counter: 0,
             worker_id: 0,
+            stack_id: None,
+            stack_version: None,
         }
     }
 
