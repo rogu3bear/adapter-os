@@ -140,7 +140,14 @@ ui/src/components/ui/empty-state.tsx.backup
 archive/
 
 # Training datasets (local development only - can be large)
-training/datasets/
+# Allow structure (README.md, .gitkeep) but ignore data files
+training/datasets/**/*.jsonl
+training/datasets/**/*.json
+!training/datasets/**/manifest.json
+!training/datasets/README.md
+!training/datasets/MIGRATION.md
+!training/datasets/**/README.md
+!training/datasets/**/.gitkeep
 training/data/
 training/*.jsonl
 training/*.json
