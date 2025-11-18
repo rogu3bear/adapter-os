@@ -845,19 +845,76 @@ export interface FeatureVector {
   context_tokens: number;
 }
 
+// Router candidate with gate value (PRD-04)
+export interface RouterCandidateInfo {
+  adapter_idx: number;
+  adapter_name?: string;
+  raw_score: number;
+  gate_q15: number;
+  gate_float: number;
+  selected: boolean;
+}
+
+// Routing decisions response (PRD-04)
+export interface RoutingDecisionsResponse {
+  items: RoutingDecision[];
+}
+
+// Routing decision filters (PRD-04)
+export interface RoutingDecisionFilters {
+  tenant?: string;
+  limit?: number;
+  offset?: number;
+  start_time?: string;  // ISO-8601 timestamp (maps to 'since' query param)
+  end_time?: string;    // ISO-8601 timestamp (maps to 'until' query param)
+  stack_id?: string;
+  adapter_id?: string;
+  min_entropy?: number;
+  max_overhead_pct?: number;
+  anomalies_only?: boolean;
+}
+
+// Routing decision from /v1/routing/decisions endpoint (PRD-04)
 export interface RoutingDecision {
   id: string;
+  tenant_id: string;
   timestamp: string;
-  prompt_hash: string;
-  input_hash?: string;
-  adapters: string[];
-  gates: number[];
-  total_score?: number;
+  request_id?: string;
+
+  // Decision Context
+  step: number;
+  input_token_id?: number;
+  stack_id?: string;
+  stack_name?: string;
+  stack_hash?: string;
+
+  // Routing Parameters
+  entropy: number;
+  tau: number;
+  entropy_floor: number;
   k_value?: number;
-  entropy?: number;
+
+  // Candidates (parsed from JSON)
+  candidates: RouterCandidateInfo[];
+
+  // Timing Metrics
+  router_latency_us?: number;
+  total_inference_latency_us?: number;
+  overhead_pct?: number;
+
+  // Legacy fields for compatibility
+  adapters_used: string[];
+  activations: number[];
+  reason: string;
+  trace_id: string;
+
+  // Old fields for backward compatibility
+  prompt_hash?: string;
+  input_hash?: string;
+  gates?: number[];
+  total_score?: number;
   adapter_selections?: AdapterSelection[];
   confidence_scores?: Record<string, number>;
-  trace_id?: string;
 }
 
 // Inference
