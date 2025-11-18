@@ -42,7 +42,7 @@ members = [
     # Server crates - temporarily excluded due to compilation errors
     # TODO: Fix and re-enable in PRD-12
     # "crates/adapteros-server",
-    # "crates/adapteros-server-api",
+    "crates/adapteros-server-api",  # Re-enabled for API contract tests
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
