@@ -978,11 +978,11 @@ impl FusedKernels for MetalKernels {
     ///
     /// This is more efficient than doing the lookup in Rust and copying to GPU.
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        // Convert RouterRing to ActiveAdapter list
+        // Convert RouterRing to ActiveAdapter list (only active adapters)
         let adapters: Vec<ActiveAdapter> = ring
-            .indices
+            .active_indices()
             .iter()
-            .zip(ring.gates_q15.iter())
+            .zip(ring.active_gates().iter())
             .map(|(&id, &gate)| ActiveAdapter {
                 id: id as u32,
                 gate: gate as u16,

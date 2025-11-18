@@ -6,28 +6,71 @@ use serde::{Deserialize, Serialize};
 pub mod attestation;
 
 /// Ring buffer for router decisions (Q15 gates)
+/// Canonical type with fixed-size arrays for router-kernel interface
 #[derive(Debug, Clone)]
 pub struct RouterRing {
-    /// Adapter indices (up to K=8)
-    pub indices: Vec<u16>,
-    /// Q15 quantized gates
-    pub gates_q15: Vec<i16>,
+    /// Adapter indices (up to K=8 max)
+    pub indices: [u16; 8],
+    /// Q15 quantized gates (up to K=8 max)
+    pub gates_q15: [i16; 8],
+    /// Number of active adapters (0..=8)
+    pub k: usize,
     /// Token position
     pub position: usize,
 }
 
 impl RouterRing {
     pub fn new(k: usize) -> Self {
+        assert!(k <= 8, "k must be <= 8 for fixed-size RouterRing");
         Self {
-            indices: vec![0; k],
-            gates_q15: vec![0; k],
+            indices: [0; 8],
+            gates_q15: [0; 8],
+            k,
             position: 0,
         }
     }
 
+    /// Create a new RouterRing from indices and gates slices
+    pub fn from_slices(indices: &[u16], gates: &[i16]) -> Self {
+        let mut ring = Self::new(indices.len());
+        ring.set(indices, gates);
+        ring
+    }
+
+    /// Set active adapters (up to K elements)
     pub fn set(&mut self, indices: &[u16], gates: &[i16]) {
-        self.indices[..indices.len()].copy_from_slice(indices);
-        self.gates_q15[..gates.len()].copy_from_slice(gates);
+        assert_eq!(indices.len(), gates.len(), "indices and gates must have same length");
+        assert!(indices.len() <= 8, "Cannot exceed K=8 adapters");
+
+        self.k = indices.len();
+        self.indices[..self.k].copy_from_slice(indices);
+        self.gates_q15[..self.k].copy_from_slice(gates);
+
+        // Zero out unused slots for determinism
+        for i in self.k..8 {
+            self.indices[i] = 0;
+            self.gates_q15[i] = 0;
+        }
+    }
+
+    /// Get active indices slice
+    pub fn active_indices(&self) -> &[u16] {
+        &self.indices[..self.k]
+    }
+
+    /// Get active gates slice
+    pub fn active_gates(&self) -> &[i16] {
+        &self.gates_q15[..self.k]
+    }
+
+    /// Get number of active adapters
+    pub fn len(&self) -> usize {
+        self.k
+    }
+
+    /// Check if ring is empty (no active adapters)
+    pub fn is_empty(&self) -> bool {
+        self.k == 0
     }
 }
 

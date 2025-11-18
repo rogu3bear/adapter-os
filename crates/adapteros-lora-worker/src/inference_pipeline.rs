@@ -302,11 +302,8 @@ impl InferencePipeline {
                 position: current_tokens.len() - 1,
             };
 
-            let router_ring = RouterRing {
-                indices: decision.indices.to_vec(),
-                gates_q15: decision.gates_q15.to_vec(),
-                position: step,
-            };
+            let mut router_ring = RouterRing::from(&decision);
+            router_ring.position = step;
 
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;

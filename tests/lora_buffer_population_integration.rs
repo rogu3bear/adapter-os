@@ -85,11 +85,8 @@ fn test_single_adapter_population() -> Result<()> {
     kernels.load(&plan)?;
 
     // Create a router ring with adapter ID 1
-    let ring = RouterRing {
-        indices: vec![1],
-        gates_q15: vec![16384], // 0.5 in Q15 format
-        position: 0,
-    };
+    let mut ring = RouterRing::from_slices(&[1], &[16384]); // 0.5 in Q15 format
+    ring.position = 0;
 
     // Create I/O buffers
     let mut io = IoBuffers {
@@ -133,21 +130,15 @@ fn test_multiple_adapter_toggle_sequence() -> Result<()> {
     };
 
     // Activate adapter set A (adapters 1 and 2)
-    let ring_a = RouterRing {
-        indices: vec![1, 2],
-        gates_q15: vec![16384, 8192],
-        position: 0,
-    };
+    let mut ring_a = RouterRing::from_slices(&[1, 2], &[16384, 8192]);
+    ring_a.position = 0;
     kernels.run_step(&ring_a, &mut io)?;
     println!("✓ Populated adapter set A (1, 2)");
 
     // Switch to adapter set B (adapters 2 and 3)
     // Note: adapter 2 is shared, should already be populated
-    let ring_b = RouterRing {
-        indices: vec![2, 3],
-        gates_q15: vec![16384, 8192],
-        position: 0,
-    };
+    let mut ring_b = RouterRing::from_slices(&[2, 3], &[16384, 8192]);
+    ring_b.position = 0;
     kernels.run_step(&ring_b, &mut io)?;
     println!("✓ Populated adapter set B (2, 3)");
 
@@ -157,11 +148,8 @@ fn test_multiple_adapter_toggle_sequence() -> Result<()> {
     println!("✓ Re-activated adapter set A (1, 2)");
 
     // Activate all adapters at once
-    let ring_all = RouterRing {
-        indices: vec![1, 2, 3],
-        gates_q15: vec![16384, 8192, 4096],
-        position: 0,
-    };
+    let mut ring_all = RouterRing::from_slices(&[1, 2, 3], &[16384, 8192, 4096]);
+    ring_all.position = 0;
     kernels.run_step(&ring_all, &mut io)?;
     println!("✓ Activated all adapters (1, 2, 3)");
 
@@ -197,11 +185,8 @@ fn test_population_idempotency() -> Result<()> {
     };
 
     // Use the same adapter repeatedly
-    let ring = RouterRing {
-        indices: vec![1],
-        gates_q15: vec![16384],
-        position: 0,
-    };
+    let mut ring = RouterRing::from_slices(&[1], &[16384]);
+    ring.position = 0;
 
     // Call run_step 100 times with the same adapter
     // If population is properly idempotent, this should not cause issues
@@ -236,29 +221,20 @@ fn test_edge_case_adapter_ids() -> Result<()> {
     };
 
     // Test with adapter ID 0 (should be skipped/ignored)
-    let ring_zero = RouterRing {
-        indices: vec![0],
-        gates_q15: vec![16384],
-        position: 0,
-    };
+    let mut ring_zero = RouterRing::from_slices(&[0], &[16384]);
+    ring_zero.position = 0;
     kernels.run_step(&ring_zero, &mut io)?;
     println!("✓ Adapter ID 0 handled gracefully");
 
     // Test with valid adapter ID 1
-    let ring_valid = RouterRing {
-        indices: vec![1],
-        gates_q15: vec![16384],
-        position: 0,
-    };
+    let mut ring_valid = RouterRing::from_slices(&[1], &[16384]);
+    ring_valid.position = 0;
     kernels.run_step(&ring_valid, &mut io)?;
     println!("✓ Valid adapter ID 1 works correctly");
 
     // Test with mix of valid and ID 0
-    let ring_mixed = RouterRing {
-        indices: vec![0, 1, 0],
-        gates_q15: vec![16384, 8192, 4096],
-        position: 0,
-    };
+    let mut ring_mixed = RouterRing::from_slices(&[0, 1, 0], &[16384, 8192, 4096]);
+    ring_mixed.position = 0;
     kernels.run_step(&ring_mixed, &mut io)?;
     println!("✓ Mixed adapter IDs (0, 1, 0) handled correctly");
 
@@ -337,11 +313,8 @@ fn test_concurrent_adapter_activation() -> Result<()> {
 
     // Start with single adapters
     for adapter_id in 1..=3 {
-        let ring = RouterRing {
-            indices: vec![adapter_id],
-            gates_q15: vec![16384],
-            position: 0,
-        };
+        let mut ring = RouterRing::from_slices(&[adapter_id], &[16384]);
+        ring.position = 0;
         kernels.run_step(&ring, &mut io)?;
         println!("✓ Activated single adapter {}", adapter_id);
     }
@@ -349,22 +322,16 @@ fn test_concurrent_adapter_activation() -> Result<()> {
     // Now activate pairs
     for i in 1..=3 {
         for j in i..=3 {
-            let ring = RouterRing {
-                indices: vec![i, j],
-                gates_q15: vec![16384, 8192],
-                position: 0,
-            };
+            let mut ring = RouterRing::from_slices(&[i, j], &[16384, 8192]);
+            ring.position = 0;
             kernels.run_step(&ring, &mut io)?;
             println!("✓ Activated adapter pair ({}, {})", i, j);
         }
     }
 
     // Finally activate all three
-    let ring_all = RouterRing {
-        indices: vec![1, 2, 3],
-        gates_q15: vec![16384, 8192, 4096],
-        position: 0,
-    };
+    let mut ring_all = RouterRing::from_slices(&[1, 2, 3], &[16384, 8192, 4096]);
+    ring_all.position = 0;
     kernels.run_step(&ring_all, &mut io)?;
     println!("✓ Activated all adapters concurrently");
 
