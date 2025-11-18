@@ -5755,13 +5755,134 @@ pub async fn meta() -> Json<MetaResponse> {
     )
 )]
 pub async fn routing_decisions(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Query(_params): Query<RoutingDecisionsQuery>,
-) -> Result<Json<RoutingDecisionsResponse>, StatusCode> {
-    // TODO: Implement when router telemetry available
-    // Agent D will fallback to parsing telemetry NDJSON
-    Err(StatusCode::NOT_FOUND)
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<RoutingDecisionsQuery>,
+) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use adapteros_db::RoutingDecisionFilters;
+    use tracing::{info, error};
+
+    info!(
+        tenant = %params.tenant,
+        limit = params.limit,
+        user_id = %claims.sub,
+        "Querying routing decisions"
+    );
+
+    // Build filters from query params
+    let filters = RoutingDecisionFilters {
+        tenant_id: Some(params.tenant.clone()),
+        stack_id: params.stack_id.clone(),
+        adapter_id: params.adapter_id.clone(),
+        request_id: params.request_id.clone(),
+        since: params.since.clone(),
+        until: params.until.clone(),
+        min_entropy: params.min_entropy,
+        max_overhead_pct: params.max_overhead_pct,
+        limit: Some(params.limit),
+        offset: params.offset,
+    };
+
+    // Query database
+    let db_decisions = if params.anomalies_only {
+        // Get high overhead decisions (>8% budget)
+        state.db
+            .get_high_overhead_decisions(Some(params.tenant.clone()), params.limit)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to query high overhead decisions");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Database error: {}", e),
+                    }),
+                )
+            })?
+    } else {
+        state.db
+            .query_routing_decisions(&filters)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to query routing decisions");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Database error: {}", e),
+                    }),
+                )
+            })?
+    };
+
+    // Convert database records to API response format
+    let items: Vec<RoutingDecision> = db_decisions
+        .iter()
+        .map(|db_decision| {
+            // Parse candidates JSON
+            let candidates: Vec<adapteros_db::RouterCandidate> =
+                serde_json::from_str(&db_decision.candidate_adapters)
+                    .unwrap_or_default();
+
+            // Convert to API format with Q15 to float conversion
+            let candidate_infos: Vec<RouterCandidateInfo> = candidates
+                .iter()
+                .map(|c| {
+                    let gate_float = (c.gate_q15 as f32) / 32768.0;
+                    RouterCandidateInfo {
+                        adapter_idx: c.adapter_idx,
+                        adapter_name: None,  // TODO: Lookup from registry if needed
+                        raw_score: c.raw_score,
+                        gate_q15: c.gate_q15,
+                        gate_float,
+                        selected: c.gate_q15 > 0,
+                    }
+                })
+                .collect();
+
+            // Extract selected adapters for legacy field
+            let adapters_used: Vec<String> = db_decision
+                .selected_adapter_ids
+                .clone()
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+
+            // Extract activations (gate values as floats)
+            let activations: Vec<f64> = candidate_infos
+                .iter()
+                .filter(|c| c.selected)
+                .map(|c| c.gate_float as f64)
+                .collect();
+
+            RoutingDecision {
+                id: db_decision.id.clone(),
+                tenant_id: db_decision.tenant_id.clone(),
+                timestamp: db_decision.timestamp.clone(),
+                request_id: db_decision.request_id.clone(),
+                step: db_decision.step,
+                input_token_id: db_decision.input_token_id,
+                stack_id: db_decision.stack_id.clone(),
+                stack_name: None,  // TODO: Join with adapter_stacks table if needed
+                stack_hash: db_decision.stack_hash.clone(),
+                entropy: db_decision.entropy,
+                tau: db_decision.tau,
+                entropy_floor: db_decision.entropy_floor,
+                k_value: db_decision.k_value,
+                candidates: candidate_infos,
+                router_latency_us: db_decision.router_latency_us,
+                total_inference_latency_us: db_decision.total_inference_latency_us,
+                overhead_pct: db_decision.overhead_pct,
+                adapters_used,
+                activations,
+                reason: format!("entropy={:.2}, k={}", db_decision.entropy, db_decision.k_value.unwrap_or(0)),
+                trace_id: db_decision.request_id.clone().unwrap_or_default(),
+            }
+        })
+        .collect();
+
+    info!(count = items.len(), "Successfully retrieved routing decisions");
+
+    Ok(Json(RoutingDecisionsResponse { items }))
 }
 
 /// List audits with extended fields

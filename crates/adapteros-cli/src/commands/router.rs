@@ -15,6 +15,8 @@ pub enum RouterCmd {
     Show(ShowArgs),
     /// Enable or disable safe mode (routes through safety adapter only)
     SafeMode(SafeModeArgs),
+    /// Query routing decisions from database (PRD-04)
+    Decisions(DecisionsArgs),
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -69,6 +71,41 @@ pub struct SafeModeArgs {
     config: PathBuf,
 }
 
+#[derive(Debug, Parser, Clone)]
+pub struct DecisionsArgs {
+    /// Database path (defaults to var/aos-cp.sqlite3)
+    #[arg(long, default_value = "var/aos-cp.sqlite3")]
+    db: PathBuf,
+
+    /// Tenant ID to filter by
+    #[arg(short, long, default_value = "default")]
+    tenant: String,
+
+    /// Stack ID to filter by
+    #[arg(long)]
+    stack: Option<String>,
+
+    /// Adapter ID to filter by
+    #[arg(long)]
+    adapter: Option<String>,
+
+    /// Filter to decisions since this ISO-8601 timestamp
+    #[arg(long)]
+    since: Option<String>,
+
+    /// Maximum number of results to return
+    #[arg(short, long, default_value = "50")]
+    limit: usize,
+
+    /// Output format: table (default) or json
+    #[arg(short, long, default_value = "table")]
+    format: String,
+
+    /// Show only anomalies (high overhead or low entropy)
+    #[arg(long)]
+    anomalies: bool,
+}
+
 impl RouterCmd {
     pub fn run(self) -> Result<()> {
         match self {
@@ -76,6 +113,7 @@ impl RouterCmd {
             RouterCmd::Validate(args) => validate(args),
             RouterCmd::Show(args) => show(args),
             RouterCmd::SafeMode(args) => safe_mode(args),
+            RouterCmd::Decisions(args) => decisions(args),
         }
     }
 }
@@ -241,4 +279,134 @@ fn safe_mode(args: SafeModeArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn decisions(args: DecisionsArgs) -> Result<()> {
+    use adapteros_db::{Db, RoutingDecisionFilters};
+    use tokio::runtime::Runtime;
+
+    // Create async runtime to run database queries
+    let rt = Runtime::new().context("Failed to create Tokio runtime")?;
+
+    rt.block_on(async {
+        // Connect to database
+        println!("Connecting to database: {:?}", args.db);
+        let db = Db::connect(args.db.to_str().unwrap())
+            .await
+            .context("Failed to connect to database")?;
+
+        // Build query filters
+        let filters = RoutingDecisionFilters {
+            tenant_id: Some(args.tenant.clone()),
+            stack_id: args.stack.clone(),
+            adapter_id: args.adapter.clone(),
+            request_id: None,
+            since: args.since.clone(),
+            until: None,
+            min_entropy: if args.anomalies { Some(0.0) } else { None },
+            max_overhead_pct: None,
+            limit: Some(args.limit),
+            offset: None,
+        };
+
+        // Query routing decisions
+        let decisions = if args.anomalies {
+            db.get_low_entropy_decisions(Some(args.tenant.clone()), args.limit)
+                .await
+                .context("Failed to query anomalous routing decisions")?
+        } else {
+            db.query_routing_decisions(&filters)
+                .await
+                .context("Failed to query routing decisions")?
+        };
+
+        if decisions.is_empty() {
+            println!("\nNo routing decisions found matching the filters.");
+            return Ok(());
+        }
+
+        println!("\nFound {} routing decisions:\n", decisions.len());
+
+        // Output results
+        match args.format.as_str() {
+            "json" => {
+                // JSON output
+                let json = serde_json::to_string_pretty(&decisions)
+                    .context("Failed to serialize decisions to JSON")?;
+                println!("{}", json);
+            }
+            _ => {
+                // Table output (default)
+                println!(
+                    "{:<12} {:<6} {:<10} {:<8} {:<8} {:<12} {:<20}",
+                    "Request", "Step", "Entropy", "K", "Overhead", "Latency(us)", "Stack"
+                );
+                println!("{}", "-".repeat(90));
+
+                for decision in &decisions {
+                    let request_short = decision
+                        .request_id
+                        .as_ref()
+                        .map(|r| {
+                            if r.len() > 12 {
+                                format!("{}...", &r[..9])
+                            } else {
+                                r.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| "N/A".to_string());
+
+                    let stack_short = decision
+                        .stack_hash
+                        .as_ref()
+                        .map(|h| {
+                            if h.len() > 16 {
+                                format!("{}...", &h[..13])
+                            } else {
+                                h.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| "N/A".to_string());
+
+                    println!(
+                        "{:<12} {:<6} {:<10.2} {:<8} {:<8.2} {:<12} {:<20}",
+                        request_short,
+                        decision.step,
+                        decision.entropy,
+                        decision.k_value.unwrap_or(0),
+                        decision.overhead_pct.unwrap_or(0.0),
+                        decision.router_latency_us.unwrap_or(0),
+                        stack_short
+                    );
+                }
+
+                println!("\n{} decisions displayed (limit: {})", decisions.len(), args.limit);
+
+                // Show summary statistics
+                let avg_entropy: f64 =
+                    decisions.iter().map(|d| d.entropy).sum::<f64>() / decisions.len() as f64;
+                let avg_k: f64 = decisions
+                    .iter()
+                    .filter_map(|d| d.k_value)
+                    .sum::<i64>() as f64
+                    / decisions.len() as f64;
+                let avg_latency: f64 = decisions
+                    .iter()
+                    .filter_map(|d| d.router_latency_us)
+                    .sum::<i64>() as f64
+                    / decisions.iter().filter(|d| d.router_latency_us.is_some()).count() as f64;
+
+                println!("\nSummary Statistics:");
+                println!("  Average Entropy:        {:.3}", avg_entropy);
+                println!("  Average K:              {:.1}", avg_k);
+                println!("  Average Router Latency: {:.0} μs", avg_latency);
+
+                if args.anomalies {
+                    println!("\n⚠ Showing only anomalous decisions (low entropy or high overhead)");
+                }
+            }
+        }
+
+        Ok(())
+    })
 }

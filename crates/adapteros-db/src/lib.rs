@@ -609,6 +609,10 @@ pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;
+pub mod routing_decisions;
+pub use routing_decisions::{RoutingDecision, RoutingDecisionFilters, RouterCandidate};
+pub mod routing_telemetry_bridge;
+pub use routing_telemetry_bridge::{event_to_decision, persist_router_decisions};
 pub mod telemetry_bundles;
 
 // Re-export unified access types
