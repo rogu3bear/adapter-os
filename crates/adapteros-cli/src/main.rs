@@ -304,6 +304,20 @@ Examples:
     #[command(subcommand)]
     Status(commands::status::StatusCommand),
 
+    /// Run system health diagnostics (PRD-06)
+    #[command(after_help = "\
+Examples:
+  # Run comprehensive health check
+  aosctl doctor
+
+  # Check health with custom server URL
+  aosctl doctor --server-url http://localhost:8080
+
+  # Check health with custom timeout
+  aosctl doctor --timeout 30
+")]
+    Doctor(commands::doctor::DoctorCommand),
+
     // ============================================================
     // Maintenance
     // ============================================================
@@ -1382,6 +1396,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::status::run(cmd.clone(), &output).await?;
         }
 
+        // System Health Diagnostics (PRD-06)
+        Commands::Doctor(cmd) => {
+            commands::doctor::run(cmd.clone(), &output).await?;
+        }
+
         // Maintenance
         Commands::Maintenance(cmd) => {
             commands::maintenance::run(cmd.clone(), &output).await?;
@@ -1704,6 +1723,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::NodeVerify { .. } => "node-verify",
         Commands::NodeSync { .. } => "node-sync",
         Commands::Status { .. } => "status",
+        Commands::Doctor { .. } => "doctor",
         Commands::Maintenance { .. } => "maintenance",
         Commands::Deploy { .. } => "deploy",
         Commands::PlanBuild { .. } => "build-plan",
