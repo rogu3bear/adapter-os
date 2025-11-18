@@ -259,6 +259,11 @@ cargo fmt --all
 cargo clippy --workspace -- -D warnings
 ```
 
+### Duplication Monitoring
+
+- Run a local scan: `make dup` (writes reports under `var/reports/jscpd/<timestamp>`)
+- See `docs/DUPLICATION_MONITORING.md` for CI integration and enforcement options.
+
 ---
 
 ## 📊 Performance

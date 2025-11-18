@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -168,7 +169,10 @@ export function GoldenRuns() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="card-standard md:col-span-1">
           <CardHeader>
-            <CardTitle>Baselines</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Baselines
+              <ConceptTooltip concept="goldenRun" />
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {names.length === 0 ? (
