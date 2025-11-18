@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -535,13 +536,16 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
 
       <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
-          <CardTitle>
-            Event Bundles
-            {filteredBundles.length !== bundles.length && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                ({filteredBundles.length} of {bundles.length})
-              </span>
-            )}
+          <CardTitle className="flex items-center gap-2">
+            <span>
+              Event Bundles
+              {filteredBundles.length !== bundles.length && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  ({filteredBundles.length} of {bundles.length})
+                </span>
+              )}
+            </span>
+            <ConceptTooltip concept="bundle" />
           </CardTitle>
         </CardHeader>
         <CardContent>

@@ -44,6 +44,13 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
     icon: Shield,
     steps: [
       {
+        id: 'learn-concepts',
+        title: 'Learn Core Concepts',
+        description: 'Understand Tenants, Adapters, Stacks, Router, and Telemetry',
+        icon: BookOpen,
+        route: '/docs/concepts'
+      },
+      {
         id: 'system-overview',
         title: 'System Overview',
         description: 'Review system health and infrastructure',
@@ -79,6 +86,20 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
     icon: Zap,
     steps: [
       {
+        id: 'learn-concepts',
+        title: 'Learn Core Concepts',
+        description: 'Understand how training creates adapters, stacks combine them, and router selects them',
+        icon: BookOpen,
+        route: '/docs/concepts'
+      },
+      {
+        id: 'setup-tenant',
+        title: 'Setup Tenant',
+        description: 'Create or select a tenant for your work',
+        icon: Shield,
+        route: '/tenants'
+      },
+      {
         id: 'dashboard',
         title: 'ML Pipeline Overview',
         description: 'Review ML pipeline status',
@@ -88,30 +109,37 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
       {
         id: 'training',
         title: 'Train Adapter',
-        description: 'Start training a new adapter',
+        description: 'Start training a new LoRA adapter for your use case',
         icon: Zap,
         route: '/training'
       },
       {
-        id: 'testing',
-        title: 'Test & Validate',
-        description: 'Run tests and validate adapter performance',
-        icon: CheckCircle,
-        route: '/testing'
-      },
-      {
-        id: 'promotion',
-        title: 'Promote Adapter',
-        description: 'Promote tested adapter through quality gates',
-        icon: ArrowRight,
-        route: '/promotion'
-      },
-      {
-        id: 'deploy',
-        title: 'Deploy & Manage',
-        description: 'Deploy adapter and manage lifecycle',
-        icon: Rocket,
+        id: 'register-adapter',
+        title: 'Register Adapter',
+        description: 'Register trained adapter in the system',
+        icon: FileText,
         route: '/adapters'
+      },
+      {
+        id: 'create-stack',
+        title: 'Create Adapter Stack',
+        description: 'Combine adapters into a stack with workflow rules',
+        icon: ArrowRight,
+        route: '/stacks'
+      },
+      {
+        id: 'inference',
+        title: 'Run Inference',
+        description: 'Test your stack with inference requests',
+        icon: Zap,
+        route: '/inference'
+      },
+      {
+        id: 'monitor-telemetry',
+        title: 'Monitor & Replay',
+        description: 'Review telemetry and verify determinism',
+        icon: Activity,
+        route: '/telemetry'
       }
     ]
   },
@@ -225,6 +253,13 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
     description: 'Monitor system status and view reports',
     icon: Activity,
     steps: [
+      {
+        id: 'learn-concepts',
+        title: 'Learn Core Concepts',
+        description: 'Understand what you are viewing: Tenants, Adapters, Stacks',
+        icon: BookOpen,
+        route: '/docs/concepts'
+      },
       {
         id: 'dashboard',
         title: 'System Overview',
