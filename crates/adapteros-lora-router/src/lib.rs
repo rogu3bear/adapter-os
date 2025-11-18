@@ -14,6 +14,10 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::HashSet;
 
+// Telemetry imports
+use adapteros_telemetry::events::{RouterDecisionEvent, RouterCandidate as TelemetryCandidate};
+use adapteros_telemetry::writer::RouterDecisionWriter;
+
 pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
 };
@@ -171,6 +175,12 @@ pub struct Router {
     active_stack_adapter_ids: Option<Vec<String>>,
     /// Cached hash of the active stack configuration
     active_stack_hash: Option<B3Hash>,
+
+    // Telemetry
+    /// Optional telemetry writer for routing decisions (non-blocking)
+    telemetry_writer: Option<RouterDecisionWriter>,
+    /// Current step counter for telemetry correlation
+    step_counter: usize,
 }
 
 impl Router {
@@ -190,6 +200,60 @@ impl Router {
             active_stack_name: None,
             active_stack_adapter_ids: None,
             active_stack_hash: None,
+            telemetry_writer: None,
+            step_counter: 0,
+        }
+    }
+
+    /// Set the telemetry writer for routing decision events
+    pub fn set_telemetry_writer(&mut self, writer: RouterDecisionWriter) {
+        self.telemetry_writer = Some(writer);
+    }
+
+    /// Clear the telemetry writer (useful for testing)
+    pub fn clear_telemetry_writer(&mut self) {
+        self.telemetry_writer = None;
+    }
+
+    /// Emit a router decision telemetry event (non-blocking)
+    ///
+    /// This method does NOT fail on errors - it logs and continues to avoid blocking the hot path.
+    fn emit_decision_event(&mut self, decision: &Decision, input_token_id: Option<u32>) {
+        if let Some(ref writer) = self.telemetry_writer {
+            // Convert Decision to RouterDecisionEvent
+            let candidates: Vec<TelemetryCandidate> = decision
+                .candidates
+                .iter()
+                .map(|c| TelemetryCandidate {
+                    adapter_idx: c.adapter_idx,
+                    raw_score: c.raw_score,
+                    gate_q15: c.gate_q15,
+                })
+                .collect();
+
+            let event = RouterDecisionEvent {
+                step: self.step_counter,
+                input_token_id,
+                candidate_adapters: candidates,
+                entropy: decision.entropy,
+                tau: self.tau,
+                entropy_floor: self.eps,
+                stack_hash: self.active_stack_hash.map(|h| h.to_short_hex()),
+                stack_id: self.active_stack_name.clone(),
+                stack_version: None, // Will be populated by PRD-03
+            };
+
+            // Emit event (non-blocking, logs on error)
+            if let Err(e) = writer.emit(event) {
+                tracing::debug!(
+                    error = %e,
+                    step = self.step_counter,
+                    "Router decision telemetry dropped (channel full)"
+                );
+            }
+
+            // Increment step counter
+            self.step_counter += 1;
         }
     }
 
@@ -571,12 +635,17 @@ impl Router {
             }
         }
 
-        Decision {
+        let decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
-        }
+        };
+
+        // Emit telemetry event (non-blocking)
+        self.emit_decision_event(&decision, None);
+
+        decision
     }
 
     /// Compute Shannon entropy of gate distribution
@@ -720,12 +789,17 @@ impl Router {
             }
         }
 
-        Decision {
+        let decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
-        }
+        };
+
+        // Emit telemetry event (non-blocking)
+        self.emit_decision_event(&decision, None);
+
+        decision
     }
 
     /// Route with k0 detection (no adapters qualify)
@@ -828,12 +902,17 @@ impl Router {
             .map(|candidate| candidate.adapter_idx)
             .collect();
 
-        Decision {
+        let decision = Decision {
             indices,
             gates_q15,
             entropy,
             candidates: candidate_entries,
-        }
+        };
+
+        // Emit telemetry event (non-blocking)
+        self.emit_decision_event(&decision, None);
+
+        decision
     }
 
     /// Log k0 event when no adapters are selected
