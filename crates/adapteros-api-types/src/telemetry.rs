@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// API telemetry event (DTO for public API)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiTelemetryEvent {
@@ -32,6 +34,8 @@ impl From<TelemetryEvent> for ApiTelemetryEvent {
 /// Telemetry bundle response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TelemetryBundleResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub bundle_id: String,
     pub created_at: String,
     pub event_count: u64,
@@ -56,6 +60,8 @@ pub struct VerifyBundleSignatureRequest {
 /// Bundle verification response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BundleVerificationResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub bundle_id: String,
     pub verified: bool,
     pub signature_match: bool,

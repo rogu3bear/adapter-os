@@ -3,6 +3,14 @@
 //! This crate provides unified request/response types used across
 //! the control plane API, client libraries, and UI components.
 
+/// API schema version for forward/backward compatibility
+pub const API_SCHEMA_VERSION: &str = "1.0";
+
+/// Helper function to return the current API schema version
+fn schema_version() -> String {
+    API_SCHEMA_VERSION.to_string()
+}
+
 pub mod adapters;
 pub mod auth;
 pub mod dashboard;
@@ -37,6 +45,8 @@ pub use workers::*;
 /// Common error response structure
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub error: String,
     #[serde(default)]
     pub code: String,
@@ -48,6 +58,7 @@ impl ErrorResponse {
     /// Create a new error response
     pub fn new(error: impl Into<String>) -> Self {
         Self {
+            schema_version: schema_version(),
             error: error.into(),
             code: "INTERNAL_ERROR".to_string(),
             details: None,
@@ -84,6 +95,8 @@ impl ErrorResponse {
 /// Health check response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct HealthResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub status: String,
     pub version: String,
     /// Model runtime health information
@@ -118,6 +131,8 @@ fn default_limit() -> u32 {
 /// Paginated response wrapper
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct PaginatedResponse<T> {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub data: Vec<T>,
     pub total: u64,
     pub page: u32,
