@@ -25,6 +25,7 @@ pub mod replay;
 pub mod report;
 pub mod uds_exporter;
 pub mod unified_events;
+pub mod writer;
 
 pub use alerting::{
     AlertComparator, AlertRecord, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
@@ -65,6 +66,7 @@ pub use unified_events::{
     EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
     TelemetryFilters,
 };
+pub use writer::RouterDecisionWriter;
 
 /// Telemetry writer with background thread
 pub struct TelemetryWriter {
