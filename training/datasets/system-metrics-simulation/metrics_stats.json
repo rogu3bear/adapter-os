@@ -1,0 +1,177 @@
+{
+  "total_entries": 320,
+  "components": {
+    "router": {
+      "count": 58,
+      "metrics": {
+        "decision_rate": {
+          "count": 14,
+          "min": 81.67,
+          "max": 199.61,
+          "avg": 130.49428571428572
+        },
+        "k_sparse_selections": {
+          "count": 14,
+          "min": 1,
+          "max": 8,
+          "avg": 4.642857142857143
+        },
+        "gate_computation_ms": {
+          "count": 14,
+          "min": 1.57,
+          "max": 3.97,
+          "avg": 2.742142857142857
+        },
+        "tie_breaks": {
+          "count": 16,
+          "min": 0,
+          "max": 8,
+          "avg": 1.625
+        }
+      }
+    },
+    "deterministic_exec": {
+      "count": 43,
+      "metrics": {
+        "task_queue_depth": {
+          "count": 15,
+          "min": 0,
+          "max": 49,
+          "avg": 23.4
+        },
+        "tick_rate": {
+          "count": 14,
+          "min": 195.43,
+          "max": 406.2,
+          "avg": 300.8692857142857
+        },
+        "barrier_wait_ms": {
+          "count": 14,
+          "min": 1.38,
+          "max": 100.0,
+          "avg": 40.44499999999999
+        }
+      }
+    },
+    "lifecycle": {
+      "count": 57,
+      "metrics": {
+        "promotions": {
+          "count": 14,
+          "min": 0,
+          "max": 7,
+          "avg": 0.6428571428571429
+        },
+        "demotions": {
+          "count": 15,
+          "min": 0,
+          "max": 7,
+          "avg": 0.5333333333333333
+        },
+        "evictions": {
+          "count": 14,
+          "min": 0,
+          "max": 2,
+          "avg": 0.14285714285714285
+        },
+        "activation_rate": {
+          "count": 14,
+          "min": 10.78,
+          "max": 88.61,
+          "avg": 52.614999999999995
+        }
+      }
+    },
+    "telemetry": {
+      "count": 32,
+      "metrics": {
+        "bundle_size_kb": {
+          "count": 17,
+          "min": 72.9,
+          "max": 365.3,
+          "avg": 234.1470588235294
+        },
+        "events_emitted": {
+          "count": 15,
+          "min": 129,
+          "max": 832,
+          "avg": 557.7333333333333
+        }
+      }
+    },
+    "memory": {
+      "count": 43,
+      "metrics": {
+        "vram_usage_mb": {
+          "count": 14,
+          "min": 2230.2,
+          "max": 7746.4,
+          "avg": 4875.335714285715
+        },
+        "headroom_percent": {
+          "count": 15,
+          "min": 8.45,
+          "max": 50.0,
+          "avg": 28.532666666666664
+        },
+        "adapter_count": {
+          "count": 14,
+          "min": 4,
+          "max": 20,
+          "avg": 11.928571428571429
+        }
+      }
+    },
+    "policy": {
+      "count": 43,
+      "metrics": {
+        "egress_blocks": {
+          "count": 15,
+          "min": 0,
+          "max": 0,
+          "avg": 0.0
+        },
+        "determinism_checks": {
+          "count": 14,
+          "min": 99,
+          "max": 161,
+          "avg": 129.5
+        },
+        "policy_violations": {
+          "count": 14,
+          "min": 0,
+          "max": 1,
+          "avg": 0.07142857142857142
+        }
+      }
+    },
+    "training": {
+      "count": 44,
+      "metrics": {
+        "job_count": {
+          "count": 14,
+          "min": 0,
+          "max": 7,
+          "avg": 4.071428571428571
+        },
+        "avg_loss": {
+          "count": 15,
+          "min": 0.152,
+          "max": 2.399,
+          "avg": 1.3856666666666668
+        },
+        "tokens_per_sec": {
+          "count": 15,
+          "min": 1885.39,
+          "max": 4260.25,
+          "avg": 3134.640666666667
+        }
+      }
+    }
+  },
+  "time_range": {
+    "start": 1763355502,
+    "end": 1763438392,
+    "span_hours": 23.025
+  }
+}

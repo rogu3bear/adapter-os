@@ -1,0 +1,322 @@
+{
+  "dataset_id": "system-metrics-simulation-v1",
+  "version": "1.0.0",
+  "type": "system-metrics-simulation",
+  "category": "ci-testing",
+  "created_at": "2025-11-18T00:00:00Z",
+  "description": "Synthetic system metrics dataset for validating metrics ingestion and DB schema",
+  "purpose": [
+    "Validate metrics ingestion pipeline",
+    "Test /v1/metrics/summary endpoint",
+    "Verify DB schema compatibility",
+    "CI/CD integration testing"
+  ],
+  "schema_version": "1.0",
+  "entry_count": 320,
+  "time_span_hours": 24,
+  "format": "jsonl",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": "integer",
+      "description": "Unix timestamp (seconds since epoch)",
+      "required": true
+    },
+    {
+      "name": "component",
+      "type": "string",
+      "description": "System component name",
+      "required": true,
+      "values": [
+        "router",
+        "lifecycle",
+        "memory",
+        "deterministic_exec",
+        "training",
+        "policy",
+        "telemetry"
+      ]
+    },
+    {
+      "name": "metric",
+      "type": "string",
+      "description": "Metric identifier",
+      "required": true
+    },
+    {
+      "name": "value",
+      "type": "number",
+      "description": "Metric value (integer or float)",
+      "required": true
+    },
+    {
+      "name": "unit",
+      "type": "string",
+      "description": "Measurement unit",
+      "required": true
+    }
+  ],
+  "components": {
+    "router": {
+      "entry_count": 58,
+      "metrics": [
+        {
+          "name": "decision_rate",
+          "type": "float",
+          "unit": "decisions/sec",
+          "range": [80.0, 200.0],
+          "pattern": "spiky"
+        },
+        {
+          "name": "k_sparse_selections",
+          "type": "integer",
+          "unit": "adapters",
+          "range": [1, 8],
+          "pattern": "discrete"
+        },
+        {
+          "name": "gate_computation_ms",
+          "type": "float",
+          "unit": "milliseconds",
+          "range": [0.5, 5.0],
+          "pattern": "normal"
+        },
+        {
+          "name": "tie_breaks",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 15],
+          "pattern": "poisson"
+        }
+      ]
+    },
+    "lifecycle": {
+      "entry_count": 57,
+      "metrics": [
+        {
+          "name": "promotions",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 10],
+          "pattern": "rare"
+        },
+        {
+          "name": "demotions",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 8],
+          "pattern": "rare"
+        },
+        {
+          "name": "evictions",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 5],
+          "pattern": "rare"
+        },
+        {
+          "name": "activation_rate",
+          "type": "float",
+          "unit": "percent",
+          "range": [0.0, 100.0],
+          "pattern": "normal"
+        }
+      ]
+    },
+    "memory": {
+      "entry_count": 43,
+      "metrics": [
+        {
+          "name": "vram_usage_mb",
+          "type": "float",
+          "unit": "megabytes",
+          "range": [2048.0, 8192.0],
+          "pattern": "trending"
+        },
+        {
+          "name": "headroom_percent",
+          "type": "float",
+          "unit": "percent",
+          "range": [5.0, 50.0],
+          "pattern": "inverse_trending"
+        },
+        {
+          "name": "adapter_count",
+          "type": "integer",
+          "unit": "count",
+          "range": [5, 25],
+          "pattern": "stepped"
+        }
+      ]
+    },
+    "deterministic_exec": {
+      "entry_count": 43,
+      "metrics": [
+        {
+          "name": "tick_rate",
+          "type": "float",
+          "unit": "ticks/sec",
+          "range": [100.0, 500.0],
+          "pattern": "normal"
+        },
+        {
+          "name": "task_queue_depth",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 50],
+          "pattern": "spiky"
+        },
+        {
+          "name": "barrier_wait_ms",
+          "type": "float",
+          "unit": "milliseconds",
+          "range": [0.1, 100.0],
+          "pattern": "exponential"
+        }
+      ]
+    },
+    "training": {
+      "entry_count": 44,
+      "metrics": [
+        {
+          "name": "job_count",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 8],
+          "pattern": "discrete"
+        },
+        {
+          "name": "avg_loss",
+          "type": "float",
+          "unit": "loss",
+          "range": [0.1, 2.5],
+          "pattern": "decreasing"
+        },
+        {
+          "name": "tokens_per_sec",
+          "type": "float",
+          "unit": "tokens/sec",
+          "range": [1000.0, 5000.0],
+          "pattern": "normal"
+        }
+      ]
+    },
+    "policy": {
+      "entry_count": 43,
+      "metrics": [
+        {
+          "name": "egress_blocks",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 5],
+          "pattern": "rare"
+        },
+        {
+          "name": "determinism_checks",
+          "type": "integer",
+          "unit": "count",
+          "range": [50, 200],
+          "pattern": "normal"
+        },
+        {
+          "name": "policy_violations",
+          "type": "integer",
+          "unit": "count",
+          "range": [0, 2],
+          "pattern": "very_rare"
+        }
+      ]
+    },
+    "telemetry": {
+      "entry_count": 32,
+      "metrics": [
+        {
+          "name": "events_emitted",
+          "type": "integer",
+          "unit": "count",
+          "range": [100, 1000],
+          "pattern": "normal"
+        },
+        {
+          "name": "bundle_size_kb",
+          "type": "float",
+          "unit": "kilobytes",
+          "range": [10.0, 500.0],
+          "pattern": "normal"
+        }
+      ]
+    }
+  },
+  "files": [
+    {
+      "name": "metrics_dataset.jsonl",
+      "type": "jsonl",
+      "size_bytes": 39680,
+      "entry_count": 320,
+      "description": "Primary dataset file"
+    },
+    {
+      "name": "metrics_stats.json",
+      "type": "json",
+      "description": "Summary statistics (min/max/avg per metric)"
+    },
+    {
+      "name": "generate_metrics.py",
+      "type": "python",
+      "description": "Dataset generation script (reproducible)"
+    },
+    {
+      "name": "validate_metrics_schema.py",
+      "type": "python",
+      "description": "Schema validation script"
+    },
+    {
+      "name": "README.md",
+      "type": "markdown",
+      "description": "Dataset documentation"
+    },
+    {
+      "name": "dataset_manifest.json",
+      "type": "json",
+      "description": "This metadata file"
+    }
+  ],
+  "usage": {
+    "ingestion_example": "cat metrics_dataset.jsonl | while read line; do curl -X POST http://localhost:8080/v1/metrics/ingest -H 'Content-Type: application/json' -d \"$line\"; done",
+    "query_example": "curl http://localhost:8080/v1/metrics/summary?component=router&hours=24",
+    "validation_command": "python3 validate_metrics_schema.py metrics_dataset.jsonl",
+    "regeneration_command": "python3 generate_metrics.py"
+  },
+  "database_schema": {
+    "table": "system_metrics",
+    "columns": [
+      {"name": "id", "type": "INTEGER PRIMARY KEY AUTOINCREMENT"},
+      {"name": "timestamp", "type": "INTEGER NOT NULL"},
+      {"name": "component", "type": "TEXT NOT NULL"},
+      {"name": "metric", "type": "TEXT NOT NULL"},
+      {"name": "value", "type": "REAL NOT NULL"},
+      {"name": "unit", "type": "TEXT"},
+      {"name": "created_at", "type": "TEXT DEFAULT (datetime('now'))"}
+    ],
+    "indexes": [
+      "CREATE INDEX idx_metrics_component ON system_metrics(component)",
+      "CREATE INDEX idx_metrics_timestamp ON system_metrics(timestamp)",
+      "CREATE INDEX idx_metrics_component_metric ON system_metrics(component, metric)"
+    ]
+  },
+  "edge_cases": [
+    "Zero values for rare events (policy violations, evictions)",
+    "High variance in decision rate and barrier wait times",
+    "Monotonic decreasing trend in training loss",
+    "Memory headroom approaching critical threshold (5%)",
+    "Discrete step changes in adapter count"
+  ],
+  "references": {
+    "claude_md": "../../CLAUDE.md#telemetry-event-catalog",
+    "metrics_crate": "../../../crates/adapteros-system-metrics/",
+    "telemetry_crate": "../../../crates/adapteros-telemetry/",
+    "migrations": "../../../migrations/"
+  },
+  "license": "© 2025 JKCA. All rights reserved.",
+  "maintainer": "James KC Auchterlonie"
+}
