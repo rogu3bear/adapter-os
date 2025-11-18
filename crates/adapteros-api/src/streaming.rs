@@ -51,6 +51,12 @@ pub struct StreamingInferenceRequest {
     /// Active adapter stack name
     #[serde(default)]
     pub adapter_stack: Option<String>,
+    /// Stack ID for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_version: Option<i64>,
 }
 
 fn default_max_tokens() -> usize {

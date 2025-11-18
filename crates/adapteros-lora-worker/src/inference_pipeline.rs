@@ -64,6 +64,10 @@ pub struct InferenceRequest {
     pub cpid: String,
     /// Whether to require evidence grounding
     pub require_evidence: bool,
+    /// Stack ID for telemetry correlation (PRD-03)
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    pub stack_version: Option<i64>,
 }
 
 /// Inference response with trace
@@ -77,6 +81,10 @@ pub struct InferenceResponse {
     pub latency_ms: u64,
     /// Trace for reproducibility
     pub trace: InferenceTrace,
+    /// Stack ID for telemetry correlation (PRD-03)
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    pub stack_version: Option<i64>,
 }
 
 /// Trace information for reproducible inference
