@@ -1,0 +1,60 @@
+{
+  "name": "determinism_edge_cases_v1",
+  "description": "Type 5: Determinism Edge Cases - Synthetic adversarial inputs for router and kernel stress testing including floating-point ambiguities, extremely short inputs, repeated tokens, capitalization cycles, punctuation overload, and repeated identical inputs",
+  "version": "1.0.0",
+  "category": "synthetic",
+  "scope": "global",
+  "tier": "critical",
+  "rank": 4,
+  "alpha": 8.0,
+  "target_modules": [
+    "gate_proj",
+    "o_proj"
+  ],
+  "entries": [
+    {
+      "path": "determinism-edge-cases.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "adversarial",
+      "notes": "Adversarial edge cases for determinism verification: floating-point precision, minimal inputs, token repetition, case variation, punctuation overload, unicode, and boundary conditions"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#deterministic-execution-engine",
+      "docs/CLAUDE.md#deterministic-executor-seeding"
+    ],
+    "created_by": "determinism-edge-cases-dataset-generator",
+    "created_at": "2025-11-18T00:00:00Z",
+    "last_reviewed_at": "2025-11-18T00:00:00Z",
+    "review_notes": "Comprehensive adversarial dataset for stress testing deterministic router decisions and kernel execution under edge case conditions"
+  },
+  "evaluation_gates": [
+    "Identical inputs produce identical router decisions 100% of time",
+    "Floating-point operations are deterministic across runs",
+    "Short inputs (0-2 chars) handle gracefully",
+    "Repeated token sequences maintain determinism",
+    "Unicode and special characters processed consistently"
+  ],
+  "intent": "Stress test the deterministic execution guarantees of AdapterOS by exposing router and kernel components to adversarial edge cases that might cause non-deterministic behavior in naive implementations",
+  "edge_case_categories": {
+    "floating_point_precision": "Inputs that test floating-point rounding and precision determinism",
+    "minimal_input": "Extremely short inputs (0-2 characters) that stress tokenization",
+    "token_repetition": "Repeated tokens to verify deterministic handling of identical patterns",
+    "case_variation": "Capitalization cycles to test case sensitivity consistency",
+    "punctuation_overload": "Excessive punctuation to test tokenizer robustness",
+    "unicode_characters": "Non-ASCII characters including emoji and international scripts",
+    "control_characters": "Non-printable characters that might break tokenization",
+    "boundary_conditions": "Length extremes and deep nesting to test limits",
+    "repeated_identical_inputs": "CRITICAL - Same input repeated multiple times to verify identical outputs"
+  },
+  "determinism_verification": {
+    "method": "Each input with 'repeated_identical_input' metadata should produce identical router gate activations and kernel outputs across multiple runs",
+    "critical_subcategories": [
+      "repeated_identical_inputs",
+      "determinism_verification"
+    ],
+    "expected_behavior": "Zero divergence in tick ledger entries for identical inputs"
+  }
+}
