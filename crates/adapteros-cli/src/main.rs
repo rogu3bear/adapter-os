@@ -427,6 +427,38 @@ Examples:
     // ============================================================
     // Telemetry & Verification
     // ============================================================
+    /// List telemetry events
+    #[command(after_help = r#"Examples:
+  # List all events
+  aosctl telemetry-list
+
+  # Filter by stack
+  aosctl telemetry-list --by-stack stack-prod-001
+
+  # Filter by event type
+  aosctl telemetry-list --event-type router.decision
+
+  # Combine filters with JSON output
+  aosctl telemetry-list --by-stack stack-prod-001 --limit 100 --json > events.json
+"#)]
+    TelemetryList {
+        /// Database path
+        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        database: PathBuf,
+
+        /// Filter by stack ID (PRD-03)
+        #[arg(long)]
+        by_stack: Option<String>,
+
+        /// Filter by event type
+        #[arg(long)]
+        event_type: Option<String>,
+
+        /// Limit number of results
+        #[arg(long, default_value = "50")]
+        limit: u32,
+    },
+
     /// Verify telemetry bundle chain
     #[command(after_help = r#"Examples:
   aosctl telemetry-verify --bundle-dir ./var/telemetry
@@ -1398,6 +1430,15 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Telemetry & Verification
+        Commands::TelemetryList {
+            database,
+            by_stack,
+            event_type,
+            limit,
+        } => {
+            telemetry_list::list_telemetry_events(&database, by_stack.as_deref(), event_type.as_deref(), *limit, &output).await?;
+        }
+
         Commands::TelemetryVerify { bundle_dir } => {
             verify_telemetry::verify_telemetry_chain(&bundle_dir, &output).await?;
         }
@@ -1667,6 +1708,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Deploy { .. } => "deploy",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
+        Commands::TelemetryList { .. } => "telemetry-list",
         Commands::TelemetryVerify { .. } => "verify-telemetry",
         Commands::FederationVerify { .. } => "federation-verify",
         Commands::DriftCheck { .. } => "drift-check",
