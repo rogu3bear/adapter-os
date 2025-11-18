@@ -148,11 +148,15 @@ aosctl register-adapter my_adapter b3:abc123... \
 
 ## 4. Status and Health
 
-The `status` tree makes `aosctl` the “system brain” for high‑level state.
+**What is Status?** Status commands query the system state to show **Adapters** (memory, tier, pinned), **Tenants** (cluster nodes), tick ledger (for determinism tracking), and memory pressure.
 
-- `aosctl status adapters`  
-  - Lists adapters from the control‑plane DB with: `name`, `tenant_id`, `active`, `pinned`, `expires_at`, and `memory_bytes`.  
+The `status` tree makes `aosctl` the "system brain" for high‑level state.
+
+- `aosctl status adapters`
+  - Lists adapters from the control‑plane DB with: `name`, `tenant_id`, `active`, `pinned`, `expires_at`, and `memory_bytes`.
+  - Shows **Lifecycle** tier and **Pinning** status.
   - Respects `--json` for structured output.
+  - See [docs/CONCEPTS.md#adapter](../../../docs/CONCEPTS.md#2-adapter) for lifecycle details.
 
 - `aosctl status cluster`  
   - Lists registered nodes and last heartbeats from the `nodes` table.  
@@ -183,15 +187,19 @@ aosctl status cluster
 
 ## 5. Deploying Adapters
 
+**What is Deploying?** Deployment copies **Adapter** files to the system directory, registers them with semantic names (tenant/domain/purpose/revision), and makes them available for use in **Stacks**.
+
 The `deploy` tree replaces the legacy `scripts/deploy_adapters.sh` script.
 
-- `aosctl deploy adapters`  
-  - Deploys adapter directories, `.aos` files, or `.safetensors` weights.  
-  - Key flags:  
-    - `--path <dir-or-file>` (repeatable): directories, `.aos`, or `.safetensors`.  
-    - `--adapters-dir`: target adapter directory (default `/opt/adapteros/adapters`).  
-    - `--backup-existing`: back up any existing adapter with the same name.  
+- `aosctl deploy adapters`
+  - Deploys adapter directories, `.aos` files, or `.safetensors` weights.
+  - Registers adapters in the system so they can be used in **Stacks**.
+  - Key flags:
+    - `--path <dir-or-file>` (repeatable): directories, `.aos`, or `.safetensors`.
+    - `--adapters-dir`: target adapter directory (default `/opt/adapteros/adapters`).
+    - `--backup-existing`: back up any existing adapter with the same name.
     - `--dry-run`: show what would be done without touching disk or registry.
+  - See [docs/CONCEPTS.md#adapter](../../../docs/CONCEPTS.md#2-adapter) for naming conventions.
 
 Behavior:
 
@@ -253,24 +261,29 @@ aosctl infer --adapter my_adapter \
 
 ## 7. Determinism and Verification
 
+**What is Determinism?** Determinism means identical inputs produce identical outputs. Verification checks that **Kernels** are precompiled, **Router** uses fixed seeds, and **Replay** matches **Golden Runs** byte-for-byte.
+
 Determinism and adapter deliverable checks are fronted through `aosctl`.
 
-- `aosctl verify determinism-loop`  
-  - Runs the Determinism Loop verification pipeline:  
-    - Validates presence of key federation, policy, tick ledger, telemetry, CAB, orchestrator, and doc files.  
-    - Runs `cargo check` for determinism‑critical crates.  
-    - Optionally runs `cargo xtask determinism-report`.  
-  - Exit code: `0` if all checks pass, `1` otherwise.  
+- `aosctl verify determinism-loop`
+  - Runs the Determinism Loop verification pipeline:
+    - Validates presence of key federation, policy, tick ledger, telemetry, CAB, orchestrator, and doc files.
+    - Runs `cargo check` for determinism‑critical crates.
+    - Optionally runs `cargo xtask determinism-report`.
+  - Verifies **Kernel** precompilation, HKDF seeding, and canonical JSON serialization.
+  - Exit code: `0` if all checks pass, `1` otherwise.
   - With `--json`, emits a `DeterminismLoopResult { ok, checks[] }`.
+  - See [docs/CONCEPTS.md#golden-run](../../../docs/CONCEPTS.md#7-golden-run--replay) for replay details.
 
 - `aosctl verify-adapters`  
   - Wraps `cargo xtask verify-agents` (adapter deliverables A–F).  
   - Ideal for CI and pre‑release gates.  
   - With `--json`, emits `VerifyAdaptersResult { ok, exit_code, stdout_head, stderr_head }`.
 
-- Telemetry verification  
-  - `aosctl telemetry-verify --bundle-dir ./var/telemetry`  
-  - Validates the Merkle chain and signatures of telemetry bundles.
+- Telemetry verification
+  - `aosctl telemetry-verify --bundle-dir ./var/telemetry`
+  - Validates the **Merkle chain** and Ed25519 signatures of **Telemetry** bundles.
+  - See [docs/CONCEPTS.md#telemetry](../../../docs/CONCEPTS.md#6-telemetry) for bundle format.
 
 **Examples**
 
@@ -289,20 +302,24 @@ aosctl verify adapters --json > verify_adapters.json
 
 ## 8. Maintenance and Garbage Collection
 
+**What is GC?** Garbage collection removes old **Telemetry** bundles to manage disk space while preserving bundles needed for audit, incident response, and **Golden Run** replay.
+
 Maintenance commands manage long‑term storage and housekeeping.
 
-- `aosctl maintenance gc-bundles`  
-  - Garbage‑collects telemetry bundles according to Ruleset #10.  
-  - Key flags:  
-    - `--bundles-path` (default `/srv/aos/bundles`)  
-    - `--db-path` (default `var/aos-cp.sqlite3`)  
-    - `--keep-count N` (default `12`)  
+- `aosctl maintenance gc-bundles`
+  - Garbage‑collects telemetry bundles according to Ruleset #10.
+  - Preserves bundles needed for audit and **Replay**.
+  - Key flags:
+    - `--bundles-path` (default `/srv/aos/bundles`)
+    - `--db-path` (default `var/aos-cp.sqlite3`)
+    - `--keep-count N` (default `12`)
     - `--dry-run`
+  - See [docs/CONCEPTS.md#telemetry](../../../docs/CONCEPTS.md#6-telemetry) for bundle lifecycle.
 
 Semantics:
 
-- Keep last K bundles per CPID (ordered by `created_at`).  
-- Always keep bundles referenced by open incidents.  
+- Keep last K bundles per CPID (ordered by `created_at`).
+- Always keep bundles referenced by open incidents.
 - Always keep promotion bundles referenced by `cp_pointers`.
 
 **Examples**
@@ -326,13 +343,16 @@ aosctl maintenance gc-bundles \
 
 ## 9. Registry Migration
 
+**What is Registry Migration?** Migration upgrades the database schema that stores **Adapters** and **Tenants** while preserving all data, semantic names, and ACLs.
+
 The `registry` tree now owns safe migration of the adapter registry.
 
-- `aosctl registry migrate`  
-  - Migrates a legacy `registry.db` into the current `adapteros-registry` schema.  
-  - Key flags:  
-    - `--from-db` (default `deprecated/registry.db`)  
-    - `--to-db` (default `var/registry.db`)  
+- `aosctl registry migrate`
+  - Migrates a legacy `registry.db` into the current `adapteros-registry` schema.
+  - Preserves **Adapter** names, hashes, tiers, and **Tenant** ACLs.
+  - Key flags:
+    - `--from-db` (default `deprecated/registry.db`)
+    - `--to-db` (default `var/registry.db`)
     - `--dry-run`
 
 Behavior:
@@ -358,16 +378,20 @@ aosctl registry migrate \
 
 ## 10. Metrics, Diagnostics, and SECD
 
+**What are Metrics?** Metrics track system performance: **Router** latency, **Adapter** activation %, memory usage, and **Telemetry** event rates. Use for monitoring and alerting.
+
 These commands inspect system health, metrics, and diagnostics.
 
-- Metrics and health (may be gated by feature flags)  
+- Metrics and health (may be gated by feature flags)
   - `aosctl metrics ...` subcommands: current metrics, history, policy thresholds.
-- Diagnostics  
-  - `aosctl diag` – system and tenant diagnostics, with optional bundle creation.  
+  - Queries **Telemetry** aggregations for real-time system stats.
+- Diagnostics
+  - `aosctl diag` – system and tenant diagnostics, with optional bundle creation.
   - `aosctl manual` – display this manual.
-- SECD status  
-  - `aosctl secd-status`  
+- SECD status
+  - `aosctl secd-status`
   - Key flags: `--database`, `--json`.
+  - See [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) for system architecture.
 
 **Examples**
 

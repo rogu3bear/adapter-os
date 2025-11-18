@@ -24,6 +24,7 @@ import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { useAdapterOperations } from '../hooks/useAdapterOperations';
+import { ConceptTooltip } from './ConceptTooltip';
 
 interface AdaptersData {
   adapters: Adapter[];
@@ -170,7 +171,10 @@ export function AdaptersPage() {
       {/* Adapter Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Deployed Adapters</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            Deployed Adapters
+            <ConceptTooltip concept="adapter" />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (

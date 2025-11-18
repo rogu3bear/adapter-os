@@ -80,10 +80,11 @@ const devOpsStage1: Stage = {
   id: 'server-config',
   title: 'Server Configuration Panel',
   content: {
-    whatAppears: 'Configuration editor with deployment profiles (dev/staging/prod)',
-    why: 'Set up production-ready server instances with proper policies',
-    context: 'Infrastructure provisioning phase',
-    mockComponent: 'DevOpsServerConfig'
+    whatAppears: 'Settings page with production mode toggle, policy enforcement controls, and system configuration',
+    why: 'Configure system-wide settings and deployment profiles (dev/staging/prod)',
+    context: 'Infrastructure provisioning and configuration',
+    route: '/settings',
+    mentalModelExplanation: 'Settings control system-wide behavior like production mode (zero egress), policy enforcement, and **Tenant** resource limits.'
   }
 };
 
@@ -91,10 +92,11 @@ const devOpsStage2: Stage = {
   id: 'resource-management',
   title: 'Resource Management Dashboard',
   content: {
-    whatAppears: 'Memory usage graphs, eviction policy controls, GPU allocation meters',
-    why: 'Monitor and optimize resource utilization across tenants',
-    context: 'Ongoing operations management',
-    mockComponent: 'DevOpsResourceDashboard'
+    whatAppears: 'Dashboard showing UMA memory stats, adapter memory usage, eviction metrics, and lifecycle tier distribution',
+    why: 'Monitor memory pressure, adapter evictions, and resource utilization across tenants',
+    context: 'Ongoing operations and memory management',
+    route: '/dashboard',
+    mentalModelExplanation: 'The dashboard shows **Lifecycle** tier distribution (Unloaded → Hot), memory pressure levels, and which adapters are consuming resources. Memory management automatically evicts Cold adapters when pressure exceeds 85%.'
   }
 };
 
@@ -102,10 +104,11 @@ const devOpsStage3: Stage = {
   id: 'deployment-pipeline',
   title: 'Deployment Pipeline Interface',
   content: {
-    whatAppears: 'CI/CD integration panel with adapter deployment workflows',
-    why: 'Automate safe deployment of new adapter versions',
-    context: 'Release management',
-    mockComponent: 'DevOpsCIDCPanel'
+    whatAppears: 'Adapters page with upload, registration, and deployment controls for new adapter versions',
+    why: 'Deploy new adapter versions safely with semantic naming and version control',
+    context: 'Release management and continuous deployment',
+    route: '/adapters',
+    mentalModelExplanation: 'Deploying new **Adapters** follows semantic naming (tenant/domain/purpose/revision). Adapters start in Unloaded state and are promoted through lifecycle tiers based on activation %.'
   }
 };
 
@@ -113,10 +116,11 @@ const devOpsStage4: Stage = {
   id: 'monitoring-alerting',
   title: 'Monitoring & Alerting Center',
   content: {
-    whatAppears: 'System metrics dashboard with configurable alerts and SLO tracking',
-    why: 'Ensure system reliability and performance SLAs',
-    context: 'Production operations',
-    mockComponent: 'DevOpsMonitoringDashboard'
+    whatAppears: 'Monitoring page with system metrics, health checks, performance graphs, and telemetry event streams',
+    why: 'Track system health, performance SLAs, and detect issues proactively',
+    context: 'Production operations and incident response',
+    route: '/monitoring',
+    mentalModelExplanation: 'Monitoring aggregates **Telemetry** events from all system operations (inference, lifecycle, policy enforcement) to provide real-time observability and alerting.'
   }
 };
 
@@ -125,21 +129,23 @@ const appDevStage1: Stage = {
   id: 'api-documentation',
   title: 'API Documentation Browser',
   content: {
-    whatAppears: 'Interactive API docs with code examples in multiple languages',
-    why: 'Understand integration patterns and available endpoints',
-    context: 'Initial integration planning',
-    mockComponent: 'AppDevAPIDocs'
+    whatAppears: 'Documentation viewer showing REST API endpoints, request/response schemas, and integration examples',
+    why: 'Learn how to integrate AdapterOS into your application via REST API',
+    context: 'Initial integration planning and API exploration',
+    route: '/help',
+    mentalModelExplanation: 'The API exposes all core entities: create **Tenants**, register **Adapters**, build **Stacks**, run inference, and query **Telemetry**.'
   }
 };
 
 const appDevStage2: Stage = {
   id: 'sdk-manager',
-  title: 'Client SDK Manager',
+  title: 'Client SDK Setup',
   content: {
-    whatAppears: 'Package manager interface for downloading client libraries',
-    why: 'Get the right SDK for the target platform (Node.js, Python, Go)',
-    context: 'Development environment setup',
-    mockComponent: 'AppDevSDKManager'
+    whatAppears: 'Documentation for REST API client setup in various languages (curl, Python, Node.js)',
+    why: 'Get started with API integration using your preferred language',
+    context: 'Development environment setup and first API call',
+    route: '/help',
+    mentalModelExplanation: 'Client SDKs wrap the REST API to create **Tenants**, manage **Adapters**, and run inference requests. The API uses JWT auth with role-based permissions.'
   }
 };
 
@@ -147,10 +153,11 @@ const appDevStage3: Stage = {
   id: 'integration-testing',
   title: 'Integration Testing Console',
   content: {
-    whatAppears: 'API testing interface with request/response panels',
-    why: 'Validate integration and handle error scenarios',
-    context: 'Development and debugging',
-    mockComponent: 'AppDevTestConsole'
+    whatAppears: 'Inference playground where you can test API calls with different prompts, stacks, and parameters',
+    why: 'Test your integration with real inference requests and debug API responses',
+    context: 'Development, testing, and debugging',
+    route: '/inference',
+    mentalModelExplanation: 'The inference playground calls the same API your app will use. It sends a request → **Router** selects top-K adapters → **Kernel** executes → **Telemetry** logs all events.'
   }
 };
 
@@ -158,10 +165,11 @@ const appDevStage4: Stage = {
   id: 'performance-optimization',
   title: 'Performance Optimization Panel',
   content: {
-    whatAppears: 'Latency graphs, throughput meters, cost calculators',
-    why: 'Optimize application performance and costs',
-    context: 'Production optimization',
-    mockComponent: 'AppDevPerformancePanel'
+    whatAppears: 'Monitoring page with latency graphs, throughput metrics, and router decision analytics',
+    why: 'Analyze inference performance and optimize request patterns',
+    context: 'Production optimization and performance tuning',
+    route: '/monitoring',
+    mentalModelExplanation: '**Telemetry** captures latency, tokens/sec, and **Router** decisions for every inference. Use this data to optimize K-sparse settings, adapter selection, and memory usage.'
   }
 };
 
@@ -218,10 +226,11 @@ const dataScientistStage1: Stage = {
   id: 'experiment-tracking',
   title: 'Experiment Tracking Interface',
   content: {
-    whatAppears: 'Experiment comparison dashboard with A/B testing controls',
-    why: 'Track and compare different adapter configurations',
-    context: 'Research and experimentation phase',
-    mockComponent: 'DataScientistExperimentTracker'
+    whatAppears: 'Training page showing job history, loss curves, and hyperparameter configurations for comparing adapter experiments',
+    why: 'Track and compare different adapter training runs to find optimal configurations',
+    context: 'Research experimentation with different ranks, alphas, and datasets',
+    route: '/training',
+    mentalModelExplanation: 'Each training job creates a new **Adapter** variant. Compare loss curves, convergence rates, and final performance to select the best configuration for your use case.'
   }
 };
 
@@ -229,10 +238,11 @@ const dataScientistStage2: Stage = {
   id: 'dataset-management',
   title: 'Dataset Management Portal',
   content: {
-    whatAppears: 'Data upload interface with preprocessing pipeline controls',
-    why: 'Prepare and validate training data for adapter creation',
-    context: 'Data preparation stage',
-    mockComponent: 'DataScientistDatasetManager'
+    whatAppears: 'Training page with dataset upload, validation, preprocessing controls, and dataset statistics',
+    why: 'Upload, preprocess, and validate training data before adapter creation',
+    context: 'Data preparation and quality validation',
+    route: '/training',
+    mentalModelExplanation: 'Training datasets are content-addressed (BLAKE3 hash). The system validates format, checks for duplicates, and computes statistics before training **Adapters**.'
   }
 };
 
@@ -240,10 +250,11 @@ const dataScientistStage3: Stage = {
   id: 'evaluation-framework',
   title: 'Evaluation Framework UI',
   content: {
-    whatAppears: 'Benchmark suite with custom metric definitions',
-    why: 'Measure adapter performance against baseline models',
-    context: 'Model validation',
-    mockComponent: 'DataScientistEvaluationUI'
+    whatAppears: 'Golden runs page where you can create test suites, run benchmarks, and compare adapter performance',
+    why: 'Measure adapter performance against baselines using reproducible test cases',
+    context: 'Model validation and performance benchmarking',
+    route: '/golden-runs',
+    mentalModelExplanation: '**Golden Runs** are test cases with verified outputs. Run adapters against golden run inputs, then compare performance metrics (accuracy, latency, output quality). **Replay** ensures results are reproducible.'
   }
 };
 
@@ -251,10 +262,11 @@ const dataScientistStage4: Stage = {
   id: 'collaboration-hub',
   title: 'Collaboration Hub',
   content: {
-    whatAppears: 'Shared workspace with team notebooks and adapter sharing',
-    why: 'Collaborate on research findings and model improvements',
-    context: 'Team collaboration',
-    mockComponent: 'DataScientistCollaborationHub'
+    whatAppears: 'Adapters page where team members can view, share, and fork adapters with semantic versioning',
+    why: 'Share research findings, fork adapters, and collaborate on model improvements',
+    context: 'Team collaboration and knowledge sharing',
+    route: '/adapters',
+    mentalModelExplanation: '**Adapters** use semantic naming (tenant/domain/purpose/revision). Teams can fork adapters (create variants), track lineage (parent_id), and share across **Tenants** with ACLs.'
   }
 };
 
@@ -263,10 +275,11 @@ const productManagerStage1: Stage = {
   id: 'feature-analytics',
   title: 'Feature Usage Analytics',
   content: {
-    whatAppears: 'Adoption dashboards with user behavior metrics',
-    why: 'Understand feature utilization and identify improvement opportunities',
-    context: 'Product planning and prioritization',
-    mockComponent: 'ProductManagerUsageAnalytics'
+    whatAppears: 'Monitoring page with usage metrics: which adapters are active, request volume, activation %, and tenant distribution',
+    why: 'Understand which adapters are used most, by which tenants, and how often',
+    context: 'Product analytics and feature adoption tracking',
+    route: '/monitoring',
+    mentalModelExplanation: '**Telemetry** tracks every inference request, router decision, and adapter activation. Aggregate metrics show which **Adapters** are valuable and which **Tenants** are active users.'
   }
 };
 
@@ -274,10 +287,11 @@ const productManagerStage2: Stage = {
   id: 'system-performance',
   title: 'System Performance Overview',
   content: {
-    whatAppears: 'Business metrics dashboard with uptime, latency, and user satisfaction KPIs',
-    why: 'Monitor overall system health and business impact',
-    context: 'Executive reporting',
-    mockComponent: 'ProductManagerPerformanceOverview'
+    whatAppears: 'Dashboard with system KPIs: uptime, average latency, tokens/sec, memory utilization, and policy compliance',
+    why: 'Track system health and business-critical metrics for stakeholder reporting',
+    context: 'Executive dashboards and SLA monitoring',
+    route: '/dashboard',
+    mentalModelExplanation: 'The dashboard aggregates **Telemetry** events to show system-wide metrics: inference throughput, **Router** selection latency, **Lifecycle** evictions, and policy enforcement status.'
   }
 };
 
@@ -285,10 +299,11 @@ const productManagerStage3: Stage = {
   id: 'config-management',
   title: 'Configuration Management Portal',
   content: {
-    whatAppears: 'Tenant configuration templates and deployment scenario builder',
-    why: 'Define and manage different service tiers and configurations',
-    context: 'Product configuration management',
-    mockComponent: 'ProductManagerConfigPortal'
+    whatAppears: 'Tenants page where you can create tenants, configure resource limits, and assign policies',
+    why: 'Define service tiers (free, pro, enterprise) by configuring tenant resource limits and policies',
+    context: 'Product tier management and tenant provisioning',
+    route: '/tenants',
+    mentalModelExplanation: '**Tenants** are the isolation boundary. Configure memory limits, adapter quotas, and policy packs per tenant to create service tiers (e.g., free tier = 1GB, 5 adapters; pro tier = 10GB, unlimited adapters).'
   }
 };
 
@@ -296,10 +311,11 @@ const productManagerStage4: Stage = {
   id: 'feedback-integration',
   title: 'Feedback Integration Hub',
   content: {
-    whatAppears: 'User feedback collection and feature request management system',
-    why: 'Gather and prioritize user requirements for product roadmap',
-    context: 'Product development planning',
-    mockComponent: 'ProductManagerFeedbackHub'
+    whatAppears: 'Telemetry page where you can analyze error rates, policy violations, and user-reported issues',
+    why: 'Identify pain points, bugs, and feature gaps from real user interactions',
+    context: 'Product feedback loop and roadmap planning',
+    route: '/telemetry',
+    mentalModelExplanation: '**Telemetry** events include errors, warnings, and policy violations. Analyze patterns to identify: which **Adapters** fail most, which **Router** decisions cause errors, and where users hit limits.'
   }
 };
 
