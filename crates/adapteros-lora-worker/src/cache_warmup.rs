@@ -77,6 +77,8 @@ impl CacheWarmupManager {
                 max_tokens: 50,
                 require_evidence: false,
                 request_type: RequestType::Normal,
+                stack_id: None,
+                stack_version: None,
             };
 
             match worker.infer(request).await {
@@ -129,6 +131,8 @@ impl CacheWarmupManager {
                 max_tokens: 20,
                 require_evidence: false,
                 request_type: RequestType::Normal,
+                stack_id: None,
+                stack_version: None,
             };
 
             match worker.infer(request).await {
