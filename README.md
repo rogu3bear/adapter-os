@@ -22,39 +22,64 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 ## 🏗️ Architecture
 
+<details>
+<summary>📊 AdapterOS Architecture</summary>
+
+```mermaid
+graph TB
+    subgraph Runtime[AdapterOS Runtime alpha-v0.01-1]
+        subgraph Control[Control Layer]
+            Policy[Policy Registry<br/>23 Canonical Packs]
+            Router[K-Sparse Router<br/>Q15 Quantized Gates]
+            Kernels[Modular Metal Kernels<br/>.metallib]
+        end
+
+        subgraph Registry[LoRA Adapter Registry]
+            A1[Adapter 1]
+            A2[Adapter 2]
+            A3[...]
+            AN[Adapter N]
+        end
+
+        subgraph Model[Base Model Layer]
+            BaseModel[Base Model<br/>Qwen, Llama, etc.]
+        end
+
+        Policy --> Router
+        Router --> Kernels
+
+        Policy --> Registry
+        Router --> Registry
+        Kernels --> Registry
+
+        Registry --> BaseModel
+    end
+
+    subgraph Hardware[Apple Silicon]
+        GPU[Apple Metal GPU<br/>Unified Memory Architecture]
+        Network[Zero Network Egress<br/>Unix Domain Sockets Only]
+    end
+
+    BaseModel --> GPU
+    Runtime -.->|Air-gapped| Network
+
+    style Policy fill:#e8a87c,stroke:#333,stroke-width:2px
+    style Router fill:#e27d60,stroke:#333,stroke-width:2px
+    style Kernels fill:#c38d9e,stroke:#333,stroke-width:2px
+    style Registry fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style BaseModel fill:#4a90e2,stroke:#333,stroke-width:3px
+    style GPU fill:#27ae60,stroke:#333,stroke-width:2px
+    style Network fill:#ffe1e1,stroke:#333,stroke-width:2px
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   AdapterOS Runtime                     │
-│                    (alpha-v0.01-1)                     │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌──────────────┐    ┌──────────────┐   ┌───────────┐ │
-│  │   Policy     │───▶│   Router     │──▶│  Modular  │ │
-│  │  Registry   │    │ (Q15 Gates)  │   │  Kernels  │ │
-│  │  (23 Packs) │    │ K-Sparse     │   │ (.metallib)│ │
-│  └──────────────┘    └──────────────┘   └───────────┘ │
-│         │                    │                  │       │
-│         ▼                    ▼                  ▼       │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │         LoRA Adapter Registry                    │  │
-│  │  [Adapter 1] [Adapter 2] ... [Adapter N]        │  │
-│  └──────────────────────────────────────────────────┘  │
-│         │                                               │
-│         ▼                                               │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │         Base Model (Qwen, Llama, etc.)           │  │
-│  └──────────────────────────────────────────────────┘  │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-              ┌──────────────────────┐
-              │   Apple Metal GPU    │
-              │   (Unified Memory)   │
-              │   Zero Network       │
-              │   (Unix Sockets)     │
-              └──────────────────────┘
-```
+
+**Key Components:**
+- **Policy Registry**: 23 canonical policy packs (egress, determinism, router, evidence, etc.)
+- **K-Sparse Router**: Top-K adapter selection with Q15 quantized gates
+- **Modular Kernels**: Precompiled `.metallib` kernels for deterministic execution
+- **Adapter Registry**: Content-addressed LoRA adapter storage
+- **Zero Network**: Air-gapped serving via Unix domain sockets only
+
+</details>
 
 ---
 
