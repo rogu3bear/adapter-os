@@ -1,0 +1,40 @@
+{
+  "generated_at": "2025-11-18T00:18:30Z",
+  "mock_categories": [
+    {
+      "category": "adapters",
+      "files": ["adapter-meta.json"],
+      "count": 3
+    },
+    {
+      "category": "stacks",
+      "files": ["stack-versions.json"],
+      "count": 2
+    },
+    {
+      "category": "router",
+      "files": ["router-decisions.json"],
+      "count": 1
+    },
+    {
+      "category": "inference",
+      "files": ["inference-traces.json"],
+      "count": 1
+    },
+    {
+      "category": "telemetry",
+      "files": ["telemetry-bundles.json"],
+      "count": 1
+    },
+    {
+      "category": "training",
+      "files": ["training-jobs.json"],
+      "count": 2
+    },
+    {
+      "category": "policies",
+      "files": ["policy-previews.json"],
+      "count": 2
+    }
+  ]
+}

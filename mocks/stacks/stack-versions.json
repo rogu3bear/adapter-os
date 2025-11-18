@@ -1,0 +1,26 @@
+{
+  "stacks": [
+    {
+      "id": "stack-001",
+      "name": "stack.production-code-review",
+      "version": "v1.2.0",
+      "adapter_ids": ["code-review-specialist", "rust-optimizer"],
+      "workflow_type": "UpstreamDownstream",
+      "effective_stack_hash": "b3:aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb",
+      "created_at": "2025-11-18T00:18:29Z",
+      "is_active": true,
+      "description": "Production stack for code review with Rust optimization"
+    },
+    {
+      "id": "stack-002",
+      "name": "stack.experimental-research",
+      "version": "v0.1.0",
+      "adapter_ids": ["temp-experiment"],
+      "workflow_type": "Sequential",
+      "effective_stack_hash": "b3:112233445566778899aabbccddeeff00112233445566778899aabbccddee00",
+      "created_at": "2025-11-18T00:18:29Z",
+      "is_active": false,
+      "description": "Experimental research stack"
+    }
+  ]
+}

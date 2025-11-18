@@ -1,0 +1,58 @@
+{
+  "adapters": [
+    {
+      "id": "adapter-001",
+      "adapter_id": "code-review-specialist",
+      "name": "tenant-a/engineering/code-review/r001",
+      "hash_b3": "b3:abc123def456789012345678901234567890123456789012345678901234567890",
+      "rank": 16,
+      "tier": 2,
+      "current_state": "hot",
+      "languages": ["rust", "typescript", "python"],
+      "framework": "general-code",
+      "category": "code-intelligence",
+      "memory_usage_mb": 256.5,
+      "activation_percentage": 85.3,
+      "created_at": "2025-01-15T10:00:00Z",
+      "updated_at": "2025-01-16T14:30:00Z",
+      "pinned": false,
+      "expires_at": null
+    },
+    {
+      "id": "adapter-002",
+      "adapter_id": "rust-optimizer",
+      "name": "tenant-a/engineering/rust-perf/r002",
+      "hash_b3": "b3:def456abc789012345678901234567890123456789012345678901234567890123",
+      "rank": 12,
+      "tier": 1,
+      "current_state": "warm",
+      "languages": ["rust"],
+      "framework": "framework-specific",
+      "category": "optimization",
+      "memory_usage_mb": 128.2,
+      "activation_percentage": 42.1,
+      "created_at": "2025-01-10T08:00:00Z",
+      "updated_at": "2025-01-16T12:00:00Z",
+      "pinned": true,
+      "expires_at": null
+    },
+    {
+      "id": "adapter-003",
+      "adapter_id": "temp-experiment",
+      "name": "tenant-b/research/experiment-a/r001",
+      "hash_b3": "b3:789012345abc678901234567890123456789012345678901234567890123def456",
+      "rank": 8,
+      "tier": 0,
+      "current_state": "cold",
+      "languages": ["python"],
+      "framework": null,
+      "category": "research",
+      "memory_usage_mb": 64.0,
+      "activation_percentage": 5.2,
+      "created_at": "2025-01-16T16:00:00Z",
+      "updated_at": "2025-01-16T16:30:00Z",
+      "pinned": false,
+      "expires_at": "2025-01-23T23:59:59Z"
+    }
+  ]
+}
