@@ -1,0 +1,72 @@
+{
+  "overall_status": "degraded",
+  "components": [
+    {
+      "component": "router",
+      "status": "healthy",
+      "message": "Router operating normally",
+      "details": {
+        "avg_decision_rate": 125.5,
+        "avg_overhead_pct": 2.45,
+        "anomaly_rate": 0.003
+      },
+      "timestamp": 1737201600
+    },
+    {
+      "component": "loader",
+      "status": "degraded",
+      "message": "Some adapters stuck in loading state",
+      "details": {
+        "loaded_adapters": 38,
+        "total_adapters": 87,
+        "stuck_adapters": 2
+      },
+      "timestamp": 1737201600
+    },
+    {
+      "component": "kernel",
+      "status": "healthy",
+      "message": "Kernel workers healthy",
+      "details": {
+        "available_workers": 4,
+        "total_workers": 4,
+        "gpu_memory_headroom_pct": 35.2
+      },
+      "timestamp": 1737201600
+    },
+    {
+      "component": "db",
+      "status": "healthy",
+      "message": "Database connections healthy",
+      "details": {
+        "pool_size": 10,
+        "active_connections": 3,
+        "migrations_applied": 65
+      },
+      "timestamp": 1737201600
+    },
+    {
+      "component": "telemetry",
+      "status": "degraded",
+      "message": "Telemetry buffer at high utilization",
+      "details": {
+        "events_per_sec": 1234.5,
+        "avg_latency_ms": 45.2,
+        "buffer_usage_pct": 87.3
+      },
+      "timestamp": 1737201600
+    },
+    {
+      "component": "system-metrics",
+      "status": "degraded",
+      "message": "Memory pressure elevated",
+      "details": {
+        "memory_pressure": "high",
+        "headroom_pct": 17.2,
+        "cpu_usage_pct": 78.5
+      },
+      "timestamp": 1737201600
+    }
+  ],
+  "timestamp": 1737201600
+}
