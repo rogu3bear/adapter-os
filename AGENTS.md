@@ -1,4 +1,4 @@
-# Agent Guidelines for AdapterOS
+# Agent Guidelines for AdapterOS rogu3bear/adapter-os
 
 **Purpose:** Guidelines for AI agents working on the AdapterOS codebase  
 **Last Updated:** 2025-11-07  

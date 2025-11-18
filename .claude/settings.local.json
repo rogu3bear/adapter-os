@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo:*)",
+      "Bash(find:*)",
+      "Bash(rustc:*)",
+      "Bash(pnpm run lint)",
+      "Bash(pnpm run build:*)",
+      "Bash(xcode-select:*)",
+      "Bash(xcrun:*)",
+      "Read(//Users/star/Library/Developer/**)",
+      "Bash(rustup:*)",
+      "Bash(awk:*)",
+      "Bash(sw_vers)",
+      "Bash(sysctl:*)",
+      "Bash(CARGO_BUILD_JOBS=1 cargo check:*)",
+      "Read(//Users/star/Library/Caches/**)",
+      "Bash(while read dir)",
+      "Bash(done)",
+      "Read(//Users/star/Library/**)",
+      "mcp__ide__getDiagnostics",
+      "Bash(chmod:*)",
+      "Bash(test:*)",
+      "Bash(cat:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Implement training-to-deployment pipeline and dataset infrastructure\n\n## Critical Features Implemented\n\n### 1. Training → Deployment Pipeline (COMPLETE)\n- Add adapter packaging after training completes\n- Quantize trained weights to Q15 format\n- Generate adapter manifest with metadata\n- Store packaged adapters to filesystem\n- Track trained_adapter_id and hash in training jobs\n- Location: adapteros-orchestrator/src/training.rs\n\n### 2. Dataset Upload Infrastructure (FOUNDATION)\n- Create database schema for training_datasets table\n- Add dataset_files and dataset_statistics tables\n- Implement full CRUD operations for datasets\n- Add file tracking and validation status\n- Location: \n  - migrations/0041_training_datasets.sql\n  - adapteros-db/src/training_datasets.rs\n\n### 3. Dataset API Types (COMPLETE)\n- UploadDatasetRequest/Response\n- DatasetResponse with statistics\n- DatasetFileResponse\n- ValidateDatasetRequest/Response\n- Location: adapteros-api-types/src/training.rs\n\n## Implementation Progress\n\n✅ Task 1: Adapter registration after training - COMPLETE\n🚧 Task 2-3: Dataset upload API and storage - IN PROGRESS\n⏸️ Task 4-12: UI components, persistence, streaming - PENDING\n\n## Technical Details\n\n**Adapter Packaging Flow:**\n1. Training completes with LoRA weights\n2. Quantize weights to Q15 fixed-point format\n3. Package adapter with AdapterPackager\n4. Compute BLAKE3 hash for integrity\n5. Save to $ADAPTERS_DIR (default: /tmp/adapteros/adapters)\n6. Update training job with adapter_id and hash_b3\n\n**Database Schema:**\n- training_datasets: Main dataset table with validation status\n- dataset_files: Individual file tracking within datasets\n- dataset_statistics: Cached statistics (examples, tokens, distributions)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(pnpm list:*)",
+      "Bash(pnpm cypress:run:*)",
+      "Bash(npx cypress install)",
+      "Bash(pnpm run cypress:run:*)",
+      "Bash(timeout 60 pnpm run cypress:run:*)",
+      "Bash(echo:*)",
+      "*",
+      "Bash(unset:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
