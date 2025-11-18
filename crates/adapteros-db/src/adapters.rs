@@ -1122,8 +1122,8 @@ impl Db {
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     created_at, updated_at, active
              FROM lineage
-             ORDER BY depth DESC"  -- Root first, then children
-        )
+             ORDER BY depth DESC")  -- Root first, then children
+
         .bind(adapter_id)
         .fetch_all(self.pool())
         .await?;
