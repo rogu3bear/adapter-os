@@ -108,11 +108,8 @@ impl Generator {
 
             // Run inference step
             // Convert Decision to RouterRing
-            let ring = adapteros_lora_kernel_api::RouterRing {
-                indices: decision.indices.to_vec(),
-                gates_q15: decision.gates_q15.to_vec(),
-                position: io.position,
-            };
+            let mut ring = adapteros_lora_kernel_api::RouterRing::from(&decision);
+            ring.position = io.position;
             backend.run_step(&ring, &mut io)?;
 
             // Sample next token

@@ -189,7 +189,7 @@ impl MploraKernels for MploraKernel {
         // Set adapter B matrices buffer
         let adapter_bs_buffer = self.device.new_buffer_with_data(
             ring.indices.as_ptr() as *const std::ffi::c_void,
-            (ring.indices.len() * std::mem::size_of::<u16>()) as u64,
+            (ring.k * std::mem::size_of::<u16>()) as u64,
             MTLResourceOptions::StorageModeShared,
         );
         encoder.set_buffer(2, Some(&adapter_bs_buffer), 0);
@@ -197,7 +197,7 @@ impl MploraKernels for MploraKernel {
         // Set gates buffer
         let gates_buffer = self.device.new_buffer_with_data(
             ring.gates_q15.as_ptr() as *const std::ffi::c_void,
-            (ring.gates_q15.len() * std::mem::size_of::<i16>()) as u64,
+            (ring.k * std::mem::size_of::<i16>()) as u64,
             MTLResourceOptions::StorageModeShared,
         );
         encoder.set_buffer(3, Some(&gates_buffer), 0);
@@ -221,7 +221,7 @@ impl MploraKernels for MploraKernel {
 
         // Calculate threadgroup size
         let threadgroup_size = MTLSize::new(16, 16, 1);
-        let grid_size = MTLSize::new(ring.indices.len() as u64, ring.gates_q15.len() as u64, 1);
+        let grid_size = MTLSize::new(ring.k as u64, ring.k as u64, 1);
 
         encoder.dispatch_thread_groups(grid_size, threadgroup_size);
         encoder.end_encoding();
