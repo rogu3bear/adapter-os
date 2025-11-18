@@ -35,7 +35,8 @@ pub async fn run(adapters_root: PathBuf, adapter_id: String, output: &OutputWrit
     let pubkey_hex = tokio::fs::read_to_string(&pubkey_path).await?;
 
     // Compute BLAKE3 over weights
-    let weights_hash = blake3::hash(&weights).to_hex().to_string();
+    use adapteros_core::B3Hash;
+    let weights_hash = B3Hash::hash(&weights).to_hex();
 
     // Parse manifest weights hash
     #[derive(serde::Deserialize)]
