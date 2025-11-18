@@ -6,7 +6,12 @@
 
 ## Overview
 
-This test suite validates API response schemas against canonical reference data stored in `/tests/training/datasets/api-contracts/`. The tests ensure backward compatibility and contract compliance across all public API endpoints.
+This test suite validates API response schemas against canonical reference data stored in `/tests/training/datasets/`. The tests ensure backward compatibility and contract compliance across all public API endpoints.
+
+**Dataset Organization:**
+- `cli_contract/` - Adapter management endpoints
+- `routing/` - Router decision endpoints
+- `metrics/` - Health check endpoints
 
 ## Test Structure
 
@@ -19,16 +24,20 @@ This test suite validates API response schemas against canonical reference data 
 
 ### Reference Data
 
-- **Location:** `/tests/training/datasets/api-contracts/`
+- **Location:** `/tests/training/datasets/`
 - **Format:** JSON mock responses
-- **Files:** 7 canonical response files + README
+- **Files:** 7 canonical response files + 4 category READMEs
+- **Structure:**
+  - `cli_contract/` - 2 files (adapters_list, adapter_lineage)
+  - `routing/` - 1 file (routing_decisions)
+  - `metrics/` - 4 files (healthz variants)
 
 ## Endpoint Coverage
 
 ### 1. Adapter Management Endpoints
 
 #### `/v1/adapters/list`
-**Reference:** `adapters_list.json`
+**Reference:** `cli_contract/adapters_list.json`
 
 **Tests:**
 - `test_adapters_list_contract_schema` - Full schema validation
@@ -66,7 +75,7 @@ AdapterResponse {
 ```
 
 #### `/v1/adapters/{id}/lineage`
-**Reference:** `adapter_lineage.json`
+**Reference:** `cli_contract/adapter_lineage.json`
 
 **Tests:**
 - `test_adapter_lineage_contract_schema` - Tree structure validation
@@ -104,7 +113,7 @@ LineageNode {
 ### 2. Routing Decisions Endpoints (PRD-04)
 
 #### `/v1/routing/decisions`
-**Reference:** `routing_decisions.json`
+**Reference:** `routing/routing_decisions.json`
 
 **Tests:**
 - `test_routing_decisions_contract_schema` - Full response validation
@@ -160,7 +169,7 @@ RouterCandidateResponse {
 ### 3. Health Check Endpoints
 
 #### `/healthz` (Basic)
-**Reference:** `healthz_basic.json`
+**Reference:** `metrics/healthz_basic.json`
 
 **Tests:**
 - `test_healthz_basic_contract_schema` - Status and timestamp validation
@@ -175,8 +184,8 @@ BasicHealthResponse {
 
 #### `/healthz/all` (System-Wide)
 **References:**
-- `healthz_all.json` (all components healthy)
-- `healthz_degraded.json` (some components degraded)
+- `metrics/healthz_all.json` (all components healthy)
+- `metrics/healthz_degraded.json` (some components degraded)
 
 **Tests:**
 - `test_healthz_all_contract_schema` - Component presence validation
@@ -209,7 +218,7 @@ ComponentHealth {
 6. **system-metrics** - UMA memory pressure levels
 
 #### `/healthz/{component}` (Component-Specific)
-**Reference:** `healthz_router.json`
+**Reference:** `metrics/healthz_router.json`
 
 **Tests:**
 - `test_healthz_router_contract_details` - Component details structure
