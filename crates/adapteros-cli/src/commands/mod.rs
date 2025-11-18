@@ -13,6 +13,7 @@ pub mod completions;
 pub mod db;
 pub mod deploy;
 pub mod diag;
+pub mod doctor;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
 pub mod drift_check;
 pub mod explain;
