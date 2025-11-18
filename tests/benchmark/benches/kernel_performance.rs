@@ -36,10 +36,7 @@ fn bench_metal_kernels(c: &mut Criterion) {
         };
 
         // Create router ring with sample adapters
-        let router_ring = RouterRing {
-            indices: vec![0, 1, 2],
-            gates_q15: vec![16384, 8192, 4096], // Q15 format gates
-        };
+        let router_ring = RouterRing::from_slices(&[0, 1, 2], &[16384, 8192, 4096]); // Q15 format gates
 
         // Benchmark single inference step
         c.bench_function("metal_kernel_inference_step", |b| {

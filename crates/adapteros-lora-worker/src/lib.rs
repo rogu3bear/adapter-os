@@ -675,11 +675,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                 .await?;
 
             // Convert Decision to RouterRing
-            let router_ring = RouterRing {
-                indices: decision.indices.to_vec(),
-                gates_q15: decision.gates_q15.to_vec(),
-                position: step,
-            };
+            let mut router_ring = RouterRing::from(&decision);
+            router_ring.position = step;
 
             // Execute kernels through Metal and measure latency per adapter
             let mut io_buffers = IoBuffers {

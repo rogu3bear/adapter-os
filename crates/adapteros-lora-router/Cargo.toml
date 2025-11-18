@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 anyhow = { workspace = true }
 serde = { workspace = true }
