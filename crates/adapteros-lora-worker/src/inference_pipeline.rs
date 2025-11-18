@@ -288,9 +288,9 @@ impl InferencePipeline {
             };
 
             let router_ring = RouterRing {
-                indices: decision.indices.to_vec(),
-                gates_q15: decision.gates_q15.to_vec(),
-                position: step,
+                indices: decision.indices.clone(),
+                gates_q15: decision.gates_q15.clone(),
+                position: step as u64,
             };
 
             let kernel_start = Instant::now();

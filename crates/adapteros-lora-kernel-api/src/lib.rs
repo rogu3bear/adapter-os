@@ -17,6 +17,10 @@ pub const MAX_ADAPTERS_PER_STEP: usize = 8;
 /// 3. `indices.len() <= MAX_ADAPTERS_PER_STEP`
 /// 4. `gates_q15` values MUST be in Q15 range: [-32768, 32767]
 /// 5. All backends MUST validate these invariants in debug builds
+///
+/// # Construction
+/// Prefer `RouterRing::new()` + `.set()` to ensure validation.
+/// Direct struct construction bypasses validation and may violate invariants.
 #[derive(Debug, Clone)]
 pub struct RouterRing {
     /// Adapter indices (up to MAX_ADAPTERS_PER_STEP=8), sorted ascending
