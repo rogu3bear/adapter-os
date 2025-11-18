@@ -133,10 +133,13 @@ impl Db {
 
     /// Verify database is at the expected migration version
     ///
-    /// Checks that the last applied migration matches the latest migration file.
+    /// Per PRD-05: Fail fast with clear error if schema version doesn't match expected.
     /// Prevents version drift where code expects newer schema than DB has.
+    ///
+    /// **Critical:** This method now FAILS if database version != expected version.
+    /// Use `aosctl db reset` (dev only) to recreate database with all migrations.
     pub async fn verify_migration_version(&self, migrations_path: &std::path::Path) -> Result<()> {
-        use tracing::{info, warn};
+        use tracing::{error, info, warn};
 
         // Get latest migration version from database
         let latest_db_migration: Option<(i64, String)> = sqlx::query_as(
@@ -146,36 +149,57 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to query migration version: {}", e)))?;
 
-        // Count migration files
+        // Count migration files to determine expected version
         let migration_files: Vec<_> = std::fs::read_dir(migrations_path)
             .map_err(|e| AosError::Database(format!("Failed to read migrations directory: {}", e)))?
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("sql"))
             .collect();
 
-        let expected_count = migration_files.len();
+        let expected_version = migration_files.len() as i64;
 
         match latest_db_migration {
             Some((version, description)) => {
                 info!(
-                    "✓ Database at migration version {} ({}) - {} migrations total",
-                    version, description, expected_count
+                    "Database at migration version {} ({}) - expected version {}",
+                    version, description, expected_version
                 );
 
-                // Warn if version seems low (expected at least 0062 based on current state)
-                if version < 60 && expected_count > 60 {
-                    warn!(
-                        "⚠ Database version {} is significantly behind expected version {}",
-                        version, expected_count
+                // PRD-05: FAIL FAST if version mismatch
+                if version != expected_version {
+                    error!(
+                        "❌ SCHEMA VERSION MISMATCH: Database at version {}, expected {}",
+                        version, expected_version
                     );
-                    warn!("⚠ Run database migrations with: aosctl db migrate");
+                    error!("Migration files count: {}", expected_version);
+                    error!("Database has {} migrations applied", version);
+
+                    if version < expected_version {
+                        error!("Database is BEHIND - {} migrations missing", expected_version - version);
+                        error!("Run migrations: aosctl db migrate");
+                    } else {
+                        error!("Database is AHEAD - code expects older schema");
+                        error!("This may indicate migration file removal or code rollback");
+                    }
+
+                    return Err(AosError::Database(format!(
+                        "Schema version mismatch: DB version {} != expected {}. Server cannot start with mismatched schema.",
+                        version, expected_version
+                    )).into());
                 }
+
+                info!("✓ Schema version verified: {}", version);
             }
             None => {
-                if expected_count > 0 {
+                if expected_version > 0 {
+                    error!(
+                        "❌ Database has NO migrations applied but {} migration files exist",
+                        expected_version
+                    );
+                    error!("Run migrations: aosctl db migrate");
                     return Err(AosError::Database(format!(
                         "Database has no migrations applied but {} migration files exist. Run migrations first.",
-                        expected_count
+                        expected_version
                     )).into());
                 }
                 warn!("No migrations applied yet (empty database)");
