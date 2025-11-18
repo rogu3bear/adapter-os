@@ -4,6 +4,8 @@ use adapteros_orchestrator::{TrainingConfig, TrainingJob, TrainingTemplate};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Training configuration request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingConfigRequest {
@@ -30,6 +32,8 @@ pub struct StartTrainingRequest {
 /// Training job response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingJobResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub adapter_name: String,
     pub template_id: Option<String>,
@@ -51,6 +55,7 @@ pub struct TrainingJobResponse {
 impl From<TrainingJob> for TrainingJobResponse {
     fn from(job: TrainingJob) -> Self {
         Self {
+            schema_version: schema_version(),
             id: job.id,
             adapter_name: job.adapter_name,
             template_id: job.template_id,
@@ -74,6 +79,8 @@ impl From<TrainingJob> for TrainingJobResponse {
 /// Training template response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingTemplateResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub name: String,
     pub description: String,
@@ -105,6 +112,7 @@ impl From<TrainingConfigRequest> for TrainingConfig {
 impl From<TrainingTemplate> for TrainingTemplateResponse {
     fn from(template: TrainingTemplate) -> Self {
         Self {
+            schema_version: schema_version(),
             id: template.id,
             name: template.name,
             description: template.description,
@@ -122,6 +130,8 @@ impl From<TrainingTemplate> for TrainingTemplateResponse {
 /// Training metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrainingMetricsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub loss: f32,
     pub tokens_per_second: f32,
     pub learning_rate: f32,
@@ -143,6 +153,8 @@ pub struct UploadDatasetRequest {
 /// Upload dataset response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UploadDatasetResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub dataset_id: String,
     pub name: String,
     pub file_count: i32,
@@ -154,6 +166,8 @@ pub struct UploadDatasetResponse {
 /// Dataset response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DatasetResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub name: String,
     pub description: Option<String>,
@@ -172,6 +186,8 @@ pub struct DatasetResponse {
 /// Dataset statistics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DatasetStatisticsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub num_examples: i32,
     pub avg_input_length: f64,
     pub avg_target_length: f64,
@@ -184,6 +200,8 @@ pub struct DatasetStatisticsResponse {
 /// Dataset file response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DatasetFileResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub dataset_id: String,
     pub file_name: String,
@@ -202,6 +220,8 @@ pub struct ValidateDatasetRequest {
 /// Dataset validation response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ValidateDatasetResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub dataset_id: String,
     pub status: String,
     pub errors: Vec<String>,

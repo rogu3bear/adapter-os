@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Login request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoginRequest {
@@ -13,6 +15,8 @@ pub struct LoginRequest {
 /// Login response with JWT token
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoginResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub token: String,
     pub user_id: String,
     pub role: String,
@@ -21,6 +25,8 @@ pub struct LoginResponse {
 /// User information response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserInfoResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub user_id: String,
     pub email: String,
     pub role: String,

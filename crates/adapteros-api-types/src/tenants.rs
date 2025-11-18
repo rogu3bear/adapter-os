@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Create tenant request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateTenantRequest {
@@ -13,6 +15,8 @@ pub struct CreateTenantRequest {
 /// Tenant response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TenantResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub name: String,
     pub itar_flag: bool,
@@ -30,6 +34,8 @@ pub struct UpdateTenantRequest {
 /// Tenant usage statistics
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TenantUsageResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub tenant_id: String,
     pub cpu_usage_pct: f64,
     pub gpu_usage_pct: f64,

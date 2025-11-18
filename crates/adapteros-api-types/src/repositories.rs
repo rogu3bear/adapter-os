@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Register repository request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RegisterRepositoryRequest {
@@ -15,6 +17,8 @@ pub struct RegisterRepositoryRequest {
 /// Repository response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RepositoryResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub repo_id: String,
     pub path: String,
@@ -37,6 +41,8 @@ pub struct TriggerScanRequest {
 /// Scan status response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScanStatusResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub repo_id: String,
     pub status: String,
     pub progress: Option<f32>,

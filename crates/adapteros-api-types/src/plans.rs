@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::schema_version;
+
 /// Build plan request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BuildPlanRequest {
@@ -13,6 +15,8 @@ pub struct BuildPlanRequest {
 /// Plan response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PlanResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub tenant_id: String,
     pub manifest_hash_b3: String,
@@ -25,6 +29,8 @@ pub struct PlanResponse {
 /// Plan details response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PlanDetailsResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub tenant_id: String,
     pub manifest_hash_b3: String,
@@ -36,6 +42,8 @@ pub struct PlanDetailsResponse {
 /// Plan rebuild response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PlanRebuildResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub old_plan_id: String,
     pub new_plan_id: String,
     pub diff_summary: String,
@@ -52,6 +60,8 @@ pub struct ComparePlansRequest {
 /// Plan comparison response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PlanComparisonResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
     pub plan_id_1: String,
     pub plan_id_2: String,
     pub differences: Vec<String>,
