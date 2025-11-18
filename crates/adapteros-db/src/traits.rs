@@ -49,6 +49,8 @@ pub struct AdapterRecord {
     pub parent_id: Option<String>,
     pub fork_type: Option<String>,
     pub fork_reason: Option<String>,
+    pub version: String,
+    pub lifecycle_state: String,
 }
 
 /// Stack record from database
@@ -60,6 +62,8 @@ pub struct StackRecord {
     pub description: Option<String>,
     pub adapter_ids_json: String,
     pub workflow_type: Option<String>,
+    pub version: String,
+    pub lifecycle_state: String,
     pub created_at: String,
     pub updated_at: String,
     pub created_by: Option<String>,
@@ -195,9 +199,14 @@ pub async fn create_database_backend(config: &DatabaseConfig) -> Result<Box<dyn 
             let backend = super::sqlite_backend::SqliteBackend::new(&config.url).await?;
             Ok(Box::new(backend))
         }
+        #[cfg(feature = "postgres")]
         DatabaseBackendType::Postgres => {
             let backend = super::postgres_backend::PostgresBackend::new(&config.url).await?;
             Ok(Box::new(backend))
+        }
+        #[cfg(not(feature = "postgres"))]
+        DatabaseBackendType::Postgres => {
+            Err(anyhow::anyhow!("PostgreSQL support not enabled. Recompile with 'postgres' feature.").into())
         }
     }
 }

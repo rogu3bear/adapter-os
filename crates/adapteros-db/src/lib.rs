@@ -4,6 +4,7 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
 // Database abstraction layer
+#[cfg(feature = "postgres")]
 pub mod postgres_backend;
 pub mod sqlite_backend;
 pub mod traits;
@@ -15,7 +16,9 @@ pub use traits::{
 };
 
 // PostgreSQL backend for production (legacy - to be deprecated)
+#[cfg(feature = "postgres")]
 pub mod postgres;
+#[cfg(feature = "postgres")]
 pub use postgres::PostgresDb;
 
 /// Database connection pool and query methods (SQLite)
@@ -458,7 +461,7 @@ impl Db {
     ) -> Result<Option<AdapterRecord>> {
         let row = sqlx::query_as::<_, AdapterRecord>(
             r#"
-            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state
             FROM adapters
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -476,7 +479,7 @@ impl Db {
     pub async fn list_stacks_for_tenant(&self, tenant_id: &str) -> Result<Vec<StackRecord>> {
         let rows = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -494,7 +497,7 @@ impl Db {
     pub async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
         let row = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -565,8 +568,11 @@ pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
 pub mod audits;
+pub mod metadata;
+pub use metadata::{AdapterMeta, AdapterStackMeta, LifecycleState, ForkType, WorkflowType, API_SCHEMA_VERSION};
 pub mod migration_verify;
 pub mod unified_access;
+pub mod validation;
 pub use audits::Audit;
 pub mod code_policies;
 pub mod commits;
