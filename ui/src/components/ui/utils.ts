@@ -29,7 +29,7 @@ export function stableSort<T>(
 export function canonicalKey(obj: any): string {
   return obj.hash || obj.id || obj.hash_b3 || JSON.stringify(obj);
 }
-<<<<<<< HEAD
+
 
 // Shared styling constants for UI overlay components
 
@@ -84,5 +84,5 @@ export const MENU_SEPARATOR = "bg-border -mx-1 my-1 h-px";
  */
 export const CLOSE_BUTTON_BASE =
   "ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none";
-=======
->>>>>>> integration-branch
+
+>

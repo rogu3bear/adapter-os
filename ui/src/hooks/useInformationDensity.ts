@@ -8,7 +8,7 @@ export interface InformationDensityConfig {
   persist?: boolean;
 }
 
-<<<<<<< HEAD
+
 export interface UseInformationDensityReturn {
   density: InformationDensity;
   setDensity: (density: InformationDensity) => void;
@@ -42,9 +42,9 @@ export interface UseInformationDensityReturn {
  * @returns Object with density state, setter, and utility functions
  */
 export function useInformationDensity(config: InformationDensityConfig): UseInformationDensityReturn {
-=======
+
 export function useInformationDensity(config: InformationDensityConfig) {
->>>>>>> integration-branch
+>
   const { key, defaultDensity = 'comfortable', persist = true } = config;
   
   // Get initial state from localStorage if persistence is enabled

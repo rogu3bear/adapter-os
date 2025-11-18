@@ -4,7 +4,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import path from 'path';
 
-<<<<<<< HEAD
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -16,7 +16,7 @@ export default defineConfig({
         target: 'http://localhost:3300',
         changeOrigin: true,
         secure: false,
-=======
+
   export default defineConfig({
     plugins: [react()],
     resolve: {
@@ -60,7 +60,7 @@ export default defineConfig({
         '@radix-ui/react-alert-dialog@1.1.6': '@radix-ui/react-alert-dialog',
         '@radix-ui/react-accordion@1.2.3': '@radix-ui/react-accordion',
         '@': path.resolve(__dirname, './src'),
->>>>>>> integration-branch
+>
       },
     },
     build: {
@@ -108,7 +108,7 @@ export default defineConfig({
     },
     server: {
       port: 3200,
-<<<<<<< HEAD
+
       strictPort: true,
       open: true,
       proxy: {
@@ -142,7 +142,7 @@ export default defineConfig({
       },
       headers: {
         'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*;",
-=======
+
       open: true,
       proxy: {
         '/api': {
@@ -153,7 +153,7 @@ export default defineConfig({
       },
       headers: {
         'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss: http://localhost:8080 http://127.0.0.1:8080;",
->>>>>>> integration-branch
+>
         'X-Frame-Options': 'DENY',
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'strict-origin-when-cross-origin',

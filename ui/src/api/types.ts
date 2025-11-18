@@ -943,7 +943,7 @@ export interface InferenceTrace {
   latency_ms: number;
 }
 
-<<<<<<< HEAD
+
 // Batch Inference Types
 export interface BatchInferItemRequest {
   id: string;
@@ -969,12 +969,12 @@ export interface BatchInferItemResponse {
 
 export interface BatchInferResponse {
   responses: BatchInferItemResponse[];
-=======
+
 export interface RouterCandidate {
   adapter_idx: number;
   raw_score: number;
   gate_q15: number;
->>>>>>> integration-branch
+>
 }
 
 export interface RouterDecision {
@@ -1351,7 +1351,7 @@ export interface BaseModelStatus {
   updated_at: string;
 }
 
-<<<<<<< HEAD
+
 // Base Model Import Types - Citation: IMPLEMENTATION_PLAN.md Phase 2
 export interface ImportModelRequest {
   model_name: string;
@@ -1436,8 +1436,8 @@ export interface OnboardingJourneyStep {
   step_data?: Record<string, any>;
 }
 
-=======
->>>>>>> integration-branch
+
+>
 export interface CreateDomainAdapterRequest {
   name: string;
   version: string;
@@ -1827,12 +1827,12 @@ export interface DetailedInferenceTrace {
 }
 
 export interface DetailedRouterDecision {
-<<<<<<< HEAD
+
   token_idx: number;
   adapters: string[];
   gates: number[];
   scores: number[];
-=======
+
   step: number;
   input_token_id?: number;
   candidate_adapters: RouterCandidate[];
@@ -1840,7 +1840,7 @@ export interface DetailedRouterDecision {
   tau: number;
   entropy_floor: number;
   stack_hash?: string;
->>>>>>> integration-branch
+>
   feature_vector?: FeatureVector;
   selection_reason?: string;
 }
@@ -2096,7 +2096,7 @@ export interface Alert {
   metric_value?: number;
   threshold_value?: number;
   status: string;
-<<<<<<< HEAD
+
   acknowledged_by?: string;
   acknowledged_at?: string;
   resolved_at?: string;
@@ -2104,9 +2104,9 @@ export interface Alert {
   suppression_until?: string;
   escalation_level: number;
   notification_sent: boolean;
-=======
+
   escalation_level: number;
->>>>>>> integration-branch
+>
   created_at: string;
   updated_at: string;
 }
@@ -2194,10 +2194,10 @@ export interface TelemetryEvent {
   component?: string;
   tenant_id?: string;
   user_id?: string;
-<<<<<<< HEAD
+
   trace_id?: string;
-=======
->>>>>>> integration-branch
+
+>
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -2214,9 +2214,9 @@ export interface RoutingDecisionFilters {
   adapter_id?: string;
   start_time?: string;
   end_time?: string;
-<<<<<<< HEAD
+
   tenant?: string; // Optional tenant ID (if not provided, backend uses JWT claims)
-=======
+
 }
 
 export interface RoutingDecision {
@@ -2226,7 +2226,7 @@ export interface RoutingDecision {
   confidence_scores: Record<string, number>;
   timestamp: string;
   trace_id: string;
->>>>>>> integration-branch
+>
 }
 
 export interface AdapterSelection {
@@ -2234,7 +2234,7 @@ export interface AdapterSelection {
   gate_value: number;
   rank: number;
 }
-<<<<<<< HEAD
+
 
 export interface JourneyResponse {
   journey_type: string;
@@ -2498,5 +2498,5 @@ export interface ResetDashboardConfigResponse {
   success: boolean;
   message: string;
 }
-=======
->>>>>>> integration-branch
+
+>

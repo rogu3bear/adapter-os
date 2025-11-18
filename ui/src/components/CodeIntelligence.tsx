@@ -32,14 +32,14 @@ import apiClient from '../api/client';
 import { Repository, Commit, User, RepositoryReportResponse } from '../api/types';
 import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
-<<<<<<< HEAD
+
 import { logger, toError } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
-=======
+
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->>>>>>> integration-branch
+>
 
 interface CodeIntelligenceProps {
   user: User;
@@ -214,9 +214,9 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
   const handleFolderSelect = (folderPath: string, repoInfo: any) => {
     setShowFolderPicker(false);
     setShowTrainingDialog(true);
-<<<<<<< HEAD
+
     showStatus(`Selected repository: ${repoInfo.name}`, 'info');
-=======
+
     toast.success(`Selected repository: ${repoInfo.name}`);
   };
 
@@ -270,7 +270,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         userId: user.id
       }, err instanceof Error ? err : new Error(String(err)));
     }
->>>>>>> integration-branch
+>
   };
 
   if (loading) {

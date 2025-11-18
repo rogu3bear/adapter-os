@@ -22,7 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import apiClient from '../api/client';
-<<<<<<< HEAD
+
 import {
   Repository,
   Commit,
@@ -33,11 +33,11 @@ import {
 import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
 import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
-=======
+
 import { Repository, Commit, TrainingConfig } from '../api/types';
 import { logger } from '../utils/logger';
 import { toast } from 'sonner';
->>>>>>> integration-branch
+>
 
 interface CodeIntelligenceTrainingProps {
   tenantId: string;
@@ -122,7 +122,7 @@ export function CodeIntelligenceTraining({
     const fetchData = async () => {
       setLoading(true);
       try {
-<<<<<<< HEAD
+
         const [repos, commits] = await Promise.all([
           apiClient.listRepositories(),
           apiClient.listCommits(),
@@ -138,7 +138,7 @@ export function CodeIntelligenceTraining({
           error: message,
         }, toError(error));
         toast.error(message);
-=======
+
         logger.info('Fetching repositories and commits', {
           component: 'CodeIntelligenceTraining',
           operation: 'fetchData'
@@ -170,45 +170,45 @@ export function CodeIntelligenceTraining({
         // Fallback to mock data for demonstration
         setRepositories(mockRepositories);
         setCommits(mockCommits);
->>>>>>> integration-branch
+>
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-<<<<<<< HEAD
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-=======
+
   }, [selectedRepo]);
 
   useEffect(() => {
     onConfigSelect(config);
   }, [config, onConfigSelect]);
 
->>>>>>> integration-branch
+>
   const handleRepoSelect = async (repoId: string) => {
     setSelectedRepo(repoId);
     setConfig((prev) => ({
       ...prev,
       repo_id: repoId,
-<<<<<<< HEAD
+
       scope: 'repo',
     }));
 
-=======
+
       scope: 'repo'
     });
 
     // Fetch commits for selected repository
->>>>>>> integration-branch
+>
     try {
       logger.info('Fetching commits for repository', {
         component: 'CodeIntelligenceTraining',
         operation: 'handleRepoSelect',
-<<<<<<< HEAD
+
         repoId,
         tenantId,
       });
@@ -217,7 +217,7 @@ export function CodeIntelligenceTraining({
       setCommits(repoCommits);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch commits';
-=======
+
         repoId
       });
 
@@ -232,22 +232,22 @@ export function CodeIntelligenceTraining({
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch commits';
->>>>>>> integration-branch
+>
       logger.error('Failed to fetch commits', {
         component: 'CodeIntelligenceTraining',
         operation: 'handleRepoSelect',
         repoId,
-<<<<<<< HEAD
+
         tenantId,
         error: message,
       }, toError(error));
       toast.error(`Failed to load commits: ${message}`);
-=======
+
         error: errorMessage
       });
       toast.error(`Failed to load commits: ${errorMessage}`);
       // Keep mock commits as fallback
->>>>>>> integration-branch
+>
     }
   };
 
@@ -656,7 +656,7 @@ export function CodeIntelligenceTraining({
                     {selectedCommit ? selectedCommit.substring(0, 10) : 'Latest'}
                   </div>
                 </div>
-<<<<<<< HEAD
+
                 <div>
                   <div className="text-muted-foreground">Category</div>
                   <div>{config.category ?? 'codebase'}</div>
@@ -664,7 +664,7 @@ export function CodeIntelligenceTraining({
                 <div>
                   <div className="text-muted-foreground">Scope</div>
                   <div>{config.scope ?? 'repo'}</div>
-=======
+
 
                 {selectedRepo && (
                   <Alert>
@@ -688,7 +688,7 @@ export function CodeIntelligenceTraining({
                   <Button size="sm" onClick={handleStartTraining}>
                     Start Training
                   </Button>
->>>>>>> integration-branch
+>
                 </div>
               </div>
 

@@ -16,16 +16,11 @@ members = [
     "crates/adapteros-artifacts",
     "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
-    # Metal kernel crates - macOS only (requires Metal toolchain and precompiled shaders)
-    # TODO PRD-12: Add cross-platform cfg guards or stub implementations
-    # "crates/adapteros-lora-kernel-mtl",
-    # "crates/adapteros-lora-kernel-prof",
+    "crates/adapteros-lora-kernel-mtl",  # Metal kernels (macOS only, available)
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database
     # "crates/adapteros-system-metrics",
-    # MLX FFI - experimental backend with PyO3 linker issues
-    # Excluded from workspace until C++ compilation issues are fixed
-    # "crates/adapteros-lora-mlx-ffi",
+    "crates/adapteros-lora-mlx-ffi",  # MLX backend (fixed bindgen attribute issue)
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -39,9 +34,7 @@ members = [
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
-    # Server crates - temporarily excluded due to compilation errors
-    # TODO: Fix and re-enable in PRD-12
-    # "crates/adapteros-server",
+    "crates/adapteros-server",  # Main server crate
     "crates/adapteros-server-api",  # Re-enabled for API contract tests
     "crates/adapteros-db",
     "crates/adapteros-client",

@@ -137,20 +137,20 @@ The policy registry (`adapteros-policy`) contains exactly 22 policy packs, each 
 **ID**: `Drift`  
 **Severity**: Critical  
 **Status**: Implemented  
-<<<<<<< HEAD
+
 **Description**: Environment fingerprint tracking and drift detection with cryptographic verification. Captures comprehensive system state (device model, SoC ID, GPU PCI ID, OS version/build, Metal driver version, PATH hash, environment hash, CPU features) and enforces policy-based drift tolerances. Critical drift blocks inference startup. Baseline fingerprints are Ed25519 signed and stored in `var/baseline_fingerprint.json`. Drift reports saved to `var/drift_history/` with timestamps. Recent integration with service supervisor for health-based drift monitoring.
-=======
+
 **Description**: Environment fingerprint tracking and drift detection with cryptographic verification. Captures comprehensive system state (device model, SoC ID, GPU PCI ID, OS version/build, Metal driver version, PATH hash, environment hash, CPU features) and enforces policy-based drift tolerances. Critical drift blocks inference startup. Baseline fingerprints are Ed25519 signed and stored in `var/baseline_fingerprint.json`. Drift reports saved to `var/drift_history/` with timestamps.
->>>>>>> integration-branch
+>
 
 **Enforcement Points**:
 - Server startup: Automatic baseline creation or drift verification
 - CLI: `aosctl drift-check` command for manual verification
 - Telemetry: Drift events logged to telemetry system
-<<<<<<< HEAD
+
 - Service Supervisor: Monitors drift in service health checks
-=======
->>>>>>> integration-branch
+
+>
 
 **Policy Configuration**:
 ```toml
@@ -167,15 +167,15 @@ block_on_critical = true        # Block on critical drift
 - 11: Warning-level drift
 - 12: Critical drift (blocks inference)
 
-<<<<<<< HEAD
+
 ### 22. MPLoRA
 **ID**: `Mplora`  
 **Severity**: High  
 **Status**: Implemented  
 **Description**: Enforces MPLoRA (Multi-Path LoRA) configuration and constraints. Manages shared downsample, compression ratios, orthogonal constraints, and performance optimization for multi-path adapter routing.
 
-=======
->>>>>>> integration-branch
+
+>
 ## Policy Enforcement
 
 Policies are enforced through the `adapteros-policy` crate, which provides:

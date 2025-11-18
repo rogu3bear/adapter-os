@@ -2,7 +2,7 @@
 
 Modern React-based web interface for managing the AdapterOS control plane.
 
-<<<<<<< HEAD
+
 ## M0 Features
 
 The UI provides core management functionality for the AdapterOS control plane:
@@ -32,7 +32,7 @@ Core M0 Routes:
 - `/telemetry` – Event logs
 - `/inference` – Inference playground
 - `/audit` – Audit logs
-=======
+
 ## Routing (React Router v6)
 
 - Routes:
@@ -41,7 +41,7 @@ Core M0 Routes:
   - `/alerts` – monitoring rules
   - `/replay` – deterministic verification
   - `/policies` – policy/audit views
->>>>>>> integration-branch
+>
 
 Entry: `src/main.tsx` mounts `BrowserRouter` → `LayoutProvider` → `RootLayout` with `<Outlet>`.
 
@@ -102,11 +102,11 @@ The development server automatically starts the Rust backend. If you need to sta
 cargo run -p adapteros-server -- --config configs/cp.toml --skip-pf-check
 ```
 
-<<<<<<< HEAD
+
 Backend logs: `tail -f server-dev.log` (from pnpm dev) or `server.log`
-=======
+
 The dev server runs on http://localhost:3200 and proxies API requests to the backend.
->>>>>>> integration-branch
+>
 
 ### Environment Variables
 

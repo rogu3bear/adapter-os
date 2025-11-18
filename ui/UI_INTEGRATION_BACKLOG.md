@@ -84,7 +84,7 @@ This document tracks remaining UI integration tasks that were identified but not
 
 **Status**: ⚠ **REQUIRES BACKEND CHANGES**
 
-<<<<<<< HEAD
+
 **SSE Authentication**: SSE endpoints use cookie-based session authentication.
 
 **Implementation Status**:
@@ -106,7 +106,7 @@ This document tracks remaining UI integration tasks that were identified but not
 The `/v1/stream/telemetry` endpoint emits:
 - `telemetry` - Activity events (backlog + realtime)
 - `bundles` - Telemetry bundle updates (backlog of latest 50 + realtime)
-=======
+
 **Issue**: UI now passes token as query parameter for SSE endpoints:
 ```typescript
 const url = token ? `${baseUrl}${endpoint}?token=${encodeURIComponent(token)}` : `${baseUrl}${endpoint}`;
@@ -148,7 +148,7 @@ async fn system_metrics_stream(
     // Continue with SSE stream...
 }
 ```
->>>>>>> integration-branch
+>
 
 ## Testing Recommendations
 

@@ -212,7 +212,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
 
   const handleTestAdapter = async (adapterId: string, inputData: string) => {
     try {
-<<<<<<< HEAD
+
       setStatusMessage(null);
       const result = await apiClient.testDomainAdapter(adapterId, inputData);
       
@@ -236,11 +236,11 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
           'warning'
         );
       }
-=======
+
       // API call - placeholder implementation
       // const result = await apiClient.testDomainAdapter(adapterId, inputData);
       toast.success('Domain adapter test completed');
->>>>>>> integration-branch
+>
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to test domain adapter';
       logger.error('Failed to test domain adapter', {

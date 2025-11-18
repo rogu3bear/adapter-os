@@ -20,17 +20,17 @@ Quick reference for navigating AdapterOS architecture diagrams.
 7. **API Stack Architecture** - Routes, handlers, middleware
 8. **Worker Architecture** - UDS server, pipeline, safety mechanisms
 
-<<<<<<< HEAD
+
 ### **Runtime Diagrams** (Legacy, Archived)
 **File**: `docs/runtime-diagrams.md`  
 **Status**: Archived (not maintained)  
 **Note**: Use precision diagrams for the current codebase
-=======
+
 ### **Runtime Diagrams** (Legacy)
 **File**: `docs/runtime-diagrams.md`  
 **Status**: ⚠️ May contain outdated crate names  
 **Note**: Use precision diagrams for current codebase
->>>>>>> integration-branch
+>
 
 ### **Database Schema Diagrams**
 **File**: `docs/database-schema/schema-diagram.md`  
@@ -130,17 +130,17 @@ Quick reference for navigating AdapterOS architecture diagrams.
 
 ### Legacy Diagrams (`runtime-diagrams.md`)
 
-<<<<<<< HEAD
+
 Archived:
 - May not reflect current crate names or components
 - Preserved for historical reference only
-=======
+
 ⚠️ **May be outdated**:
 - Uses `mplora-*` crate names
 - Shows PostgreSQL as primary
 - Missing newer components (git, codegraph, deterministic-exec)
 - Some port references may be incorrect
->>>>>>> integration-branch
+>
 
 **Recommendation**: Use precision diagrams for current work. Legacy diagrams retained for historical reference.
 
@@ -278,11 +278,11 @@ When adding new diagrams:
 - [Mermaid.js Documentation](https://mermaid.js.org/)
 - [Mermaid Live Editor](https://mermaid.live/)
 - [AdapterOS Architecture Guide](architecture.md)
-<<<<<<< HEAD
+
 - [AdapterOS CLAUDE.md](../CLAUDE.md)
-=======
+
 - [AdapterOS CLAUDE.md](../../CLAUDE.md)
->>>>>>> integration-branch
+>
 
 ---
 
@@ -291,7 +291,7 @@ When adding new diagrams:
 - [Database Schema](database-schema/schema-diagram.md)
 - [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md)
 - [System Architecture](architecture.md)
-<<<<<<< HEAD
-=======
 
->>>>>>> integration-branch
+
+
+>

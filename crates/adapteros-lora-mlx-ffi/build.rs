@@ -125,7 +125,7 @@ fn generate_real_bindings(include_dir: &Path) {
 
     let bindings_str = bindings.to_string();
     let bindings_with_allow = format!(
-        "#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]\n{}",
+        "#[allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]\n{}",
         bindings_str
     );
 

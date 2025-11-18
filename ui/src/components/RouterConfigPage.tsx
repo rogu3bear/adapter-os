@@ -1,8 +1,8 @@
-<<<<<<< HEAD
+
 import React, { useState, useEffect, useCallback } from 'react';
-=======
+
 import React, { useState, useEffect } from 'react';
->>>>>>> integration-branch
+>
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
@@ -25,14 +25,14 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { RouterConfig, FeatureVector, AdapterScore } from '../api/types';
-<<<<<<< HEAD
+
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { logger } from '../utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
-=======
+
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->>>>>>> integration-branch
+>
 
 interface RouterConfigPageProps {
   selectedTenant: string;
@@ -67,7 +67,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   const [testPrompt, setTestPrompt] = useState('');
   const [testResults, setTestResults] = useState<AdapterScore[] | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-<<<<<<< HEAD
+
   const [pageError, setPageError] = useState<Error | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'warning' | 'info' } | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   const loadRouterConfig = useCallback(async () => {
     setIsLoading(true);
     setPageError(null);
-=======
+
 
   useEffect(() => {
     loadRouterConfig();
@@ -83,7 +83,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
   const loadRouterConfig = async () => {
     setIsLoading(true);
->>>>>>> integration-branch
+>
     try {
       // Load current policy to get router config
       const policies = await apiClient.listPolicies();
@@ -111,7 +111,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         tenant: selectedTenant,
         error: errorMessage
       });
-<<<<<<< HEAD
+
       const err = error instanceof Error ? error : new Error(errorMessage);
       setPageError(err);
       setStatusMessage({ message: 'Failed to load router configuration.', variant: 'warning' });
@@ -123,13 +123,13 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   useEffect(() => {
     loadRouterConfig();
   }, [loadRouterConfig]);
-=======
+
       toast.error('Failed to load router configuration');
     } finally {
       setIsLoading(false);
     }
   };
->>>>>>> integration-branch
+>
 
   const handleConfigChange = (field: keyof RouterConfig, value: any) => {
     setConfig(prev => ({ ...prev, [field]: value }));
@@ -148,11 +148,11 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       [key]: value / total
     }), {} as FeatureWeights);
     setFeatureWeights(normalized);
-<<<<<<< HEAD
+
     setStatusMessage({ message: 'Feature weights normalized to sum to 1.0.', variant: 'success' });
-=======
+
     toast.success('Weights normalized to sum to 1.0');
->>>>>>> integration-branch
+>
   };
 
   const resetToDefaults = () => {
@@ -170,19 +170,19 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       prompt_verb: 0.10
     });
     setHasUnsavedChanges(false);
-<<<<<<< HEAD
+
     setStatusMessage({ message: 'Router configuration reset to defaults.', variant: 'success' });
-=======
+
     toast.success('Reset to default configuration');
->>>>>>> integration-branch
+>
   };
 
   const saveConfiguration = async () => {
     setIsSaving(true);
-<<<<<<< HEAD
+
     setPageError(null);
-=======
->>>>>>> integration-branch
+
+>
     try {
       // Get current policy
       const policies = await apiClient.listPolicies();
@@ -221,11 +221,11 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         tenant: selectedTenant,
         config
       });
-<<<<<<< HEAD
+
       setStatusMessage({ message: 'Router configuration saved successfully.', variant: 'success' });
-=======
+
       toast.success('Router configuration saved successfully');
->>>>>>> integration-branch
+>
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to save router config';
       logger.error('Failed to save router config', {
@@ -234,28 +234,28 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         tenant: selectedTenant,
         error: errorMessage
       });
-<<<<<<< HEAD
+
       const err = error instanceof Error ? error : new Error(errorMessage);
       setPageError(err);
       setStatusMessage({ message: 'Failed to save configuration.', variant: 'warning' });
-=======
+
       toast.error('Failed to save configuration');
->>>>>>> integration-branch
+>
     } finally {
       setIsSaving(false);
     }
   };
 
   const testRouterConfig = async () => {
-<<<<<<< HEAD
+
     setValidationMessage(null);
     setPageError(null);
     if (!testPrompt.trim()) {
       setValidationMessage('Please enter a test prompt before running the router test.');
-=======
+
     if (!testPrompt.trim()) {
       toast.error('Please enter a test prompt');
->>>>>>> integration-branch
+>
       return;
     }
 
@@ -270,11 +270,11 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         operation: 'testRouterConfig',
         resultCount: result.selected_adapters.length
       });
-<<<<<<< HEAD
+
       setStatusMessage({ message: 'Router test completed successfully.', variant: 'success' });
-=======
+
       toast.success('Router test completed');
->>>>>>> integration-branch
+>
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to test router';
       logger.error('Failed to test router', {
@@ -283,13 +283,13 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         testPrompt,
         error: errorMessage
       });
-<<<<<<< HEAD
+
       const err = error instanceof Error ? error : new Error(errorMessage);
       setPageError(err);
       setStatusMessage({ message: 'Router test failed.', variant: 'warning' });
-=======
+
       toast.error('Router test failed');
->>>>>>> integration-branch
+>
     } finally {
       setIsLoading(false);
     }
@@ -300,7 +300,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
   return (
     <div className="space-y-6">
-<<<<<<< HEAD
+
       {pageError && ErrorRecoveryTemplates.genericError(
         pageError,
         () => {
@@ -347,8 +347,8 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         </Alert>
       )}
 
-=======
->>>>>>> integration-branch
+
+>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -33,10 +33,10 @@ The build emits clear logs:
 2. `MLX_PATH` — base directory; we use `MLX_PATH/include` and `MLX_PATH/lib`
 3. Defaults — `/opt/homebrew/include` and `/opt/homebrew/lib`
 
-<<<<<<< HEAD
+
 Optional:
 - `MLX_FORCE_STUB=1` — force a stub build (useful for CI and tests)
-=======
+
 Use the `--backend` flag when starting the server:
 
 ```bash
@@ -221,7 +221,7 @@ backend.run_step(&ring, &mut io)?;
 
 // Output logits are in io.output_logits
 ```
->>>>>>> integration-branch
+>
 
 ## Configuration
 

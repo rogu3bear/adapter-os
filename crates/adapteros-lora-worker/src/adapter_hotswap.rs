@@ -1147,47 +1147,70 @@ where
         let manager = self.clone();
         tokio::spawn(async move {
             loop {
-                let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await; // Simulate request
-                let mut i = 0;
-                while i < retired_guard.len() {
-                    let stack = &retired_guard[i];
-                    let can_unload = stack.active.iter().all(|(id, _)| {
-                        manager
-                            .table
-                            .refcounts
-                            .lock()
-                            .unwrap()
-                            .get(id)
-                            .map_or(false, |rc| rc.load(Ordering::Relaxed) == 0)
-                    });
-                    if can_unload {
-                        if let Some(kernels) = &manager.kernels {
-                            let mut k_lock = kernels.lock().await;
-                            let mut unload_failed = false;
-                            for (id, _) in &stack.active {
+                // Sleep first to avoid holding locks during await
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+                // Collect indices of stacks that can be unloaded
+                let stacks_to_check: Vec<usize> = {
+                    let retired_guard = manager.table.retired_stacks.lock().unwrap();
+                    retired_guard.iter().enumerate().filter_map(|(i, stack)| {
+                        let can_unload = stack.active.iter().all(|(id, _)| {
+                            manager
+                                .table
+                                .refcounts
+                                .lock()
+                                .unwrap()
+                                .get(id)
+                                .map_or(false, |rc| rc.load(Ordering::Relaxed) == 0)
+                        });
+                        if can_unload { Some(i) } else { None }
+                    }).collect()
+                };
+
+                // Process stacks that can be unloaded
+                for stack_index in stacks_to_check.into_iter().rev() {
+                    if let Some(kernels) = &manager.kernels {
+                        let mut k_lock = kernels.lock().await;
+                        let mut unload_failed = false;
+
+                        // Get stack info before unloading
+                        let stack_generation = {
+                            let retired_guard = manager.table.retired_stacks.lock().unwrap();
+                            if let Some(stack) = retired_guard.get(stack_index) {
+                                Some((stack.active.clone(), stack.generation))
+                            } else {
+                                None
+                            }
+                        };
+
+                        if let Some((active_adapters, generation)) = stack_generation {
+                            for (id, _) in &active_adapters {
                                 let id_u16 = adapter_id_to_u16(id);
                                 if let Err(e) = k_lock.unload_adapter(id_u16) {
                                     tracing::warn!("Failed to unload adapter {}: {}", id, e);
                                     unload_failed = true;
-                                    break; // Retry next time
+                                    break;
                                 }
                             }
+
                             if !unload_failed {
-                                retired_guard.remove(i);
-                                tracing::info!(
-                                    "Unloaded retired stack generation {}",
-                                    stack.generation
-                                );
-                            } else {
-                                i += 1;
+                                let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                                if stack_index < retired_guard.len() {
+                                    retired_guard.remove(stack_index);
+                                    tracing::info!(
+                                        "Unloaded retired stack generation {}",
+                                        generation
+                                    );
+                                }
                             }
-                        } else {
-                            retired_guard.remove(i);
-                            tracing::info!("Unloaded retired stack (no kernels)");
                         }
                     } else {
-                        i += 1;
+                        // No kernels, just remove from retired list
+                        let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                        if stack_index < retired_guard.len() {
+                            retired_guard.remove(stack_index);
+                            tracing::info!("Unloaded retired stack (no kernels)");
+                        }
                     }
                 }
             }

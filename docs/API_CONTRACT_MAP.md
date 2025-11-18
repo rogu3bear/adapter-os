@@ -337,12 +337,12 @@ export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Viewer';
 
 **Example from client.ts:**
 ```typescript
-<<<<<<< HEAD
+
   private retryConfig: RetryConfig;
-=======
+
   private token: string | null = null;
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
->>>>>>> integration-branch
+>
 ```
 
 ---

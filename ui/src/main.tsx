@@ -10,7 +10,7 @@ import { routes } from "./config/routes";
 import { RouteGuard } from "./components/route-guard";
 import { logger, toError } from "./utils/logger";
 
-<<<<<<< HEAD
+
 import "./index.css";
 
 function LoginRoute() {
@@ -107,7 +107,7 @@ function LoginRoute() {
     </BrowserRouter>
   </ErrorBoundary>
 );
-=======
+
   import { createRoot } from "react-dom/client";
   import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
   import RootLayout from "./layout/RootLayout";
@@ -189,4 +189,4 @@ function LoginRoute() {
     </BrowserRouter>
   );
   
->>>>>>> integration-branch
+>

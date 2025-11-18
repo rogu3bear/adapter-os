@@ -8,30 +8,30 @@
 //! - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 
 import * as types from './types';
-<<<<<<< HEAD
+
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
 import { retryWithBackoff, RetryConfig, createRetryWrapper } from '../utils/retry';
-=======
+
 import { logger } from '../utils/logger';
->>>>>>> integration-branch
+>
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 
 class ApiClient {
   private baseUrl: string;
-<<<<<<< HEAD
+
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
   private retryConfig: RetryConfig;
-=======
+
   private token: string | null = null;
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
->>>>>>> integration-branch
+>
 
   constructor(baseUrl: string = API_BASE_URL, retryConfig?: Partial<RetryConfig>) {
     this.baseUrl = baseUrl;
-<<<<<<< HEAD
+
     this.retryConfig = {
       maxAttempts: 3,
       baseDelay: 1000,
@@ -47,7 +47,7 @@ class ApiClient {
       baseUrl: this.baseUrl,
       retryEnabled: true
     });
-=======
+
     // Replace: console.log('API Client initialized with base URL:', this.baseUrl);
     logger.info('API Client initialized', { 
       component: 'ApiClient',
@@ -56,7 +56,7 @@ class ApiClient {
     });
     // Load token from localStorage
     this.token = localStorage.getItem('aos_token');
->>>>>>> integration-branch
+>
   }
 
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
@@ -85,7 +85,7 @@ class ApiClient {
     return this.requestLog;
   }
 
-<<<<<<< HEAD
+
   public buildUrl(path: string): string {
     if (/^https?:\/\//i.test(path)) {
       return path;
@@ -100,7 +100,7 @@ class ApiClient {
   }
 
   async request<T>(
-=======
+
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
     const canonical = `${method}:${path}:${body}`;
     const encoder = new TextEncoder();
@@ -128,7 +128,7 @@ class ApiClient {
   }
 
   private async request<T>(
->>>>>>> integration-branch
+>
     path: string,
     options: RequestInit = {},
     skipRetry: boolean = false,
@@ -169,20 +169,20 @@ class ApiClient {
 
   private async executeRequest<T>(path: string, options: RequestInit = {}, cancelToken?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-<<<<<<< HEAD
 
-=======
+
+
     
->>>>>>> integration-branch
+>
     // Compute deterministic request ID
     const method = options.method || 'GET';
     const body = options.body || '';
     const requestId = await this.computeRequestId(method, path, body.toString());
-<<<<<<< HEAD
 
-=======
+
+
     
->>>>>>> integration-branch
+>
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'X-Request-ID': requestId,
@@ -224,8 +224,8 @@ class ApiClient {
       });
     }
 
-<<<<<<< HEAD
-=======
+
+
     // Store in local audit buffer
     this.logRequest(requestId, method, path);
 
@@ -246,7 +246,7 @@ class ApiClient {
       });
     }
 
->>>>>>> integration-branch
+>
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       let errorCode: string | undefined;
@@ -728,7 +728,7 @@ class ApiClient {
     });
   }
 
-<<<<<<< HEAD
+
   async upsertAdapterDirectory(data: {
     tenant_id: string;
     root: string;
@@ -742,7 +742,7 @@ class ApiClient {
   }
 
   // (duplicate methods removed; see definitions above returning types.Adapter)
-=======
+
   async loadAdapter(adapterId: string): Promise<types.AdapterResponse> {
     return this.request<types.AdapterResponse>(`/v1/adapters/${adapterId}/load`, {
       method: 'POST',
@@ -754,7 +754,7 @@ class ApiClient {
       method: 'POST',
     });
   }
->>>>>>> integration-branch
+>
 
   // Training endpoints
   async listTrainingJobs(): Promise<types.TrainingJob[]> {
@@ -959,7 +959,7 @@ class ApiClient {
     return this.request<types.BaseModelStatus>(`/v1/models/status${query}`);
   }
 
-<<<<<<< HEAD
+
   // Get all loaded models status
   async getAllModelsStatus(tenantId?: string): Promise<types.AllModelsStatusResponse> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
@@ -1009,8 +1009,8 @@ class ApiClient {
     return this.request<types.ModelDownloadResponse>(`/v1/models/${modelId}/download`);
   }
 
-=======
->>>>>>> integration-branch
+
+>
   // Routing
   async debugRouting(data: types.RoutingDebugRequest): Promise<types.RoutingDebugResponse> {
     return this.request<types.RoutingDebugResponse>('/v1/routing/debug', {
@@ -1254,7 +1254,7 @@ class ApiClient {
     });
   }
 
-<<<<<<< HEAD
+
   async updateMonitoringRule(ruleId: string, data: types.UpdateMonitoringRuleRequest): Promise<types.MonitoringRule> {
     return this.request<types.MonitoringRule>(`/v1/monitoring/rules/${ruleId}`, {
       method: 'PUT',
@@ -1269,8 +1269,8 @@ class ApiClient {
     });
   }
 
-=======
->>>>>>> integration-branch
+
+>
   async listHealthMetrics(tenantId?: string): Promise<types.HealthMetric[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
     return this.request<types.HealthMetric[]>(`/v1/monitoring/health-metrics${query}`);
@@ -1329,11 +1329,11 @@ class ApiClient {
     repository_path: string;
     adapter_name: string;
     description: string;
-<<<<<<< HEAD
+
     training_config: Record<string, unknown>;
-=======
+
     training_config: Record<string, string | number | boolean>;
->>>>>>> integration-branch
+>
     tenant_id: string;
   }): Promise<{ session_id: string; status: string; created_at: string }> {
     return this.request<{ session_id: string; status: string; created_at: string }>('/v1/training/sessions', {
@@ -1370,7 +1370,7 @@ class ApiClient {
     return this.request(`/v1/training/sessions${queryString ? `?${queryString}` : ''}`);
   }
 
-<<<<<<< HEAD
+
   async pauseTrainingSession(sessionId: string): Promise<{
     session_id: string;
     status: 'paused';
@@ -1391,8 +1391,8 @@ class ApiClient {
     });
   }
 
-=======
->>>>>>> integration-branch
+
+>
   // Telemetry methods
   async getTelemetryEvents(filters?: {
     limit?: number;
@@ -1416,7 +1416,7 @@ class ApiClient {
     return this.request<types.TelemetryEvent[]>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
   }
 
-<<<<<<< HEAD
+
   // Logs API methods
   async queryLogs(filters?: {
     limit?: number;
@@ -1515,8 +1515,8 @@ class ApiClient {
     return this.request<types.ComplianceAuditResponse>('/v1/audit/compliance');
   }
 
-=======
->>>>>>> integration-branch
+
+>
   // Process debugging methods
   async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
     const params = new URLSearchParams();
@@ -2542,14 +2542,14 @@ class ApiClient {
     return this.request<types.ResetDashboardConfigResponse>('/v1/dashboard/config', {
       method: 'DELETE',
     });
-=======
+
     if (filters?.limit) params.append('limit', filters.limit.toString());
     if (filters?.adapter_id) params.append('adapter_id', filters.adapter_id);
     if (filters?.start_time) params.append('start_time', filters.start_time);
     if (filters?.end_time) params.append('end_time', filters.end_time);
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request<types.RoutingDecision[]>(`/v1/routing/decisions${query}`);
->>>>>>> integration-branch
+>
   }
 }
 

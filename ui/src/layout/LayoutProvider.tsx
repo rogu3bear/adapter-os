@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 /**
  * LayoutProvider - Deprecated wrapper for backwards compatibility
  * 
@@ -38,7 +38,7 @@ export function LayoutProvider({ children }: { children: React.ReactNode }) {
         {children}
       </FeatureProviders>
     </CoreProviders>
-=======
+
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import apiClient from '@/api/client';
 import type { Tenant, User, UserRole } from '@/api/types';
@@ -248,7 +248,7 @@ export function LayoutProvider({ children }: { children: React.ReactNode }) {
         </TenantProvider>
       </AuthProvider>
     </ThemeProvider>
->>>>>>> integration-branch
+>
   );
 }
 

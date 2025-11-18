@@ -123,7 +123,7 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   const fetchResourceMetrics = async () => {
     const systemMetrics = await apiClient.getSystemMetrics();
 
-<<<<<<< HEAD
+
     // Convert system metrics to resource metrics format
     const newMetrics: ResourceMetrics = {
       timestamp: new Date().toISOString(),
@@ -190,29 +190,29 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
           nodeId
         }, err);
       }
-=======
+
     if (isMonitoring) {
       // Fixed 1-second interval for instant updates
       intervalRef.current = window.setInterval(fetchData, 1000);
->>>>>>> integration-branch
+>
     }
   );
 
-<<<<<<< HEAD
+
   // Update metrics when polling data arrives
   useEffect(() => {
     if (!polledMetrics) return;
     setMetrics(prev => [...prev.slice(-59), polledMetrics]); // Keep last 60 data points
     setError(null);
   }, [polledMetrics]);
-=======
+
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
   }, [jobId, nodeId, isMonitoring]);
->>>>>>> integration-branch
+>
 
   const getStatusColor = (usage: number) => {
     if (usage > 90) return 'text-red-600';

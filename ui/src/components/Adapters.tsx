@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
-<<<<<<< HEAD
+
 import { LoadingState } from './ui/loading-state';
 import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
@@ -28,9 +28,9 @@ import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
 import { useViewTransition } from '../hooks/useViewTransition';
 import { useUndoRedoContext } from '../contexts/UndoRedoContext';
 import { useProgressOperation } from '../hooks/useProgressOperation';
-=======
+
 import { TrainingWizard } from './TrainingWizard';
->>>>>>> integration-branch
+>
 import { 
   Plus, 
   Code, 
@@ -215,7 +215,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   // Progress tracking for long operations
   const { operation: activeProgressOperation, start: startProgressOperation, cancel: cancelProgressOperation } = useProgressOperation();
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
-<<<<<<< HEAD
+
   const [selectedAdapterForHealth, setSelectedAdapterForHealth] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
   const transitionTo = useViewTransition();
@@ -229,9 +229,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
   };
-=======
+
   const [activeTab, setActiveTab] = useState('registry');
->>>>>>> integration-branch
+>
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -1280,7 +1280,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   return (
     <div className={hierarchyClasses.container}>
-<<<<<<< HEAD
+
       {successFeedback && (
         <div className="mb-6">
           {successFeedback}
@@ -1327,11 +1327,11 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       <ContentSection
         title="Adapter Management"
         subtitle="Train, manage, and monitor adapters for your models"
-=======
+
       <ContentSection
         title="Adapter Management"
         subtitle="Train, manage, and monitor LoRA adapters for your models"
->>>>>>> integration-branch
+>
         level="primary"
         variant="default"
         actions={
@@ -1340,18 +1340,18 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <Brain className="h-4 w-4 mr-2" />
               Train Adapter
             </Button>
-<<<<<<< HEAD
+
             <Button onClick={() => setIsLanguageDialogOpen(true)}>
               <Brain className="h-4 w-4 mr-2" />
               Train Language Base Adapter
             </Button>
-=======
->>>>>>> integration-branch
+
+>
             <Button onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Register Adapter
             </Button>
-<<<<<<< HEAD
+
             <Button variant="outline" onClick={() => setShowImportDialog(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Import Adapter
@@ -1360,8 +1360,8 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <Plus className="h-4 w-4 mr-2" />
               Directory Upsert
             </Button>
-=======
->>>>>>> integration-branch
+
+>
           </div>
         }
       >
@@ -1388,7 +1388,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsList>
 
         {/* Registry Tab */}
-<<<<<<< HEAD
+
         <TabsContent value="registry" className="mb-4">
           <AdvancedFilter
             configs={adapterFilterConfigs}
@@ -1398,10 +1398,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
             title="Filter Adapters"
           />
           <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
-=======
+
         <TabsContent value="registry" className="form-field">
           <Card className="card-standard">
->>>>>>> integration-branch
+>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center justify-center">
@@ -1460,7 +1460,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Used</TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
                     </TableRow>
-<<<<<<< HEAD
+
                   </TableHeader>
                   <TableBody>
                     {filteredAdapters.length === 0 ? (
@@ -1607,7 +1607,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   </TableBody>
                 </Table>
               </div>
-=======
+
                   ) : (
                     adapters.map((adapter) => (
                       <TableRow key={adapter.id}>
@@ -1746,14 +1746,14 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   )}
                 </TableBody>
               </Table>
->>>>>>> integration-branch
+>
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* Training Tab */}
-<<<<<<< HEAD
-=======
+
+
         <TabsContent value="training" className="space-y-4">
           <TrainingStreamPage selectedTenant={selectedTenant} />
         </TabsContent>
@@ -1769,7 +1769,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsContent>
 
 
->>>>>>> integration-branch
+>
         <TabsContent value="training" className="space-y-4">
           <TrainingStreamPage selectedTenant={selectedTenant} />
 
@@ -1872,7 +1872,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </TabsContent>
 
-<<<<<<< HEAD
+
         {/* Router Config Tab */}
         <TabsContent value="router" className="space-y-4">
           <RouterConfigPage selectedTenant={selectedTenant} />
@@ -1883,8 +1883,8 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           <CodeIntelligence user={user} selectedTenant={selectedTenant} />
         </TabsContent>
 
-=======
->>>>>>> integration-branch
+
+>
       </Tabs>
 
       </ContentSection>
@@ -1894,11 +1894,11 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <TrainingWizard
             onComplete={(jobId) => {
-<<<<<<< HEAD
+
               showStatus(`Training job ${jobId} started.`, 'success');
-=======
+
               toast.success(`Training job ${jobId} started`);
->>>>>>> integration-branch
+>
               setIsTrainingDialogOpen(false);
               // Optionally refresh adapters or navigate to training monitor
             }}
@@ -2127,13 +2127,13 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </DialogContent>
       </Dialog>
-<<<<<<< HEAD
-=======
+
+
       </ContentSection>
     </div>
   );
 }
->>>>>>> integration-branch
+>
 
       {/* Bulk Action Bar */}
       <BulkActionBar
@@ -2182,7 +2182,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       {/* Undo/Redo Bar */}
 
-<<<<<<< HEAD
+
       {/* Import Dialog */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -2196,7 +2196,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               showStatus(`Adapter "${adapter.name}" imported successfully.`, 'success');
             }}
             onCancel={() => setShowImportDialog(false)}
-=======
+
       {step === 1 && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -2433,13 +2433,13 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
             type="number" 
             value={formData.rank}
             onChange={(e) => setFormData({...formData, rank: parseInt(e.target.value)})}
->>>>>>> integration-branch
+>
           />
         </DialogContent>
       </Dialog>
 
-<<<<<<< HEAD
-=======
+
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="framework">Framework</Label>
@@ -2473,7 +2473,7 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
           Register Adapter
         </Button>
       </div>
->>>>>>> integration-branch
+>
     </div>
   );
 }

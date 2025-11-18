@@ -15,11 +15,11 @@ export function useCanonicalState<T extends { id?: string; hash?: string; timest
 
   useEffect(() => {
     // Enforce canonical ordering on mount and updates
-<<<<<<< HEAD
+
     // Note: sortKeys is compared by reference. Callers should pass stable array references
     // (e.g., useMemo or constant array) to avoid unnecessary re-sorts.
-=======
->>>>>>> integration-branch
+
+>
     const sorted = stableSort(initialData, sortKeys);
     setData(sorted);
   }, [initialData, sortKeys]);

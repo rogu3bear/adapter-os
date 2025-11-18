@@ -33,11 +33,11 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
+
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
-=======
+
 import { toast } from 'sonner';
->>>>>>> integration-branch
+>
 
 interface AdapterMemoryMonitorProps {
   adapters: Adapter[];
@@ -193,24 +193,24 @@ export function AdapterMemoryMonitor({
 
       const result = await apiClient.evictAdapter(adapterId);
       onEvictAdapter(adapterId);
-<<<<<<< HEAD
+
       await refreshMemoryData(); // Refresh after eviction
 
       showStatus(`Adapter evicted: ${result.message || 'Memory freed successfully.'}`, 'success');
-=======
+
 
       toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
->>>>>>> integration-branch
+>
       logger.info('Adapter evicted successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'evictAdapter',
         adapterId,
         result
       });
-<<<<<<< HEAD
+
       setErrorRecovery(null);
-=======
->>>>>>> integration-branch
+
+>
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
       logger.error('Failed to evict adapter', {
@@ -219,7 +219,7 @@ export function AdapterMemoryMonitor({
         adapterId,
         error: errorMessage
       }, error instanceof Error ? error : new Error(String(error)));
-<<<<<<< HEAD
+
       setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
       setErrorRecovery(
         ErrorRecoveryTemplates.genericError(
@@ -227,9 +227,9 @@ export function AdapterMemoryMonitor({
           () => handleEvictAdapter(adapterId)
         )
       );
-=======
+
       toast.error(`Failed to evict adapter: ${errorMessage}`);
->>>>>>> integration-branch
+>
     }
   };
 
@@ -244,24 +244,24 @@ export function AdapterMemoryMonitor({
 
       await apiClient.pinAdapter(adapterId, pinned);
       onPinAdapter(adapterId, pinned);
-<<<<<<< HEAD
+
       await refreshMemoryData(); // Refresh after pinning
 
       showStatus(pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', 'success');
-=======
+
 
       toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
->>>>>>> integration-branch
+>
       logger.info('Adapter pin status updated successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'pinToggle',
         adapterId,
         pinned
       });
-<<<<<<< HEAD
+
       setErrorRecovery(null);
-=======
->>>>>>> integration-branch
+
+>
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
       logger.error('Failed to pin/unpin adapter', {
@@ -271,7 +271,7 @@ export function AdapterMemoryMonitor({
         pinned,
         error: errorMessage
       }, error instanceof Error ? error : new Error(String(error)));
-<<<<<<< HEAD
+
       setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
       setErrorRecovery(
         ErrorRecoveryTemplates.genericError(
@@ -420,9 +420,9 @@ export function AdapterMemoryMonitor({
       setSelectedAdapterIds(new Set());
     } else {
       setSelectedAdapterIds(new Set(evictionCandidates.map(a => a.adapter_id)));
-=======
+
       toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
->>>>>>> integration-branch
+>
     }
   };
 

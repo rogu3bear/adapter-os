@@ -6,28 +6,28 @@
 - **API Clients**: External integrations
 
 ### 2. **API Gateway Layer**
-<<<<<<< HEAD
+
 - **Transport (M0)**: Loopback TCP (127.0.0.1) for development
 - **Transport (Target)**: Unix Domain Socket (no TCP) in production
 - **Authentication (M0)**: HMAC-SHA256 JWTs
 - **Authentication (Target)**: Ed25519-signed JWTs
 - **Rate Limiter**: Pending (token-bucket per tenant in M1)
 - **Phase 1 Patches Complete**: Concurrent operations fixed for deduplication (always conflict on existing) [source: crates/adapteros-server-api/src/operation_tracker.rs L200-L250]. Model loading stubbed for M0 flow [source: crates/adapteros-server-api/src/handlers/models.rs L400-L450]. Tests: All concurrent scenarios pass (1 success/4 conflicts, etc.).
-=======
+
 - **Unix Domain Socket**: Primary communication channel (no TCP)
 - **Authentication**: Tenant authentication
 - **Rate Limiter**: Request throttling
->>>>>>> integration-branch
+>
 
 ### 3. **AdapterOS Runtime Layer**
 
 #### **Core Services**
 - **Adapter Router**: Top-K selection with Q15 quantized gates
-<<<<<<< HEAD
+
 - **Policy Engine**: Enforces 22 policy packs
-=======
+
 - **Policy Engine**: Enforces 20 policy packs
->>>>>>> integration-branch
+>
 - **Evidence Tracker**: Citation manager for grounded responses
 
 #### **Inference Engine**
@@ -91,14 +91,14 @@
 
 This structure supports deterministic execution, evidence-grounded responses, and multi-tenant isolation with policy enforcement across all layers.
 
-<<<<<<< HEAD
+
 Security Deferral Notice (M0): For the functionality-first milestone, network egress blocking, UDS-only serving, Ed25519 JWTs, and per-tenant rate limiting are deferred. These remain production requirements and will be enforced in M1.
-=======
+
 Reviewing the UI architecture and implementation.
 
 
 [5 tools called]
->>>>>>> integration-branch
+>
 
 ## AdapterOS UI Architecture
 
@@ -114,11 +114,11 @@ Reviewing the UI architecture and implementation.
 - Multi-tenant management
 - Adapter lifecycle management
 - Policy configuration
-<<<<<<< HEAD
+
 - Code intelligence and repository analysis ✅ **IMPLEMENTED**
-=======
+
 - Code intelligence and repository analysis
->>>>>>> integration-branch
+>
 - Training monitoring and orchestration
 - Telemetry bundle export
 - Inference playground
@@ -133,11 +133,11 @@ Reviewing the UI architecture and implementation.
 - `Promotion.tsx` - Control plane promotion gates
 - `Telemetry.tsx` - Event bundle management
 - `Policies.tsx` - Security policy configuration
-<<<<<<< HEAD
+
 - `CodeIntelligence.tsx` - Repository analysis ✅ **IMPLEMENTED**
-=======
+
 - `CodeIntelligence.tsx` - Repository analysis
->>>>>>> integration-branch
+>
 - `InferencePlayground.tsx` - Interactive inference testing
 - `RouterConfigPage.tsx` - Router configuration
 - `GitIntegrationPage.tsx` - Git repository integration
@@ -186,13 +186,13 @@ Reviewing the UI architecture and implementation.
 - Static build embedded in Rust server binary via `rust-embed`
 - Served at root path (`/`) with APIs at `/api/*`
 - No separate web server
-<<<<<<< HEAD
+
 - M0: Loopback TCP (127.0.0.1). Target: UDS-only serving in production
 - Zero egress is a production requirement (deferred in M0)
-=======
+
 - Unix domain socket communication
 - Zero network egress during serving
->>>>>>> integration-branch
+>
 
 ### 5. **UI Development Workflow**
 ```bash
@@ -217,20 +217,20 @@ make ui-dev       # Start dev server
 - Accessibility compliance
 
 ### 7. **Security Features**
-<<<<<<< HEAD
+
 - JWT-based authentication (M0: HMAC; Target: Ed25519)
-=======
+
 - JWT-based authentication
->>>>>>> integration-branch
+>
 - Role-based access control (Admin, Operator, SRE)
 - Multi-tenant isolation
 - Policy enforcement UI
 - Audit trail visualization
 - Compliance dashboard
-<<<<<<< HEAD
+
 - Zero network egress, UDS-only serving, and per-tenant rate limiting are deferred for M0 and enforced in M1
-=======
->>>>>>> integration-branch
+
+>
 
 The UI supports deterministic execution, evidence-grounded responses, and multi-tenant isolation. The web interface handles management tasks; the menu bar app provides lightweight monitoring.
 # AdapterOS Master Plan
@@ -241,7 +241,7 @@ It enforces **reproducibility**, **auditability**, and **multi-tenant isolation*
 
 ---
 
-<<<<<<< HEAD
+
 ## Vision: AdapterOS as an Inference Operating System
 
 AdapterOS can function as an operating system—not in the traditional kernel + scheduler + filesystems sense, but as an execution environment with total sovereignty over ML processes. This perspective aligns with the future of computing where AI inference requires deterministic, policy-enforced, and reproducible behavior.
@@ -362,8 +362,8 @@ By embracing this perspective, AdapterOS becomes the first deterministic AI micr
 
 ---
 
-=======
->>>>>>> integration-branch
+
+>
 ## 1. Application Layers
 
 ### **Client Layer**
@@ -376,7 +376,7 @@ Interfaces through which operators, developers, and integrations interact with t
 ### **API Gateway Layer**
 Mediates all client communication.
 
-<<<<<<< HEAD
+
 - **Transport (M0)** — Loopback TCP (127.0.0.1); zero egress not enforced in M0  
 - **Transport (Target)** — Unix Domain Socket (no TCP, zero egress)  
 - **Authentication (M0)** — HMAC-SHA256 JWTs  
@@ -384,22 +384,22 @@ Mediates all client communication.
 - **Rate Limiter** — Pending (token bucket per tenant to be added in M1; deterministic queuing to preserve ordering)  
 - **Replay Endpoint** — `/api/replay/{bundle_id}` for deterministic state reconstruction  
 - **Compliance Status (M0)**: [COMPLETE] Loopback TCP (127.0.0.1) implemented. HMAC-SHA256 JWT authentication active. Rate limiter implemented with full token-bucket. Replay endpoint available at /api/v1/replay/{bundle_id} for deterministic reconstruction from telemetry bundles.
-=======
+
 - **Transport** — Unix Domain Socket (no TCP, zero egress)  
 - **Authentication** — Tenant JWTs signed with Ed25519 keys  
 - **Rate Limiter** — Token bucket per tenant; deterministic queuing to preserve ordering  
 - **Replay Endpoint** — `/api/replay/{bundle_id}` for deterministic state reconstruction  
->>>>>>> integration-branch
+>
 
 ### **Runtime Layer**
 
 #### **Core Services**
 - **Adapter Router** — Selects top-K adapters using Q15 quantized gating; merges LoRAs on-the-fly  
-<<<<<<< HEAD
+
 - **Policy Engine** — Enforces 22 system policy packs (Egress, Determinism, Telemetry, Compliance, etc.)  
-=======
+
 - **Policy Engine** — Enforces 20 system policy packs (Egress, Determinism, Telemetry, Compliance, etc.)  
->>>>>>> integration-branch
+>
 - **Evidence Tracker** — Collects citations and hashes input/output pairs for audit reproducibility  
 - **Concurrency Model** — Tokio runtime pinned to deterministic worker threads; no work-stealing  
 
@@ -416,11 +416,11 @@ Mediates all client communication.
 #### **Observability**
 - **Telemetry Logger** — Canonical JSON event streams  
 - **Trace Builder** — Bundles runtime logs, policies, and adapter hashes for replay  
-<<<<<<< HEAD
+
 - **Metrics Collector** — Local Prometheus-style metrics; UDS/no egress is a production goal (deferred in M0)  
-=======
+
 - **Metrics Collector** — Prometheus-style metrics via UDS; no network export  
->>>>>>> integration-branch
+>
 
 ### **Storage Layer**
 Persistent components for state and evidence.
@@ -487,11 +487,11 @@ Each adapter layer communicates via **Unified Memory Access (UMA)** for Apple Si
 ### **Web Control Plane** (`ui/`)
 React 18 + TypeScript + Tailwind + shadcn/ui.  
 Manages system state, adapter lifecycle, tenants, telemetry, and audits.  
-<<<<<<< HEAD
+
 Build embedded via `rust-embed` — served locally. Zero egress is a production goal (deferred in M0).
-=======
+
 Build embedded via `rust-embed` — served locally with zero network egress.
->>>>>>> integration-branch
+>
 
 Key components:  
 `Dashboard.tsx`, `Adapters.tsx`, `Telemetry.tsx`, `AuditDashboard.tsx`, `CodeIntelligence.tsx`, etc.
@@ -506,15 +506,15 @@ Status icons:
 ---
 
 ## 7. Security and Policy
-<<<<<<< HEAD
+
 - Authentication: HMAC-SHA256 JWTs in M0; Ed25519 in M1  
 - Role-based ACLs (Admin, Operator, SRE)  
 - Zero network egress, UDS-only serving, and per-tenant rate limiting deferred for M0  
-=======
+
 - Ed25519-signed JWTs  
 - Role-based ACLs (Admin, Operator, SRE)  
 - No network egress or telemetry leak  
->>>>>>> integration-branch
+>
 - Compliance dashboard for CMMC/ITAR alignment  
 
 ---
@@ -522,11 +522,11 @@ Status icons:
 ## 8. Deployment Workflow
 - `make ui` → Builds static UI  
 - `cargo build --release` → Embeds assets  
-<<<<<<< HEAD
+
 - `aosctl serve` → Launches runtime (M0 on 127.0.0.1; target UDS in production)  
-=======
+
 - `aosctl serve` → Launches runtime via Unix socket  
->>>>>>> integration-branch
+>
 - Configuration via `adapteros.toml`  
 
 ---
@@ -539,7 +539,7 @@ Status icons:
 
 ---
 
-<<<<<<< HEAD
+
 ## 10. Patent Strategy & Intellectual Property
 
 ### Patentable Innovations
@@ -649,10 +649,10 @@ AdapterOS operates on three non-negotiables:
 1. **Determinism** — same input, same output, always.  
 2. **Auditability** — every byte can be replayed.  
 3. **Isolation** — zero egress, zero ambiguity.
-=======
+
 ## 10. Determinism Manifesto
 AdapterOS operates on three non-negotiables:  
 1. **Determinism** — same input, same output, always.  
 2. **Auditability** — every byte can be replayed.  
 3. **Isolation** — zero egress, zero ambiguity.
->>>>>>> integration-branch
+>

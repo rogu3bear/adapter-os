@@ -1,9 +1,9 @@
-<<<<<<< HEAD
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useCancellableOperation } from '../hooks/useCancellableOperation';
-=======
+
 import React, { useState, useEffect } from 'react';
->>>>>>> integration-branch
+>
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -15,21 +15,21 @@ import { Checkbox } from './ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-<<<<<<< HEAD
+
 import {
   Play,
   Copy,
   Download,
   History,
   Settings2,
-=======
+
 import { 
   Play, 
   Copy, 
   Download, 
   History, 
   Settings2, 
->>>>>>> integration-branch
+>
   ChevronDown,
   Zap,
   Clock,
@@ -37,7 +37,7 @@ import {
   Split,
   FileText,
   AlertTriangle,
-<<<<<<< HEAD
+
   CheckCircle,
   Code,
   Square,
@@ -60,20 +60,20 @@ import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { ToolPageHeader } from './ui/page-headers/ToolPageHeader';
 import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
-=======
+
   CheckCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { InferRequest, InferResponse, InferenceSession } from '../api/types';
 import { TraceVisualizer } from './TraceVisualizer';
->>>>>>> integration-branch
+>
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
 }
 
-<<<<<<< HEAD
+
 interface ValidationResult {
   valid: boolean;
   error?: string;
@@ -245,13 +245,13 @@ const recordPrivacySafeMetrics = (operation: string, data: any) => {
   });
 };
 
-=======
->>>>>>> integration-branch
+
+>
 interface InferenceConfig extends InferRequest {
   id: string;
 }
 
-<<<<<<< HEAD
+
 interface StreamingToken {
   token: string;
   timestamp: number;
@@ -317,12 +317,12 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     hints
   });
   const visibleHint = getVisibleHint();
-=======
+
 export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps) {
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
->>>>>>> integration-branch
+>
   
   // Inference configurations
   const [configA, setConfigA] = useState<InferenceConfig>({
@@ -354,7 +354,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   
   const [recentSessions, setRecentSessions] = useState<InferenceSession[]>([]);
 
-<<<<<<< HEAD
+
   // Missing function implementations (stubs)
   const executeInference = useCallback(async (config: any) => {
     // Stub implementation - would execute inference request
@@ -402,8 +402,8 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     );
   }, [configA]);
 
-=======
->>>>>>> integration-branch
+
+>
   useEffect(() => {
     // Load recent sessions from localStorage
     const stored = localStorage.getItem('inference_sessions');
@@ -411,7 +411,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       try {
         setRecentSessions(JSON.parse(stored));
       } catch (err) {
-<<<<<<< HEAD
+
         logger.error('Failed to parse stored inference sessions', {
           component: 'InferencePlayground',
           operation: 'loadSessions',
@@ -473,27 +473,27 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       trace: response.trace,
     };
     
-=======
+
         console.error('Failed to load sessions:', err);
       }
     }
   }, []);
 
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
->>>>>>> integration-branch
+>
     const session: InferenceSession = {
       id: Date.now().toString(),
       created_at: new Date().toISOString(),
       prompt: config.prompt,
       request: config,
-<<<<<<< HEAD
+
       response: enhancedResponse as any, // Type compatibility
       status: 'completed',
     };
 
     // Use managed sessions to prevent memory leaks
     addManagedSession(session);
-=======
+
       response,
       status: 'completed',
     };
@@ -501,28 +501,28 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     const updated = [session, ...recentSessions].slice(0, 10); // Keep last 10
     setRecentSessions(updated);
     localStorage.setItem('inference_sessions', JSON.stringify(updated));
->>>>>>> integration-branch
+>
   };
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
     if (!config.prompt.trim()) {
-<<<<<<< HEAD
+
       setInferenceError(new Error('Please enter a prompt'));
       return;
     }
 
     setInferenceError(null);
-=======
+
       toast.error('Please enter a prompt');
       return;
     }
 
->>>>>>> integration-branch
+>
     setLoading(true);
     setResponse(null);
 
     try {
-<<<<<<< HEAD
+
       await startInference(async (signal) => {
         // Include adapters array if selected
         const inferenceRequest: InferRequest = {
@@ -546,7 +546,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           adapterId: selectedAdapterId,
         }, toError(err));
       }
-=======
+
       const response = await apiClient.infer(config);
       setResponse(response);
       saveSession(config, response);
@@ -554,7 +554,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Inference failed';
       toast.error(errorMessage);
->>>>>>> integration-branch
+>
     } finally {
       setLoading(false);
     }
@@ -562,11 +562,11 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-<<<<<<< HEAD
+
     // Success - no need for toast, UI feedback is sufficient
-=======
+
     toast.success('Copied to clipboard');
->>>>>>> integration-branch
+>
   };
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
@@ -588,11 +588,11 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-<<<<<<< HEAD
+
     // Success - browser download feedback is sufficient
-=======
+
     toast.success('Exported successfully');
->>>>>>> integration-branch
+>
   };
 
   const loadSession = (session: InferenceSession) => {
@@ -601,7 +601,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     if (session.response) {
       setResponseA(session.response);
     }
-<<<<<<< HEAD
+
     // Success - UI updates are sufficient feedback
   };
 
@@ -610,23 +610,23 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     logger.info('Replay requested', { bundleId });
     // const trace = await apiClient.getReplayBundle(bundleId);
     // setTrace(trace.data); // Display bundle
-=======
+
     toast.success('Session loaded');
->>>>>>> integration-branch
+>
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
     <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
       <CollapsibleTrigger asChild>
-<<<<<<< HEAD
+
         <Button variant="ghost" className="w-full justify-between" aria-label="Toggle advanced options" aria-expanded={showAdvanced}>
           <span className="flex items-center gap-2">
             <Settings2 className="h-4 w-4" aria-hidden="true" />
-=======
+
         <Button variant="ghost" className="w-full justify-between">
           <span className="flex items-center gap-2">
             <Settings2 className="h-4 w-4" />
->>>>>>> integration-branch
+>
             Advanced Options
           </span>
           <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
@@ -712,7 +712,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     </Collapsible>
   );
 
-<<<<<<< HEAD
+
   const renderResponse = (response: InferResponse | null, isLoading: boolean, isStreamingMode: boolean = false, streamingTokens: StreamingToken[] = []) => {
     // Handle streaming mode with throttled updates for performance
     if (isStreamingMode && isStreaming) {
@@ -769,9 +769,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       );
     }
 
-=======
+
   const renderResponse = (response: InferResponse | null, isLoading: boolean) => {
->>>>>>> integration-branch
+>
     if (isLoading) {
       return (
         <div className="flex items-center justify-center p-8">
@@ -798,7 +798,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-<<<<<<< HEAD
+
               <CardTitle className="text-base flex items-center gap-2">
                 {inferenceMode === 'streaming' && <CheckCircle className="h-4 w-4 text-green-500" />}
                 Response
@@ -818,7 +818,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                     {metrics.tokensPerSecond.toFixed(1)} t/s
                   </Badge>
                 )}
-=======
+
               <CardTitle className="text-base">Response</CardTitle>
               <div className="flex gap-2">
                 <Badge variant="outline" className="gap-1">
@@ -829,39 +829,39 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                   <FileText className="h-3 w-3" />
                   {response.tokens?.length || 0} tokens
                 </Badge>
->>>>>>> integration-branch
+>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="relative">
-<<<<<<< HEAD
+
               <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg">
-=======
+
               <pre className="whitespace-pre-wrap text-sm p-4 bg-muted rounded-lg">
->>>>>>> integration-branch
+>
                 {response.text}
               </pre>
               <Button
                 variant="ghost"
                 size="sm"
-<<<<<<< HEAD
+
                 onClick={() => handleCopy(response.text)}
               >
                 <Copy className="h-4 w-4" aria-hidden="true" />
-=======
+
                 className="absolute top-2 right-2"
                 onClick={() => handleCopy(response.text)}
               >
                 <Copy className="h-4 w-4" />
->>>>>>> integration-branch
+>
               </Button>
             </div>
           </CardContent>
         </Card>
 
         {/* Trace Information */}
-<<<<<<< HEAD
+
         {response.trace && 'latency_ms' in response.trace && (
           <TraceVisualizer trace={response.trace as any} />
         )}
@@ -893,7 +893,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               </div>
             </div>
           </div>
-=======
+
         {response.trace && (
           <TraceVisualizer trace={response.trace} />
         )}
@@ -902,7 +902,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Finish Reason:</span>
           <Badge>{response.finish_reason}</Badge>
->>>>>>> integration-branch
+>
         </div>
       </div>
     );
@@ -910,7 +910,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   return (
     <div className="space-y-6">
-<<<<<<< HEAD
+
       {/* Error Recovery */}
       {inferenceError && ErrorRecoveryTemplates.genericError(
         inferenceError,
@@ -1143,7 +1143,7 @@ What is the capital of France?"
           )}
         </div>
       ) : mode === 'single' ? (
-=======
+
       {/* Header */}
       <div className="flex-between">
         <div>
@@ -1171,7 +1171,7 @@ What is the capital of France?"
       </div>
 
       {mode === 'single' ? (
->>>>>>> integration-branch
+>
         /* Single Mode */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Configuration Panel */}
@@ -1181,7 +1181,7 @@ What is the capital of France?"
                 <CardTitle className="text-base">Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-<<<<<<< HEAD
+
                 {/* Graceful degradation alert */}
                 {adapterAvailability.isDegraded && (
                   <Alert variant="destructive">
@@ -1330,15 +1330,15 @@ What is the capital of France?"
                       </Button>
                     </div>
                   </div>
-=======
+
                 <div className="space-y-2">
                   <Label htmlFor="prompt">Prompt</Label>
->>>>>>> integration-branch
+>
                   <Textarea
                     id="prompt"
                     placeholder="Enter your prompt here..."
                     value={configA.prompt}
-<<<<<<< HEAD
+
                     onChange={(e) => {
                       const sanitized = sanitizeInput(e.target.value);
                       setConfigA({ ...configA, prompt: sanitized });
@@ -1402,16 +1402,16 @@ What is the capital of France?"
                       </div>
                     </div>
                   )}
-=======
+
                     onChange={(e) => setConfigA({ ...configA, prompt: e.target.value })}
                     rows={6}
                   />
->>>>>>> integration-branch
+>
                 </div>
 
                 {renderAdvancedOptions(configA, setConfigA)}
 
-<<<<<<< HEAD
+
                 <div className="flex gap-2">
                   <Button
                     className="flex-1"
@@ -1432,7 +1432,7 @@ What is the capital of France?"
                     </Button>
                   )}
                 </div>
-=======
+
                 <Button
                   className="w-full"
                   onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
@@ -1441,7 +1441,7 @@ What is the capital of France?"
                   <Play className="h-4 w-4 mr-2" />
                   {isLoadingA ? 'Generating...' : 'Generate'}
                 </Button>
->>>>>>> integration-branch
+>
 
                 {responseA && (
                   <Button
@@ -1461,11 +1461,11 @@ What is the capital of France?"
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
-<<<<<<< HEAD
+
                     <History className="h-4 w-4" aria-hidden="true" />
-=======
+
                     <History className="h-4 w-4" />
->>>>>>> integration-branch
+>
                     Recent Sessions
                   </CardTitle>
                 </CardHeader>
@@ -1497,11 +1497,11 @@ What is the capital of France?"
                 <CardTitle className="text-base">Output</CardTitle>
               </CardHeader>
               <CardContent>
-<<<<<<< HEAD
+
                 {renderResponse(responseA, isLoadingA, inferenceMode === 'streaming' && isStreaming, streamingTokens)}
-=======
+
                 {renderResponse(responseA, isLoadingA)}
->>>>>>> integration-branch
+>
               </CardContent>
             </Card>
           </div>
@@ -1540,7 +1540,7 @@ What is the capital of France?"
               </CardHeader>
               <CardContent className="space-y-4">
                 {renderAdvancedOptions(configA, setConfigA)}
-<<<<<<< HEAD
+
                 <div className="flex gap-2">
                   <Button
                     className="flex-1"
@@ -1560,7 +1560,7 @@ What is the capital of France?"
                     </Button>
                   )}
                 </div>
-=======
+
                 <Button
                   className="w-full"
                   onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
@@ -1569,7 +1569,7 @@ What is the capital of France?"
                   <Play className="h-4 w-4 mr-2" />
                   Generate A
                 </Button>
->>>>>>> integration-branch
+>
                 {renderResponse(responseA, isLoadingA)}
               </CardContent>
             </Card>
@@ -1584,7 +1584,7 @@ What is the capital of France?"
               </CardHeader>
               <CardContent className="space-y-4">
                 {renderAdvancedOptions(configB, setConfigB)}
-<<<<<<< HEAD
+
                 <div className="flex gap-2">
                   <Button
                     className="flex-1"
@@ -1604,7 +1604,7 @@ What is the capital of France?"
                     </Button>
                   )}
                 </div>
-=======
+
                 <Button
                   className="w-full"
                   onClick={() => handleInfer(configB, setResponseB, setIsLoadingB)}
@@ -1613,7 +1613,7 @@ What is the capital of France?"
                   <Play className="h-4 w-4 mr-2" />
                   Generate B
                 </Button>
->>>>>>> integration-branch
+>
                 {renderResponse(responseB, isLoadingB)}
               </CardContent>
             </Card>
@@ -1624,11 +1624,11 @@ What is the capital of France?"
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-<<<<<<< HEAD
+
                   <BarChart3 className="h-4 w-4" aria-hidden="true" />
-=======
+
                   <BarChart3 className="h-4 w-4" />
->>>>>>> integration-branch
+>
                   Comparison Summary
                 </CardTitle>
               </CardHeader>
@@ -1637,47 +1637,47 @@ What is the capital of France?"
                   <div>
                     <p className="text-sm font-medium">Latency</p>
                     <div className="flex items-center gap-2 mt-1">
-<<<<<<< HEAD
+
                       <Badge variant="outline">A: {responseA.latency_ms || 0}ms</Badge>
                       <Badge variant="outline">B: {responseB.latency_ms || 0}ms</Badge>
-=======
+
                       <Badge variant="outline">A: {responseA.trace?.latency_ms || 0}ms</Badge>
                       <Badge variant="outline">B: {responseB.trace?.latency_ms || 0}ms</Badge>
->>>>>>> integration-branch
+>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Tokens</p>
                     <div className="flex items-center gap-2 mt-1">
-<<<<<<< HEAD
+
                       <Badge variant="outline">A: {responseA.token_count || 0}</Badge>
                       <Badge variant="outline">B: {responseB.token_count || 0}</Badge>
-=======
+
                       <Badge variant="outline">A: {responseA.tokens?.length || 0}</Badge>
                       <Badge variant="outline">B: {responseB.tokens?.length || 0}</Badge>
->>>>>>> integration-branch
+>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Finish Reason</p>
                     <div className="flex items-center gap-2 mt-1">
-<<<<<<< HEAD
+
                       <Badge variant="outline">{responseA.finish_reason || 'unknown'}</Badge>
                       <Badge variant="outline">{responseB.finish_reason || 'unknown'}</Badge>
-=======
+
                       <Badge variant="outline">{responseA.finish_reason}</Badge>
                       <Badge variant="outline">{responseB.finish_reason}</Badge>
->>>>>>> integration-branch
+>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Winner</p>
                     <Badge className="mt-1">
-<<<<<<< HEAD
+
                       {(responseA.latency_ms || 0) < (responseB.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
-=======
+
                       {(responseA.trace?.latency_ms || 0) < (responseB.trace?.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
->>>>>>> integration-branch
+>
                     </Badge>
                   </div>
                 </div>
@@ -1689,8 +1689,8 @@ What is the capital of France?"
     </div>
   );
 }
-<<<<<<< HEAD
-=======
 
 
->>>>>>> integration-branch
+
+
+>

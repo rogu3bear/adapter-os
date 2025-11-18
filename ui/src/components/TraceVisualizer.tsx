@@ -50,7 +50,7 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                 </div>
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {trace.router_decisions.slice(0, 10).map((decision, idx) => (
-<<<<<<< HEAD
+
                     <div
                       key={idx}
                       className="p-3 bg-muted rounded-lg text-sm"
@@ -70,7 +70,7 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                             <span className="font-mono">{adapterId}</span>
                             <span className="text-muted-foreground">
                               Gate: {decision.gates?.[adapterIdx] || 0}
-=======
+
                     <div key={idx} className="p-3 bg-muted rounded-lg text-sm">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex flex-col">
@@ -102,19 +102,19 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                             <span className="text-muted-foreground">
                               Score: {candidate.raw_score.toFixed(3)} | Gate:{' '}
                               {candidate.gate_q15}
->>>>>>> integration-branch
+>
                             </span>
                           </div>
                         ))}
                       </div>
-<<<<<<< HEAD
-=======
+
+
                       {decision.stack_hash && (
                         <div className="text-xs text-muted-foreground mt-2">
                           Stack hash: {decision.stack_hash.slice(0, 12)}...
                         </div>
                       )}
->>>>>>> integration-branch
+>
                     </div>
                   ))}
                 </div>

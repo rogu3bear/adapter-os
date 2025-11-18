@@ -21,11 +21,11 @@
 **Example Conflict:**
 ```typescript
 // ui/src/api/types.ts:47-96
-<<<<<<< HEAD
+
 export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
-=======
+
 export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Viewer';
->>>>>>> integration-branch
+>
 ```
 
 **Required Actions:**

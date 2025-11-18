@@ -6,38 +6,38 @@
 //! # Citations
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
-<<<<<<< HEAD
+
 //! - Dashboard.tsx L220: Uses real-time activity feed from /v1/telemetry/events/recent
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
 import type { RecentActivityEvent } from '@/api/types';
-=======
+
 //! - Dashboard.tsx L220: "TODO: Replace with real-time activity feed from /v1/telemetry/events or audit log"
 
 import { useState, useEffect } from 'react';
 import { logger } from '../utils/logger';
 import apiClient from '../api/client';
->>>>>>> integration-branch
+>
 
 export interface ActivityEvent {
   id: string;
   timestamp: string;
-<<<<<<< HEAD
+
   type: 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error' | 'collaboration';
-=======
+
   type: 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error';
->>>>>>> integration-branch
+>
   severity: 'info' | 'warning' | 'error' | 'critical';
   message: string;
   component?: string;
   tenantId?: string;
   userId?: string;
-<<<<<<< HEAD
+
   workspaceId?: string;
-=======
->>>>>>> integration-branch
+
+>
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -46,11 +46,11 @@ export interface UseActivityFeedOptions {
   maxEvents?: number;
   tenantId?: string;
   userId?: string;
-<<<<<<< HEAD
+
   workspaceId?: string;
   useSSE?: boolean;
-=======
->>>>>>> integration-branch
+
+>
 }
 
 export interface UseActivityFeedReturn {
@@ -80,16 +80,16 @@ export interface UseActivityFeedReturn {
  * - Policy Pack #1 (Egress): Uses relative API paths only
  */
 export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivityFeedReturn {
-<<<<<<< HEAD
+
   const { enabled = true, maxEvents = 50, tenantId, userId, workspaceId, useSSE = true } = options;
-=======
+
   const { enabled = true, maxEvents = 50, tenantId, userId } = options;
->>>>>>> integration-branch
+>
   
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-<<<<<<< HEAD
+
   const sseRef = useRef<EventSource | null>(null);
   const fallbackIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const baselineIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -112,7 +112,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
   }, [enabled, maxEvents, tenantId, userId, workspaceId]);
 
   const mapEventType = useCallback((eventType: string): ActivityEvent['type'] => {
-=======
+
 
   const fetchEvents = async () => {
     if (!enabled) return;
@@ -173,7 +173,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
   // Map telemetry event types to activity types
   const mapEventType = (eventType: string): ActivityEvent['type'] => {
->>>>>>> integration-branch
+>
     switch (eventType) {
       case 'node_recovery':
       case 'worker_recovery':
@@ -199,16 +199,16 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       default:
         return 'telemetry';
     }
-<<<<<<< HEAD
+
   }, []);
 
   const mapSeverity = useCallback((level: string): ActivityEvent['severity'] => {
-=======
+
   };
 
   // Map log levels to severity levels
   const mapSeverity = (level: string): ActivityEvent['severity'] => {
->>>>>>> integration-branch
+>
     switch (level.toLowerCase()) {
       case 'error':
         return 'error';
@@ -221,7 +221,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       default:
         return 'info';
     }
-<<<<<<< HEAD
+
   }, []);
 
   const mapRecentEvent = useCallback((event: RecentActivityEvent): ActivityEvent => {
@@ -501,7 +501,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       stopSSE();
     };
   }, [enabled, useSSE, mapRecentEvent, fetchEvents]);
-=======
+
   };
 
   useEffect(() => {
@@ -512,7 +512,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     
     return () => clearInterval(interval);
   }, [enabled, maxEvents, tenantId, userId]);
->>>>>>> integration-branch
+>
 
   return {
     events,

@@ -1,8 +1,8 @@
-<<<<<<< HEAD
+
 import React, { useMemo, useState, useCallback } from 'react';
-=======
+
 import React, { useEffect, useMemo, useState } from 'react';
->>>>>>> integration-branch
+>
 import {
   Card,
   CardContent,
@@ -26,11 +26,11 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import * as types from '../api/types';
-<<<<<<< HEAD
+
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
-=======
->>>>>>> integration-branch
+
+>
 
 interface AlertEntry {
   id: string;
@@ -78,7 +78,7 @@ export const MonitoringDashboard: React.FC = () => {
   const gpuUtilization = pickMetric(systemMetrics, ['gpu_utilization', 'gpu_utilization_percent']);
   const uptimeSeconds = pickMetric(systemMetrics, ['uptime_seconds']);
 
-<<<<<<< HEAD
+
   const evaluateAlerts = useCallback((
     system: types.SystemMetrics,
     adapters: types.AdapterMetrics[],
@@ -163,7 +163,7 @@ export const MonitoringDashboard: React.FC = () => {
           quality: types.QualityMetrics;
           adapters: types.AdapterMetrics[];
         };
-=======
+
   useEffect(() => {
     let isMounted = true;
     const fetchData = async () => {
@@ -174,7 +174,7 @@ export const MonitoringDashboard: React.FC = () => {
           apiClient.getAdapterMetrics(),
         ]);
         if (!isMounted) return;
->>>>>>> integration-branch
+>
 
         setSystemMetrics(system);
         setQualityMetrics(quality);
@@ -229,7 +229,7 @@ export const MonitoringDashboard: React.FC = () => {
         );
 
         evaluateAlerts(system, adapters);
-<<<<<<< HEAD
+
       },
       onError: (error) => {
         logger.error('Failed to fetch monitoring data', {
@@ -239,7 +239,7 @@ export const MonitoringDashboard: React.FC = () => {
       }
     }
   );
-=======
+
       } catch (error) {
         console.error('Failed to fetch monitoring data', error);
       }
@@ -316,7 +316,7 @@ export const MonitoringDashboard: React.FC = () => {
 
     setAlerts((prev) => [...newAlerts, ...prev].slice(0, 25));
   };
->>>>>>> integration-branch
+>
 
   const cpuHistory = useMemo(
     () => metricHistory.map((entry) => ({ ...entry, label: 'CPU %' })),

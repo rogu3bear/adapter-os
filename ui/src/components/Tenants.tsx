@@ -51,14 +51,14 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
-<<<<<<< HEAD
+
 import { logger, toError } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { BookmarkButton } from './ui/bookmark-button';
-=======
+
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->>>>>>> integration-branch
+>
 
 interface TenantsProps {
   user: User;
@@ -103,7 +103,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       setStatusMessage(null);
       setErrorRecovery(null);
     } catch (err) {
-<<<<<<< HEAD
+
       logger.error('Failed to fetch tenants', {
         component: 'Tenants',
         operation: 'fetchTenants',
@@ -116,7 +116,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           () => fetchTenants()
         )
       );
-=======
+
       // Replace: console.error('Failed to fetch tenants:', err);
       logger.error('Failed to fetch tenants', {
         component: 'Tenants',
@@ -124,7 +124,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         userId: user.id
       }, err instanceof Error ? err : new Error(String(err)));
       toast.error('Failed to load tenants');
->>>>>>> integration-branch
+>
     } finally {
       setLoading(false);
     }
@@ -144,18 +144,18 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         setPolicies(policiesData);
         setAdapters(adaptersData);
       } catch (err) {
-<<<<<<< HEAD
+
         logger.error('Failed to fetch policies/adapters', {
           component: 'Tenants',
           operation: 'fetchPoliciesAdapters',
           userId
-=======
+
         // Replace: console.error('Failed to fetch policies/adapters:', err);
         logger.error('Failed to fetch policies/adapters', {
           component: 'Tenants',
           operation: 'fetchPoliciesAdapters',
           userId: user.id
->>>>>>> integration-branch
+>
         }, err instanceof Error ? err : new Error(String(err)));
       }
     };
@@ -517,11 +517,11 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       case 'maintenance':
         return <div className="status-indicator status-warning"><Settings className="h-3 w-3" />Maintenance</div>;
       case 'paused':
-<<<<<<< HEAD
+
         return <div className="status-indicator status-neutral"><Lock className="h-3 w-3" />Inactive</div>;
-=======
+
         return <div className="status-indicator status-neutral"><Lock className="icon-small" />Inactive</div>;
->>>>>>> integration-branch
+>
       case 'archived':
         return <div className="status-indicator status-neutral"><Database className="h-3 w-3" />Archived</div>;
       default:
@@ -779,7 +779,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
           </div>
         </CardHeader>
         <CardContent>
-<<<<<<< HEAD
+
           <div className="max-h-[600px] overflow-auto" data-virtual-container>
             <Table className="border-collapse w-full" role="table" aria-label="Tenant management">
               <TableHeader>
@@ -814,7 +814,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                   <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">ITAR</TableHead>
                   <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Activity</TableHead>
                   <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
-=======
+
           <Table className="table-standard">
             <TableHeader>
               <TableRow>
@@ -912,7 +912,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
->>>>>>> integration-branch
+>
                 </TableRow>
               </TableHeader>
               <TableBody>

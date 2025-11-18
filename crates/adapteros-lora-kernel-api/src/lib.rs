@@ -92,7 +92,7 @@ impl IoBuffers {
 }
 
 /// Trait for fused kernel implementations
-pub trait FusedKernels: Send + Sync {
+pub trait FusedKernels: Send + Sync + 'static {
     /// Load plan and weights
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()>;
 

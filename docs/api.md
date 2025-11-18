@@ -10,14 +10,14 @@ The AdapterOS Server API provides endpoints for managing tenants, adapters, repo
 
 The following demo credentials are available for testing:
 
-<<<<<<< HEAD
+
 - **Admin:** admin@example.com / password
-=======
+
 - **Admin:** admin@aos.local / password
 - **Operator:** operator@aos.local / password  
 - **SRE:** sre@aos.local / password
 - **Viewer:** viewer@aos.local / password
->>>>>>> integration-branch
+>
 
 ## OpenAPI Specification
 
@@ -25,7 +25,7 @@ The following demo credentials are available for testing:
 {
   "openapi": "3.0.3",
   "info": {
-<<<<<<< HEAD
+
     "title": "AdapterOS Server API",
     "description": "Complete API for AdapterOS system management",
     "version": "1.0.0",
@@ -50,7 +50,7 @@ The following demo credentials are available for testing:
         "tags": ["health"],
         "summary": "Health check endpoint",
         "operationId": "health_check",
-=======
+
     "title": "adapteros-server-api",
     "description": "",
     "license": {
@@ -111,7 +111,7 @@ The following demo credentials are available for testing:
         ],
         "summary": "Health check endpoint",
         "operationId": "health",
->>>>>>> integration-branch
+>
         "responses": {
           "200": {
             "description": "Service is healthy",
@@ -128,17 +128,17 @@ The following demo credentials are available for testing:
     },
     "/readyz": {
       "get": {
-<<<<<<< HEAD
+
         "tags": ["health"],
         "summary": "Readiness check",
         "operationId": "readiness_check",
-=======
+
         "tags": [
           "handlers"
         ],
         "summary": "Readiness check",
         "operationId": "ready",
->>>>>>> integration-branch
+>
         "responses": {
           "200": {
             "description": "Service is ready",
@@ -149,8 +149,8 @@ The following demo credentials are available for testing:
                 }
               }
             }
-<<<<<<< HEAD
-=======
+
+
           },
           "503": {
             "description": "Service is not ready",
@@ -161,12 +161,12 @@ The following demo credentials are available for testing:
                 }
               }
             }
->>>>>>> integration-branch
+>
           }
         }
       }
     },
-<<<<<<< HEAD
+
     "/metrics": {
       "get": {
         "tags": ["metrics"],
@@ -179,7 +179,7 @@ The following demo credentials are available for testing:
               "text/plain": {
                 "schema": {
                   "type": "string"
-=======
+
     "/v1/adapters": {
       "get": {
         "tags": [
@@ -392,7 +392,7 @@ The following demo credentials are available for testing:
                   "items": {
                     "$ref": "#/components/schemas/AdapterActivationResponse"
                   }
->>>>>>> integration-branch
+>
                 }
               }
             }
@@ -402,32 +402,32 @@ The following demo credentials are available for testing:
     },
     "/v1/auth/login": {
       "post": {
-<<<<<<< HEAD
+
         "tags": ["authentication"],
         "summary": "Login with credentials",
         "operationId": "auth_login",
         "requestBody": {
           "required": true,
-=======
+
         "tags": [
           "handlers"
         ],
         "summary": "Login handler",
         "operationId": "auth_login",
         "requestBody": {
->>>>>>> integration-branch
+>
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/LoginRequest"
               }
             }
-<<<<<<< HEAD
+
           }
-=======
+
           },
           "required": true
->>>>>>> integration-branch
+>
         },
         "responses": {
           "200": {
@@ -453,7 +453,7 @@ The following demo credentials are available for testing:
         }
       }
     },
-<<<<<<< HEAD
+
     "/v1/auth/logout": {
       "post": {
         "tags": ["authentication"],
@@ -503,7 +503,7 @@ The following demo credentials are available for testing:
         "responses": {
           "200": {
             "description": "List of models",
-=======
+
     "/v1/commits": {
       "get": {
         "tags": [
@@ -547,23 +547,23 @@ The following demo credentials are available for testing:
         "responses": {
           "200": {
             "description": "List of commits",
->>>>>>> integration-branch
+>
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-<<<<<<< HEAD
+
                     "$ref": "#/components/schemas/ModelInfo"
-=======
+
                     "$ref": "#/components/schemas/CommitResponse"
->>>>>>> integration-branch
+>
                   }
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
@@ -620,7 +620,7 @@ The following demo credentials are available for testing:
               "type": "string"
             },
             "description": "Model ID"
-=======
+
         }
       }
     },
@@ -640,34 +640,34 @@ The following demo credentials are available for testing:
             "schema": {
               "type": "string"
             }
->>>>>>> integration-branch
+>
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
+
             "description": "Model details",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ModelDetails"
-=======
+
             "description": "Commit details",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CommitResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           },
           "404": {
-<<<<<<< HEAD
+
             "description": "Model not found",
-=======
+
             "description": "Commit not found",
->>>>>>> integration-branch
+>
             "content": {
               "application/json": {
                 "schema": {
@@ -676,7 +676,7 @@ The following demo credentials are available for testing:
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
@@ -722,7 +722,7 @@ The following demo credentials are available for testing:
         "responses": {
           "200": {
             "description": "List of adapters",
-=======
+
         }
       }
     },
@@ -1053,22 +1053,22 @@ The following demo credentials are available for testing:
         "responses": {
           "200": {
             "description": "List of domain adapters",
->>>>>>> integration-branch
+>
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-<<<<<<< HEAD
+
                     "$ref": "#/components/schemas/AdapterInfo"
-=======
+
                     "$ref": "#/components/schemas/DomainAdapterResponse"
->>>>>>> integration-branch
+>
                   }
                 }
               }
             }
-<<<<<<< HEAD
+
           }
         },
         "security": [
@@ -1098,7 +1098,7 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdapterRegistrationResponse"
-=======
+
           },
           "500": {
             "description": "Internal server error",
@@ -1106,12 +1106,12 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
@@ -1125,7 +1125,7 @@ The following demo credentials are available for testing:
         "tags": ["adapters"],
         "summary": "Get adapter details",
         "operationId": "get_adapter",
-=======
+
         }
       },
       "post": {
@@ -1175,47 +1175,47 @@ The following demo credentials are available for testing:
         ],
         "summary": "Get a specific domain adapter",
         "operationId": "get_domain_adapter",
->>>>>>> integration-branch
+>
         "parameters": [
           {
             "name": "adapter_id",
             "in": "path",
-<<<<<<< HEAD
+
             "required": true,
             "schema": {
               "type": "string"
             },
             "description": "Adapter ID"
-=======
+
             "description": "Domain adapter ID",
             "required": true,
             "schema": {
               "type": "string"
             }
->>>>>>> integration-branch
+>
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
+
             "description": "Adapter details",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdapterDetails"
-=======
+
             "description": "Domain adapter details",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DomainAdapterResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           },
           "404": {
-<<<<<<< HEAD
+
             "description": "Adapter not found"
           }
         },
@@ -1229,7 +1229,7 @@ The following demo credentials are available for testing:
         "tags": ["adapters"],
         "summary": "Delete adapter",
         "operationId": "delete_adapter",
-=======
+
             "description": "Domain adapter not found",
             "content": {
               "application/json": {
@@ -1247,29 +1247,29 @@ The following demo credentials are available for testing:
         ],
         "summary": "Delete a domain adapter",
         "operationId": "delete_domain_adapter",
->>>>>>> integration-branch
+>
         "parameters": [
           {
             "name": "adapter_id",
             "in": "path",
-<<<<<<< HEAD
+
             "required": true,
             "schema": {
               "type": "string"
             },
             "description": "Adapter ID"
-=======
+
             "description": "Domain adapter ID",
             "required": true,
             "schema": {
               "type": "string"
             }
->>>>>>> integration-branch
+>
           }
         ],
         "responses": {
           "204": {
-<<<<<<< HEAD
+
             "description": "Adapter deleted"
           }
         },
@@ -1288,7 +1288,7 @@ The following demo credentials are available for testing:
         "responses": {
           "200": {
             "description": "List of training jobs",
-=======
+
             "description": "Domain adapter deleted"
           },
           "404": {
@@ -1552,22 +1552,22 @@ The following demo credentials are available for testing:
         "responses": {
           "200": {
             "description": "List of adapter branches",
->>>>>>> integration-branch
+>
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-<<<<<<< HEAD
+
                     "$ref": "#/components/schemas/TrainingJobInfo"
-=======
+
                     "$ref": "#/components/schemas/GitBranchInfo"
->>>>>>> integration-branch
+>
                   }
                 }
               }
             }
-<<<<<<< HEAD
+
           }
         },
         "security": [
@@ -1599,7 +1599,7 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TrainingJobResponse"
-=======
+
           },
           "500": {
             "description": "Internal server error",
@@ -1607,12 +1607,12 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
@@ -1644,7 +1644,7 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TrainingJobDetails"
-=======
+
         }
       }
     },
@@ -1734,13 +1734,13 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EndGitSessionResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           },
           "404": {
-<<<<<<< HEAD
+
             "description": "Job not found"
           }
         },
@@ -1799,7 +1799,7 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ChatCompletionResponse"
-=======
+
             "description": "Session not found",
             "content": {
               "application/json": {
@@ -1815,19 +1815,19 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
             "bearer_token": []
           }
         ]
-=======
+
         }
       }
     },
@@ -1963,18 +1963,18 @@ The following demo credentials are available for testing:
             }
           }
         }
->>>>>>> integration-branch
+>
       }
     },
     "/v1/metrics/system": {
       "get": {
-<<<<<<< HEAD
+
         "tags": ["metrics"],
-=======
+
         "tags": [
           "handlers"
         ],
->>>>>>> integration-branch
+>
         "summary": "Get system metrics",
         "operationId": "get_system_metrics",
         "responses": {
@@ -1983,16 +1983,16 @@ The following demo credentials are available for testing:
             "content": {
               "application/json": {
                 "schema": {
-<<<<<<< HEAD
+
                   "$ref": "#/components/schemas/SystemMetrics"
-=======
+
                   "$ref": "#/components/schemas/SystemMetricsResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
@@ -2015,7 +2015,7 @@ The following demo credentials are available for testing:
               "type": "string"
             },
             "description": "Adapter ID"
-=======
+
         }
       }
     },
@@ -2036,18 +2036,18 @@ The following demo credentials are available for testing:
               "type": "string",
               "nullable": true
             }
->>>>>>> integration-branch
+>
           }
         ],
         "responses": {
           "200": {
-<<<<<<< HEAD
+
             "description": "Adapter metrics",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdapterMetrics"
-=======
+
             "description": "Base model status",
             "content": {
               "application/json": {
@@ -2063,32 +2063,32 @@ The following demo credentials are available for testing:
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
->>>>>>> integration-branch
+>
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
             "bearer_token": []
           }
         ]
-=======
+
         }
->>>>>>> integration-branch
+>
       }
     },
     "/v1/repositories": {
       "get": {
-<<<<<<< HEAD
+
         "tags": ["repositories"],
-=======
+
         "tags": [
           "handlers"
         ],
->>>>>>> integration-branch
+>
         "summary": "List repositories",
         "operationId": "list_repositories",
         "responses": {
@@ -2099,24 +2099,24 @@ The following demo credentials are available for testing:
                 "schema": {
                   "type": "array",
                   "items": {
-<<<<<<< HEAD
+
                     "$ref": "#/components/schemas/RepositoryInfo"
-=======
+
                     "$ref": "#/components/schemas/RepositoryResponse"
->>>>>>> integration-branch
+>
                   }
                 }
               }
             }
           }
-<<<<<<< HEAD
+
         },
         "security": [
           {
             "bearer_token": []
           }
         ]
-=======
+
         }
       }
     },
@@ -2620,12 +2620,12 @@ The following demo credentials are available for testing:
             }
           }
         }
->>>>>>> integration-branch
+>
       }
     }
   },
   "components": {
-<<<<<<< HEAD
+
     "securitySchemes": {
       "bearer_token": {
         "type": "http",
@@ -2640,7 +2640,7 @@ The following demo credentials are available for testing:
           "error": {
             "type": "string"
           },
-=======
+
     "schemas": {
       "AdapterActivationResponse": {
         "type": "object",
@@ -3547,12 +3547,12 @@ The following demo credentials are available for testing:
           "error"
         ],
         "properties": {
->>>>>>> integration-branch
+>
           "code": {
             "type": "string"
           },
           "details": {
-<<<<<<< HEAD
+
             "type": "object"
           }
         },
@@ -3778,7 +3778,7 @@ The following demo credentials are available for testing:
             "type": "string"
           },
           "upload_url": {
-=======
+
             "nullable": true
           },
           "error": {
@@ -3915,12 +3915,12 @@ The following demo credentials are available for testing:
             "type": "string"
           },
           "version": {
->>>>>>> integration-branch
+>
             "type": "string"
           }
         }
       },
-<<<<<<< HEAD
+
       "AdapterDetails": {
         "type": "object",
         "properties": {
@@ -4119,7 +4119,7 @@ The following demo credentials are available for testing:
           "usage": {
             "$ref": "#/components/schemas/TokenUsage"
           },
-=======
+
       "InferRequest": {
         "type": "object",
         "description": "Inference request",
@@ -4200,7 +4200,7 @@ The following demo credentials are available for testing:
           "latency_ms"
         ],
         "properties": {
->>>>>>> integration-branch
+>
           "adapters_used": {
             "type": "array",
             "items": {
@@ -4208,7 +4208,7 @@ The following demo credentials are available for testing:
             }
           },
           "latency_ms": {
-<<<<<<< HEAD
+
             "type": "number"
           }
         }
@@ -4307,7 +4307,7 @@ The following demo credentials are available for testing:
           },
           "file_count": {
             "type": "integer"
-=======
+
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -4496,13 +4496,13 @@ The following demo credentials are available for testing:
           },
           "proposal_id": {
             "type": "string"
->>>>>>> integration-branch
+>
           },
           "status": {
             "type": "string"
           }
         }
-<<<<<<< HEAD
+
       }
     }
   }
@@ -5030,7 +5030,7 @@ func main() {
     fmt.Println(result["response"])
 }
 ```
-=======
+
       },
       "QualityMetricsResponse": {
         "type": "object",
@@ -5986,7 +5986,7 @@ The API provides comprehensive endpoints for:
 - **Contacts** - Contact discovery and management
 - **Streams** - Real-time SSE event streams
 - **Health** - Health and readiness checks
->>>>>>> integration-branch
+>
 
 ## Development
 
@@ -6004,18 +6004,18 @@ All protected endpoints require a JWT token obtained from the login endpoint:
 # Login
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-<<<<<<< HEAD
+
   -d '{"email":"admin@example.com","password":"password"}'
-=======
+
   -d '{"email":"admin@aos.local","password":"password"}'
->>>>>>> integration-branch
+>
 
 # Use token in subsequent requests
 curl -H "Authorization: Bearer <token>" \
   http://localhost:8080/api/v1/adapters
 ```
 
-<<<<<<< HEAD
+
 ## API Endpoints Summary
 
 The API provides comprehensive endpoints for:
@@ -6030,6 +6030,6 @@ The API provides comprehensive endpoints for:
 - **Health** - Health and readiness checks
 
 Generated on 2025-01-15
-=======
->>>>>>> integration-branch
+
+>
 Generated on Tue Oct 14 08:33:47 CDT 2025

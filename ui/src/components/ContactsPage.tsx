@@ -91,8 +91,8 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     };
   }, [selectedTenant]);
 
-<<<<<<< HEAD
-=======
+
+
   const fetchContacts = async () => {
     setLoading(true);
     try {
@@ -106,7 +106,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     }
   };
 
->>>>>>> integration-branch
+>
   const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

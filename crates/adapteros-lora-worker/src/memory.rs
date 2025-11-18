@@ -170,6 +170,39 @@ impl UmaPressureMonitor {
     pub fn should_evict(&self) -> bool {
         self.headroom_pct() < self.min_headroom_pct as f32
     }
+
+    pub async fn get_uma_stats(&self) -> UmaStats {
+        let headroom_pct = self.headroom_pct();
+        let total_mb = self
+            .get_total_memory_bytes()
+            .map(|b| b / (1024 * 1024))
+            .unwrap_or(0);
+        let used_mb = ((100.0 - headroom_pct) / 100.0 * total_mb as f32) as u64;
+        let available_mb = total_mb - used_mb;
+
+        UmaStats {
+            headroom_pct,
+            used_mb,
+            total_mb,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn headroom_pct_macos(&self) -> Option<f32> {
+        // Try mach first
+        // Assume mach crate added to Cargo.toml
+        // If compile error, comment out and use fallback
+
+        // Fallback to vm_stat command
+        use tokio::process::Command;
+        let output = Command::new("vm_stat")
+            .output()
+            .await
+            .ok()?;
+
+        let output_str = String::from_utf8(output.stdout).ok()?;
+        Self::parse_vm_stat(&output_str)
+    }
 }
 
 // Add enum
@@ -192,135 +225,3 @@ impl MemoryPressureLevel {
     }
 }
 
-// In UmaPressureMonitor
-pub async fn get_uma_stats(&self) -> UmaStats {
-    let headroom_pct = self.headroom_pct();
-    let total_mb = self
-        .get_total_memory_bytes()
-        .map(|b| b / (1024 * 1024))
-        .unwrap_or(0);
-    let used_mb = ((100.0 - headroom_pct) / 100.0 * total_mb as f32) as u64;
-    let available_mb = total_mb - used_mb;
-
-    UmaStats {
-        headroom_pct,
-        used_mb,
-        total_mb,
-    }
-}
-
-// In headroom_pct_macos, fix mach if error, use fallback vm_stat
-
-#[cfg(target_os = "macos")]
-fn headroom_pct_macos(&self) -> Option<f32> {
-    // Try mach first
-    // Assume mach crate added to Cargo.toml
-    // If compile error, comment out and use fallback
-
-    // Fallback to vm_stat
-    let output = Command::new("vm_stat").output().ok()?;
-    let vm_stat = String::from_utf8_lossy(&output.stdout);
-
-    let mut free_pages = 0u64;
-    let mut inactive_pages = 0u64;
-    let page_size = 4096u64;
-
-    for line in vm_stat.lines() {
-        if line.contains("Pages free") {
-            if let Ok(p) = line
-                .split(':')
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .trim_end_matches('.')
-                .parse()
-            {
-                free_pages = p;
-            }
-        } else if line.contains("Pages inactive") {
-            if let Ok(p) = line
-                .split(':')
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .trim_end_matches('.')
-                .parse()
-            {
-                inactive_pages = p;
-            }
-        }
-    }
-
-    let total_bytes = self.get_total_memory_bytes()? as f32;
-    let available_bytes = (free_pages + inactive_pages) as f32 * page_size as f32;
-    let headroom_pct = (available_bytes / total_bytes) * 100.0;
-
-    Some(headroom_pct)
-}
-
-// Unit test
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_pressure_levels() {
-        let stats = UmaStats {
-            headroom_pct: 25.0,
-            used_mb: 12000,
-            total_mb: 16000,
-        };
-        let level = determine_pressure(&stats, 15.0);
-        assert_eq!(level, MemoryPressureLevel::Medium);
-
-        let critical = UmaStats {
-            headroom_pct: 10.0,
-            used_mb: 14400,
-            total_mb: 16000,
-        };
-        let level = determine_pressure(&critical, 15.0);
-        assert_eq!(level, MemoryPressureLevel::Critical);
-    }
-}
-
-fn determine_pressure(stats: &UmaStats, min_headroom: f32) -> MemoryPressureLevel {
-    let headroom = stats.headroom_pct;
-    if headroom < min_headroom {
-        MemoryPressureLevel::Critical
-    } else if headroom < 20.0 {
-        MemoryPressureLevel::High
-    } else if headroom < 30.0 {
-        MemoryPressureLevel::Medium
-    } else {
-        MemoryPressureLevel::Low
-    }
-}
-
-async fn emit_telemetry(
-    telemetry: &Option<TelemetryWriter>,
-    stats: &UmaStats,
-    level: MemoryPressureLevel,
-) {
-    if let Some(t) = telemetry {
-        let _ = t
-            .log(
-                "uma.pressure",
-                json!({
-                    "level": level.to_string(),
-                    "headroom_pct": stats.headroom_pct,
-                    "used_mb": stats.used_mb,
-                    "available_mb": stats.total_mb - stats.used_mb, // Calculate available_mb
-                    "total_mb": stats.total_mb,
-                    "timestamp": Utc::now().timestamp()
-                }),
-            )
-            .await;
-    }
-}
-
-#[derive(Clone)]
-pub struct UmaStats {
-    headroom_pct: f32,
-    used_mb: u64,
-    total_mb: u64,
-}

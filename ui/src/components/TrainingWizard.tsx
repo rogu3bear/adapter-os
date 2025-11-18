@@ -1,7 +1,7 @@
-<<<<<<< HEAD
+
 // 【ui/src/components/TrainingWizard.tsx§1-981】 - Add density controls and breadcrumbs
-=======
->>>>>>> integration-branch
+
+>
 import React, { useState, useEffect } from 'react';
 import { Wizard, WizardStep } from './ui/wizard';
 import { Input } from './ui/input';
@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Alert, AlertDescription } from './ui/alert';
-<<<<<<< HEAD
+
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder, Settings, RotateCcw, ChevronDown } from 'lucide-react';
@@ -25,11 +25,11 @@ import { DensityProvider, useDensity } from '../contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
-=======
+
 import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
->>>>>>> integration-branch
+>
 import {
   AdapterCategory,
   AdapterScope,
@@ -44,11 +44,11 @@ interface TrainingWizardProps {
 }
 
 interface WizardState {
-<<<<<<< HEAD
+
   // Current step
   currentStep?: number;
-=======
->>>>>>> integration-branch
+
+>
   // Step 1: Category
   category: AdapterCategory | null;
   
@@ -58,7 +58,7 @@ interface WizardState {
   scope: AdapterScope;
   
   // Step 3: Data Source
-<<<<<<< HEAD
+
   dataSourceType: 'repository' | 'template' | 'custom' | 'directory';
   repositoryId?: string;
   templateId?: string;
@@ -66,12 +66,12 @@ interface WizardState {
   datasetPath?: string;
   directoryRoot?: string;
   directoryPath?: string;
-=======
+
   dataSourceType: 'repository' | 'template' | 'custom';
   repositoryId?: string;
   templateId?: string;
   customData?: string;
->>>>>>> integration-branch
+>
   
   // Step 4: Category-specific config
   // Code adapter
@@ -98,7 +98,7 @@ interface WizardState {
   batchSize: number;
   warmupSteps?: number;
   maxSeqLength?: number;
-<<<<<<< HEAD
+
 
   // Step 6: Packaging & Registration
   packageAfter?: boolean;
@@ -106,8 +106,8 @@ interface WizardState {
   adaptersRoot?: string;
   adapterId?: string;
   tier?: number;
-=======
->>>>>>> integration-branch
+
+>
 }
 
 const CATEGORY_ICONS = {
@@ -134,7 +134,7 @@ const LORA_TARGETS = [
   'embed_tokens', 'lm_head',
 ];
 
-<<<<<<< HEAD
+
 // Inner component that uses density context
 function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX.Element {
   const { density, setDensity, spacing, textSizes } = useDensity();
@@ -148,7 +148,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
   const initialState: WizardState = {
     currentStep: 0,
-=======
+
 export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -156,7 +156,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
   
   const [state, setState] = useState<WizardState>({
->>>>>>> integration-branch
+>
     category: null,
     name: '',
     description: '',
@@ -168,7 +168,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     epochs: 3,
     learningRate: 3e-4,
     batchSize: 4,
-<<<<<<< HEAD
+
     packageAfter: true,
     registerAfter: true,
     adaptersRoot: './adapters',
@@ -211,18 +211,18 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     // Breadcrumbs are now derived statelessly from URL - no manual management needed
   }, [currentStep]);
 
-=======
+
   });
 
->>>>>>> integration-branch
+>
   useEffect(() => {
     // Load repositories and templates
     const loadData = async () => {
       try {
-<<<<<<< HEAD
+
         setWizardError(null);
-=======
->>>>>>> integration-branch
+
+>
         const [reposData, templatesData] = await Promise.all([
           apiClient.listRepositories(),
           apiClient.listTrainingTemplates(),
@@ -230,23 +230,23 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         setRepositories(reposData);
         setTemplates(templatesData);
       } catch (error) {
-<<<<<<< HEAD
+
         const err = error instanceof Error ? error : new Error('Failed to load repositories and templates');
         setWizardError(err);
         logger.error('Failed to preload training wizard data', {
           component: 'TrainingWizard',
           operation: 'loadData',
         }, toError(error));
-=======
+
         console.error('Failed to load data:', error);
         toast.error('Failed to load repositories and templates');
->>>>>>> integration-branch
+>
       }
     };
     loadData();
   }, []);
 
-<<<<<<< HEAD
+
   const handleResume = () => {
     // loadSavedState already updates the persisted state
     const restoredState = loadSavedState();
@@ -266,10 +266,10 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
   const updateState = (updates: Partial<WizardState>) => {
     setPersistedState(updates);
-=======
+
   const updateState = (updates: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...updates }));
->>>>>>> integration-branch
+>
   };
 
   // Step 1: Category Selection
@@ -360,7 +360,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   );
 
   // Step 3: Data Source Selection
-<<<<<<< HEAD
+
   const DataSourceStep = () => {
     return (
       <div className="space-y-4">
@@ -476,7 +476,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           )}
         </div>
       )}
-=======
+
   const DataSourceStep = () => (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -528,7 +528,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           </CardHeader>
         </Card>
       </div>
->>>>>>> integration-branch
+>
 
       {state.dataSourceType === 'template' && (
         <div className="space-y-2">
@@ -538,11 +538,11 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               <SelectValue placeholder="Choose a template..." />
             </SelectTrigger>
             <SelectContent>
-<<<<<<< HEAD
+
               {templates.filter(template => template.id && template.id !== '').map((template) => (
-=======
+
               {templates.map((template) => (
->>>>>>> integration-branch
+>
                 <SelectItem key={template.id} value={template.id}>
                   {template.name} - {template.description}
                 </SelectItem>
@@ -560,11 +560,11 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               <SelectValue placeholder="Choose a repository..." />
             </SelectTrigger>
             <SelectContent>
-<<<<<<< HEAD
+
               {repositories.filter(repo => repo.id && repo.id !== '').map((repo) => (
-=======
+
               {repositories.map((repo) => (
->>>>>>> integration-branch
+>
                 <SelectItem key={repo.id} value={repo.id}>
                   {repo.url} ({repo.branch})
                 </SelectItem>
@@ -574,11 +574,11 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         </div>
       )}
 
-<<<<<<< HEAD
+
       {/* File preview functionality can be added when file upload state is needed */}
 
-=======
->>>>>>> integration-branch
+
+>
       {state.dataSourceType === 'custom' && (
         <div className="space-y-2">
           <Label htmlFor="customData">Custom Training Data</Label>
@@ -591,7 +591,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           />
         </div>
       )}
-<<<<<<< HEAD
+
 
       <div className="space-y-2">
         <Label htmlFor="datasetPath">Dataset Path (optional)</Label>
@@ -606,10 +606,10 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     </div>
   );
 };
-=======
+
     </div>
   );
->>>>>>> integration-branch
+>
 
   // Step 4: Category-Specific Configuration
   const CategoryConfigStep = () => {
@@ -865,7 +865,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     </div>
   );
 
-<<<<<<< HEAD
+
   // Step 6: Packaging & Registration
   const PackagingStep = () => (
     <div className="space-y-4">
@@ -921,8 +921,8 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     </div>
   );
 
-=======
->>>>>>> integration-branch
+
+>
   // Step 6: Review & Confirm
   const ReviewStep = () => (
     <div className="space-y-4">
@@ -933,7 +933,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         </AlertDescription>
       </Alert>
 
-<<<<<<< HEAD
+
       <Accordion type="multiple" defaultValue={['basic']} className="w-full">
         <AccordionItem value="basic">
           <AccordionTrigger>
@@ -1198,7 +1198,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           </AccordionContent>
         </AccordionItem>
       </Accordion>
-=======
+
       <Card>
         <CardHeader>
           <CardTitle>Configuration Summary</CardTitle>
@@ -1263,15 +1263,15 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           </div>
         </CardContent>
       </Card>
->>>>>>> integration-branch
+>
     </div>
   );
 
   const handleComplete = async () => {
-<<<<<<< HEAD
+
     setWizardError(null);
-=======
->>>>>>> integration-branch
+
+>
     setIsLoading(true);
     try {
       // Build training config
@@ -1287,7 +1287,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       };
 
       // Start training
-<<<<<<< HEAD
+
       const trainingRequest: any = {
         adapter_name: state.name,
         config: trainingConfig,
@@ -1374,7 +1374,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         operation: 'startTraining',
         adapterName: state.name,
       }, toError(error));
-=======
+
       const job = await apiClient.startTraining({
         adapter_name: state.name,
         config: trainingConfig,
@@ -1387,7 +1387,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     } catch (error) {
       console.error('Training failed:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to start training');
->>>>>>> integration-branch
+>
     } finally {
       setIsLoading(false);
     }
@@ -1400,14 +1400,14 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Select adapter type',
       component: <CategoryStep />,
       validate: () => {
-<<<<<<< HEAD
+
         setValidationError(null);
         if (!state.category) {
           setValidationError('Please select an adapter category');
-=======
+
         if (!state.category) {
           toast.error('Please select an adapter category');
->>>>>>> integration-branch
+>
           return false;
         }
         return true;
@@ -1419,14 +1419,14 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Name and scope',
       component: <BasicInfoStep />,
       validate: () => {
-<<<<<<< HEAD
+
         setValidationError(null);
         if (!state.name.trim()) {
           setValidationError('Adapter name is required');
-=======
+
         if (!state.name.trim()) {
           toast.error('Adapter name is required');
->>>>>>> integration-branch
+>
           return false;
         }
         return true;
@@ -1438,7 +1438,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Select training data',
       component: <DataSourceStep />,
       validate: () => {
-<<<<<<< HEAD
+
         setValidationError(null);
         if (state.dataSourceType === 'template' && !state.templateId) {
           setValidationError('Please select a template');
@@ -1454,7 +1454,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         }
         if (state.dataSourceType === 'custom' && !state.datasetPath?.trim()) {
           setValidationError('For custom training, please provide a dataset_path pointing to a training JSON file');
-=======
+
         if (state.dataSourceType === 'template' && !state.templateId) {
           toast.error('Please select a template');
           return false;
@@ -1465,7 +1465,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         }
         if (state.dataSourceType === 'custom' && !state.customData?.trim()) {
           toast.error('Please provide custom training data');
->>>>>>> integration-branch
+>
           return false;
         }
         return true;
@@ -1483,29 +1483,29 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'LoRA configuration',
       component: <TrainingParamsStep />,
       validate: () => {
-<<<<<<< HEAD
+
         setValidationError(null);
         if (state.targets.length === 0) {
           setValidationError('Please select at least one LoRA target module');
-=======
+
         if (state.targets.length === 0) {
           toast.error('Please select at least one LoRA target module');
->>>>>>> integration-branch
+>
           return false;
         }
         return true;
       },
     },
     {
-<<<<<<< HEAD
+
       id: 'packaging',
       title: 'Packaging & Registration',
       description: 'Artifacts and registry',
       component: <PackagingStep />,
     },
     {
-=======
->>>>>>> integration-branch
+
+>
       id: 'review',
       title: 'Review',
       description: 'Confirm and start',
@@ -1514,7 +1514,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   ];
 
   return (
-<<<<<<< HEAD
+
     <div className={spacing.sectionGap}>
       {/* Resume Dialog */}
       <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
@@ -1632,7 +1632,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     </DensityProvider>
   );
 }
-=======
+
     <Wizard
       title="Training Wizard"
       steps={steps}
@@ -1647,4 +1647,4 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 }
 
 
->>>>>>> integration-branch
+>

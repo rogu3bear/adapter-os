@@ -37,12 +37,12 @@ export function useSSE<T = unknown>(
 
     // Construct the full URL
     const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
-<<<<<<< HEAD
+
     const url = `${baseUrl}${endpoint}`;
 
     // With cookie-based auth, cookies are sent automatically with credentials: 'include'
     // No need to manually append tokens to URLs
-=======
+
     const token = apiClient.getToken();
 
     // EventSource doesn't support custom headers, so we append the token as a query parameter
@@ -51,7 +51,7 @@ export function useSSE<T = unknown>(
 
     // Note: SSE authentication requires token in query string since EventSource doesn't support Authorization headers
     // Server-side handlers must extract and validate the token from query parameters
->>>>>>> integration-branch
+>
 
     try {
       const eventSource = new EventSource(url);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-<<<<<<< HEAD
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -15,7 +15,7 @@ import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { logger, toError } from '../utils/logger';
-=======
+
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
@@ -24,7 +24,7 @@ import apiClient from '../api/client';
 import { ReplaySession } from '../api/types';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
->>>>>>> integration-branch
+>
 
 import { useTenant } from '@/layout/LayoutProvider';
 
@@ -39,7 +39,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   const [sessions, setSessions] = useState<ReplaySession[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-<<<<<<< HEAD
+
   const [replayError, setReplayError] = useState<Error | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyResponse, setVerifyResponse] = useState<ReplayVerificationResponse | null>(null);
@@ -47,14 +47,14 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   const [newCpid, setNewCpid] = useState('');
   const [newPlanId, setNewPlanId] = useState('');
   const [newBundleIds, setNewBundleIds] = useState('');
-=======
+
   const [verifying, setVerifying] = useState(false);
->>>>>>> integration-branch
+>
 
   useEffect(() => {
     const fetchSessions = async () => {
       try {
-<<<<<<< HEAD
+
         setReplayError(null);
         const data = await apiClient.listReplaySessions(tenantId);
         setSessions(data);
@@ -66,12 +66,12 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
           tenantId,
         }, toError(err));
         setReplayError(error);
-=======
+
         const data = await apiClient.listReplaySessions(tenantId);
         setSessions(data);
       } catch (err) {
         toast.error('Failed to load replay sessions');
->>>>>>> integration-branch
+>
       } finally {
         setLoading(false);
       }
@@ -93,7 +93,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
     setVerifying(true);
     try {
       const result = await apiClient.verifyReplaySession(selectedSession);
-<<<<<<< HEAD
+
       setVerifyResponse(result);
       
       if (result.signature_valid && result.hash_chain_valid) {
@@ -118,7 +118,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
         tenantId,
       }, toError(err));
       setReplayError(error);
-=======
+
       
       if (result.signature_valid && result.hash_chain_valid) {
         toast.success('Replay session verified successfully');
@@ -127,7 +127,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
       }
     } catch (err) {
       toast.error('Verification error');
->>>>>>> integration-branch
+>
     } finally {
       setVerifying(false);
     }
@@ -135,7 +135,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
 
   const currentSession = sessions.find(s => s.id === selectedSession);
 
-<<<<<<< HEAD
+
   if (replayError) {
     return (
       <ErrorRecovery
@@ -155,9 +155,9 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
 
   return (
     <div>
-=======
+
   return (
->>>>>>> integration-branch
+>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center">
@@ -166,22 +166,22 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-<<<<<<< HEAD
+
         <div className="flex justify-end">
           <Button variant="outline" onClick={() => setCreateOpen(true)}>New Session</Button>
         </div>
-=======
->>>>>>> integration-branch
+
+>
         <Select value={selectedSession || ''} onValueChange={handleSessionSelect}>
           <SelectTrigger>
             <SelectValue placeholder="Select replay session" />
           </SelectTrigger>
           <SelectContent>
-<<<<<<< HEAD
+
             {sessions.filter(session => session.id && session.id !== '').map(session => (
-=======
+
             {sessions.map(session => (
->>>>>>> integration-branch
+>
               <SelectItem key={session.id} value={session.id}>
                 {session.cpid} @ {useTimestamp(session.snapshot_at)}
               </SelectItem>
@@ -191,7 +191,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
 
         {currentSession && (
           <div className="space-y-3 border rounded p-3">
-<<<<<<< HEAD
+
             <Accordion type="multiple" defaultValue={['basic']} className="w-full">
               <AccordionItem value="basic">
                 <AccordionTrigger>
@@ -251,7 +251,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
-=======
+
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
                 <span className="text-muted-foreground">CPID:</span>
@@ -290,7 +290,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                 </div>
               )}
             </div>
->>>>>>> integration-branch
+>
 
             <Button 
               onClick={handleVerify} 
@@ -301,7 +301,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
               <Shield className="mr-2 h-4 w-4" />
               {verifying ? 'Verifying...' : 'Verify Cryptographic Chain'}
             </Button>
-<<<<<<< HEAD
+
 
             {verifyResponse && (
               <div className="space-y-2">
@@ -354,13 +354,13 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                 )}
               </div>
             )}
-=======
->>>>>>> integration-branch
+
+>
           </div>
         )}
       </CardContent>
     </Card>
-<<<<<<< HEAD
+
 
     {/* Create Session Dialog */}
     <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -408,8 +408,8 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
     </div>
   );
 }
-=======
+
   );
 }
 
->>>>>>> integration-branch
+>
