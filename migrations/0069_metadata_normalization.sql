@@ -1,5 +1,6 @@
 -- PRD-02: Adapter & Stack Metadata Normalization
--- Adds version and lifecycle state fields to adapters and stacks
+-- Adds version and lifecycle state fields to adapters
+-- Adds lifecycle state field to stacks (version already added in 0066)
 
 -- Add version field to adapters table
 ALTER TABLE adapters ADD COLUMN version TEXT NOT NULL DEFAULT '1.0.0';
@@ -31,8 +32,8 @@ BEGIN
     END;
 END;
 
--- Add version field to adapter_stacks table
-ALTER TABLE adapter_stacks ADD COLUMN version TEXT NOT NULL DEFAULT '1.0.0';
+-- Note: version field for adapter_stacks already added in migration 0066
+-- This migration only adds lifecycle state field to adapter_stacks table
 
 -- Add lifecycle state field to adapter_stacks table
 ALTER TABLE adapter_stacks ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active';
@@ -66,7 +67,7 @@ END;
 CREATE INDEX IF NOT EXISTS idx_adapters_lifecycle_state ON adapters(lifecycle_state);
 CREATE INDEX IF NOT EXISTS idx_adapters_version ON adapters(version);
 CREATE INDEX IF NOT EXISTS idx_adapter_stacks_lifecycle_state ON adapter_stacks(lifecycle_state);
-CREATE INDEX IF NOT EXISTS idx_adapter_stacks_version ON adapter_stacks(version);
+-- Note: idx_adapter_stacks_version already created in migration 0066
 
 -- Validation rules documented (checked in application logic):
 -- 1. ephemeral tier adapters cannot be deprecated (must be retired directly)
