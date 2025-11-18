@@ -1,0 +1,42 @@
+{
+  "bundles": [
+    {
+      "bundle_id": "bundle-20251118-001829",
+      "bundle_hash": "b3:d464c16d9900f48bda36abf4017b3a5bb74f9e57b9e65af336ba49b669452bcc",
+      "merkle_root": "b3:fb4d7f52c7e51dfb31cb49e584588eda052bb90fe48997034f3f8e9203828251",
+      "event_count": 1247,
+      "size_bytes": 524288,
+      "created_at": "2025-11-18T00:18:29Z",
+      "signature": "abb92c08190ace862c4bb6a970412f6c90c7521f8beb0050e3664c282c53dac7a77b3b4ad82e99674718fc92a21e0cebdbe2e1ef6bb437faaf8833d97af1bbe7",
+      "public_key": "9beaef6f5ea9c2e944995a862793fd1fd52d053bb4c2947eec64ac365dd49a13",
+      "key_id": "623c398d3e297abf",
+      "schema_version": 1,
+      "tenant_id": "tenant-a",
+      "cpid": "cpid-001",
+      "sequence_no": 42
+    }
+  ],
+  "events": [
+    {
+      "event_type": "adapter.load",
+      "timestamp": "2025-11-18T00:18:29Z",
+      "tenant_id": "tenant-a",
+      "adapter_id": "code-review-specialist",
+      "metadata": {
+        "state_transition": "cold_to_warm",
+        "memory_allocated_mb": 256,
+        "load_duration_ms": 1234
+      }
+    },
+    {
+      "event_type": "router.decision",
+      "timestamp": "2025-11-18T00:18:29Z",
+      "tenant_id": "tenant-a",
+      "metadata": {
+        "selected_count": 2,
+        "avg_gate_value": 0.72,
+        "entropy": 1.234
+      }
+    }
+  ]
+}
