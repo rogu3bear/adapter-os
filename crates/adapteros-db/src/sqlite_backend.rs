@@ -46,8 +46,8 @@ impl DatabaseBackend for SqliteBackend {
         let description = req.description.as_deref().unwrap_or("");
 
         let row = sqlx::query(
-            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')) 
+            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'))
              RETURNING id"
         )
         .bind(&id)
@@ -64,8 +64,8 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by 
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, String, String, Option<String>)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -81,9 +81,11 @@ impl DatabaseBackend for SqliteBackend {
             description: r.3,
             adapter_ids_json: r.4,
             workflow_type: r.5,
-            created_at: r.6,
-            updated_at: r.7,
-            created_by: r.8,
+            version: r.6,
+            lifecycle_state: r.7,
+            created_at: r.8,
+            updated_at: r.9,
+            created_by: r.10,
         }))
     }
 
@@ -95,12 +97,14 @@ impl DatabaseBackend for SqliteBackend {
             Option<String>,   // description
             String,           // adapter_ids_json
             Option<String>,   // workflow_type
+            String,           // version
+            String,           // lifecycle_state
             String,           // created_at
             String,           // updated_at
             Option<String>,   // created_by
         )>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at, updated_at, created_by
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -118,9 +122,11 @@ impl DatabaseBackend for SqliteBackend {
                 description: r.3,
                 adapter_ids_json: r.4,
                 workflow_type: r.5,
-                created_at: r.6,
-                updated_at: r.7,
-                created_by: r.8,
+                version: r.6,
+                lifecycle_state: r.7,
+                created_at: r.8,
+                updated_at: r.9,
+                created_by: r.10,
             })
             .collect())
     }
@@ -227,7 +233,7 @@ impl DatabaseBackend for SqliteBackend {
         let rows = sqlx::query(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
-                   created_at, updated_at, created_by
+                   version, lifecycle_state, created_at, updated_at, created_by
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -240,16 +246,18 @@ impl DatabaseBackend for SqliteBackend {
 
         Ok(rows
             .into_iter()
-            .map(|r| StackRecord {
+            .map(|r: sqlx::sqlite::SqliteRow| StackRecord {
                 tenant_id: r.get(0),
                 id: r.get(1),
                 name: r.get(2),
                 description: r.get::<Option<String>, _>(3),
                 adapter_ids_json: r.get(4),
                 workflow_type: r.get::<Option<String>, _>(5),
-                created_at: r.get(6),
-                updated_at: r.get(7),
-                created_by: r.get::<Option<String>, _>(8),
+                version: r.get(6),
+                lifecycle_state: r.get(7),
+                created_at: r.get(8),
+                updated_at: r.get(9),
+                created_by: r.get::<Option<String>, _>(10),
             })
             .collect())
     }
