@@ -61,11 +61,66 @@ This document provides essential guidelines for AI agents (including Cursor AI) 
 
 ### Before Writing Code
 
+<details>
+<summary>📊 Duplication Prevention Workflow</summary>
+
+```mermaid
+flowchart TD
+    Start([Start Coding Task]) --> Search[Search for Existing Patterns]
+
+    Search --> Check1{Pattern<br/>Exists?}
+    Check1 -->|Yes| Reuse[✅ Reuse Existing Code]
+    Check1 -->|No| Review[Review Duplication Guide]
+
+    Review --> Check2{Similar<br/>Code >3 times?}
+    Check2 -->|Yes| Extract[Extract to Shared Module]
+    Check2 -->|No| Write[Write New Code]
+
+    Extract --> Location{Choose Location}
+    Location -->|Rust| Services[crates/*/src/services/]
+    Location -->|Tests| TestUtils[tests/common/]
+    Location -->|UI| UIUtils[ui/src/components/ui/]
+    Location -->|Swift| SwiftUtils[menu-bar-app/.../Utils/]
+
+    Services --> AddCitation[Add Citation]
+    TestUtils --> AddCitation
+    UIUtils --> AddCitation
+    SwiftUtils --> AddCitation
+
+    Write --> Inline[Write inline]
+    AddCitation --> Inline
+
+    Inline --> PreCommit{Ready to<br/>Commit?}
+    PreCommit -->|No| Continue[Continue Development]
+    Continue --> Start
+
+    PreCommit -->|Yes| RunDup[Run: make dup]
+    RunDup --> DupCheck{Duplicates<br/>Detected?}
+
+    DupCheck -->|Yes| ExtractDup[Extract Duplicates]
+    ExtractDup --> RunDup
+
+    DupCheck -->|No| Commit([✅ Commit])
+    Reuse --> Commit
+
+    style Start fill:#e1f5ff,stroke:#333
+    style Commit fill:#e8f8e8,stroke:#333
+    style Extract fill:#fff4e1,stroke:#333
+    style DupCheck fill:#ffe1e1,stroke:#333
+```
+
+**Key Decision Points:**
+1. Search first - Don't reinvent existing utilities
+2. Extract proactively - If code appears 3+ times
+3. Run `make dup` before commit - Catch duplicates early
+
+</details>
+
 1. **Search for existing patterns:**
    ```bash
    # Search for similar functionality
    grep -r "similar_pattern" --include="*.rs" --include="*.tsx" --include="*.swift"
-   
+
    # Check for existing utilities
    ls crates/*/src/services/
    ls tests/common/

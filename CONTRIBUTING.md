@@ -211,6 +211,75 @@ async fn test_plugin_isolation_git_failure() {
 
 ## Pull Request Process
 
+<details>
+<summary>📊 Pull Request Workflow</summary>
+
+```mermaid
+flowchart TD
+    Start([Start Development]) --> Branch[Create Feature Branch]
+    Branch --> Code[Write Code]
+    Code --> PreCheck{Pre-Submit<br/>Checklist?}
+
+    PreCheck -->|No| Fix1[Fix Missing Items]
+    Fix1 --> PreCheck
+
+    PreCheck -->|Yes| Local[Run Local Checks]
+    Local --> Fmt[cargo fmt --all]
+    Fmt --> Clippy[cargo clippy --workspace]
+    Clippy --> Tests[cargo test --workspace]
+    Tests --> Dup[make dup]
+
+    Dup --> AllPass{All Checks<br/>Pass?}
+    AllPass -->|No| Fix2[Fix Issues]
+    Fix2 --> Local
+
+    AllPass -->|Yes| Commit[Create Commit]
+    Commit --> Push[Push to Fork]
+    Push --> PR[Create Pull Request]
+
+    PR --> CI[CI Checks Run]
+    CI --> CIPass{CI Pass?}
+
+    CIPass -->|No| Fix3[Fix CI Issues]
+    Fix3 --> Commit
+
+    CIPass -->|Yes| Review[Code Review]
+    Review --> ReviewOK{Approved?}
+
+    ReviewOK -->|Changes Requested| Fix4[Address Feedback]
+    Fix4 --> Commit
+
+    ReviewOK -->|Yes| PolicyCheck[Policy Compliance Check]
+    PolicyCheck --> PolicyOK{Compliant?}
+
+    PolicyOK -->|No| Fix5[Fix Policy Issues]
+    Fix5 --> Commit
+
+    PolicyOK -->|Yes| Merge{Merge<br/>Requirements?}
+
+    Merge -->|Not Met| Wait[Wait for Requirements]
+    Wait --> Merge
+
+    Merge -->|Met| Merged([✅ Merged!])
+
+    style Start fill:#e1f5ff,stroke:#333
+    style Merged fill:#e8f8e8,stroke:#333
+    style PreCheck fill:#fff4e1,stroke:#333
+    style AllPass fill:#fff4e1,stroke:#333
+    style CIPass fill:#fff4e1,stroke:#333
+    style ReviewOK fill:#fff4e1,stroke:#333
+    style PolicyOK fill:#fff4e1,stroke:#333
+```
+
+**Merge Requirements:**
+- ✅ All CI checks pass
+- ✅ At least one maintainer approval
+- ✅ No unresolved conversations
+- ✅ Up-to-date with main branch
+- ✅ Changelog entry added
+
+</details>
+
 ### Before Submitting
 
 1. **Update Documentation**: Ensure all changes are documented
