@@ -41,6 +41,7 @@ pub struct Repository {
     pub repo_id: String,
     pub path: String,
     pub languages_json: Option<String>,
+    pub frameworks_json: Option<String>,
     pub default_branch: String,
     pub latest_scan_commit: Option<String>,
     pub latest_scan_at: Option<String>,
@@ -98,8 +99,8 @@ impl Db {
 
         sqlx::query(
             r#"
-            INSERT INTO repositories (id, tenant_id, repo_id, path, languages_json, default_branch, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'registered', datetime('now'), datetime('now'))
+            INSERT INTO repositories (id, tenant_id, repo_id, path, languages_json, frameworks_json, default_branch, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, 'registered', datetime('now'), datetime('now'))
             "#,
         )
         .bind(&id)
@@ -118,7 +119,7 @@ impl Db {
     pub async fn get_repository(&self, id: &str) -> Result<Repository> {
         let repo = sqlx::query_as::<_, Repository>(
             r#"
-            SELECT id, tenant_id, repo_id, path, languages_json, default_branch,
+            SELECT id, tenant_id, repo_id, path, languages_json, frameworks_json, default_branch,
                    latest_scan_commit, latest_scan_at, latest_graph_hash, status,
                    created_at, updated_at
             FROM repositories
@@ -140,7 +141,7 @@ impl Db {
     ) -> Result<Option<Repository>> {
         let repo = sqlx::query_as::<_, Repository>(
             r#"
-            SELECT id, tenant_id, repo_id, path, languages_json, default_branch,
+            SELECT id, tenant_id, repo_id, path, languages_json, frameworks_json, default_branch,
                    latest_scan_commit, latest_scan_at, latest_graph_hash, status,
                    created_at, updated_at
             FROM repositories
@@ -164,7 +165,7 @@ impl Db {
     ) -> Result<Vec<Repository>> {
         let repos = sqlx::query_as::<_, Repository>(
             r#"
-            SELECT id, tenant_id, repo_id, path, languages_json, default_branch,
+            SELECT id, tenant_id, repo_id, path, languages_json, frameworks_json, default_branch,
                    latest_scan_commit, latest_scan_at, latest_graph_hash, status,
                    created_at, updated_at
             FROM repositories
@@ -230,6 +231,29 @@ impl Db {
         )
         .bind(commit_sha)
         .bind(graph_hash)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Update repository frameworks
+    pub async fn update_repository_frameworks(
+        &self,
+        id: &str,
+        frameworks: &[String],
+    ) -> Result<()> {
+        let frameworks_json = serde_json::to_string(frameworks)?;
+
+        sqlx::query(
+            r#"
+            UPDATE repositories
+            SET frameworks_json = ?, updated_at = datetime('now')
+            WHERE id = ?
+            "#,
+        )
+        .bind(&frameworks_json)
         .bind(id)
         .execute(&self.pool)
         .await?;
