@@ -568,6 +568,8 @@ pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
 pub mod audits;
+pub mod lifecycle;
+pub use lifecycle::{LifecycleHistoryEvent, StackReference};
 pub mod metadata;
 pub use metadata::{AdapterMeta, AdapterStackMeta, LifecycleState, ForkType, WorkflowType, API_SCHEMA_VERSION};
 pub mod migration_verify;
