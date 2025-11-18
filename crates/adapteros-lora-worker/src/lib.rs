@@ -70,6 +70,7 @@ pub mod metrics;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
+pub mod router_bridge;
 pub mod signal;
 pub mod telemetry_adapter;
 pub mod telemetry_lora;
