@@ -51,6 +51,12 @@ pub struct StreamingInferenceRequest {
     /// Active adapter stack name
     #[serde(default)]
     pub adapter_stack: Option<String>,
+    /// Stack ID for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_version: Option<i64>,
 }
 
 fn default_max_tokens() -> usize {
@@ -273,6 +279,8 @@ async fn generate_streaming_response<K: FusedKernels + Send + Sync>(
         max_tokens: request.max_tokens,
         require_evidence: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
+        stack_id: request.stack_id.clone(),
+        stack_version: request.stack_version,
     };
 
     debug!(
@@ -387,6 +395,8 @@ pub async fn completion_handler<K: FusedKernels + Send + Sync>(
         max_tokens: request.max_tokens,
         require_evidence: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
+        stack_id: request.stack_id.clone(),
+        stack_version: request.stack_version,
     };
 
     // Run inference
