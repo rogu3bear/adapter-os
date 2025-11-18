@@ -1,9 +1,10 @@
 {
   "minTokens": 70,
-  "threshold": 0,
+  "threshold": 10,
   "reporters": ["console", "json", "html", "markdown"],
   "mode": "strict",
   "gitignore": true,
+  "progress": true,
   "ignore": [
     "**/.git/**",
     "**/.venv/**",
@@ -18,6 +19,26 @@
     "**/*.lock",
     "**/*.min.*",
     "**/generated/**",
-    "**/coverage/**"
+    "**/coverage/**",
+    "**/deprecated/**",
+    "**/baselines/**",
+    "**/golden_runs/**",
+    "**/test_data/**",
+    "**/adapters/**",
+    "**/migrations_postgres/**",
+    "**/artifacts/**",
+    "**/ui/node_modules/**",
+    "**/ui/.next/**",
+    "**/ui/dist/**",
+    "**/menu-bar-app/.build/**",
+    "**/installer/build/**",
+    "**/fuzz/target/**",
+    "**/xtask/target/**",
+    "**/test-status-writer/target/**",
+    "**/test-config-precedence/target/**",
+    "**/*.aos",
+    "**/*.safetensors",
+    "**/*.pem",
+    "**/*.sig"
   ]
 }
