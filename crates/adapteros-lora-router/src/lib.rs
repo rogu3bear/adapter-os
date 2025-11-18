@@ -1029,6 +1029,30 @@ impl Decision {
     pub fn gates_f32(&self) -> Vec<f32> {
         self.gates_q15.iter().map(|&q| q as f32 / 32767.0).collect()
     }
+
+    /// Convert to canonical RouterRing for kernel execution
+    pub fn to_router_ring(&self) -> adapteros_lora_kernel_api::RouterRing {
+        let k = self.indices.len();
+        assert!(k <= 8, "Decision has too many adapters (k={}), max is 8", k);
+
+        let mut ring = adapteros_lora_kernel_api::RouterRing::new(k);
+        ring.set(&self.indices[..], &self.gates_q15[..]);
+        ring
+    }
+}
+
+/// Convert Decision to canonical RouterRing for kernel interface
+impl From<Decision> for adapteros_lora_kernel_api::RouterRing {
+    fn from(decision: Decision) -> Self {
+        decision.to_router_ring()
+    }
+}
+
+/// Convert Decision reference to canonical RouterRing
+impl From<&Decision> for adapteros_lora_kernel_api::RouterRing {
+    fn from(decision: &Decision) -> Self {
+        decision.to_router_ring()
+    }
 }
 
 #[cfg(test)]

@@ -41,10 +41,7 @@ fn bench_inference_throughput(c: &mut Criterion) {
                             output_logits: vec![0.0f32; vocab_size],
                         };
 
-                        let router_ring = RouterRing {
-                            indices: vec![0, 1],
-                            gates_q15: vec![16384, 8192],
-                        };
+                        let router_ring = RouterRing::from_slices(&[0, 1], &[16384, 8192]);
 
                         // For batched inference, we'd need to modify the kernel API
                         // For now, simulate sequential processing
@@ -183,14 +180,11 @@ fn bench_adapter_routing(c: &mut Criterion) {
                     let mut gates_q15 = Vec::with_capacity(num_adapters);
 
                     for i in 0..num_adapters {
-                        indices.push(i as u32);
-                        gates_q15.push((32767 / num_adapters * (i + 1)) as u16); // Distribute gates
+                        indices.push(i as u16);
+                        gates_q15.push((32767 / num_adapters * (i + 1)) as i16); // Distribute gates
                     }
 
-                    let router_ring = RouterRing {
-                        indices,
-                        gates_q15,
-                    };
+                    let router_ring = RouterRing::from_slices(&indices, &gates_q15);
 
                     black_box(router_ring);
                 })
@@ -202,11 +196,7 @@ fn bench_adapter_routing(c: &mut Criterion) {
                     let mut adapter_contributions = Vec::with_capacity(num_adapters);
 
                     for i in 0..num_adapters {
-<<<<<<< HEAD
                         let gate = (32767 / num_adapters * (i + 1)) as f32 / 32767.0; // Q15 to float
-=======
-                        let gate = (32767 / num_adapters * (i + 1)) as f32 / 32768.0; // Q15 to float
->>>>>>> integration-branch
                         total_gate_weight += gate;
                         adapter_contributions.push(gate);
                     }
