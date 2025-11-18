@@ -371,6 +371,10 @@ pub struct Adapter {
     pub fork_type: Option<String>,
     pub fork_reason: Option<String>,
 
+    // Metadata normalization (from migration 0070)
+    pub version: String,           // Semantic version or monotonic
+    pub lifecycle_state: String,   // draft/active/deprecated/retired
+
     pub created_at: String,
     pub updated_at: String,
 }
@@ -437,8 +441,8 @@ impl Db {
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, current_state, pinned, memory_bytes, activation_count, load_state, active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, 'unloaded', 0, 0, 0, 'cold', 1)"
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, aos_file_path, aos_file_hash, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, '1.0.0', 'active', 'unloaded', 0, 0, 0, 'cold', 1)"
         )
         .bind(&id)
         .bind(&params.tenant_id)
@@ -484,7 +488,7 @@ impl Db {
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    version, lifecycle_state, created_at, updated_at, active
              FROM adapters
              WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
         )
@@ -501,7 +505,7 @@ impl Db {
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    version, lifecycle_state, created_at, updated_at, active
              FROM adapters
              WHERE active = 1
              ORDER BY tier ASC, created_at DESC",
@@ -642,7 +646,7 @@ impl Db {
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    version, lifecycle_state, created_at, updated_at, active
              FROM adapters
              WHERE adapter_id = ?",
         )
@@ -897,7 +901,7 @@ impl Db {
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    version, lifecycle_state, created_at, updated_at, active
              FROM adapters
              WHERE active = 1 AND category = ?
              ORDER BY activation_count DESC, created_at DESC",
@@ -916,7 +920,7 @@ impl Db {
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    version, lifecycle_state, created_at, updated_at, active
              FROM adapters
              WHERE active = 1 AND scope = ?
              ORDER BY activation_count DESC, created_at DESC",
@@ -935,7 +939,7 @@ impl Db {
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at, aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    version, lifecycle_state, created_at, updated_at, active
              FROM adapters
              WHERE active = 1 AND current_state = ?
              ORDER BY activation_count DESC, created_at DESC",
