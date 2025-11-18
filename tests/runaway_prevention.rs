@@ -300,6 +300,8 @@ async fn test_inference_timeout() {
         max_tokens: 1000,
         require_evidence: false,
         request_type: Default::default(),
+        stack_id: None,
+        stack_version: None,
     };
 
     // Test timeout behavior
@@ -475,6 +477,8 @@ async fn test_telemetry_integration() {
         max_tokens: 10,
         require_evidence: false,
         request_type: Default::default(),
+        stack_id: None,
+        stack_version: None,
     };
 
     // Test that telemetry is logged during inference

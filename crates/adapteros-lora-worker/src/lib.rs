@@ -140,6 +140,12 @@ pub struct InferenceRequest {
     /// Optional: Request patch proposal mode
     #[serde(default)]
     pub request_type: RequestType,
+    /// Stack ID for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    #[serde(default)]
+    pub stack_version: Option<i64>,
 }
 
 /// Request type for different inference modes
@@ -175,6 +181,12 @@ pub struct InferenceResponse {
     /// Patch proposal if requested
     #[serde(skip_serializing_if = "Option::is_none")]
     pub patch_proposal: Option<PatchProposalResponse>,
+    /// Stack ID for telemetry correlation (PRD-03)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    /// Stack version for telemetry correlation (PRD-03)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_version: Option<i64>,
 }
 
 /// Patch proposal response with patches and citations
@@ -616,6 +628,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                             evidence.len(),
                         )),
                         patch_proposal: None,
+                        stack_id: request.stack_id.clone(),
+                        stack_version: request.stack_version,
                     });
                 }
             }
@@ -721,6 +735,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             trace: self.build_trace(&request.cpid, &evidence, generated_tokens.len()),
             refusal: None,
             patch_proposal: None,
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
         })
     }
 
@@ -931,6 +947,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                 None
             },
             patch_proposal,
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
         })
     }
 
