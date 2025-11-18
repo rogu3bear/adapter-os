@@ -3,6 +3,7 @@
 use anyhow::Result;
 use std::env;
 
+mod check_all;
 mod code2db_dataset;
 mod determinism_report;
 mod openapi_docs;
@@ -17,6 +18,10 @@ async fn main() -> Result<()> {
     let task = env::args().nth(1);
 
     match task.as_deref() {
+        Some("check-all") => {
+            let verbose = env::args().any(|arg| arg == "--verbose" || arg == "-v");
+            check_all::run(verbose)?;
+        }
         Some("sbom") => sbom::generate_sbom()?,
         Some("determinism-report") => determinism_report::generate_determinism_report()?,
         Some("verify-artifacts") => verify_artifacts::run()?,
@@ -111,6 +116,7 @@ fn print_help() {
     println!("  cargo xtask <TASK>");
     println!();
     println!("TASKS:");
+    println!("  check-all           Run feature matrix checks (PRD-12)");
     println!("  sbom                Generate SBOM from dependencies");
     println!("  determinism-report  Generate build reproducibility report");
     println!("  verify-artifacts    Verify and sign release artifacts");
@@ -122,6 +128,8 @@ fn print_help() {
     println!("  pack-lora           Quantize and package trained LoRA weights");
     println!("  train-base-adapter  Train base adapter from manifest");
     println!();
+    println!("For check-all options:");
+    println!("  cargo xtask check-all [--verbose|-v]");
     println!("For verify-adapters options, run:");
     println!("  cargo xtask verify-adapters --help");
     println!("For dataset builder options, run:");

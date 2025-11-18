@@ -62,7 +62,6 @@ pub struct StackRecord {
     pub description: Option<String>,
     pub adapter_ids_json: String,
     pub workflow_type: Option<String>,
-    pub version: String,
     pub lifecycle_state: String,
     pub created_at: String,
     pub updated_at: String,

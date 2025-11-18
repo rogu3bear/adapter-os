@@ -323,7 +323,7 @@ impl From<crate::traits::StackRecord> for AdapterStackMeta {
             tenant_id: stack.tenant_id,
             name: stack.name,
             description: stack.description,
-            version: stack.version,
+            version: stack.version.to_string(),
             lifecycle_state: LifecycleState::from_str(&stack.lifecycle_state)
                 .unwrap_or(LifecycleState::Active),
             adapter_ids,

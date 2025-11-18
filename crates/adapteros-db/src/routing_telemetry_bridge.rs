@@ -33,7 +33,7 @@ pub fn event_to_decision(
         .collect();
 
     let candidates_json = serde_json::to_string(&candidates)
-        .map_err(|e| adapteros_core::AosError::Serialization(format!("Failed to serialize candidates: {}", e)))?;
+        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to serialize candidates: {}", e)))?;
 
     // Generate unique ID
     let id = format!("{}-{}-{}", tenant_id, request_id.unwrap_or("unknown"), event.step);
