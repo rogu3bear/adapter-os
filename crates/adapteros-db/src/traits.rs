@@ -39,8 +39,6 @@ pub struct AdapterRecord {
     pub expires_at: Option<String>,
     pub load_state: String,
     pub last_loaded_at: Option<String>,
-    pub aos_file_path: Option<String>,
-    pub aos_file_hash: Option<String>,
     pub adapter_name: Option<String>,
     pub tenant_namespace: Option<String>,
     pub domain: Option<String>,

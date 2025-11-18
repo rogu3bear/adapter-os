@@ -79,15 +79,15 @@ impl GitWatcher {
         _config: WatcherConfig,
         _db: Db,
         _tx: mpsc::Sender<()>,
-    ) -> Result<Self, AosError> {
+    ) -> Result<Self> {
         Ok(Self)
     }
 
-    pub async fn start(&mut self) -> Result<(), AosError> {
+    pub async fn start(&mut self) -> Result<()> {
         Ok(())
     }
 
-    pub async fn stop(&self) -> Result<(), AosError> {
+    pub async fn stop(&self) -> Result<()> {
         Ok(())
     }
 }
@@ -133,7 +133,7 @@ impl GitSubsystem {
     }
 
     /// Start background tasks. Currently a no-op.
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         if self.enabled {
             self.start_polling().await?;
         }
@@ -444,7 +444,7 @@ impl GitSubsystem {
         }
     }
 
-    pub async fn start_polling(&self) -> Result<()> {
+    pub async fn start_polling(&mut self) -> Result<()> {
         if self.is_polling {
             return Ok(());
         }
@@ -455,7 +455,7 @@ impl GitSubsystem {
 
         // Start watcher
         let config = WatcherConfig { debounce_ms: 500 };
-        let (tx, _) = mpsc::channel(1024);
+        let (tx, _) = mpsc::channel::<()>(1024);
         // let mut watcher = GitWatcher::new(config, self.db.clone(), tx).await?;
         // watcher.start().await?;
         // self.watcher = Some(watcher);
@@ -490,7 +490,7 @@ impl GitSubsystem {
         Ok(())
     }
 
-    pub async fn stop_polling(&self) -> Result<()> {
+    pub async fn stop_polling(&mut self) -> Result<()> {
         // Stop watcher
         if let Some(w) = &self.watcher {
             // w.stop().await?;
