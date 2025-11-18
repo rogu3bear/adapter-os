@@ -521,6 +521,76 @@ export interface UpdateAdapterPolicyResponse {
   message: string;
 }
 
+// PRD-07: Adapter Lifecycle Promotion/Demotion
+export interface LifecycleTransitionResponse {
+  adapter_id: string;
+  old_state: string;
+  new_state: string;
+  reason: string;
+  actor: string;
+  timestamp: string;
+}
+
+// PRD-08: Adapter Lineage & Detail Views
+export interface LineageNode {
+  adapter_id: string;
+  adapter_name?: string;
+  tenant_namespace?: string;
+  domain?: string;
+  purpose?: string;
+  revision?: string;
+  parent_id?: string;
+  fork_type?: string;
+  fork_reason?: string;
+  current_state: string;
+  tier: string;
+  created_at: string;
+}
+
+export interface AdapterLineageResponse {
+  adapter_id: string;
+  ancestors: LineageNode[];
+  self_node: LineageNode;
+  descendants: LineageNode[];
+  total_nodes: number;
+}
+
+export interface AdapterDetailResponse {
+  // Core identity
+  id: string;
+  adapter_id: string;
+  name: string;
+  adapter_name?: string;
+  // Semantic naming
+  tenant_namespace?: string;
+  domain?: string;
+  purpose?: string;
+  revision?: string;
+  // Lineage
+  parent_id?: string;
+  fork_type?: string;
+  fork_reason?: string;
+  // State
+  current_state: string;
+  tier: string;
+  pinned: boolean;
+  // Metrics
+  memory_bytes: number;
+  activation_count: number;
+  last_activated?: string;
+  // Metadata
+  hash_b3: string;
+  rank: number;
+  alpha: number;
+  category: string;
+  scope: string;
+  framework?: string;
+  // Timestamps
+  created_at: string;
+  updated_at: string;
+  expires_at?: string;
+}
+
 // Adapter Lifecycle Management
 export interface AdapterStateRecord {
   adapter_id: string;

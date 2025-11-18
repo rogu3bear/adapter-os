@@ -26,6 +26,7 @@ import {
 import DashboardPage from '@/pages/DashboardPage';
 import TenantsPage from '@/pages/TenantsPage';
 import AdaptersPage from '@/pages/AdaptersPage';
+import { AdapterDetail } from '@/components/AdapterDetail';
 import PoliciesPage from '@/pages/PoliciesPage';
 import MetricsPage from '@/pages/MetricsPage';
 import TelemetryPage from '@/pages/TelemetryPage';
@@ -147,6 +148,11 @@ export const routes: RouteConfig[] = [
     navTitle: 'Adapters',
     navIcon: Box,
     navOrder: 6,
+  },
+  {
+    path: '/adapters/:adapterId',
+    component: AdapterDetail,
+    requiresAuth: true,
   },
   {
     path: '/metrics',
