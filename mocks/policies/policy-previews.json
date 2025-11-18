@@ -1,0 +1,45 @@
+{
+  "policies": [
+    {
+      "policy_id": "policy-egress",
+      "name": "Egress Policy",
+      "version": "1.0.0",
+      "enabled": true,
+      "rules": [
+        {
+          "rule": "production_mode_requires_uds",
+          "description": "Production mode must use Unix domain sockets only",
+          "severity": "critical",
+          "violated": false
+        },
+        {
+          "rule": "no_tcp_listening",
+          "description": "No TCP listening sockets allowed in production",
+          "severity": "critical",
+          "violated": false
+        }
+      ]
+    },
+    {
+      "policy_id": "policy-determinism",
+      "name": "Determinism Policy",
+      "version": "1.0.0",
+      "enabled": true,
+      "rules": [
+        {
+          "rule": "seeded_randomness",
+          "description": "All randomness must use HKDF-derived seeds",
+          "severity": "critical",
+          "violated": false
+        },
+        {
+          "rule": "no_thread_rng",
+          "description": "rand::thread_rng() is forbidden",
+          "severity": "high",
+          "violated": true,
+          "violation_details": "Found 2 instances in crates/adapteros-lora-worker/src/sampling.rs"
+        }
+      ]
+    }
+  ]
+}

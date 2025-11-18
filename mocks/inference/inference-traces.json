@@ -1,0 +1,26 @@
+{
+  "traces": [
+    {
+      "trace_id": "trace-001",
+      "request_id": "req-abc123",
+      "adapters_used": ["code-review-specialist", "rust-optimizer"],
+      "router_decisions": [
+        {
+          "step": 0,
+          "input_token_id": 1234,
+          "candidate_adapters": [
+            {"adapter_idx": 0, "raw_score": 0.87, "gate_q15": 28508}
+          ],
+          "entropy": 1.234,
+          "tau": 0.1,
+          "entropy_floor": 0.01,
+          "stack_hash": "b3:aabbccdd"
+        }
+      ],
+      "latency_ms": 245,
+      "tokens_generated": 512,
+      "finish_reason": "length",
+      "timestamp": "2025-01-16T14:35:00Z"
+    }
+  ]
+}
