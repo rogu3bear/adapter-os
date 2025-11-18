@@ -76,16 +76,43 @@ impl IntoResponse for ComponentHealth {
 /// Check router component health
 ///
 /// Verifies:
-/// - Decision rate > 0
-/// - Buffer utilization < 90%
-pub async fn check_router_health(State(_state): State<AppState>) -> impl IntoResponse {
-    // TODO: Integrate with actual router metrics when available
-    // For now, return healthy status as a stub
-    ComponentHealth::new(
-        "router",
-        ComponentStatus::Healthy,
-        "Router operational"
-    )
+/// - Decision rate > 0 (has processed requests)
+/// - Router overhead < 90%
+pub async fn check_router_health(State(state): State<AppState>) -> impl IntoResponse {
+    // Check metrics from the metrics exporter
+    let metrics_snapshot = state.metrics_exporter.snapshot();
+
+    // Check if router has made any decisions
+    let has_decisions = metrics_snapshot.queue_depth > 0 || metrics_snapshot.total_requests > 0;
+
+    // Check router overhead (should be reasonable, using queue depth as proxy)
+    let high_load = metrics_snapshot.queue_depth > 100;
+
+    if !has_decisions {
+        ComponentHealth::new(
+            "router",
+            ComponentStatus::Degraded,
+            "Router has not processed any requests yet"
+        )
+    } else if high_load {
+        ComponentHealth::new(
+            "router",
+            ComponentStatus::Degraded,
+            format!("High queue depth: {}", metrics_snapshot.queue_depth)
+        ).with_details(serde_json::json!({
+            "queue_depth": metrics_snapshot.queue_depth,
+            "total_requests": metrics_snapshot.total_requests
+        }))
+    } else {
+        ComponentHealth::new(
+            "router",
+            ComponentStatus::Healthy,
+            format!("Router operational ({} requests processed)", metrics_snapshot.total_requests)
+        ).with_details(serde_json::json!({
+            "queue_depth": metrics_snapshot.queue_depth,
+            "total_requests": metrics_snapshot.total_requests
+        }))
+    }
 }
 
 /// Check loader component health
@@ -93,6 +120,7 @@ pub async fn check_router_health(State(_state): State<AppState>) -> impl IntoRes
 /// Verifies:
 /// - Loaded adapters match configured adapters
 /// - No stuck loading states
+/// - Lifecycle manager operational (if available)
 pub async fn check_loader_health(State(state): State<AppState>) -> impl IntoResponse {
     // Query adapter states from database
     match state.db.pool().acquire().await {
@@ -104,26 +132,48 @@ pub async fn check_loader_health(State(state): State<AppState>) -> impl IntoResp
             .fetch_one(&mut *conn)
             .await;
 
-            match stuck_count {
-                Ok(count) if count > 0 => {
+            // Count total adapters and loaded adapters
+            let total_adapters: Result<i64, _> = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM adapters"
+            )
+            .fetch_one(&mut *conn)
+            .await;
+
+            let loaded_adapters: Result<i64, _> = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM adapters WHERE current_state IN ('warm', 'hot')"
+            )
+            .fetch_one(&mut *conn)
+            .await;
+
+            match (stuck_count, total_adapters, loaded_adapters) {
+                (Ok(stuck), Ok(total), Ok(loaded)) if stuck > 0 => {
                     ComponentHealth::new(
                         "loader",
                         ComponentStatus::Degraded,
-                        format!("{} adapter(s) stuck in loading state", count)
-                    )
+                        format!("{} adapter(s) stuck in loading state", stuck)
+                    ).with_details(serde_json::json!({
+                        "stuck_count": stuck,
+                        "total_adapters": total,
+                        "loaded_adapters": loaded,
+                        "lifecycle_manager_available": state.has_lifecycle_manager()
+                    }))
                 }
-                Ok(_) => {
+                (Ok(_stuck), Ok(total), Ok(loaded)) => {
                     ComponentHealth::new(
                         "loader",
                         ComponentStatus::Healthy,
-                        "All adapters in valid states"
-                    )
+                        format!("{}/{} adapters loaded", loaded, total)
+                    ).with_details(serde_json::json!({
+                        "total_adapters": total,
+                        "loaded_adapters": loaded,
+                        "lifecycle_manager_available": state.has_lifecycle_manager()
+                    }))
                 }
-                Err(e) => {
+                _ => {
                     ComponentHealth::new(
                         "loader",
                         ComponentStatus::Unhealthy,
-                        format!("Failed to query adapter states: {}", e)
+                        "Failed to query adapter states"
                     )
                 }
             }
@@ -141,16 +191,60 @@ pub async fn check_loader_health(State(state): State<AppState>) -> impl IntoResp
 /// Check kernel component health
 ///
 /// Verifies:
-/// - Last kernel call succeeded
-/// - GPU memory available
-pub async fn check_kernel_health(State(_state): State<AppState>) -> impl IntoResponse {
-    // TODO: Integrate with Metal kernel metrics when available
-    // For now, return healthy status as a stub
-    ComponentHealth::new(
-        "kernel",
-        ComponentStatus::Healthy,
-        "Kernel operational"
-    )
+/// - Worker available and operational
+/// - GPU memory available (via UMA monitor)
+pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResponse {
+    // Check if worker is available
+    let worker_available = state.worker.is_some();
+
+    // Check UMA memory pressure
+    let uma_stats = state.uma_monitor.get_stats();
+    let memory_ok = uma_stats.headroom_pct > 15.0; // Above critical threshold
+    let memory_status = if uma_stats.headroom_pct > 30.0 {
+        "normal"
+    } else if uma_stats.headroom_pct > 20.0 {
+        "medium"
+    } else if uma_stats.headroom_pct > 15.0 {
+        "high"
+    } else {
+        "critical"
+    };
+
+    if !worker_available {
+        ComponentHealth::new(
+            "kernel",
+            ComponentStatus::Degraded,
+            "Worker not initialized"
+        ).with_details(serde_json::json!({
+            "worker_available": false,
+            "memory_headroom_pct": uma_stats.headroom_pct,
+            "memory_status": memory_status
+        }))
+    } else if !memory_ok {
+        ComponentHealth::new(
+            "kernel",
+            ComponentStatus::Degraded,
+            format!("Low GPU memory ({}% headroom)", uma_stats.headroom_pct as i32)
+        ).with_details(serde_json::json!({
+            "worker_available": true,
+            "memory_used_mb": uma_stats.used_mb,
+            "memory_total_mb": uma_stats.total_mb,
+            "memory_headroom_pct": uma_stats.headroom_pct,
+            "memory_status": memory_status
+        }))
+    } else {
+        ComponentHealth::new(
+            "kernel",
+            ComponentStatus::Healthy,
+            format!("Kernel operational ({}% memory free)", uma_stats.headroom_pct as i32)
+        ).with_details(serde_json::json!({
+            "worker_available": true,
+            "memory_used_mb": uma_stats.used_mb,
+            "memory_total_mb": uma_stats.total_mb,
+            "memory_headroom_pct": uma_stats.headroom_pct,
+            "memory_status": memory_status
+        }))
+    }
 }
 
 /// Check database health
@@ -216,30 +310,114 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
 /// Check telemetry component health
 ///
 /// Verifies:
-/// - Buffer not full
-/// - Drops in last 5 minutes == 0
-pub async fn check_telemetry_health(State(_state): State<AppState>) -> impl IntoResponse {
-    // TODO: Integrate with telemetry buffer metrics when available
-    // For now, return healthy status as a stub
-    ComponentHealth::new(
-        "telemetry",
-        ComponentStatus::Healthy,
-        "Telemetry operational"
-    )
+/// - Metrics exporter operational
+/// - Recent telemetry events recorded
+pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoResponse {
+    // Check metrics exporter availability
+    let metrics_snapshot = state.metrics_exporter.snapshot();
+
+    // Check if telemetry is recording recent activity
+    let has_activity = metrics_snapshot.total_requests > 0;
+
+    // Check latency metrics as a proxy for telemetry health
+    let latency_ok = metrics_snapshot.avg_latency_ms < 1000.0; // <1s is healthy
+
+    if !has_activity {
+        ComponentHealth::new(
+            "telemetry",
+            ComponentStatus::Degraded,
+            "No telemetry activity recorded yet"
+        ).with_details(serde_json::json!({
+            "total_requests": metrics_snapshot.total_requests,
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms
+        }))
+    } else if !latency_ok {
+        ComponentHealth::new(
+            "telemetry",
+            ComponentStatus::Degraded,
+            format!("High latency: {:.0}ms", metrics_snapshot.avg_latency_ms)
+        ).with_details(serde_json::json!({
+            "total_requests": metrics_snapshot.total_requests,
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms,
+            "p95_latency_ms": metrics_snapshot.p95_latency_ms,
+            "p99_latency_ms": metrics_snapshot.p99_latency_ms
+        }))
+    } else {
+        ComponentHealth::new(
+            "telemetry",
+            ComponentStatus::Healthy,
+            format!("Telemetry operational ({} events, {:.0}ms avg latency)",
+                    metrics_snapshot.total_requests,
+                    metrics_snapshot.avg_latency_ms)
+        ).with_details(serde_json::json!({
+            "total_requests": metrics_snapshot.total_requests,
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms,
+            "p95_latency_ms": metrics_snapshot.p95_latency_ms,
+            "p99_latency_ms": metrics_snapshot.p99_latency_ms
+        }))
+    }
 }
 
 /// Check system-metrics component health
 ///
 /// Verifies:
-/// - Last recorded metric < 300s old (when enabled)
-pub async fn check_system_metrics_health(State(_state): State<AppState>) -> impl IntoResponse {
-    // TODO: Integrate with system-metrics when crate is re-enabled
-    // For now, return healthy status as a stub
-    ComponentHealth::new(
-        "system-metrics",
-        ComponentStatus::Healthy,
-        "System metrics operational"
-    )
+/// - UMA monitor recording recent metrics
+/// - Memory pressure within acceptable range
+pub async fn check_system_metrics_health(State(state): State<AppState>) -> impl IntoResponse {
+    // Check UMA monitor stats
+    let uma_stats = state.uma_monitor.get_stats();
+
+    // Check if stats are recent (non-zero values indicate active monitoring)
+    let has_stats = uma_stats.total_mb > 0;
+
+    // Check memory pressure level
+    let pressure_level = if uma_stats.headroom_pct > 30.0 {
+        "normal"
+    } else if uma_stats.headroom_pct > 20.0 {
+        "medium"
+    } else if uma_stats.headroom_pct > 15.0 {
+        "high"
+    } else {
+        "critical"
+    };
+
+    let pressure_ok = uma_stats.headroom_pct > 15.0;
+
+    if !has_stats {
+        ComponentHealth::new(
+            "system-metrics",
+            ComponentStatus::Degraded,
+            "System metrics not yet initialized"
+        ).with_details(serde_json::json!({
+            "uma_monitor_active": false
+        }))
+    } else if !pressure_ok {
+        ComponentHealth::new(
+            "system-metrics",
+            ComponentStatus::Degraded,
+            format!("Critical memory pressure ({}% headroom)", uma_stats.headroom_pct as i32)
+        ).with_details(serde_json::json!({
+            "uma_monitor_active": true,
+            "memory_used_mb": uma_stats.used_mb,
+            "memory_total_mb": uma_stats.total_mb,
+            "headroom_pct": uma_stats.headroom_pct,
+            "pressure_level": pressure_level
+        }))
+    } else {
+        ComponentHealth::new(
+            "system-metrics",
+            ComponentStatus::Healthy,
+            format!("System metrics operational ({} MB used, {}% free)",
+                    uma_stats.used_mb,
+                    uma_stats.headroom_pct as i32)
+        ).with_details(serde_json::json!({
+            "uma_monitor_active": true,
+            "memory_used_mb": uma_stats.used_mb,
+            "memory_total_mb": uma_stats.total_mb,
+            "headroom_pct": uma_stats.headroom_pct,
+            "pressure_level": pressure_level
+        }))
+    }
 }
 
 /// Get health status for all components
