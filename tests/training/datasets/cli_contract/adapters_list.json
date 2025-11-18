@@ -1,0 +1,76 @@
+{
+  "adapters": [
+    {
+      "id": "abc123",
+      "adapter_id": "abc123",
+      "name": "tenant-a/engineering/code-review/r001",
+      "adapter_name": "tenant-a/engineering/code-review/r001",
+      "tenant_namespace": "tenant-a",
+      "domain": "engineering",
+      "purpose": "code-review",
+      "revision": "r001",
+      "hash_b3": "blake3:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "rank": 16,
+      "tier": "tier_1",
+      "current_state": "warm",
+      "languages": ["rust", "python"],
+      "framework": "llama",
+      "created_at": "2025-01-15T10:30:00Z",
+      "stats": {
+        "total_activations": 1250,
+        "selected_count": 980,
+        "avg_gate_value": 0.87,
+        "selection_rate": 0.784
+      }
+    },
+    {
+      "id": "def456",
+      "adapter_id": "def456",
+      "name": "tenant-b/ml/sentiment-analysis/r003",
+      "adapter_name": "tenant-b/ml/sentiment-analysis/r003",
+      "tenant_namespace": "tenant-b",
+      "domain": "ml",
+      "purpose": "sentiment-analysis",
+      "revision": "r003",
+      "hash_b3": "blake3:fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+      "rank": 12,
+      "tier": "tier_2",
+      "current_state": "hot",
+      "languages": ["python"],
+      "framework": null,
+      "created_at": "2025-01-14T08:15:00Z",
+      "stats": {
+        "total_activations": 3420,
+        "selected_count": 3180,
+        "avg_gate_value": 0.92,
+        "selection_rate": 0.930
+      }
+    },
+    {
+      "id": "ghi789",
+      "adapter_id": "ghi789",
+      "name": "tenant-a/security/threat-detection/r002",
+      "adapter_name": "tenant-a/security/threat-detection/r002",
+      "tenant_namespace": "tenant-a",
+      "domain": "security",
+      "purpose": "threat-detection",
+      "revision": "r002",
+      "hash_b3": "blake3:0011223344556677889900112233445566778899001122334455667788990011",
+      "rank": 8,
+      "tier": "tier_1",
+      "current_state": "cold",
+      "languages": ["go", "rust"],
+      "framework": "llama",
+      "created_at": "2025-01-16T14:20:00Z",
+      "stats": {
+        "total_activations": 87,
+        "selected_count": 45,
+        "avg_gate_value": 0.52,
+        "selection_rate": 0.517
+      }
+    }
+  ],
+  "total": 3,
+  "page": 1,
+  "page_size": 10
+}

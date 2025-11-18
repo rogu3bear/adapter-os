@@ -1,0 +1,13 @@
+{
+  "component": "router",
+  "status": "healthy",
+  "message": "Router operating normally",
+  "details": {
+    "avg_decision_rate": 125.5,
+    "avg_overhead_pct": 2.45,
+    "anomaly_rate": 0.003,
+    "active_stacks": 12,
+    "total_decisions_24h": 10872450
+  },
+  "timestamp": 1737201600
+}
