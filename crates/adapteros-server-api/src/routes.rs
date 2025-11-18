@@ -92,6 +92,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::plugins::list_plugins,
         handlers::get_uma_memory,
         handlers::hydrate_tenant_from_bundle,
+        // Routing decision handlers (PRD-04)
+        handlers::routing_decisions::get_routing_decisions,
+        handlers::routing_decisions::get_routing_decision_by_id,
+        handlers::routing_decisions::ingest_router_decision,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -559,7 +563,9 @@ pub fn build(state: AppState) -> Router {
         // Routing routes
         .route("/v1/routing/debug", post(handlers::debug_routing))
         .route("/v1/routing/history", get(handlers::get_routing_history))
-        .route("/v1/routing/decisions", get(handlers::routing_decisions))
+        .route("/v1/routing/decisions", get(handlers::routing_decisions::get_routing_decisions))
+        .route("/v1/routing/decisions/:id", get(handlers::routing_decisions::get_routing_decision_by_id))
+        .route("/v1/telemetry/routing", post(handlers::routing_decisions::ingest_router_decision))
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
