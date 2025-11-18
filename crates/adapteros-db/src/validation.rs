@@ -8,6 +8,7 @@
 use crate::metadata::{LifecycleState, validate_state_transition, validate_version};
 use crate::Db;
 use anyhow::Result;
+use std::str::FromStr;
 
 impl Db {
     /// Validate and update adapter lifecycle state
@@ -43,7 +44,7 @@ impl Db {
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
         let current_state = LifecycleState::from_str(&adapter.lifecycle_state)
-            .ok_or_else(|| {
+            .map_err(|_| {
                 AosError::Validation(format!(
                     "Invalid current lifecycle state: {}",
                     adapter.lifecycle_state
@@ -152,7 +153,7 @@ impl Db {
             .ok_or_else(|| AosError::NotFound(format!("Stack not found: {}", stack_id)))?;
 
         let current_state = LifecycleState::from_str(&stack.lifecycle_state)
-            .ok_or_else(|| {
+            .map_err(|_| {
                 AosError::Validation(format!(
                     "Invalid current lifecycle state: {}",
                     stack.lifecycle_state
@@ -250,7 +251,7 @@ impl Db {
         use adapteros_core::AosError;
 
         // Validate lifecycle state
-        let state = LifecycleState::from_str(lifecycle_state).ok_or_else(|| {
+        let state = LifecycleState::from_str(lifecycle_state).map_err(|_| {
             AosError::Validation(format!("Invalid lifecycle state: {}", lifecycle_state))
         })?;
 

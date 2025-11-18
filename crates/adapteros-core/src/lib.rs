@@ -32,6 +32,7 @@ pub mod hash;
 pub mod id;
 pub mod identity;
 pub mod index_snapshot;
+pub mod lifecycle;
 pub mod naming;
 pub mod plugins;
 pub mod policy;
@@ -46,6 +47,7 @@ pub use timeout::TimeoutExt;
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
+pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
 pub use naming::{AdapterName, ForkType, StackName};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
@@ -62,6 +64,7 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 pub mod prelude {
     pub use crate::{
         AdapterName, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
-        DriftPolicy, ForkType, Result, ResultExt, StackName, CPID, SharedCircuitBreaker, StandardCircuitBreaker,
+        DriftPolicy, ForkType, LifecycleState, LifecycleTransition, Result, ResultExt, SemanticVersion,
+        StackName, TransitionReason, CPID, SharedCircuitBreaker, StandardCircuitBreaker,
     };
 }

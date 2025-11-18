@@ -8,6 +8,10 @@
 /// Citation: PRD-02 (2025-11-17)
 
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+
+// Re-export lifecycle types from core
+pub use adapteros_core::LifecycleState;
 
 /// API schema version for backward compatibility tracking
 pub const API_SCHEMA_VERSION: &str = "1.0.0";
@@ -118,74 +122,17 @@ pub struct AdapterStackMeta {
     pub created_by: Option<String>,
 }
 
-/// Adapter/Stack lifecycle state
-///
-/// **State Transition Rules:**
-/// - draft → active → deprecated → retired
-/// - retired is a terminal state (no transitions out)
-/// - ephemeral adapters: draft → active → retired (skip deprecated)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LifecycleState {
-    Draft,
-    Active,
-    Deprecated,
-    Retired,
-}
-
-impl LifecycleState {
-    /// Check if this state is valid for the given tier
-    pub fn is_valid_for_tier(&self, tier: &str) -> bool {
-        match (self, tier) {
-            // ephemeral adapters cannot be deprecated
-            (LifecycleState::Deprecated, "ephemeral") => false,
-            _ => true,
-        }
-    }
-
-    /// Check if transition from current state to new state is valid
-    pub fn can_transition_to(&self, new_state: LifecycleState) -> bool {
-        match (self, new_state) {
-            // Can't transition out of retired
-            (LifecycleState::Retired, _) => false,
-
-            // Can't go back in lifecycle
-            (LifecycleState::Deprecated, LifecycleState::Active) => false,
-            (LifecycleState::Deprecated, LifecycleState::Draft) => false,
-            (LifecycleState::Active, LifecycleState::Draft) => false,
-
-            // All other transitions are valid
-            _ => true,
-        }
-    }
-
-    /// Convert from string
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "draft" => Some(Self::Draft),
-            "active" => Some(Self::Active),
-            "deprecated" => Some(Self::Deprecated),
-            "retired" => Some(Self::Retired),
-            _ => None,
-        }
-    }
-
-    /// Convert to string
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Draft => "draft",
-            Self::Active => "active",
-            Self::Deprecated => "deprecated",
-            Self::Retired => "retired",
-        }
-    }
-}
-
-impl std::fmt::Display for LifecycleState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
+// LifecycleState is re-exported from adapteros_core (see top of file)
+// This consolidation eliminates duplicate definitions and ensures
+// lifecycle logic is centralized in the core crate.
+//
+// Legacy comment preserved for reference:
+// Adapter/Stack lifecycle state
+//
+// **State Transition Rules:**
+// - draft → active → deprecated → retired
+// - retired is a terminal state (no transitions out)
+// - ephemeral adapters: draft → active → retired (skip deprecated)
 
 /// Fork type for adapter lineage tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
