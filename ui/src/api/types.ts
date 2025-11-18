@@ -427,7 +427,11 @@ export interface Adapter {
   memory_bytes: number;
   last_activated?: string;
   activation_count: number;
-  
+
+  // Metadata normalization (PRD-02)
+  version: string;              // Semantic version (e.g., "1.0.0") or monotonic
+  lifecycle_state: LifecycleState;  // Lifecycle state: draft/active/deprecated/retired
+
   created_at: string;
   updated_at: string;
   active: boolean;
@@ -436,6 +440,7 @@ export interface Adapter {
 export type AdapterCategory = 'code' | 'framework' | 'codebase' | 'ephemeral';
 export type AdapterScope = 'global' | 'tenant' | 'repo' | 'commit';
 export type AdapterState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+export type LifecycleState = 'draft' | 'active' | 'deprecated' | 'retired';  // PRD-02
 export type EvictionPriority = 'never' | 'low' | 'normal' | 'high' | 'critical';
 
 export interface RegisterAdapterRequest {

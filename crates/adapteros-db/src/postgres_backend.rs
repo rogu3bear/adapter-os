@@ -43,8 +43,8 @@ impl DatabaseBackend for PostgresBackend {
         let description = req.description.as_deref().unwrap_or("");
 
         let row = sqlx::query(
-            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, created_at, updated_at) 
-             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) 
+            "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, '1.0.0', 'active', NOW(), NOW())
              RETURNING id"
         )
         .bind(&id)
@@ -61,8 +61,8 @@ impl DatabaseBackend for PostgresBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, Option<String>, i64)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at::text, updated_at::text, created_by, version
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, String, String, Option<String>)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at::text, updated_at::text, created_by
              FROM adapter_stacks WHERE tenant_id = $1 AND id = $2"
         )
         .bind(tenant_id)
@@ -78,10 +78,11 @@ impl DatabaseBackend for PostgresBackend {
             description: r.3,
             adapter_ids_json: r.4,
             workflow_type: r.5,
-            created_at: r.6,
-            updated_at: r.7,
-            created_by: r.8,
-            version: r.9,
+            version: r.6,
+            lifecycle_state: r.7,
+            created_at: r.8,
+            updated_at: r.9,
+            created_by: r.10,
         }))
     }
 
@@ -95,6 +96,8 @@ impl DatabaseBackend for PostgresBackend {
                 Option<String>, // description
                 String,         // adapter_ids_json
                 Option<String>, // workflow_type
+                String,         // version
+                String,         // lifecycle_state
                 String,         // created_at
                 String,         // updated_at
                 Option<String>, // created_by
@@ -103,6 +106,7 @@ impl DatabaseBackend for PostgresBackend {
         >(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
+                   version, lifecycle_state,
                    created_at::text as "created_at",
                    updated_at::text as "updated_at",
                    created_by,
@@ -124,10 +128,11 @@ impl DatabaseBackend for PostgresBackend {
                 description: r.3,
                 adapter_ids_json: r.4,
                 workflow_type: r.5,
-                created_at: r.6,
-                updated_at: r.7,
-                created_by: r.8,
-                version: r.9,
+                version: r.6,
+                lifecycle_state: r.7,
+                created_at: r.8,
+                updated_at: r.9,
+                created_by: r.10,
             })
             .collect())
     }
@@ -232,6 +237,7 @@ impl DatabaseBackend for PostgresBackend {
         let rows = sqlx::query(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
+                   version, lifecycle_state,
                    created_at::text as "created_at",
                    updated_at::text as "updated_at",
                    created_by,
@@ -248,17 +254,18 @@ impl DatabaseBackend for PostgresBackend {
 
         Ok(rows
             .into_iter()
-            .map(|r| StackRecord {
+            .map(|r: sqlx::postgres::PgRow| StackRecord {
                 tenant_id: r.get(0),
                 id: r.get(1),
                 name: r.get(2),
                 description: r.get::<Option<String>, _>(3),
                 adapter_ids_json: r.get(4),
                 workflow_type: r.get::<Option<String>, _>(5),
-                created_at: r.get(6),
-                updated_at: r.get(7),
-                created_by: r.get::<Option<String>, _>(8),
-                version: r.get(9),
+                version: r.get(6),
+                lifecycle_state: r.get(7),
+                created_at: r.get(8),
+                updated_at: r.get(9),
+                created_by: r.get::<Option<String>, _>(10),
             })
             .collect())
     }
