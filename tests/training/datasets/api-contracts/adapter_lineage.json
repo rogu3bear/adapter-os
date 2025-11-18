@@ -1,0 +1,78 @@
+{
+  "adapter_id": "def456",
+  "ancestors": [
+    {
+      "adapter_id": "def123",
+      "adapter_name": "tenant-b/ml/sentiment-analysis/r001",
+      "tenant_namespace": "tenant-b",
+      "domain": "ml",
+      "purpose": "sentiment-analysis",
+      "revision": "r001",
+      "parent_id": null,
+      "fork_type": null,
+      "fork_reason": null,
+      "current_state": "unloaded",
+      "tier": "tier_2",
+      "created_at": "2025-01-10T12:00:00Z"
+    },
+    {
+      "adapter_id": "def234",
+      "adapter_name": "tenant-b/ml/sentiment-analysis/r002",
+      "tenant_namespace": "tenant-b",
+      "domain": "ml",
+      "purpose": "sentiment-analysis",
+      "revision": "r002",
+      "parent_id": "def123",
+      "fork_type": "incremental_improvement",
+      "fork_reason": "Added multi-language support",
+      "current_state": "cold",
+      "tier": "tier_2",
+      "created_at": "2025-01-12T09:30:00Z"
+    }
+  ],
+  "self_node": {
+    "adapter_id": "def456",
+    "adapter_name": "tenant-b/ml/sentiment-analysis/r003",
+    "tenant_namespace": "tenant-b",
+    "domain": "ml",
+    "purpose": "sentiment-analysis",
+    "revision": "r003",
+    "parent_id": "def234",
+    "fork_type": "incremental_improvement",
+    "fork_reason": "Improved accuracy on negation handling",
+    "current_state": "hot",
+    "tier": "tier_2",
+    "created_at": "2025-01-14T08:15:00Z"
+  },
+  "descendants": [
+    {
+      "adapter_id": "def567",
+      "adapter_name": "tenant-b/ml/sentiment-analysis/r004",
+      "tenant_namespace": "tenant-b",
+      "domain": "ml",
+      "purpose": "sentiment-analysis",
+      "revision": "r004",
+      "parent_id": "def456",
+      "fork_type": "experimental",
+      "fork_reason": "Testing transformer architecture changes",
+      "current_state": "warm",
+      "tier": "tier_3",
+      "created_at": "2025-01-17T11:45:00Z"
+    },
+    {
+      "adapter_id": "def789",
+      "adapter_name": "tenant-b/ml/sentiment-custom/r001",
+      "tenant_namespace": "tenant-b",
+      "domain": "ml",
+      "purpose": "sentiment-custom",
+      "revision": "r001",
+      "parent_id": "def456",
+      "fork_type": "domain_adaptation",
+      "fork_reason": "Specialized for financial sentiment analysis",
+      "current_state": "cold",
+      "tier": "tier_2",
+      "created_at": "2025-01-18T16:20:00Z"
+    }
+  ],
+  "total_nodes": 5
+}
