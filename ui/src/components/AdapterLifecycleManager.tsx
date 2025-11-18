@@ -51,12 +51,7 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
-import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
-import { useAdapterOperations } from '../hooks/useAdapterOperations';
-=======
 import { toast } from 'sonner';
->>>>>>> integration-branch
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -297,35 +292,6 @@ export function AdapterLifecycleManager({
       // Note: Current API only supports promoting state (cold -> warm -> hot)
       // Manual state setting requires backend enhancement
       if (newState === 'hot' || newState === 'warm') {
-<<<<<<< HEAD
-        await adapterOperations.promoteAdapter(adapterId);
-        setStatusMessage({ message: 'Adapter state promoted successfully.', variant: 'success' });
-        // Refresh records
-        setStateRecords(prev => prev.map(record => (
-          record.adapter_id === adapterId
-            ? { ...record, state: newState }
-            : record
-          )));
-      } else {
-        setStatusMessage({ message: `Local state updated to ${newState}. Backend sync pending.`, variant: 'info' });
-        setStateRecords(prev => prev.map(record => (
-          record.adapter_id === adapterId
-            ? { ...record, state: newState }
-            : record
-          )));
-      }
-      onAdapterUpdate(adapterId, { current_state: newState });
-      setErrorRecovery(null);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatusMessage({ message: `Failed to update state: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handleStateTransition(adapterId, newState)
-        )
-      );
-=======
         await apiClient.promoteAdapterState(adapterId);
         onAdapterUpdate(adapterId, { current_state: newState });
         toast.success(`Adapter state promoted successfully`);
@@ -343,20 +309,13 @@ export function AdapterLifecycleManager({
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update adapter state';
->>>>>>> integration-branch
       logger.error('Failed to update adapter state', {
         component: 'AdapterLifecycleManager',
         operation: 'handleStateTransition',
         adapterId,
-<<<<<<< HEAD
-        newState,
-        error: errorMessage
-      });
-=======
         error: errorMessage
       });
       toast.error(`Failed to update state: ${errorMessage}`);
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -367,20 +326,6 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
-<<<<<<< HEAD
-      await adapterOperations.pinAdapter(adapterId, pinned);
-      setStatusMessage({ message: pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', variant: 'success' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handlePinToggle(adapterId, pinned)
-        )
-      );
-      logger.error('Failed to toggle adapter pin state', {
-=======
       // Call API to pin or unpin the adapter
       await apiClient.pinAdapter(adapterId, pinned);
       onAdapterPin(adapterId, pinned);
@@ -394,17 +339,13 @@ export function AdapterLifecycleManager({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
       logger.error('Failed to pin/unpin adapter', {
->>>>>>> integration-branch
         component: 'AdapterLifecycleManager',
         operation: 'handlePinToggle',
         adapterId,
         pinned,
         error: errorMessage
       });
-<<<<<<< HEAD
-=======
       toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -415,19 +356,6 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
-<<<<<<< HEAD
-      await adapterOperations.evictAdapter(adapterId);
-      setStatusMessage({ message: 'Adapter evicted successfully.', variant: 'success' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handleEvictAdapter(adapterId)
-        )
-      );
-=======
       // Call API to evict the adapter from memory
       const result = await apiClient.evictAdapter(adapterId);
       onAdapterEvict(adapterId);
@@ -440,17 +368,13 @@ export function AdapterLifecycleManager({
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
->>>>>>> integration-branch
       logger.error('Failed to evict adapter', {
         component: 'AdapterLifecycleManager',
         operation: 'handleEvictAdapter',
         adapterId,
         error: errorMessage
       });
-<<<<<<< HEAD
-=======
       toast.error(`Failed to evict adapter: ${errorMessage}`);
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -458,22 +382,6 @@ export function AdapterLifecycleManager({
 
   const handlePolicyUpdate = async (category: AdapterCategory, policy: CategoryPolicy) => {
     setIsLoading(true);
-<<<<<<< HEAD
-    setStatusMessage(null);
-    setErrorRecovery(null);
-    try {
-      await adapterOperations.updateCategoryPolicy(category, policy);
-      setStatusMessage({ message: `Policy updated successfully for ${category}.`, variant: 'success' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update policy';
-      setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handlePolicyUpdate(category, policy)
-        )
-      );
-=======
     try {
       setPolicies(prev => ({ ...prev, [category]: policy }));
       onPolicyUpdate(category, policy);
@@ -489,17 +397,13 @@ export function AdapterLifecycleManager({
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update policy';
->>>>>>> integration-branch
       logger.error('Failed to update policy', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePolicyUpdate',
         category,
         error: errorMessage
       });
-<<<<<<< HEAD
-=======
       toast.error(`Failed to update policy: ${errorMessage}`);
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }

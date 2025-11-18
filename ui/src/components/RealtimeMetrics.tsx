@@ -40,40 +40,9 @@ interface MetricsHistory {
 export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [history, setHistory] = useState<MetricsHistory[]>([]);
-<<<<<<< HEAD
-  const MAX_HISTORY = 120; // Keep last 120 data points
-
-  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for real-time metrics
-  const fetchMetricsData = async () => {
-    const data = await apiClient.getSystemMetrics();
-    return data;
-  };
-
-  const {
-    data: polledMetrics,
-    isLoading,
-    lastUpdated,
-    error: pollingError,
-    refetch: refreshMetrics
-  } = usePolling(
-    fetchMetricsData,
-    'fast', // Real-time updates for metrics
-    {
-      showLoadingIndicator: false,
-      onError: (err) => {
-        logger.error('Metrics fetch failed', {
-          component: 'RealtimeMetrics',
-          operation: 'polling',
-          tenantId: selectedTenant,
-        }, err);
-      }
-    }
-  );
-=======
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const UPDATE_INTERVAL = 50; // ms - instant updates
   const MAX_HISTORY = 120; // Keep last 120 data points (6 seconds at 50ms)
->>>>>>> integration-branch
   
   // Training metrics
   const [trainingJobs, setTrainingJobs] = useState({
@@ -99,32 +68,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     totalArtifacts: 0,
   });
   
-<<<<<<< HEAD
-  // Update metrics and derived state when polling data arrives
-  useEffect(() => {
-    if (polledMetrics) {
-      setMetrics(polledMetrics);
-
-      // Add to history
-      setHistory(prev => {
-        const newHistory = [...prev, {
-          timestamp: Date.now(),
-          cpu: polledMetrics.cpu_usage_percent || 0,
-          memory: polledMetrics.memory_usage_pct || 0,
-          gpu: polledMetrics.gpu_utilization_percent || 0,
-          tokensPerSec: polledMetrics.tokens_per_second || 0,
-          latency: polledMetrics.latency_p95_ms || 0,
-        }];
-
-        // Keep only last MAX_HISTORY points
-        if (newHistory.length > MAX_HISTORY) {
-          return newHistory.slice(-MAX_HISTORY);
-        }
-        return newHistory;
-      });
-
-      // Update training metrics (mock for now)
-=======
   const fetchMetrics = async () => {
     try {
       // Citation: ui/src/api/client.ts L454-L456
@@ -151,7 +94,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       }
       
       // Fetch training metrics (mock for now)
->>>>>>> integration-branch
       setTrainingJobs({
         active: Math.floor(Math.random() * 5),
         completed: 42,
@@ -177,9 +119,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     }
   }, [polledMetrics]);
   
-<<<<<<< HEAD
-  // Removed: SSE + manual polling logic replaced with usePolling hook above
-=======
   useEffect(() => {
     // Initial fetch
     fetchMetrics();
@@ -193,7 +132,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       }
     };
   }, [selectedTenant]);
->>>>>>> integration-branch
   
   // Format chart data
   const chartData = history.map((h, idx) => ({
@@ -218,23 +156,11 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
             <Activity className="icon-standard" />
             Real-time Metrics
           </h1>
-<<<<<<< HEAD
-          <p className="text-sm text-muted-foreground">
-            System performance with real-time updates
-=======
           <p className="section-description">
             System performance updated every {UPDATE_INTERVAL}ms - instant real-time
->>>>>>> integration-branch
           </p>
           {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
-<<<<<<< HEAD
-        <Button onClick={() => refreshMetrics()} disabled={isLoading} variant="outline" size="sm">
-          <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-=======
->>>>>>> integration-branch
       </div>
       
       {/* System Resources */}

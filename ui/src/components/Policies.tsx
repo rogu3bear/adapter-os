@@ -6,13 +6,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Shield, Plus, CheckCircle, MoreHorizontal, FileSignature, GitCompare, Download, Edit, FileText } from 'lucide-react';
-<<<<<<< HEAD
-import { ExportMenu } from './ui/export-menu';
-import { Checkbox } from './ui/checkbox';
-import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
-import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
-=======
->>>>>>> integration-branch
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '../api/types';
@@ -22,20 +15,8 @@ import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
-import { HelpTooltip } from './ui/help-tooltip';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
-import { Skeleton } from './ui/skeleton';
-import { BookmarkButton } from './ui/bookmark-button';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
-import { useProgressiveHints } from '../hooks/useProgressiveHints';
-import { getPageHints } from '../data/page-hints';
-import { ProgressiveHint } from './ui/progressive-hint';
-=======
-
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
->>>>>>> integration-branch
 
 interface PoliciesProps {
   user?: User;
@@ -47,10 +28,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   const { selectedTenant } = useTenant();
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
-<<<<<<< HEAD
-  const effectiveUserId = effectiveUser.id;
-=======
->>>>>>> integration-branch
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [policiesError, setPoliciesError] = useState<Error | null>(null);
@@ -62,41 +39,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   const [compareResult, setCompareResult] = useState<PolicyComparisonResponse | null>(null);
   const [compareCpid2, setCompareCpid2] = useState('');
   const [activeTab, setActiveTab] = useState('packs');
-<<<<<<< HEAD
-
-  // Progressive hints
-  const hints = getPageHints('policies');
-  const { getVisibleHint, dismissHint } = useProgressiveHints({
-    pageKey: 'policies',
-    hints
-  });
-  const visibleHint = getVisibleHint();
-  const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
-  const [confirmationOpen, setConfirmationOpen] = useState(false);
-  const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
-  const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
-
-  const fetchPolicies = useCallback(async () => {
-    try {
-      const data = await apiClient.listPolicies();
-      setPolicies(data);
-      setPoliciesError(null);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to fetch policies');
-      logger.error('Failed to fetch policies', {
-        component: 'Policies',
-        operation: 'fetchPolicies',
-        tenantId: effectiveTenant,
-        userId: effectiveUserId
-      }, error);
-      // Major error: data loading failure
-      setPoliciesError(error);
-    } finally {
-      setLoading(false);
-    }
-  }, [effectiveTenant, effectiveUserId]);
-=======
->>>>>>> integration-branch
 
   useEffect(() => {
     fetchPolicies();
@@ -127,13 +69,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       setShowSignModal(true);
       // Success shown in modal - no need for toast
     } catch (err) {
-<<<<<<< HEAD
-      const error = err instanceof Error ? err : new Error('Failed to sign policy');
-      setPoliciesError(error);
-=======
       toast.error('Failed to sign policy');
       // Replace: console.error(err);
->>>>>>> integration-branch
       logger.error('Failed to sign policy', {
         component: 'Policies',
         operation: 'signPolicy',
@@ -154,13 +91,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       setCompareResult(result);
       // Comparison results shown in UI - no need for toast
     } catch (err) {
-<<<<<<< HEAD
-      const error = err instanceof Error ? err : new Error('Failed to compare policies');
-      setPoliciesError(error);
-=======
       toast.error('Failed to compare policies');
       // Replace: console.error(err);
->>>>>>> integration-branch
       logger.error('Failed to compare policies', {
         component: 'Policies',
         operation: 'comparePolicies',
@@ -187,13 +119,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       URL.revokeObjectURL(url);
       // Browser download feedback is sufficient
     } catch (err) {
-<<<<<<< HEAD
-      const error = err instanceof Error ? err : new Error('Failed to export policy');
-      setPoliciesError(error);
-=======
       toast.error('Failed to export policy');
       // Replace: console.error(err);
->>>>>>> integration-branch
       logger.error('Failed to export policy', {
         component: 'Policies',
         operation: 'exportPolicy',
@@ -310,25 +237,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
     );
   }
 
-<<<<<<< HEAD
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-10 w-48" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-        </div>
-      </div>
-    );
-  }
-
-=======
->>>>>>> integration-branch
   // Citation: CLAUDE.md L151-L172 - 20 policy packs enforced by mplora-policy
   const policyTabs = [
     { id: 'packs', label: 'Policy Packs', icon: Shield, description: '20 policy packs enforcement' },
@@ -338,17 +246,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
   return (
     <div className="space-y-6">
-<<<<<<< HEAD
-      {visibleHint && (
-        <ProgressiveHint
-          title={visibleHint.hint.title}
-          content={visibleHint.hint.content}
-          onDismiss={() => dismissHint(visibleHint.hint.id)}
-          placement={visibleHint.hint.placement}
-        />
-      )}
-=======
->>>>>>> integration-branch
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -358,14 +255,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           </p>
         </div>
         <div className="flex items-center gap-2">
-<<<<<<< HEAD
-          <ExportMenu
-            onExport={handleExportAllPolicies}
-            filename="policies-export"
-            formats={['csv', 'json']}
-          />
-=======
->>>>>>> integration-branch
           <Button onClick={() => { setSelectedPolicy(null); setShowEditorModal(true); }}>
             <Plus className="h-4 w-4 mr-2" />
             New Policy
@@ -390,11 +279,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         {/* Policy Packs Tab */}
         <TabsContent value="packs" className="space-y-4">
 
-<<<<<<< HEAD
-      <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
-=======
       <Card className="card-standard">
->>>>>>> integration-branch
         <CardHeader>
           <CardTitle>Active Policies</CardTitle>
         </CardHeader>
@@ -463,26 +348,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                       Active
                     </Badge>
                   </TableCell>
-<<<<<<< HEAD
-                  <TableCell className="p-4 border-b border-border">
-                    <div className="flex items-center gap-1">
-                      <BookmarkButton
-                        type="policy"
-                        title={policy.cpid}
-                        url={`/policies?policy=${encodeURIComponent(policy.cpid)}`}
-                        entityId={policy.cpid}
-                        description={`Policy • ${policy.schema_hash.substring(0, 8)}`}
-                        variant="ghost"
-                        size="icon"
-                      />
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="icon-standard" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-=======
                   <TableCell className="table-cell-standard">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -491,7 +356,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
->>>>>>> integration-branch
                         <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}>
                           <Edit className="icon-standard mr-2" />
                           Edit
@@ -546,13 +410,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                 <p className="font-medium text-sm mb-1">Signed By</p>
                 <p className="text-sm text-muted-foreground">{signResult.signed_by}</p>
               </div>
-<<<<<<< HEAD
-              <div className="mb-4">
-                <p className="font-medium text-sm mb-1">Signed At</p>
-=======
               <div className="form-field">
                 <p className="form-label">Signed At</p>
->>>>>>> integration-branch
                 <p className="text-sm text-muted-foreground">{useTimestamp(signResult.signed_at)}</p>
               </div>
             </div>
@@ -742,17 +601,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         existingPolicy={selectedPolicy?.policy_json}
         onSave={fetchPolicies}
       />
-<<<<<<< HEAD
-
-      {/* Bulk Action Bar */}
-      <BulkActionBar
-        selectedItems={selectedPolicies}
-        actions={bulkActions}
-        onClearSelection={() => setSelectedPolicies([])}
-        itemName="policy"
-      />
-=======
->>>>>>> integration-branch
     </div>
   );
 }

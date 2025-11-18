@@ -16,17 +16,10 @@ import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import apiClient from '../api/client';
 import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '../api/types';
-<<<<<<< HEAD
-import { useTimestamp } from '../hooks/useTimestamp';
-import { canonicalKey } from './ui/utils';
-import { HashChainView } from './HashChainView';
-import { HelpTooltip } from './ui/help-tooltip';
-=======
 import { useSSE } from '../hooks/useSSE';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
->>>>>>> integration-branch
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
@@ -43,64 +36,11 @@ import { useAuth, useTenant } from '@/layout/LayoutProvider';
 interface TelemetryProps {
   user?: User;
   selectedTenant?: string;
-<<<<<<< HEAD
-  onToolbarChange?: (actions: React.ReactNode) => void;
-}
-
-interface TelemetryToolbarProps {
-  density: ReturnType<typeof useDensity>['density'];
-  onDensityChange: ReturnType<typeof useDensity>['setDensity'];
-  connected: boolean;
-  onExportAll: (format: 'csv' | 'json') => Promise<void>;
-  exportDisabled: boolean;
-  onPurge: () => void;
-}
-
-function TelemetryToolbar({
-  density,
-  onDensityChange,
-  connected,
-  onExportAll,
-  exportDisabled,
-  onPurge,
-}: TelemetryToolbarProps) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <DensityControls
-        density={density}
-        onDensityChange={onDensityChange}
-        showLabel={false}
-        className="min-w-[160px]"
-      />
-      <ExportMenu
-        onExport={onExportAll}
-        filename="telemetry-bundles-export"
-        formats={['csv', 'json']}
-        disabled={exportDisabled}
-      />
-      <Badge variant={connected ? 'default' : 'secondary'} className="flex items-center gap-2">
-        <Activity className="h-4 w-4" aria-hidden="true" />
-        {connected ? 'Capturing Events (Live)' : 'Capturing Events'}
-      </Badge>
-      <Button variant="destructive" size="sm" onClick={onPurge}>
-        <Trash2 className="icon-standard mr-2" />
-        Purge Old Bundles
-      </Button>
-    </div>
-  );
-}
-
-export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolbarChange }: TelemetryProps) {
-  const { user } = useAuth();
-  const { selectedTenant } = useTenant();
-  const { density, setDensity } = useDensity();
-=======
 }
 
 export function Telemetry({ user: userProp, selectedTenant: tenantProp }: TelemetryProps) {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
->>>>>>> integration-branch
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
@@ -681,45 +621,6 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                 />
               )}
               
-<<<<<<< HEAD
-              <Accordion type="multiple" defaultValue={['basic']} className="w-full">
-                <AccordionItem value="basic">
-                  <AccordionTrigger>
-                    <span className="text-sm font-medium">Verification Details</span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-3 pt-2">
-                      <div className="mb-4">
-                        <p className="font-medium text-sm mb-1">Bundle ID</p>
-                        <p className="text-sm text-muted-foreground font-mono">{verifyResult.bundle_id}</p>
-                      </div>
-                      <div className="mb-4">
-                        <p className="font-medium text-sm mb-1">Signed By</p>
-                        <p className="text-sm text-muted-foreground">{verifyResult.signed_by}</p>
-                      </div>
-                      <div className="mb-4">
-                        <p className="font-medium text-sm mb-1">Signed At</p>
-                        <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-
-                <AccordionItem value="signature">
-                  <AccordionTrigger>
-                    <span className="text-sm font-medium">Signature Details</span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="pt-2">
-                      <div className="mb-4">
-                        <p className="font-medium text-sm mb-1">Signature</p>
-                        <p className="text-xs text-muted-foreground font-mono break-all">{verifyResult.signature}</p>
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-=======
               <div className="form-field">
                 <p className="form-label">Bundle ID</p>
                 <p className="text-sm text-muted-foreground font-mono">{verifyResult.bundle_id}</p>
@@ -736,7 +637,6 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                 <p className="form-label">Signed At</p>
                 <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
               </div>
->>>>>>> integration-branch
               {verifyResult.verification_error && (
                 <div className="mb-4">
                   <p className="font-medium text-sm mb-1 text-red-600">Error</p>

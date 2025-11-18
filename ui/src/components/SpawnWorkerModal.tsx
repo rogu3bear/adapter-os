@@ -1,25 +1,13 @@
-<<<<<<< HEAD
-import React, { useState, useEffect, useCallback } from 'react';
-=======
 import React, { useState, useEffect } from 'react';
->>>>>>> integration-branch
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, CheckCircle, Server } from 'lucide-react';
-<<<<<<< HEAD
-// 【ui/src/components/SpawnWorkerModal.tsx§1-35】 - Replace toast notifications with ErrorRecovery patterns
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
-import apiClient from '../api/client';
-import { Node, Plan, SpawnWorkerRequest } from '../api/types';
-import { logger, toError } from '../utils/logger';
-=======
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Node, Plan, SpawnWorkerRequest } from '../api/types';
->>>>>>> integration-branch
 
 interface SpawnWorkerModalProps {
   open: boolean;
@@ -40,12 +28,6 @@ export function SpawnWorkerModal({
   const [selectedPlan, setSelectedPlan] = useState<string>('');
   const [tenantId, setTenantId] = useState<string>(selectedTenant);
   const [isLoading, setIsLoading] = useState(false);
-<<<<<<< HEAD
-  const [modalError, setModalError] = useState<Error | null>(null);
-  const [validationMessage, setValidationMessage] = useState<string | null>(null);
-
-  const loadData = useCallback(async () => {
-=======
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,7 +38,6 @@ export function SpawnWorkerModal({
   }, [open, selectedTenant]);
 
   const loadData = async () => {
->>>>>>> integration-branch
     try {
       const [nodesData, plansData] = await Promise.all([
         apiClient.listNodes(),
@@ -69,43 +50,6 @@ export function SpawnWorkerModal({
       setPlans(plansData);
 
       // Auto-select first healthy node and plan if available
-<<<<<<< HEAD
-      if (healthyNodes.length > 0) {
-        setSelectedNode((prev) => prev || healthyNodes[0].id);
-      }
-      if (plansData.length > 0) {
-        setSelectedPlan((prev) => prev || plansData[0].id);
-      }
-      setModalError(null);
-      setValidationMessage(null);
-    } catch (err) {
-      logger.error('Failed to load spawn worker data', {
-        component: 'SpawnWorkerModal',
-        operation: 'loadData',
-        tenantId: selectedTenant,
-      }, toError(err));
-      const error = err instanceof Error ? err : new Error('Failed to load nodes and plans');
-      setModalError(error);
-      setValidationMessage('Failed to load nodes and plans. Try refreshing.');
-    }
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    if (open) {
-      void loadData();
-      setTenantId(selectedTenant);
-      setModalError(null);
-      setValidationMessage(null);
-    }
-  }, [open, selectedTenant, loadData]);
-
-  const handleSpawn = async () => {
-    setValidationMessage(null);
-    setModalError(null);
-
-    if (!selectedNode || !selectedPlan || !tenantId) {
-      setValidationMessage('Please select node, plan, and tenant.');
-=======
       if (healthyNodes.length > 0 && !selectedNode) {
         setSelectedNode(healthyNodes[0].id);
       }
@@ -121,16 +65,11 @@ export function SpawnWorkerModal({
   const handleSpawn = async () => {
     if (!selectedNode || !selectedPlan || !tenantId) {
       setError('Please select node, plan, and tenant');
->>>>>>> integration-branch
       return;
     }
 
     setIsLoading(true);
-<<<<<<< HEAD
-    setModalError(null);
-=======
     setError(null);
->>>>>>> integration-branch
 
     try {
       const request: SpawnWorkerRequest = {
@@ -140,10 +79,7 @@ export function SpawnWorkerModal({
       };
 
       const worker = await apiClient.spawnWorker(request);
-<<<<<<< HEAD
-=======
       toast.success(`Worker ${worker.id} spawned successfully`);
->>>>>>> integration-branch
       onSuccess();
       onOpenChange(false);
       
@@ -152,21 +88,8 @@ export function SpawnWorkerModal({
       setSelectedPlan('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to spawn worker';
-<<<<<<< HEAD
-      const error = err instanceof Error ? err : new Error(errorMessage);
-      setModalError(error);
-      setValidationMessage(null);
-      logger.error('Failed to spawn worker', {
-        component: 'SpawnWorkerModal',
-        operation: 'spawnWorker',
-        tenantId,
-        nodeId: selectedNode,
-        planId: selectedPlan,
-      }, toError(err));
-=======
       setError(errorMessage);
       toast.error(errorMessage);
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -185,29 +108,10 @@ export function SpawnWorkerModal({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-<<<<<<< HEAD
-          {modalError && ErrorRecoveryTemplates.genericError(
-            modalError,
-            () => {
-              setModalError(null);
-              if (!selectedNode || !selectedPlan) {
-                void loadData();
-              } else {
-                void handleSpawn();
-              }
-            }
-          )}
-
-          {validationMessage && (
-            <Alert className="border-amber-200 bg-amber-50">
-              <AlertTriangle className="h-4 w-4 text-amber-600" />
-              <AlertDescription className="text-amber-700">{validationMessage}</AlertDescription>
-=======
           {error && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
->>>>>>> integration-branch
             </Alert>
           )}
 
@@ -234,11 +138,7 @@ export function SpawnWorkerModal({
                 <SelectValue placeholder="Select a node..." />
               </SelectTrigger>
               <SelectContent>
-<<<<<<< HEAD
-                {nodes.filter(node => node.id && node.id !== '').map((node) => (
-=======
                 {nodes.map((node) => (
->>>>>>> integration-branch
                   <SelectItem key={node.id} value={node.id}>
                     {node.hostname} - {node.metal_family} ({node.memory_gb}GB)
                   </SelectItem>
@@ -261,11 +161,7 @@ export function SpawnWorkerModal({
                 <SelectValue placeholder="Select a plan..." />
               </SelectTrigger>
               <SelectContent>
-<<<<<<< HEAD
-                {plans.filter(plan => plan.id && plan.id !== '').map((plan) => (
-=======
                 {plans.map((plan) => (
->>>>>>> integration-branch
                   <SelectItem key={plan.id} value={plan.id}>
                     {plan.cpid} - {plan.status}
                   </SelectItem>
@@ -305,8 +201,5 @@ export function SpawnWorkerModal({
     </Dialog>
   );
 }
-<<<<<<< HEAD
-=======
 
 
->>>>>>> integration-branch

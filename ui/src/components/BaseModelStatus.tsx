@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-// 【ui/src/components/BaseModelStatus.tsx§46-52】 - Replace manual polling with standardized hook
-import React, { useState, useEffect } from 'react';
-import {
-  CheckCircle,
-  XCircle,
-  Clock,
-  AlertTriangle,
-  Cpu,
-=======
 import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle, 
@@ -15,22 +5,13 @@ import {
   Clock, 
   AlertTriangle, 
   Cpu, 
->>>>>>> integration-branch
   HardDrive,
   RefreshCw,
   Info
 } from 'lucide-react';
 import { BaseModelStatus } from '../api/types';
 import apiClient from '../api/client';
-<<<<<<< HEAD
-import { toast } from 'sonner';
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
-import { LastUpdated } from './ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
-=======
 import { toast } from 'react-hot-toast';
->>>>>>> integration-branch
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -38,46 +19,6 @@ interface BaseModelStatusProps {
 
 export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProps) {
   const [status, setStatus] = useState<BaseModelStatus | null>(null);
-<<<<<<< HEAD
-  const [error, setError] = useState<Error | null>(null);
-
-  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for model status
-  const fetchModelStatus = async () => {
-    const modelStatus = await apiClient.getBaseModelStatus(selectedTenant);
-    return modelStatus;
-  };
-
-  const {
-    data: polledStatus,
-    isLoading: loading,
-    lastUpdated,
-    error: pollingError,
-    refetch: refreshStatus
-  } = usePolling(
-    fetchModelStatus,
-    'normal', // Reduced from fast to reduce rate limiting while maintaining reasonable updates
-    {
-      showLoadingIndicator: true,
-      onError: (err) => {
-        const error = err instanceof Error ? err : new Error('Failed to fetch model status');
-        setError(error);
-        logger.error('Failed to fetch base model status', {
-          component: 'BaseModelStatus',
-          operation: 'polling',
-          tenantId: selectedTenant,
-        }, err);
-      }
-    }
-  );
-
-  // Update status when polling data arrives
-  useEffect(() => {
-    if (polledStatus) {
-      setStatus(polledStatus);
-      setError(null);
-    }
-  }, [polledStatus]);
-=======
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -104,7 +45,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
     const interval = setInterval(fetchStatus, 1000);
     return () => clearInterval(interval);
   }, [selectedTenant]);
->>>>>>> integration-branch
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -183,16 +123,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
   if (error) {
     return (
-<<<<<<< HEAD
-      <ErrorRecovery
-        title="Model Status Error"
-        message={error.message}
-        recoveryActions={[
-          { label: 'Retry', action: () => refreshStatus() },
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
-      />
-=======
       <div className="bg-white rounded-lg border border-red-200 p-6">
         <div className="flex items-center space-x-3">
           <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -202,7 +132,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
           </div>
         </div>
       </div>
->>>>>>> integration-branch
     );
   }
 
@@ -230,10 +159,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
             <p className="text-sm text-gray-500">
               {status.model_name} ({status.model_id})
             </p>
-<<<<<<< HEAD
-            {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
-=======
->>>>>>> integration-branch
           </div>
         </div>
       </div>

@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useState, useEffect, useCallback } from 'react';
-=======
 import React, { useState, useEffect } from 'react';
->>>>>>> integration-branch
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -26,42 +22,8 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import { Repository, Commit, CommitDiff } from '../api/types';
-<<<<<<< HEAD
-import { logger } from '../utils/logger';
-import { Alert, AlertDescription } from './ui/alert';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
-
-// Helper function to format repository URLs for display
-// Handles cases where the URL is actually a repo_id fallback
-function formatRepositoryUrl(url: string, isFallback?: boolean): string {
-  // If explicitly marked as not a fallback, show the URL as-is
-  if (isFallback === false) {
-    return url;
-  }
-
-  // If explicitly marked as a fallback, format it nicely
-  if (isFallback === true) {
-    return `Repository: ${url}`;
-  }
-
-  // Fallback logic for backward compatibility (if isFallback is undefined)
-  // If it looks like a proper URL (starts with http/https), show it as-is
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
-  }
-
-  // If it looks like a git URL (ends with .git), show it as-is
-  if (url.endsWith('.git')) {
-    return url;
-  }
-
-  // Otherwise, it's likely a repo_id fallback, format it nicely
-  return `Repository: ${url}`;
-}
-=======
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->>>>>>> integration-branch
 
 interface GitIntegrationPageProps {
   selectedTenant: string;
@@ -74,24 +36,12 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
   const [commitDiff, setCommitDiff] = useState<CommitDiff | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-<<<<<<< HEAD
-  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
-  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
-=======
->>>>>>> integration-branch
 
   // New repository form
   const [newRepoUrl, setNewRepoUrl] = useState('');
   const [newRepoBranch, setNewRepoBranch] = useState('main');
   const [showAddRepo, setShowAddRepo] = useState(false);
 
-<<<<<<< HEAD
-  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
-    setStatusMessage({ message, variant });
-  };
-
-  const loadRepositories = useCallback(async () => {
-=======
   useEffect(() => {
     loadRepositories();
   }, [selectedTenant]);
@@ -103,22 +53,13 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   }, [selectedRepo]);
 
   const loadRepositories = async () => {
->>>>>>> integration-branch
     setIsLoading(true);
     try {
       const repos = await apiClient.listRepositories();
       setRepositories(repos);
-<<<<<<< HEAD
-      if (repos.length > 0) {
-        setSelectedRepo((prev) => prev ?? repos[0]);
-      }
-      setStatusMessage(null);
-      setErrorRecovery(null);
-=======
       if (repos.length > 0 && !selectedRepo) {
         setSelectedRepo(repos[0]);
       }
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load repositories';
       logger.error('Failed to load repositories', {
@@ -127,25 +68,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         tenant: selectedTenant,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setStatusMessage({ message: 'Failed to load repositories.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to load repositories'),
-          () => loadRepositories()
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    loadRepositories();
-  }, [loadRepositories]);
-
-  const loadCommits = useCallback(async (repoId: string) => {
-=======
       toast.error('Failed to load repositories');
     } finally {
       setIsLoading(false);
@@ -153,16 +75,10 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   };
 
   const loadCommits = async (repoId: string) => {
->>>>>>> integration-branch
     setIsLoading(true);
     try {
       const commitsList = await apiClient.listCommits(repoId);
       setCommits(commitsList);
-<<<<<<< HEAD
-      setStatusMessage(null);
-      setErrorRecovery(null);
-=======
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load commits';
       logger.error('Failed to load commits', {
@@ -171,42 +87,17 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         repoId,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setStatusMessage({ message: 'Failed to load commits.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to load commits'),
-          () => loadCommits(repoId)
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedRepo) {
-      loadCommits(selectedRepo.id);
-    }
-  }, [selectedRepo, loadCommits]);
-=======
       toast.error('Failed to load commits');
     } finally {
       setIsLoading(false);
     }
   };
->>>>>>> integration-branch
 
   const loadCommitDiff = async (sha: string) => {
     setIsLoading(true);
     try {
       const diff = await apiClient.getCommitDiff(sha);
       setCommitDiff(diff);
-<<<<<<< HEAD
-      setStatusMessage(null);
-      setErrorRecovery(null);
-=======
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load commit diff';
       logger.error('Failed to load commit diff', {
@@ -215,17 +106,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         sha,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setStatusMessage({ message: 'Failed to load commit diff.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to load commit diff'),
-          () => loadCommitDiff(sha)
-        )
-      );
-=======
       toast.error('Failed to load commit diff');
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -233,11 +114,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
   const handleAddRepository = async () => {
     if (!newRepoUrl.trim()) {
-<<<<<<< HEAD
-      showStatus('Please enter a repository URL.', 'warning');
-=======
       toast.error('Please enter a repository URL');
->>>>>>> integration-branch
       return;
     }
 
@@ -247,11 +124,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         url: newRepoUrl,
         branch: newRepoBranch || 'main'
       });
-<<<<<<< HEAD
-      showStatus('Repository registered successfully.', 'success');
-=======
       toast.success('Repository registered successfully');
->>>>>>> integration-branch
       setShowAddRepo(false);
       setNewRepoUrl('');
       setNewRepoBranch('main');
@@ -265,17 +138,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         branch: newRepoBranch,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setStatusMessage({ message: 'Failed to register repository.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to register repository'),
-          () => handleAddRepository()
-        )
-      );
-=======
       toast.error('Failed to register repository');
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -285,11 +148,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
     setIsLoading(true);
     try {
       await apiClient.triggerRepositoryScan(repoId);
-<<<<<<< HEAD
-      showStatus('Repository scan started.', 'success');
-=======
       toast.success('Repository scan started');
->>>>>>> integration-branch
       // Wait a bit and reload commits
       setTimeout(() => loadCommits(repoId), 2000);
     } catch (error) {
@@ -300,17 +159,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         repoId,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setStatusMessage({ message: 'Failed to scan repository.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to scan repository'),
-          () => handleScanRepository(repoId)
-        )
-      );
-=======
       toast.error('Failed to scan repository');
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
@@ -323,39 +172,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
   return (
     <div className="space-y-6">
-<<<<<<< HEAD
-      {errorRecovery && (
-        <div>
-          {errorRecovery}
-        </div>
-      )}
-
-      {statusMessage && (
-        <Alert
-          className={
-            statusMessage.variant === 'success'
-              ? 'border-green-200 bg-green-50'
-              : statusMessage.variant === 'warning'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-blue-200 bg-blue-50'
-          }
-        >
-          <AlertDescription
-            className={
-              statusMessage.variant === 'success'
-                ? 'text-green-700'
-                : statusMessage.variant === 'warning'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
-            }
-          >
-            {statusMessage.message}
-          </AlertDescription>
-        </Alert>
-      )}
-
-=======
->>>>>>> integration-branch
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -455,13 +271,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <GitBranch className="w-4 h-4 text-muted-foreground" />
-<<<<<<< HEAD
-                        <span className="font-mono text-sm" title={repo.url}>
-                          {formatRepositoryUrl(repo.url, repo.url_is_fallback)}
-                        </span>
-=======
                         <span className="font-mono text-sm">{repo.url}</span>
->>>>>>> integration-branch
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">

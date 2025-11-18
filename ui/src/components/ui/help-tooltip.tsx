@@ -2,10 +2,6 @@ import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 import { HelpCircle } from 'lucide-react';
 import { cn } from './utils';
-<<<<<<< HEAD
-import { getHelpText } from '@/data/help-text';
-=======
->>>>>>> integration-branch
 
 interface HelpTooltipProps {
   helpId: string;
@@ -22,24 +18,6 @@ export function HelpTooltip({
   side = 'top',
   align = 'center'
 }: HelpTooltipProps) {
-<<<<<<< HEAD
-  // Fallback help texts for items not yet in database
-  const fallbackTexts: Record<string, string> = {
-    'cpid': 'Control Plane ID: identifier that groups policies, plans, and telemetry.',
-    'merkle-root': 'Root hash of a Merkle tree used to attest integrity of bundled events.',
-    'schema-hash': 'Content hash of the policy schema version applied to a policy pack.',
-    'tokens-per-second': 'Throughput: number of tokens processed per second across the system.',
-    'latency-p95': 'Latency p95: 95th percentile end-to-end response latency in milliseconds.',
-    'adapter-count': 'Total number of active code adapters loaded in the system.',
-    'active-sessions': 'Concurrent active user or service sessions currently using the system.',
-    'requires-admin': 'This action requires the Admin role. Contact an administrator for access.',
-    'operations': 'Runtime management, plan execution, and system monitoring.',
-    'settings': 'System configuration and administration.'
-  };
-
-  const helpItem = getHelpText(helpId);
-  const helpText = helpItem?.content || fallbackTexts[helpId] || 'Help information not available.';
-=======
   // For now, we'll use a simple help text lookup
   // In a real implementation, this would use the help text database
   const getHelpText = (id: string) => {
@@ -69,7 +47,6 @@ export function HelpTooltip({
   };
 
   const helpText = getHelpText(helpId);
->>>>>>> integration-branch
 
   return (
     <Tooltip>

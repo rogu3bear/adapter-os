@@ -14,23 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
-<<<<<<< HEAD
-import { LoadingState } from './ui/loading-state';
-import { Checkbox } from './ui/checkbox';
-import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
-import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
-import { ExportDialog, ExportOptions, ExportScope } from './ui/export-dialog';
-import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { TrainingWizard } from './TrainingWizard';
-import { AdapterImportWizard } from './AdapterImportWizard';
-import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
-import { useViewTransition } from '../hooks/useViewTransition';
-import { useUndoRedoContext } from '../contexts/UndoRedoContext';
-import { useProgressOperation } from '../hooks/useProgressOperation';
-=======
-import { TrainingWizard } from './TrainingWizard';
->>>>>>> integration-branch
 import { 
   Plus, 
   Code, 
@@ -215,23 +199,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   // Progress tracking for long operations
   const { operation: activeProgressOperation, start: startProgressOperation, cancel: cancelProgressOperation } = useProgressOperation();
   const [selectedAdapter, setSelectedAdapter] = useState<Adapter | null>(null);
-<<<<<<< HEAD
-  const [selectedAdapterForHealth, setSelectedAdapterForHealth] = useState<Adapter | null>(null);
   const [activeTab, setActiveTab] = useState('registry');
-  const transitionTo = useViewTransition();
-
-  // Clear feedback states
-  const clearFeedback = () => {
-    setSuccessFeedback(null);
-    setErrorRecovery(null);
-    setStatusMessage(null);
-  };
-  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
-    setStatusMessage({ message, variant });
-  };
-=======
-  const [activeTab, setActiveTab] = useState('registry');
->>>>>>> integration-branch
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -1280,58 +1248,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
   return (
     <div className={hierarchyClasses.container}>
-<<<<<<< HEAD
-      {successFeedback && (
-        <div className="mb-6">
-          {successFeedback}
-        </div>
-      )}
-
-      {errorRecovery && (
-        <div className="mb-6">
-          {errorRecovery}
-        </div>
-      )}
-
-      {statusMessage && (
-        <Alert
-          className={
-            statusMessage.variant === 'success'
-              ? 'border-gray-300 bg-gray-50'
-              : statusMessage.variant === 'warning'
-                ? 'border-gray-300 bg-gray-50'
-                : 'border-gray-300 bg-gray-50'
-          }
-        >
-          {statusMessage.variant === 'success' ? (
-            <CheckCircle className="w-4 h-4 text-gray-600" />
-          ) : statusMessage.variant === 'warning' ? (
-            <AlertCircle className="w-4 h-4 text-gray-500" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-gray-400" />
-          )}
-          <AlertDescription
-            className={
-              statusMessage.variant === 'success'
-                ? 'text-gray-700'
-                : statusMessage.variant === 'warning'
-                  ? 'text-gray-600'
-                  : 'text-gray-600'
-            }
-          >
-            {statusMessage.message}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <ContentSection
-        title="Adapter Management"
-        subtitle="Train, manage, and monitor adapters for your models"
-=======
       <ContentSection
         title="Adapter Management"
         subtitle="Train, manage, and monitor LoRA adapters for your models"
->>>>>>> integration-branch
         level="primary"
         variant="default"
         actions={
@@ -1340,28 +1259,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <Brain className="h-4 w-4 mr-2" />
               Train Adapter
             </Button>
-<<<<<<< HEAD
-            <Button onClick={() => setIsLanguageDialogOpen(true)}>
-              <Brain className="h-4 w-4 mr-2" />
-              Train Language Base Adapter
-            </Button>
-=======
->>>>>>> integration-branch
             <Button onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Register Adapter
             </Button>
-<<<<<<< HEAD
-            <Button variant="outline" onClick={() => setShowImportDialog(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Import Adapter
-            </Button>
-            <Button variant="outline" onClick={() => setUpsertOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Directory Upsert
-            </Button>
-=======
->>>>>>> integration-branch
           </div>
         }
       >
@@ -1388,20 +1289,8 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsList>
 
         {/* Registry Tab */}
-<<<<<<< HEAD
-        <TabsContent value="registry" className="mb-4">
-          <AdvancedFilter
-            configs={adapterFilterConfigs}
-            values={filterValues}
-            onChange={setFilterValues}
-            className="mb-4"
-            title="Filter Adapters"
-          />
-          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
-=======
         <TabsContent value="registry" className="form-field">
           <Card className="card-standard">
->>>>>>> integration-branch
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center justify-center">
@@ -1460,154 +1349,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Used</TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
                     </TableRow>
-<<<<<<< HEAD
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAdapters.length === 0 ? (
-                      <TableRow role="row">
-                        <TableCell colSpan={8} className="h-32" role="gridcell" aria-live="polite">
-                          <EmptyState
-                            icon={Code}
-                            title={adapters.length === 0 ? "No Adapters Registered" : "No Adapters Match Filters"}
-                            description={adapters.length === 0
-                              ? "Get started by registering your first adapter or training a new one from your codebase. Use the Register or Train buttons above to begin."
-                              : "Try adjusting your filters to see more results."}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      <VirtualizedTableRows items={filteredAdapters} estimateSize={60}>
-                        {(adapter) => {
-                          const adapterTyped = adapter as typeof adapters[0];
-                          return (
-                                    <TableRow key={adapterTyped.id} role="row">
-                              <TableCell className="p-4 border-b border-border" role="gridcell">
-                                <Checkbox
-                                  checked={selectedAdapters.includes(adapterTyped.adapter_id)}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      setSelectedAdapters(prev => [...prev, adapterTyped.adapter_id]);
-                                    } else {
-                                      setSelectedAdapters(prev => prev.filter(id => id !== adapterTyped.adapter_id));
-                                    }
-                                  }}
-                                  aria-label={`Select ${adapterTyped.name}`}
-                                />
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  {getCategoryIcon(adapterTyped.category)}
-                                  <div>
-                                    <div className="font-medium">{adapterTyped.name}</div>
-                                    <div className="text-sm text-muted-foreground">
-                                      Tier {adapterTyped.tier} • Rank {adapterTyped.rank}
-                                    </div>
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border" role="gridcell">
-                                <div className="status-indicator status-neutral flex items-center justify-center">
-                                  {getCategoryIcon(adapterTyped.category)}
-                                  <span>{adapterTyped.category}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  {getStateIcon(adapterTyped.current_state)}
-                                  <div className={`status-indicator ${
-                                    adapterTyped.current_state === 'hot' ? 'status-error' :
-                                    adapterTyped.current_state === 'warm' ? 'status-warning' :
-                                    adapterTyped.current_state === 'cold' ? 'status-info' :
-                                    adapterTyped.current_state === 'resident' ? 'status-success' :
-                                    'status-neutral'
-                                  }`}>
-                                    {adapterTyped.current_state}
-                                  </div>
-                                  {adapterTyped.pinned && (
-                                    <Pin className="h-4 w-4 text-gray-600" />
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  <MemoryStick className="h-4 w-4" />
-                                  <span>{Math.round(adapterTyped.memory_bytes / 1024 / 1024)} MB</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  <Target className="h-4 w-4" />
-                                  <span>{adapterTyped.activation_count}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center justify-center">
-                                  <Clock className="h-4 w-4" />
-                                  <span>{adapterTyped.last_activated ? new Date(adapterTyped.last_activated).toLocaleString() : 'Never'}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="p-4 border-b border-border">
-                                <div className="flex items-center gap-1">
-                                  <BookmarkButton
-                                    type="adapter"
-                                    title={adapterTyped.name}
-                                    url={`/adapters?adapter=${encodeURIComponent(adapterTyped.adapter_id)}`}
-                                    entityId={adapterTyped.adapter_id}
-                                    description={`${adapterTyped.framework || 'Unknown'} • ${adapterTyped.category || 'Unknown category'}`}
-                                    variant="ghost"
-                                    size="icon"
-                                  />
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" aria-label={`Actions for ${adapterTyped.name}`}>
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                    {adapterTyped.current_state === 'warm' || adapterTyped.current_state === 'hot' || adapterTyped.current_state === 'resident' ? (
-                                      <DropdownMenuItem onClick={() => handleUnloadAdapter(adapterTyped.adapter_id)}>
-                                        <Pause className="mr-2 h-4 w-4" />
-                                        Unload
-                                      </DropdownMenuItem>
-                                    ) : (
-                                      <DropdownMenuItem onClick={() => handleLoadAdapter(adapterTyped.adapter_id)}>
-                                        <Play className="mr-2 h-4 w-4" />
-                                        Load
-                                      </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem onClick={() => handlePinToggle(adapterTyped)}>
-                                      <Pin className="mr-2 h-4 w-4" />
-                                      {adapterTyped.pinned ? 'Unpin' : 'Pin'}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handlePromoteState(adapterTyped.adapter_id)}>
-                                      <ArrowUp className="mr-2 h-4 w-4" />
-                                      Promote State
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleViewHealth(adapterTyped.adapter_id)}>
-                                      <Activity className="mr-2 h-4 w-4" />
-                                      View Health
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleDownloadManifest(adapterTyped.adapter_id)}>
-                                      <Download className="mr-2 h-4 w-4" />
-                                      Download Manifest
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setDeleteConfirmId(adapterTyped.adapter_id)}>
-                                      <Trash2 className="mr-2 h-4 w-4 text-gray-700" />
-                                      Delete
-                                    </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }}
-                  </VirtualizedTableRows>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-=======
                   ) : (
                     adapters.map((adapter) => (
                       <TableRow key={adapter.id}>
@@ -1746,14 +1487,11 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   )}
                 </TableBody>
               </Table>
->>>>>>> integration-branch
             </CardContent>
           </Card>
         </TabsContent>
 
         {/* Training Tab */}
-<<<<<<< HEAD
-=======
         <TabsContent value="training" className="space-y-4">
           <TrainingStreamPage selectedTenant={selectedTenant} />
         </TabsContent>
@@ -1769,7 +1507,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsContent>
 
 
->>>>>>> integration-branch
         <TabsContent value="training" className="space-y-4">
           <TrainingStreamPage selectedTenant={selectedTenant} />
 
@@ -1872,19 +1609,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </TabsContent>
 
-<<<<<<< HEAD
-        {/* Router Config Tab */}
-        <TabsContent value="router" className="space-y-4">
-          <RouterConfigPage selectedTenant={selectedTenant} />
-        </TabsContent>
-
-        {/* Code Intelligence Tab */}
-        <TabsContent value="code-intel" className="space-y-4">
-          <CodeIntelligence user={user} selectedTenant={selectedTenant} />
-        </TabsContent>
-
-=======
->>>>>>> integration-branch
       </Tabs>
 
       </ContentSection>
@@ -1894,11 +1618,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <TrainingWizard
             onComplete={(jobId) => {
-<<<<<<< HEAD
-              showStatus(`Training job ${jobId} started.`, 'success');
-=======
               toast.success(`Training job ${jobId} started`);
->>>>>>> integration-branch
               setIsTrainingDialogOpen(false);
               // Optionally refresh adapters or navigate to training monitor
             }}
@@ -2127,13 +1847,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </DialogContent>
       </Dialog>
-<<<<<<< HEAD
-=======
       </ContentSection>
     </div>
   );
 }
->>>>>>> integration-branch
 
       {/* Bulk Action Bar */}
       <BulkActionBar
@@ -2182,21 +1899,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       {/* Undo/Redo Bar */}
 
-<<<<<<< HEAD
-      {/* Import Dialog */}
-      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Import Adapter</DialogTitle>
-          </DialogHeader>
-          <AdapterImportWizard
-            onComplete={(adapter) => {
-              setShowImportDialog(false);
-              loadAdapters();
-              showStatus(`Adapter "${adapter.name}" imported successfully.`, 'success');
-            }}
-            onCancel={() => setShowImportDialog(false)}
-=======
       {step === 1 && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -2433,13 +2135,10 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
             type="number" 
             value={formData.rank}
             onChange={(e) => setFormData({...formData, rank: parseInt(e.target.value)})}
->>>>>>> integration-branch
           />
         </DialogContent>
       </Dialog>
 
-<<<<<<< HEAD
-=======
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="framework">Framework</Label>
@@ -2473,7 +2172,6 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
           Register Adapter
         </Button>
       </div>
->>>>>>> integration-branch
     </div>
   );
 }

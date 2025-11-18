@@ -43,57 +43,7 @@ export interface User {
   token_last_rotated_at?: string;
 }
 
-<<<<<<< HEAD
-export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
-
-export interface SessionInfo {
-  id: string;
-  device?: string;
-  ip_address?: string;
-  user_agent?: string;
-  location?: string;
-  created_at: string;
-  last_seen_at: string;
-  is_current: boolean;
-}
-
-export interface RotateTokenResponse {
-  token: string;
-  created_at: string;
-  expires_at?: string;
-  last_rotated_at?: string;
-}
-
-export interface TokenMetadata {
-  created_at: string;
-  expires_at?: string;
-  last_rotated_at?: string;
-  last_used_at?: string;
-}
-
-export interface AuthConfigResponse {
-  production_mode: boolean;
-  dev_token_enabled: boolean;
-  jwt_mode: string;
-  token_expiry_hours: number;
-}
-
-export interface UpdateAuthConfigRequest {
-  production_mode?: boolean;
-  dev_token_enabled?: boolean;
-  jwt_mode?: string;
-  token_expiry_hours?: number;
-}
-
-export interface UpdateProfileRequest {
-  display_name?: string;
-  avatar_url?: string;
-}
-
-export interface ProfileResponse extends UserInfoResponse {}
-=======
 export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Viewer';
->>>>>>> integration-branch
 
 // Tenants
 export interface Tenant {
@@ -163,6 +113,52 @@ export interface NodeDetailsResponse {
   gpu_count?: number;
   gpu_type?: string;
   last_heartbeat?: string;
+}
+
+// Cluster Operations
+export interface ClusterStatus {
+  cluster_id: string;
+  total_nodes: number;
+  healthy_nodes: number;
+  offline_nodes: number;
+  maintenance_nodes: number;
+  total_workers: number;
+  active_workers: number;
+  aggregate_memory_gb: number;
+  aggregate_gpu_count: number;
+  last_sync_at?: string;
+}
+
+export interface ClusterMetrics {
+  cpu_utilization_pct: number;
+  memory_utilization_pct: number;
+  gpu_utilization_pct: number;
+  network_throughput_mbps: number;
+  inference_requests_per_sec: number;
+  avg_latency_ms: number;
+}
+
+export interface NodeWithMetrics extends Node {
+  workers: WorkerInfo[];
+  cpu_utilization?: number;
+  memory_utilization?: number;
+  gpu_utilization?: number;
+  uptime_seconds?: number;
+  agent_endpoint?: string;
+}
+
+export interface WorkerResponse {
+  id: string;
+  node_id: string;
+  tenant_id: string;
+  plan_id: string;
+  status: string;
+  pid?: number;
+  created_at: string;
+  last_heartbeat_at?: string;
+  memory_headroom_pct?: number;
+  k_current?: number;
+  adapters_loaded?: string[];
 }
 
 // Plans
@@ -815,38 +811,10 @@ export interface InferenceTrace {
   latency_ms: number;
 }
 
-<<<<<<< HEAD
-// Batch Inference Types
-export interface BatchInferItemRequest {
-  id: string;
-  prompt: string;
-  max_tokens?: number;
-  temperature?: number;
-  top_k?: number;
-  top_p?: number;
-  seed?: number;
-  require_evidence?: boolean;
-  adapters?: string[];
-}
-
-export interface BatchInferRequest {
-  requests: BatchInferItemRequest[];
-}
-
-export interface BatchInferItemResponse {
-  id: string;
-  response?: InferResponse;
-  error?: ErrorResponse;
-}
-
-export interface BatchInferResponse {
-  responses: BatchInferItemResponse[];
-=======
 export interface RouterCandidate {
   adapter_idx: number;
   raw_score: number;
   gate_q15: number;
->>>>>>> integration-branch
 }
 
 export interface RouterDecision {
@@ -1223,93 +1191,6 @@ export interface BaseModelStatus {
   updated_at: string;
 }
 
-<<<<<<< HEAD
-// Base Model Import Types - Citation: IMPLEMENTATION_PLAN.md Phase 2
-export interface ImportModelRequest {
-  model_name: string;
-  weights_path: string;
-  config_path: string;
-  tokenizer_path: string;
-  tokenizer_config_path?: string;
-  metadata?: Record<string, any>;
-}
-
-export interface ImportModelResponse {
-  import_id: string;
-  status: 'uploading' | 'validating' | 'importing' | 'completed' | 'failed';
-  message: string;
-  progress?: number;
-}
-
-export interface ModelStatusResponse {
-  model_id: string;
-  model_name: string;
-  status: 'loading' | 'loaded' | 'unloading' | 'unloaded' | 'error';
-  loaded_at?: string;
-  memory_usage_mb?: number;
-  is_loaded: boolean;
-}
-
-export interface ModelDownloadArtifact {
-  artifact: string;
-  filename: string;
-  content_type: string;
-  size_bytes?: number;
-  download_url: string;
-  expires_at: string;
-}
-
-export interface ModelDownloadResponse {
-  model_id: string;
-  model_name: string;
-  artifacts: ModelDownloadArtifact[];
-}
-
-// Multi-model status response
-export interface AllModelsStatusResponse {
-  models: BaseModelStatus[];
-  total_memory_mb: number;
-  active_model_count: number;
-}
-
-// Model validation response for checking if a model can be loaded
-export interface ModelValidationResponse {
-  model_id: string;
-  model_name: string;
-  can_load: boolean;
-  reason?: string;
-  download_commands?: string[];
-}
-
-// Models list for ModelSelector
-export interface CursorModelInfo {
-  id: string;
-  object: string; // usually 'model'
-  created: number;
-  owned_by: string;
-}
-
-export interface CursorModelsListResponse {
-  object: string; // 'list'
-  data: CursorModelInfo[];
-}
-
-export interface CursorConfigResponse {
-  api_endpoint: string;
-  model_name: string;
-  model_id: string;
-  is_ready: boolean;
-  setup_instructions: string[];
-}
-
-export interface OnboardingJourneyStep {
-  step_completed: 'model_imported' | 'model_loaded' | 'cursor_configured' | 'first_inference';
-  completed_at: string;
-  step_data?: Record<string, any>;
-}
-
-=======
->>>>>>> integration-branch
 export interface CreateDomainAdapterRequest {
   name: string;
   version: string;
@@ -1699,12 +1580,6 @@ export interface DetailedInferenceTrace {
 }
 
 export interface DetailedRouterDecision {
-<<<<<<< HEAD
-  token_idx: number;
-  adapters: string[];
-  gates: number[];
-  scores: number[];
-=======
   step: number;
   input_token_id?: number;
   candidate_adapters: RouterCandidate[];
@@ -1712,7 +1587,6 @@ export interface DetailedRouterDecision {
   tau: number;
   entropy_floor: number;
   stack_hash?: string;
->>>>>>> integration-branch
   feature_vector?: FeatureVector;
   selection_reason?: string;
 }
@@ -1968,17 +1842,7 @@ export interface Alert {
   metric_value?: number;
   threshold_value?: number;
   status: string;
-<<<<<<< HEAD
-  acknowledged_by?: string;
-  acknowledged_at?: string;
-  resolved_at?: string;
-  suppression_reason?: string;
-  suppression_until?: string;
   escalation_level: number;
-  notification_sent: boolean;
-=======
-  escalation_level: number;
->>>>>>> integration-branch
   created_at: string;
   updated_at: string;
 }
@@ -2066,10 +1930,6 @@ export interface TelemetryEvent {
   component?: string;
   tenant_id?: string;
   user_id?: string;
-<<<<<<< HEAD
-  trace_id?: string;
-=======
->>>>>>> integration-branch
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -2086,9 +1946,6 @@ export interface RoutingDecisionFilters {
   adapter_id?: string;
   start_time?: string;
   end_time?: string;
-<<<<<<< HEAD
-  tenant?: string; // Optional tenant ID (if not provided, backend uses JWT claims)
-=======
 }
 
 export interface RoutingDecision {
@@ -2098,7 +1955,6 @@ export interface RoutingDecision {
   confidence_scores: Record<string, number>;
   timestamp: string;
   trace_id: string;
->>>>>>> integration-branch
 }
 
 export interface AdapterSelection {
@@ -2106,269 +1962,3 @@ export interface AdapterSelection {
   gate_value: number;
   rank: number;
 }
-<<<<<<< HEAD
-
-export interface JourneyResponse {
-  journey_type: string;
-  id: string;
-  data: Record<string, any>;
-  states: JourneyState[];
-  created_at: string;
-}
-
-export interface JourneyState {
-  state: string;
-  timestamp: string;
-  details: Record<string, any>;
-}
-// Contacts
-export interface Contact {
-  id: string;
-  name: string;
-  email?: string;
-  category: 'user' | 'system' | 'adapter' | 'repository' | 'external';
-  role?: string;
-  discovered_at: string;
-  interaction_count: number;
-  last_interaction?: string;
-}
-
-// Workspaces
-export interface Workspace {
-  id: string;
-  name: string;
-  description?: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateWorkspaceRequest {
-  name: string;
-  description?: string;
-  tenant_id?: string;
-}
-
-export interface WorkspaceMember {
-  id: string;
-  workspace_id: string;
-  tenant_id: string;
-  user_id?: string;
-  role: 'owner' | 'member' | 'viewer';
-  permissions_json?: string;
-  added_by: string;
-  added_at: string;
-}
-
-export interface WorkspaceResource {
-  id: string;
-  workspace_id: string;
-  resource_type: 'adapter' | 'node' | 'model';
-  resource_id: string;
-  shared_by: string;
-  shared_by_tenant_id: string;
-  shared_at: string;
-}
-
-export interface AddWorkspaceMemberRequest {
-  tenant_id: string;
-  user_id?: string;
-  role: string;
-  permissions_json?: string;
-}
-
-// Messages
-export interface Message {
-  id: string;
-  workspace_id: string;
-  from_user_id: string;
-  from_tenant_id: string;
-  from_user_display_name?: string;
-  content: string;
-  thread_id?: string;
-  created_at: string;
-  edited_at?: string;
-}
-
-export interface CreateMessageRequest {
-  content: string;
-  thread_id?: string;
-}
-
-// Notifications
-export interface Notification {
-  id: string;
-  user_id: string;
-  workspace_id?: string;
-  type: 'alert' | 'message' | 'mention' | 'activity' | 'system';
-  target_type?: string;
-  target_id?: string;
-  title: string;
-  content?: string;
-  read_at?: string;
-  created_at: string;
-}
-
-export interface NotificationSummary {
-  total_count: number;
-  unread_count: number;
-}
-
-// Activity Events
-export interface ActivityEvent {
-  id: string;
-  workspace_id?: string;
-  user_id: string;
-  tenant_id: string;
-  event_type: string;
-  target_type?: string;
-  target_id?: string;
-  metadata_json?: string;
-  created_at: string;
-}
-
-export interface RecentActivityEvent {
-  id: string;
-  timestamp: string;
-  event_type: string;
-  level: string;
-  message: string;
-  component?: string;
-  tenant_id?: string;
-  user_id?: string;
-  metadata?: Record<string, unknown> | null;
-}
-
-export interface CreateActivityEventRequest {
-  workspace_id?: string;
-  event_type: string;
-  target_type?: string;
-  target_id?: string;
-  metadata_json?: string;
-}
-
-// Tutorials
-export interface TutorialStep {
-  id: string;
-  title: string;
-  content: string;
-  target_selector?: string;
-  position?: string;
-}
-
-export interface Tutorial {
-  id: string;
-  title: string;
-  description: string;
-  steps: TutorialStep[];
-  trigger?: 'manual' | 'auto' | 'on-error';
-  dismissible: boolean;
-  completed: boolean;
-  dismissed: boolean;
-  completed_at?: string;
-  dismissed_at?: string;
-}
-
-export interface TutorialStatus {
-  tutorial_id: string;
-  completed: boolean;
-  dismissed: boolean;
-  completed_at?: string;
-  dismissed_at?: string;
-}
-
-// Compliance Audit Types
-export interface ComplianceAuditResponse {
-  compliance_rate: number;
-  total_controls: number;
-  compliant_controls: number;
-  active_violations: number;
-  controls: ComplianceControl[];
-  violations: PolicyViolationRecord[];
-  timestamp: string;
-}
-
-export interface ComplianceControl {
-  control_id: string;
-  control_name: string;
-  status: string;
-  last_checked: string;
-  evidence: string[];
-  findings: string[];
-}
-
-export interface PolicyViolationRecord {
-  id: string;
-  reason: string;
-  violation_type: string | null;
-  created_at: string;
-  released: boolean;
-  cpid: string | null;
-  metadata: string | null;
-}
-
-// Service status types - matches crates/adapteros-server/src/status_writer.rs L19-71
-export interface ServiceStatus {
-  id: string;
-  name: string;
-  state: 'stopped' | 'starting' | 'running' | 'stopping' | 'failed' | 'restarting';
-  pid?: number;
-  port?: number;
-  health_status: 'unknown' | 'healthy' | 'unhealthy' | 'checking';
-  restart_count: number;
-  last_error?: string;
-}
-
-export interface AdapterOSStatus {
-  schema_version?: string;
-  status: 'ok' | 'degraded' | 'error';
-  uptime_secs: number;
-  adapters_loaded: number;
-  deterministic: boolean;
-  kernel_hash: string;
-  telemetry_mode: string;
-  worker_count: number;
-  base_model_loaded?: boolean;
-  base_model_id?: string;
-  base_model_name?: string;
-  base_model_status?: string;
-  base_model_memory_mb?: number;
-  services?: ServiceStatus[];
-}
-
-// Dashboard Configuration Types
-export interface DashboardWidgetConfig {
-  id: string;
-  user_id: string;
-  widget_id: string;
-  enabled: boolean;
-  position: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DashboardConfig {
-  widgets: DashboardWidgetConfig[];
-}
-
-export interface WidgetConfigUpdate {
-  widget_id: string;
-  enabled: boolean;
-  position: number;
-}
-
-export interface UpdateDashboardConfigRequest {
-  widgets: WidgetConfigUpdate[];
-}
-
-export interface UpdateDashboardConfigResponse {
-  success: boolean;
-  updated_count: number;
-}
-
-export interface ResetDashboardConfigResponse {
-  success: boolean;
-  message: string;
-}
-=======
->>>>>>> integration-branch

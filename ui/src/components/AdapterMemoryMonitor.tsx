@@ -33,11 +33,7 @@ import {
 } from '../api/types';
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
-<<<<<<< HEAD
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
-=======
 import { toast } from 'sonner';
->>>>>>> integration-branch
 
 interface AdapterMemoryMonitorProps {
   adapters: Adapter[];
@@ -193,24 +189,14 @@ export function AdapterMemoryMonitor({
 
       const result = await apiClient.evictAdapter(adapterId);
       onEvictAdapter(adapterId);
-<<<<<<< HEAD
-      await refreshMemoryData(); // Refresh after eviction
-
-      showStatus(`Adapter evicted: ${result.message || 'Memory freed successfully.'}`, 'success');
-=======
 
       toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
->>>>>>> integration-branch
       logger.info('Adapter evicted successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'evictAdapter',
         adapterId,
         result
       });
-<<<<<<< HEAD
-      setErrorRecovery(null);
-=======
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
       logger.error('Failed to evict adapter', {
@@ -219,17 +205,7 @@ export function AdapterMemoryMonitor({
         adapterId,
         error: errorMessage
       }, error instanceof Error ? error : new Error(String(error)));
-<<<<<<< HEAD
-      setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handleEvictAdapter(adapterId)
-        )
-      );
-=======
       toast.error(`Failed to evict adapter: ${errorMessage}`);
->>>>>>> integration-branch
     }
   };
 
@@ -244,24 +220,14 @@ export function AdapterMemoryMonitor({
 
       await apiClient.pinAdapter(adapterId, pinned);
       onPinAdapter(adapterId, pinned);
-<<<<<<< HEAD
-      await refreshMemoryData(); // Refresh after pinning
-
-      showStatus(pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', 'success');
-=======
 
       toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
->>>>>>> integration-branch
       logger.info('Adapter pin status updated successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'pinToggle',
         adapterId,
         pinned
       });
-<<<<<<< HEAD
-      setErrorRecovery(null);
-=======
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
       logger.error('Failed to pin/unpin adapter', {
@@ -271,158 +237,7 @@ export function AdapterMemoryMonitor({
         pinned,
         error: errorMessage
       }, error instanceof Error ? error : new Error(String(error)));
-<<<<<<< HEAD
-      setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handlePinToggle(adapterId, pinned)
-        )
-      );
-    }
-  };
-
-  const handleBulkPin = async (pinned: boolean) => {
-    if (selectedAdapterIds.size === 0) return;
-    
-    const adapterIds = Array.from(selectedAdapterIds);
-    setIsLoading(true);
-    
-    try {
-      const results = await Promise.allSettled(
-        adapterIds.map(id => apiClient.pinAdapter(id, pinned))
-      );
-      
-      const succeeded: string[] = [];
-      const failed: Array<{ id: string; error: string }> = [];
-      
-      results.forEach((result, index) => {
-        const adapterId = adapterIds[index];
-        if (result.status === 'fulfilled') {
-          succeeded.push(adapterId);
-          onPinAdapter(adapterId, pinned);
-        } else {
-          failed.push({
-            id: adapterId,
-            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-          });
-        }
-      });
-      
-      await refreshMemoryData();
-      setSelectedAdapterIds(new Set());
-      
-      if (failed.length === 0) {
-        showStatus(
-          pinned 
-            ? `${succeeded.length} adapters pinned successfully.` 
-            : `${succeeded.length} adapters unpinned successfully.`,
-          'success'
-        );
-      } else {
-        showStatus(
-          `${succeeded.length} succeeded, ${failed.length} failed. First error: ${failed[0].error}`,
-          'warning'
-        );
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to bulk pin/unpin';
-      showStatus(`Failed to ${pinned ? 'pin' : 'unpin'} adapters: ${errorMessage}`, 'warning');
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handleBulkPin(pinned)
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleBulkEvict = async () => {
-    if (selectedAdapterIds.size === 0) return;
-    
-    const adapterIds = Array.from(selectedAdapterIds);
-    setIsLoading(true);
-    
-    try {
-      // Filter out pinned adapters
-      const evictableIds = adapterIds.filter(id => {
-        const adapter = adapters.find(a => a.adapter_id === id);
-        return adapter && !adapter.pinned;
-      });
-      
-      if (evictableIds.length === 0) {
-        showStatus('No unpinned adapters selected for eviction.', 'warning');
-        setIsLoading(false);
-        return;
-      }
-      
-      const results = await Promise.allSettled(
-        evictableIds.map(id => apiClient.evictAdapter(id))
-      );
-      
-      const succeeded: string[] = [];
-      const failed: Array<{ id: string; error: string }> = [];
-      
-      results.forEach((result, index) => {
-        const adapterId = evictableIds[index];
-        if (result.status === 'fulfilled') {
-          succeeded.push(adapterId);
-          onEvictAdapter(adapterId);
-        } else {
-          failed.push({
-            id: adapterId,
-            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-          });
-        }
-      });
-      
-      await refreshMemoryData();
-      setSelectedAdapterIds(new Set());
-      
-      if (failed.length === 0) {
-        showStatus(`${succeeded.length} adapters evicted successfully.`, 'success');
-      } else {
-        showStatus(
-          `${succeeded.length} succeeded, ${failed.length} failed. First error: ${failed[0].error}`,
-          'warning'
-        );
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapters';
-      showStatus(`Failed to evict adapters: ${errorMessage}`, 'warning');
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handleBulkEvict()
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const toggleAdapterSelection = (adapterId: string) => {
-    setSelectedAdapterIds(prev => {
-      const next = new Set(prev);
-      if (next.has(adapterId)) {
-        next.delete(adapterId);
-      } else {
-        next.add(adapterId);
-      }
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedAdapterIds.size === evictionCandidates.length) {
-      setSelectedAdapterIds(new Set());
-    } else {
-      setSelectedAdapterIds(new Set(evictionCandidates.map(a => a.adapter_id)));
-=======
       toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
->>>>>>> integration-branch
     }
   };
 

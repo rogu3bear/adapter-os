@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useState, useEffect, useCallback } from 'react';
-=======
 import React, { useState, useEffect } from 'react';
->>>>>>> integration-branch
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -25,18 +21,9 @@ import {
   Filter
 } from 'lucide-react';
 import apiClient from '../api/client';
-<<<<<<< HEAD
-import { Policy, TelemetryBundle, PromotionGate, ComplianceControl, PolicyViolationRecord } from '../api/types';
-// 【ui/src/components/AuditDashboard.tsx§1-30】 - Replace toast errors with ErrorRecovery
-import { toast } from 'sonner';
-import { logger } from '../utils/logger';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
-import { ExportDialog, ExportOptions } from './ui/export-dialog';
-=======
 import { Policy, TelemetryBundle, PromotionGate } from '../api/types';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->>>>>>> integration-branch
 
 interface AuditDashboardProps {
   selectedTenant: string;
@@ -61,94 +48,6 @@ interface PolicyViolation {
   resolved: boolean;
 }
 
-<<<<<<< HEAD
-// Helper function to map backend ComplianceControl to component ComplianceStatus
-function mapComplianceControlToStatus(control: ComplianceControl): ComplianceStatus {
-  // Map backend status string to component status enum
-  let status: ComplianceStatus['status'] = 'unknown';
-  const statusLower = control.status.toLowerCase();
-  if (statusLower === 'compliant') {
-    status = 'compliant';
-  } else if (statusLower === 'non-compliant' || statusLower === 'non_compliant') {
-    status = 'non-compliant';
-  } else if (statusLower === 'pending') {
-    status = 'pending';
-  }
-
-  return {
-    controlId: control.control_id,
-    controlName: control.control_name,
-    status,
-    lastChecked: control.last_checked,
-    evidence: control.evidence,
-    findings: control.findings
-  };
-}
-
-// Helper function to map PolicyViolationRecord from backend to component PolicyViolation
-function mapViolationRecordToViolation(record: PolicyViolationRecord): PolicyViolation {
-  // Parse metadata if available to extract additional details
-  let severity: PolicyViolation['severity'] = 'medium';
-  let policyName = 'Unknown Policy';
-  let details = record.reason;
-
-  if (record.metadata) {
-    try {
-      const metadata = JSON.parse(record.metadata);
-      const severityStr = (metadata.severity as string)?.toLowerCase();
-      if (severityStr === 'critical') {
-        severity = 'critical';
-      } else if (severityStr === 'high') {
-        severity = 'high';
-      } else if (severityStr === 'medium') {
-        severity = 'medium';
-      } else {
-        severity = 'low';
-      }
-      policyName = metadata.policy_pack || metadata.policy_name || policyName;
-      details = metadata.details || metadata.message || details;
-    } catch {
-      // If metadata parsing fails, use defaults
-    }
-  }
-
-  // Infer severity from violation_type if available
-  if (record.violation_type) {
-    const typeLower = record.violation_type.toLowerCase();
-    if (typeLower.includes('critical') || typeLower.includes('blocker')) {
-      severity = 'critical';
-    } else if (typeLower.includes('high')) {
-      severity = 'high';
-    } else if (typeLower.includes('low') || typeLower.includes('info')) {
-      severity = 'low';
-    }
-  }
-
-  // Extract policy name from cpid or violation_type if available
-  if (record.cpid) {
-    policyName = `Policy Pack ${record.cpid.substring(0, 8)}`;
-  } else if (record.violation_type) {
-    // Try to extract policy name from violation_type (e.g., "EGRESS-001" -> "Egress Ruleset")
-    const parts = record.violation_type.split('-');
-    if (parts.length > 0) {
-      const packName = parts[0];
-      policyName = `${packName.charAt(0) + packName.slice(1).toLowerCase()} Ruleset`;
-    }
-  }
-
-  return {
-    id: record.id,
-    policyName,
-    violationType: record.violation_type || 'Policy Violation',
-    severity,
-    timestamp: record.created_at,
-    details,
-    resolved: record.released
-  };
-}
-
-=======
->>>>>>> integration-branch
 export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [telemetryBundles, setTelemetryBundles] = useState<TelemetryBundle[]>([]);
@@ -156,19 +55,12 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const [violations, setViolations] = useState<PolicyViolation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedControl, setSelectedControl] = useState<ComplianceStatus | null>(null);
-<<<<<<< HEAD
-  const [auditError, setAuditError] = useState<Error | null>(null);
-  const [showExportDialog, setShowExportDialog] = useState(false);
-
-  const loadAuditData = useCallback(async () => {
-=======
 
   useEffect(() => {
     loadAuditData();
   }, [selectedTenant]);
 
   const loadAuditData = async () => {
->>>>>>> integration-branch
     setIsLoading(true);
     try {
       // Load policies
@@ -179,20 +71,9 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       const bundles = await apiClient.listTelemetryBundles();
       setTelemetryBundles(bundles);
 
-<<<<<<< HEAD
-      // Load compliance audit data from backend (includes violations)
-      const complianceAudit = await apiClient.getComplianceAudit();
-      const mappedControls = complianceAudit.controls.map(mapComplianceControlToStatus);
-      setComplianceStatus(mappedControls);
-
-      // Map violations from compliance audit response
-      const mappedViolations = complianceAudit.violations.map(mapViolationRecordToViolation);
-      setViolations(mappedViolations);
-=======
       // Generate mock compliance data (in production, this would come from backend)
       generateComplianceData(policiesList);
       generateViolationData();
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load audit data';
       logger.error('Failed to load audit data', {
@@ -201,17 +82,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         tenant: selectedTenant,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setAuditError(new Error(errorMessage));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    loadAuditData();
-  }, [loadAuditData]);
-=======
       toast.error('Failed to load audit data');
     } finally {
       setIsLoading(false);
@@ -313,7 +183,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
     setViolations(mockViolations);
   };
->>>>>>> integration-branch
 
   const handleRunAudit = async () => {
     setIsLoading(true);
@@ -324,11 +193,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         tenant: selectedTenant
       });
 
-<<<<<<< HEAD
-      // Audit progress shown in UI
-=======
       toast.success('Audit started');
->>>>>>> integration-branch
       await new Promise(resolve => setTimeout(resolve, 2000));
       await loadAuditData();
 
@@ -338,11 +203,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         tenant: selectedTenant
       });
 
-<<<<<<< HEAD
-      // Audit completion shown in UI updates
-=======
       toast.success('Audit completed');
->>>>>>> integration-branch
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to run audit';
       logger.error('Failed to run audit', {
@@ -351,67 +212,12 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         tenant: selectedTenant,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setAuditError(new Error(errorMessage));
-=======
       toast.error('Audit failed');
->>>>>>> integration-branch
     } finally {
       setIsLoading(false);
     }
   };
 
-<<<<<<< HEAD
-  const handleExport = async (options: ExportOptions) => {
-    try {
-      logger.info('Exporting audit logs', {
-        component: 'AuditDashboard',
-        operation: 'handleExport',
-        tenant: selectedTenant,
-        format: options.format
-      });
-
-      // Calculate date range - default to last 30 days if not provided
-      const endTime = options.endDate ? new Date(options.endDate).toISOString() : new Date().toISOString();
-      const startTime = options.startDate 
-        ? new Date(options.startDate).toISOString() 
-        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-      const blob = await apiClient.exportAuditLogs({
-        format: options.format,
-        tenantId: selectedTenant,
-        startTime,
-        endTime,
-      });
-
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      const extension = options.format === 'json' ? 'json' : 'csv';
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `audit-logs-${timestamp}.${extension}`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      logger.info('Audit logs exported successfully', {
-        component: 'AuditDashboard',
-        operation: 'handleExport',
-        tenant: selectedTenant
-      });
-
-      toast.success('Audit logs exported successfully');
-      setShowExportDialog(false);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to export audit logs';
-      setAuditError(new Error(errorMessage));
-      logger.error('Failed to export audit logs', {
-        component: 'AuditDashboard',
-        operation: 'handleExport',
-        tenant: selectedTenant,
-        error: errorMessage
-      });
-      toast.error(`Failed to export audit logs: ${errorMessage}`);
-=======
   const handleExportReport = () => {
     try {
       logger.info('Exporting audit report', {
@@ -453,7 +259,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         error: errorMessage
       });
       toast.error('Failed to export report');
->>>>>>> integration-branch
     }
   };
 
@@ -504,25 +309,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
   const activeViolations = violations.filter(v => !v.resolved).length;
 
-<<<<<<< HEAD
-  if (auditError) {
-    return (
-      <ErrorRecovery
-        title="Audit Dashboard Error"
-        message={auditError.message}
-        recoveryActions={[
-          { label: 'Retry Loading', action: () => {
-            setAuditError(null);
-            loadAuditData();
-          }},
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
-      />
-    );
-  }
-
-=======
->>>>>>> integration-branch
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -534,15 +320,9 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           </p>
         </div>
         <div className="flex gap-2">
-<<<<<<< HEAD
-          <Button variant="outline" onClick={() => setShowExportDialog(true)}>
-            <Download className="w-4 h-4 mr-2" />
-            Export Audit Logs
-=======
           <Button variant="outline" onClick={handleExportReport}>
             <Download className="w-4 h-4 mr-2" />
             Export Report
->>>>>>> integration-branch
           </Button>
           <Button onClick={handleRunAudit} disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
@@ -876,24 +656,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           </Card>
         </TabsContent>
       </Tabs>
-<<<<<<< HEAD
-
-      {/* Export Dialog */}
-      <ExportDialog
-        open={showExportDialog}
-        onOpenChange={setShowExportDialog}
-        onExport={handleExport}
-        itemName="audit logs"
-        hasSelected={false}
-        hasFilters={false}
-        defaultFormat="json"
-        defaultScope="all"
-        showDateRange={true}
-        defaultStartDate={new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-        defaultEndDate={new Date().toISOString().split('T')[0]}
-      />
-=======
->>>>>>> integration-branch
     </div>
   );
 
@@ -907,42 +669,23 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
       const result = await apiClient.verifyBundleSignature(bundleId);
 
-<<<<<<< HEAD
-      const signer = result.signed_by || 'Unknown';
-      const verificationError = result.verification_error || 'Unknown error';
-
-      if (result.valid) {
-        // Verification success shown in UI modal
-=======
       if (result.valid) {
         toast.success(`Bundle signature verified successfully!\nSigner: ${result.signer || 'Unknown'}`);
->>>>>>> integration-branch
         logger.info('Bundle signature verified', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
           bundleId,
           valid: true,
-<<<<<<< HEAD
-          signer,
-        });
-      } else {
-        setAuditError(new Error(`Bundle signature verification failed: ${verificationError}`));
-=======
           signer: result.signer
         });
       } else {
         toast.error(`Bundle signature verification failed!\n${result.error || 'Unknown error'}`);
->>>>>>> integration-branch
         logger.warn('Bundle signature verification failed', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
           bundleId,
           valid: false,
-<<<<<<< HEAD
-          error: verificationError,
-=======
           error: result.error
->>>>>>> integration-branch
         });
       }
     } catch (error) {
@@ -953,11 +696,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         bundleId,
         error: errorMessage
       });
-<<<<<<< HEAD
-      setAuditError(new Error(`Failed to verify bundle: ${errorMessage}`));
-=======
       toast.error(`Failed to verify bundle: ${errorMessage}`);
->>>>>>> integration-branch
     }
   }
 }

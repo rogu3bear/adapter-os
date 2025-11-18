@@ -21,6 +21,7 @@ import {
   Building,
   Users,
   Grid3x3,
+  Network,
 } from 'lucide-react';
 
 import DashboardPage from '@/pages/DashboardPage';
@@ -45,6 +46,7 @@ import ReportsPage from '@/pages/ReportsPage';
 import TrainerPage from '@/pages/TrainerPage';
 import PersonasPage from '@/pages/PersonasPage';
 import ManagementPage from '@/pages/ManagementPage';
+import ClusterOpsPage from '@/pages/ClusterOpsPage';
 
 export interface RouteConfig {
   path: string;
@@ -201,6 +203,16 @@ export const routes: RouteConfig[] = [
     navTitle: 'Replay',
     navIcon: RotateCcw,
     navOrder: 3,
+  },
+  {
+    path: '/cluster',
+    component: ClusterOpsPage,
+    requiresAuth: true,
+    requiredRoles: ['admin', 'operator', 'sre'],
+    navGroup: 'Operations',
+    navTitle: 'Node & Cluster Ops',
+    navIcon: Network,
+    navOrder: 4,
   },
   {
     path: '/policies',

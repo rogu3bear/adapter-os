@@ -7,11 +7,6 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useTimestamp } from '../hooks/useTimestamp';
-<<<<<<< HEAD
-import { RoutingDecision } from '../api/types';
-import apiClient from '../api/client';
-import { useTenant } from '../providers/FeatureProviders';
-=======
 import apiClient from '../api/client';
 
 interface RoutingDecision {
@@ -24,7 +19,6 @@ interface RoutingDecision {
   k_value: number;
   entropy: number;
 }
->>>>>>> integration-branch
 
 interface RoutingInspectorProps {
   className?: string;
@@ -39,15 +33,9 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   const { data: decisions, isLoading, error } = useQuery<RoutingDecision[]>({
     queryKey: ['/v1/routing/decisions', limit, filter, selectedTenant],
     queryFn: async () => {
-<<<<<<< HEAD
-      return apiClient.getRoutingDecisions({
-        limit,
-        tenant: selectedTenant || 'default',
-=======
       // Citation: ui/src/api/client.ts L809-L817
       return apiClient.getRoutingDecisions({
         limit,
->>>>>>> integration-branch
         // Note: filter and searchHash parameters would need to be added to the API client method
       });
     },
@@ -153,51 +141,6 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               </TableRow>
             </TableHeader>
             <TableBody>
-<<<<<<< HEAD
-              {decisions?.map((decision) => {
-                const kValue = decision.k_value ?? decision.adapters.length ?? 0;
-                const totalScore = decision.total_score ?? 0;
-                const entropy = decision.entropy ?? 0;
-                const gates = decision.gates ?? [];
-                const inputHash = (decision.input_hash ?? decision.prompt_hash ?? '').slice(0, 16);
-
-                return (
-                  <TableRow key={decision.id}>
-                    <TableCell className="font-mono text-sm">
-                      {useTimestamp(decision.timestamp)}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {inputHash ? `${inputHash}...` : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getKValueColor(kValue)}>
-                        K={kValue}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {decision.adapters.map((adapter, index) => (
-                          <Badge key={index} variant="outline" className="text-xs">
-                            {adapter}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {formatGates(gates)}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {totalScore.toFixed(3)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getEntropyColor(entropy)}>
-                        {entropy.toFixed(3)}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-=======
               {decisions?.map((decision) => (
                 <TableRow key={decision.id}>
                   <TableCell className="font-mono text-sm">
@@ -233,7 +176,6 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                   </TableCell>
                 </TableRow>
               ))}
->>>>>>> integration-branch
             </TableBody>
           </Table>
         </div>

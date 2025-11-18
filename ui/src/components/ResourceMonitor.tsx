@@ -123,96 +123,18 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   const fetchResourceMetrics = async () => {
     const systemMetrics = await apiClient.getSystemMetrics();
 
-<<<<<<< HEAD
-    // Convert system metrics to resource metrics format
-    const newMetrics: ResourceMetrics = {
-      timestamp: new Date().toISOString(),
-      cpu: {
-        usage: systemMetrics.cpu_usage_percent || 0,
-        cores: systemMetrics.cpu_cores || 0,
-        temperature: systemMetrics.cpu_temp_celsius || 0
-      },
-      memory: {
-        used: systemMetrics.memory_used_gb || 0,
-        total: systemMetrics.memory_total_gb || 0,
-        usage_percent: systemMetrics.memory_usage_percent || 0
-      },
-      gpu: {
-        utilization: systemMetrics.gpu_utilization_percent || 0,
-        memory_used: systemMetrics.gpu_memory_used_gb || 0,
-        memory_total: systemMetrics.gpu_memory_total_gb || 0,
-        temperature: systemMetrics.gpu_temp_celsius || 0,
-        power_draw: systemMetrics.gpu_power_watts || 0
-      },
-      disk: {
-        used: systemMetrics.disk_used_gb || 0,
-        total: systemMetrics.disk_total_gb || 0,
-        usage_percent: systemMetrics.disk_usage_percent || 0,
-        io_read: systemMetrics.disk_read_mbps || 0,
-        io_write: systemMetrics.disk_write_mbps || 0
-      },
-      network: {
-        bytes_in: systemMetrics.network_rx_bytes || 0,
-        bytes_out: systemMetrics.network_tx_bytes || 0,
-        packets_in: systemMetrics.network_rx_packets || 0,
-        packets_out: systemMetrics.network_tx_packets || 0
-      },
-      training: jobId ? {
-        tokens_per_second: systemMetrics.tokens_per_second || 0,
-        loss: systemMetrics.current_loss || 0,
-        learning_rate: systemMetrics.learning_rate || 0,
-        current_epoch: systemMetrics.current_epoch || 0,
-        total_epochs: systemMetrics.total_epochs || 0
-      } : undefined
-    };
-
-    return newMetrics;
-  };
-
-  const {
-    data: polledMetrics,
-    isLoading: loading,
-    lastUpdated,
-    error: pollingError,
-    refetch: refreshMetrics
-  } = usePolling(
-    fetchResourceMetrics,
-    'fast', // Real-time updates for resource monitoring
-    {
-      showLoadingIndicator: true,
-      onError: (err) => {
-        const error = err instanceof Error ? err : new Error('Failed to fetch resource metrics');
-        setError(error);
-        logger.error('Failed to fetch resource metrics', {
-          component: 'ResourceMonitor',
-          operation: 'polling',
-          jobId,
-          nodeId
-        }, err);
-      }
-=======
     if (isMonitoring) {
       // Fixed 1-second interval for instant updates
       intervalRef.current = window.setInterval(fetchData, 1000);
->>>>>>> integration-branch
     }
   );
 
-<<<<<<< HEAD
-  // Update metrics when polling data arrives
-  useEffect(() => {
-    if (!polledMetrics) return;
-    setMetrics(prev => [...prev.slice(-59), polledMetrics]); // Keep last 60 data points
-    setError(null);
-  }, [polledMetrics]);
-=======
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
   }, [jobId, nodeId, isMonitoring]);
->>>>>>> integration-branch
 
   const getStatusColor = (usage: number) => {
     if (usage > 90) return 'text-red-600';

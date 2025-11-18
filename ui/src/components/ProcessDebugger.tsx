@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useState, useEffect, useCallback } from 'react';
-=======
 import React, { useState, useEffect } from 'react';
->>>>>>> integration-branch
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -16,10 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { ScrollArea } from './ui/scroll-area';
-<<<<<<< HEAD
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
-=======
->>>>>>> integration-branch
 import { 
   Bug, 
   Play, 
@@ -65,11 +57,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
-<<<<<<< HEAD
-import { logger, toError } from '../utils/logger';
-=======
 import { toast } from 'sonner';
->>>>>>> integration-branch
 
 interface ProcessDebuggerProps {
   workerId: string;
@@ -132,74 +120,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   const [showTroubleshootModal, setShowTroubleshootModal] = useState(false);
   
   // Filters
-<<<<<<< HEAD
-  const [logLevelFilter, setLogLevelFilter] = useState<string>('all');
-  const [searchFilter, setSearchFilter] = useState<string>('');
-  const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
-  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
-
-  const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
-    setStatusMessage({ message, variant });
-  };
-
-  const fetchLogs = useCallback(async () => {
-    try {
-      setLoading(true);
-      // Citation: ui/src/api/client.ts L748-L755
-      const data = await apiClient.getProcessLogs(workerId, { level: logLevelFilter !== 'all' ? logLevelFilter : undefined });
-      setLogs(data);
-      setStatusMessage(null);
-      setErrorRecovery(null);
-    } catch (error) {
-      logger.error('Failed to fetch process logs', {
-        component: 'ProcessDebugger',
-        operation: 'fetchLogs',
-        workerId,
-        level: logLevelFilter !== 'all' ? logLevelFilter : undefined,
-      }, toError(error));
-      setStatusMessage({ message: 'Failed to load process logs.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to load process logs.'),
-          () => fetchLogs()
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [workerId, logLevelFilter]);
-
-  const fetchCrashes = useCallback(async () => {
-    try {
-      // Citation: ui/src/api/client.ts L758-L760
-      const data = await apiClient.getProcessCrashes(workerId);
-      // Convert ProcessCrash to ProcessCrashDump
-      const crashes = data.map(crash => ({
-        ...crash,
-        crash_timestamp: crash.timestamp,
-        stack_trace: crash.stack_trace,
-      }));
-      setCrashes(crashes);
-      setStatusMessage(null);
-      setErrorRecovery(null);
-    } catch (error) {
-      logger.error('Failed to fetch process crashes', {
-        component: 'ProcessDebugger',
-        operation: 'fetchCrashes',
-        workerId,
-      }, toError(error));
-      setStatusMessage({ message: 'Failed to load crash dumps.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to load crash dumps.'),
-          () => fetchCrashes()
-        )
-      );
-    }
-  }, [workerId]);
-
-  const fetchDebugSessions = useCallback(async () => {
-=======
   const [logLevelFilter, setLogLevelFilter] = useState<string>('');
   const [searchFilter, setSearchFilter] = useState<string>('');
 
@@ -229,42 +149,12 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const fetchDebugSessions = async () => {
->>>>>>> integration-branch
     try {
       // Citation: ui/src/api/client.ts L762-L767
       const data = await apiClient.startDebugSession(workerId, {
         session_type: 'interactive',
         max_duration_ms: 300000, // 5 minutes
       });
-<<<<<<< HEAD
-      // Convert DebugSession to ProcessDebugSession
-      const session: ProcessDebugSession = {
-        ...data,
-        session_type: data.config.session_type,
-        config_json: JSON.stringify(data.config),
-        started_at: data.created_at,
-      };
-      setDebugSessions([session]);
-      setStatusMessage({ message: 'Debug session started.', variant: 'success' });
-      setErrorRecovery(null);
-    } catch (error) {
-      logger.error('Failed to start debug session', {
-        component: 'ProcessDebugger',
-        operation: 'startDebugSession',
-        workerId,
-      }, toError(error));
-      setStatusMessage({ message: 'Failed to start debug session.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to start debug session.'),
-          () => fetchDebugSessions()
-        )
-      );
-    }
-  }, [workerId]);
-
-  const fetchTroubleshootingSteps = useCallback(async () => {
-=======
       setDebugSessions([data]);
     } catch (error) {
       console.error('Failed to fetch debug sessions:', error);
@@ -273,61 +163,25 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const fetchTroubleshootingSteps = async () => {
->>>>>>> integration-branch
     try {
       // Citation: ui/src/api/client.ts L769-L774
       const data = await apiClient.runTroubleshootingStep(workerId, {
         step_type: 'memory_analysis',
         parameters: { threshold: 0.8 }
       });
-<<<<<<< HEAD
-      // Convert TroubleshootingResult to ProcessTroubleshootingStep
-      const step: ProcessTroubleshootingStep = {
-        id: data.step_id,
-        worker_id: workerId,
-        step_name: 'Memory Analysis',
-        step_type: 'memory_analysis',
-        status: data.success ? 'completed' : 'failed',
-        output: data.output,
-        started_at: new Date().toISOString(),
-      };
-      setTroubleshootingSteps([step]);
-      setStatusMessage({ message: 'Troubleshooting step started.', variant: 'info' });
-      setErrorRecovery(null);
-    } catch (error) {
-      logger.error('Failed to run troubleshooting step', {
-        component: 'ProcessDebugger',
-        operation: 'runTroubleshootingStep',
-        workerId,
-      }, toError(error));
-      setStatusMessage({ message: 'Failed to run troubleshooting step.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to run troubleshooting step.'),
-          () => fetchTroubleshootingSteps()
-        )
-      );
-    }
-  }, [workerId]);
-=======
       setTroubleshootingSteps([data]);
     } catch (error) {
       console.error('Failed to fetch troubleshooting steps:', error);
       toast.error('Failed to load troubleshooting steps');
     }
   };
->>>>>>> integration-branch
 
   useEffect(() => {
     fetchLogs();
     fetchCrashes();
     fetchDebugSessions();
     fetchTroubleshootingSteps();
-<<<<<<< HEAD
-  }, [fetchLogs, fetchCrashes, fetchDebugSessions, fetchTroubleshootingSteps]);
-=======
   }, [workerId]);
->>>>>>> integration-branch
 
   const getLogLevelColor = (level: string) => {
     switch (level) {
@@ -362,11 +216,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const filteredLogs = logs.filter(log => {
-<<<<<<< HEAD
-    const matchesLevel = logLevelFilter === 'all' || log.level === logLevelFilter;
-=======
     const matchesLevel = !logLevelFilter || log.level === logLevelFilter;
->>>>>>> integration-branch
     const matchesSearch = !searchFilter || 
       log.message.toLowerCase().includes(searchFilter.toLowerCase()) ||
       log.level.toLowerCase().includes(searchFilter.toLowerCase());
@@ -379,39 +229,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
 
   return (
     <div className="space-y-6">
-<<<<<<< HEAD
-      {errorRecovery && (
-        <div>
-          {errorRecovery}
-        </div>
-      )}
-
-      {statusMessage && (
-        <Alert
-          className={
-            statusMessage.variant === 'success'
-              ? 'border-green-200 bg-green-50'
-              : statusMessage.variant === 'warning'
-                ? 'border-amber-200 bg-amber-50'
-                : 'border-blue-200 bg-blue-50'
-          }
-        >
-          <AlertDescription
-            className={
-              statusMessage.variant === 'success'
-                ? 'text-green-700'
-                : statusMessage.variant === 'warning'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
-            }
-          >
-            {statusMessage.message}
-          </AlertDescription>
-        </Alert>
-      )}
-
-=======
->>>>>>> integration-branch
       {/* Header */}
       <div className="flex-between">
         <div>
@@ -481,11 +298,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                       <SelectValue placeholder="All levels" />
                     </SelectTrigger>
                     <SelectContent>
-<<<<<<< HEAD
-                      <SelectItem value="all">All levels</SelectItem>
-=======
                       <SelectItem value="">All levels</SelectItem>
->>>>>>> integration-branch
                       <SelectItem value="debug">Debug</SelectItem>
                       <SelectItem value="info">Info</SelectItem>
                       <SelectItem value="warn">Warning</SelectItem>
@@ -515,45 +328,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               </CardTitle>
             </CardHeader>
             <CardContent>
-<<<<<<< HEAD
-              <div className="rounded-md border">
-                <ScrollArea className="h-96">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Level</TableHead>
-                        <TableHead>Message</TableHead>
-                        <TableHead>Timestamp</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredLogs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell>
-                            <Badge className={`gap-1 ${getLogLevelColor(log.level)}`}>
-                              {getLogLevelIcon(log.level)}
-                              {log.level.toUpperCase()}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {log.message}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {new Date(log.timestamp).toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
-              </div>
-=======
               <ScrollArea className="h-96">
                 <Table>
                   <TableHeader>
@@ -589,7 +363,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   </TableBody>
                 </Table>
               </ScrollArea>
->>>>>>> integration-branch
             </CardContent>
           </Card>
         </TabsContent>
@@ -608,48 +381,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No crash dumps found for this worker.
                 </div>
               ) : (
-<<<<<<< HEAD
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Crash Type</TableHead>
-                        <TableHead>Timestamp</TableHead>
-                        <TableHead>Recovery Action</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {crashes.map((crash) => (
-                        <TableRow key={crash.id}>
-                          <TableCell>
-                            <Badge variant="destructive">
-                              {crash.crash_type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {new Date(crash.crash_timestamp).toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            {crash.recovery_action || 'None'}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={crash.recovered_at ? 'default' : 'destructive'}>
-                              {crash.recovered_at ? 'Recovered' : 'Failed'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-=======
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -688,7 +419,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     ))}
                   </TableBody>
                 </Table>
->>>>>>> integration-branch
               )}
             </CardContent>
           </Card>
@@ -708,51 +438,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No debug sessions found for this worker.
                 </div>
               ) : (
-<<<<<<< HEAD
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Started</TableHead>
-                        <TableHead>Duration</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {debugSessions.map((session) => (
-                        <TableRow key={session.id}>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {session.session_type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={session.status === 'active' ? 'default' : 'secondary'}>
-                              {session.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {new Date(session.started_at).toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {session.ended_at 
-                              ? `${Math.floor((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 1000)}s`
-                              : 'Running'
-                            }
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-=======
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -794,7 +479,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     ))}
                   </TableBody>
                 </Table>
->>>>>>> integration-branch
               )}
             </CardContent>
           </Card>
@@ -814,52 +498,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No troubleshooting steps found for this worker.
                 </div>
               ) : (
-<<<<<<< HEAD
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Step Name</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Started</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {troubleshootingSteps.map((step) => (
-                        <TableRow key={step.id}>
-                          <TableCell className="font-medium">
-                            {step.step_name}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {step.step_type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={
-                              step.status === 'completed' ? 'default' :
-                              step.status === 'failed' ? 'destructive' :
-                              step.status === 'running' ? 'secondary' : 'outline'
-                            }>
-                              {step.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {new Date(step.started_at).toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-=======
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -902,7 +540,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     ))}
                   </TableBody>
                 </Table>
->>>>>>> integration-branch
               )}
             </CardContent>
           </Card>
@@ -942,13 +579,8 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               Cancel
             </Button>
             <Button onClick={() => {
-<<<<<<< HEAD
-              setShowDebugModal(false);
-              showStatus('Debug session started.', 'success');
-=======
               toast.success('Debug session started');
               setShowDebugModal(false);
->>>>>>> integration-branch
             }}>
               Start Session
             </Button>
@@ -997,13 +629,8 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               Cancel
             </Button>
             <Button onClick={() => {
-<<<<<<< HEAD
-              setShowTroubleshootModal(false);
-              showStatus('Troubleshooting step started.', 'info');
-=======
               toast.success('Troubleshooting step started');
               setShowTroubleshootModal(false);
->>>>>>> integration-branch
             }}>
               Run Step
             </Button>

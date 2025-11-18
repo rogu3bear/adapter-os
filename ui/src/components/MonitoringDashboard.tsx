@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useMemo, useState, useCallback } from 'react';
-=======
 import React, { useEffect, useMemo, useState } from 'react';
->>>>>>> integration-branch
 import {
   Card,
   CardContent,
@@ -26,11 +22,6 @@ import {
 } from 'lucide-react';
 import apiClient from '../api/client';
 import * as types from '../api/types';
-<<<<<<< HEAD
-import { logger, toError } from '../utils/logger';
-import { usePolling } from '../hooks/usePolling';
-=======
->>>>>>> integration-branch
 
 interface AlertEntry {
   id: string;
@@ -78,92 +69,6 @@ export const MonitoringDashboard: React.FC = () => {
   const gpuUtilization = pickMetric(systemMetrics, ['gpu_utilization', 'gpu_utilization_percent']);
   const uptimeSeconds = pickMetric(systemMetrics, ['uptime_seconds']);
 
-<<<<<<< HEAD
-  const evaluateAlerts = useCallback((
-    system: types.SystemMetrics,
-    adapters: types.AdapterMetrics[],
-  ) => {
-    const newAlerts: AlertEntry[] = [];
-    const timestamp = new Date().toISOString();
-
-    if (system.cpu_usage_percent && system.cpu_usage_percent > 85) {
-      newAlerts.push({
-        id: `${timestamp}-cpu`,
-        metric: 'cpu_usage',
-        message: 'CPU usage exceeded 85% threshold',
-        severity: system.cpu_usage_percent > 92 ? 'critical' : 'warning',
-        value: system.cpu_usage_percent,
-        threshold: 85,
-        timestamp,
-      });
-    }
-
-    if (system.memory_usage_pct && system.memory_usage_pct > 80) {
-      newAlerts.push({
-        id: `${timestamp}-memory`,
-        metric: 'memory_usage',
-        message: 'Memory usage is elevated',
-        severity: system.memory_usage_pct > 90 ? 'critical' : 'warning',
-        value: system.memory_usage_pct,
-        threshold: 80,
-        timestamp,
-      });
-    }
-
-    const latencyValue = pickMetric(system, ['avg_latency_ms', 'latency_p95_ms']);
-    if (latencyValue > 400) {
-      newAlerts.push({
-        id: `${timestamp}-latency`,
-        metric: 'latency_p95',
-        message: 'P95 latency degraded',
-        severity: latencyValue > 600 ? 'critical' : 'warning',
-        value: latencyValue,
-        threshold: 400,
-        timestamp,
-      });
-    }
-
-    adapters.forEach((adapter) => {
-      const activationRate = pickMetric(adapter.performance, ['activation_rate']);
-      if (activationRate > 95) {
-        newAlerts.push({
-          id: `${timestamp}-${adapter.adapter_id}-activation`,
-          metric: 'adapter_activation',
-          message: `Adapter ${adapter.adapter_id} is selected for nearly all requests`,
-          severity: 'warning',
-          value: activationRate,
-          threshold: 95,
-          timestamp,
-        });
-      }
-    });
-
-    setAlerts((prev) => [...newAlerts, ...prev].slice(0, 25));
-  }, []);
-
-  const fetchMonitoringData = useCallback(async () => {
-    const [system, quality, adapters] = await Promise.all([
-      apiClient.getSystemMetrics(),
-      apiClient.getQualityMetrics(),
-      apiClient.getAdapterMetrics(),
-    ]);
-
-    return { system, quality, adapters };
-  }, []);
-
-  usePolling(
-    fetchMonitoringData,
-    'normal',
-    {
-      operationName: 'MonitoringDashboard.fetchMonitoringData',
-      showLoadingIndicator: false,
-      onSuccess: (data) => {
-        const { system, quality, adapters } = data as {
-          system: types.SystemMetrics;
-          quality: types.QualityMetrics;
-          adapters: types.AdapterMetrics[];
-        };
-=======
   useEffect(() => {
     let isMounted = true;
     const fetchData = async () => {
@@ -174,7 +79,6 @@ export const MonitoringDashboard: React.FC = () => {
           apiClient.getAdapterMetrics(),
         ]);
         if (!isMounted) return;
->>>>>>> integration-branch
 
         setSystemMetrics(system);
         setQualityMetrics(quality);
@@ -229,17 +133,6 @@ export const MonitoringDashboard: React.FC = () => {
         );
 
         evaluateAlerts(system, adapters);
-<<<<<<< HEAD
-      },
-      onError: (error) => {
-        logger.error('Failed to fetch monitoring data', {
-          component: 'MonitoringDashboard',
-          operation: 'fetchMonitoringData',
-        }, error);
-      }
-    }
-  );
-=======
       } catch (error) {
         console.error('Failed to fetch monitoring data', error);
       }
@@ -316,7 +209,6 @@ export const MonitoringDashboard: React.FC = () => {
 
     setAlerts((prev) => [...newAlerts, ...prev].slice(0, 25));
   };
->>>>>>> integration-branch
 
   const cpuHistory = useMemo(
     () => metricHistory.map((entry) => ({ ...entry, label: 'CPU %' })),
