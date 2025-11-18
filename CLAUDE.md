@@ -240,6 +240,7 @@ log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&i
 | **Content Addressing** | `adapteros-core/hash.rs` | BLAKE3 hashing for all artifacts |
 | **Deterministic Exec** | `adapteros-deterministic-exec` | Serial FIFO task execution, no concurrency |
 | **HKDF Seeding** | `adapteros-core/hash.rs` | Domain-separated seeds (router, dropout, sampling, etc.) |
+| **Lifecycle Management** | `adapteros-core/src/lifecycle.rs`, `adapteros-db/src/lifecycle.rs` | State machine transitions with validation and version bumping |
 | **Heartbeat Recovery** | `adapteros-lora-lifecycle`, `adapteros-db` | 5-min timeout, auto-reset stale adapters |
 
 ### Adapter Lifecycle State Machine

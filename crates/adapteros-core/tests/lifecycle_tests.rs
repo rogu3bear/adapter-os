@@ -4,31 +4,36 @@ use adapteros_core::lifecycle::{LifecycleState, LifecycleTransition, SemanticVer
 
 #[test]
 fn test_valid_transitions() {
-    // Test valid transitions
-    assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_ok());
-    assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_ok());
-    assert!(LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired).is_ok());
+    // Test valid transitions using is_valid()
+    assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_valid());
+    assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_valid());
+    assert!(LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired).is_valid());
 
     // Test invalid transitions
-    assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Retired).is_err());
-    assert!(LifecycleTransition::new(LifecycleState::Retired, LifecycleState::Active).is_err());
+    assert!(!LifecycleTransition::new(LifecycleState::Active, LifecycleState::Retired).is_valid());
+    assert!(!LifecycleTransition::new(LifecycleState::Retired, LifecycleState::Active).is_valid());
 }
 
 #[test]
 fn test_semantic_version_increment() {
-    let v1 = SemanticVersion::new(1, 0, 0);
+    let mut v1 = SemanticVersion::new(1, 0, 0);
 
     // Test patch increment
-    assert_eq!(v1.increment_patch(), SemanticVersion::new(1, 0, 1));
+    v1.bump_patch();
+    assert_eq!(v1, SemanticVersion::new(1, 0, 1));
 
     // Test minor increment
-    assert_eq!(v1.increment_minor(), SemanticVersion::new(1, 1, 0));
+    let mut v2 = SemanticVersion::new(1, 0, 0);
+    v2.bump_minor();
+    assert_eq!(v2, SemanticVersion::new(1, 1, 0));
 
     // Test major increment
-    assert_eq!(v1.increment_major(), SemanticVersion::new(2, 0, 0));
+    let mut v3 = SemanticVersion::new(1, 0, 0);
+    v3.bump_major();
+    assert_eq!(v3, SemanticVersion::new(2, 0, 0));
 
     // Test string representation
-    assert_eq!(v1.to_string(), "1.0.0");
+    assert_eq!(SemanticVersion::new(1, 0, 0).to_string(), "1.0.0");
 }
 
 #[test]
@@ -46,17 +51,15 @@ fn test_semantic_version_comparison() {
 
 #[test]
 fn test_lifecycle_state_display() {
-    assert_eq!(format!("{}", LifecycleState::Draft), "Draft");
-    assert_eq!(format!("{}", LifecycleState::Active), "Active");
-    assert_eq!(format!("{}", LifecycleState::Deprecated), "Deprecated");
-    assert_eq!(format!("{}", LifecycleState::Retired), "Retired");
+    assert_eq!(format!("{}", LifecycleState::Draft), "draft");
+    assert_eq!(format!("{}", LifecycleState::Active), "active");
+    assert_eq!(format!("{}", LifecycleState::Deprecated), "deprecated");
+    assert_eq!(format!("{}", LifecycleState::Retired), "retired");
 }
 
 #[test]
 fn test_transition_reason() {
-    let reason = TransitionReason::Manual("Testing transition".to_string());
-    assert_eq!(format!("{}", reason), "Manual: Testing transition");
-
-    let reason = TransitionReason::Automatic("Auto-deployment".to_string());
-    assert_eq!(format!("{}", reason), "Automatic: Auto-deployment");
+    let reason = TransitionReason::new("Testing transition", "test-user");
+    assert_eq!(reason.reason, "Testing transition");
+    assert_eq!(reason.initiated_by, "test-user");
 }
