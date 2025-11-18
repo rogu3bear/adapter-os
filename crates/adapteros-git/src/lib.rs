@@ -17,6 +17,8 @@ pub use subsystem::{
     CommitDiff, CommitInfo, GitBranchInfo, GitConfig, GitStatusResponse, GitSubsystem,
 };
 
+// TODO: Fix async_trait compatibility issue
+/*
 impl Plugin for GitSubsystem {
     fn name(&self) -> &'static str {
         "git"
@@ -91,6 +93,7 @@ impl Plugin for GitSubsystem {
         Ok(())
     }
 }
+*/
 
 // NOTE: The original GitSubsystem implementation (watcher, commit daemon, branch manager)
 // has been temporarily stubbed out to resolve a feature conflict. The primary
