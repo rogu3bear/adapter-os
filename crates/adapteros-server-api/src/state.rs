@@ -145,4 +145,21 @@ impl AppState {
     pub fn has_lifecycle_manager(&self) -> bool {
         self.lifecycle_manager.is_some()
     }
+
+    /// Get active stack metadata for telemetry correlation (PRD-03)
+    ///
+    /// Returns (stack_id, stack_version) for the currently active stack for the given tenant.
+    /// Returns None if no stack is active or if stack lookup fails.
+    pub async fn get_active_stack_metadata(&self, tenant_id: &str) -> Option<(String, i64)> {
+        // Get active stack ID from in-memory map
+        let stack_id = {
+            let active = self.active_stack.read().ok()?;
+            active.get(tenant_id)?.clone()?
+        };
+
+        // Query database for stack details including version
+        let stack = self.db.get_stack(tenant_id, &stack_id).await.ok()??;
+
+        Some((stack.id, stack.version))
+    }
 }

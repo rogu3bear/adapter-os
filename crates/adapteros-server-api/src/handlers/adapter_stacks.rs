@@ -39,6 +39,8 @@ pub struct StackResponse {
     pub created_at: String,
     pub updated_at: String,
     pub is_active: bool,
+    /// Stack version for telemetry correlation (PRD-03)
+    pub version: i64,
 }
 
 /// Workflow type for adapter stacks
@@ -122,6 +124,7 @@ pub async fn create_stack(
             created_at: now.clone(),
             updated_at: now,
             is_active: false,
+            version: 1, // New stacks start at version 1
         }),
     ))
 }
@@ -169,6 +172,7 @@ pub async fn list_stacks(
             created_at: row.created_at,
             updated_at: row.updated_at,
             is_active: false,
+            version: row.version,
         });
     }
 
@@ -237,6 +241,7 @@ pub async fn get_stack(
         created_at: row.created_at,
         updated_at: row.updated_at,
         is_active: false,
+        version: row.version,
     }))
 }
 
@@ -296,10 +301,10 @@ pub async fn activate_stack(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tenant_id = claims.tenant_id;
 
-    // First verify the stack exists and parse adapter IDs
+    // First verify the stack exists and parse adapter IDs (including version for telemetry)
     let stack = sqlx::query!(
         r#"
-        SELECT id, name, adapter_ids_json, tenant_id
+        SELECT id, name, adapter_ids_json, tenant_id, version
         FROM adapter_stacks
         WHERE id = ? AND tenant_id = ?
         "#,
@@ -426,6 +431,7 @@ pub async fn activate_stack(
                 "cache_reset": true,
                 "tenant_id": tenant_id,
                 "stack_id": id,
+                "stack_version": stack.version, // PRD-03: Include version in telemetry
                 "trace_id": tracing::Span::current().id().map(|id| format!("{:x}", id.into_u64())).unwrap_or("unknown".to_string()),
             })).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }

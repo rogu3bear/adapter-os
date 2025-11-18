@@ -102,6 +102,7 @@ impl DatabaseBackend for SqliteBackend {
             String,           // created_at
             String,           // updated_at
             Option<String>,   // created_by
+            i64,              // version
         )>(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, created_by
@@ -155,19 +156,51 @@ impl DatabaseBackend for SqliteBackend {
 
         let tenant_id = &stack.tenant_id;
 
-        let result = sqlx::query(
-            "UPDATE adapter_stacks SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?
-             WHERE tenant_id = ? AND id = ?"
-        )
-        .bind(&stack.name)
-        .bind(description)
-        .bind(&adapter_ids_json)
-        .bind(workflow_type)
-        .bind(tenant_id)
-        .bind(id)
-        .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
+        // First, fetch the current stack to check if version should increment
+        let current = self.get_stack(tenant_id, id).await?;
+
+        let should_increment_version = if let Some(current_stack) = current {
+            // Increment version if adapter_ids or workflow_type changed
+            let adapter_ids_changed = current_stack.adapter_ids_json != adapter_ids_json;
+            let workflow_type_changed = current_stack.workflow_type.as_deref() != Some(workflow_type);
+            adapter_ids_changed || workflow_type_changed
+        } else {
+            false // Stack doesn't exist, won't update
+        };
+
+        let result = if should_increment_version {
+            sqlx::query(
+                "UPDATE adapter_stacks
+                 SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?,
+                     version = version + 1, updated_at = datetime('now')
+                 WHERE tenant_id = ? AND id = ?"
+            )
+            .bind(&stack.name)
+            .bind(description)
+            .bind(&adapter_ids_json)
+            .bind(workflow_type)
+            .bind(tenant_id)
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
+        } else {
+            sqlx::query(
+                "UPDATE adapter_stacks
+                 SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?,
+                     updated_at = datetime('now')
+                 WHERE tenant_id = ? AND id = ?"
+            )
+            .bind(&stack.name)
+            .bind(description)
+            .bind(&adapter_ids_json)
+            .bind(workflow_type)
+            .bind(tenant_id)
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
+        };
 
         Ok(result.rows_affected() > 0)
     }

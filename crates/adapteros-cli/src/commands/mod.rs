@@ -43,6 +43,7 @@ pub mod secd_audit;
 pub mod secd_status;
 pub mod serve;
 pub mod sync_registry;
+pub mod telemetry_list;
 // pub mod telemetry_show;  // TODO: Implement telemetry_show command
 pub mod infer;
 pub mod trace;
