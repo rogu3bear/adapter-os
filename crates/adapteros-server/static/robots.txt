@@ -1,7 +1,0 @@
-User-agent: *
-Disallow: /api/
-Disallow: /admin/
-Disallow: /static/
-Allow: /
-
-Sitemap: https://adapteros.dev/sitemap.xml

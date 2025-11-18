@@ -73,6 +73,9 @@ grafana-*/
 /ui/build/
 /ui/node_modules/
 
+# Server static assets (generated from UI build)
+/crates/adapteros-server/static/
+
 # Test outputs
 /test-results
 *.repro
