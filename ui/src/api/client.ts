@@ -849,14 +849,14 @@ class ApiClient {
 
   // PRD-07: Adapter Lifecycle Promotion/Demotion
   async promoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
-    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/promote`, {
+    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/promote`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
   }
 
   async demoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
-    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/demote`, {
+    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/demote`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });

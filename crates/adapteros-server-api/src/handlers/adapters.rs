@@ -56,14 +56,14 @@ pub struct LifecycleTransitionResponse {
 ///
 /// # Example
 /// ```
-/// POST /v1/adapters/{adapter_id}/promote
+/// POST /v1/adapters/{adapter_id}/lifecycle/promote
 /// {
 ///   "reason": "Manual promotion for production deployment"
 /// }
 /// ```
 #[utoipa::path(
     post,
-    path = "/v1/adapters/{adapter_id}/promote",
+    path = "/v1/adapters/{adapter_id}/lifecycle/promote",
     params(
         ("adapter_id" = String, Path, description = "Adapter ID")
     ),
@@ -152,8 +152,24 @@ pub async fn promote_adapter_lifecycle(
     let timestamp = chrono::Utc::now().to_rfc3339();
     let actor = claims.sub.clone();
 
-    // Emit telemetry event
+    // Emit structured telemetry event (Policy Pack #9: Canonical JSON logging)
+    let telemetry_event = serde_json::json!({
+        "event_type": "adapter.lifecycle.promoted",
+        "component": "adapteros-server-api",
+        "severity": "info",
+        "message": format!("Adapter {} promoted: {} → {}", adapter_id, old_state, new_state),
+        "metadata": {
+            "adapter_id": adapter_id,
+            "old_state": old_state,
+            "new_state": new_state,
+            "actor": actor,
+            "reason": req.reason.clone(),
+            "timestamp": timestamp.clone(),
+        }
+    });
+
     info!(
+        event = %telemetry_event,
         adapter_id = %adapter_id,
         old_state = %old_state,
         new_state = %new_state,
@@ -161,24 +177,6 @@ pub async fn promote_adapter_lifecycle(
         reason = %req.reason,
         "Adapter lifecycle promoted"
     );
-
-    // TODO: Emit structured telemetry event via adapteros-telemetry once enabled
-    // let event = TelemetryEventBuilder::new(
-    //     EventType::Custom("adapter.lifecycle.promoted".to_string()),
-    //     LogLevel::Info,
-    //     format!("Adapter {} promoted: {} → {}", adapter_id, old_state, new_state),
-    // )
-    // .component("adapteros-server-api".to_string())
-    // .metadata(json!({
-    //     "adapter_id": adapter_id,
-    //     "old_state": old_state,
-    //     "new_state": new_state,
-    //     "actor": actor,
-    //     "reason": req.reason,
-    //     "timestamp": timestamp,
-    // }))
-    // .build();
-    // event.emit().await?;
 
     Ok(Json(LifecycleTransitionResponse {
         adapter_id,
@@ -200,14 +198,14 @@ pub async fn promote_adapter_lifecycle(
 ///
 /// # Example
 /// ```
-/// POST /v1/adapters/{adapter_id}/demote
+/// POST /v1/adapters/{adapter_id}/lifecycle/demote
 /// {
 ///   "reason": "Reducing memory pressure"
 /// }
 /// ```
 #[utoipa::path(
     post,
-    path = "/v1/adapters/{adapter_id}/demote",
+    path = "/v1/adapters/{adapter_id}/lifecycle/demote",
     params(
         ("adapter_id" = String, Path, description = "Adapter ID")
     ),
@@ -296,8 +294,24 @@ pub async fn demote_adapter_lifecycle(
     let timestamp = chrono::Utc::now().to_rfc3339();
     let actor = claims.sub.clone();
 
-    // Emit telemetry event
+    // Emit structured telemetry event (Policy Pack #9: Canonical JSON logging)
+    let telemetry_event = serde_json::json!({
+        "event_type": "adapter.lifecycle.demoted",
+        "component": "adapteros-server-api",
+        "severity": "info",
+        "message": format!("Adapter {} demoted: {} → {}", adapter_id, old_state, new_state),
+        "metadata": {
+            "adapter_id": adapter_id,
+            "old_state": old_state,
+            "new_state": new_state,
+            "actor": actor,
+            "reason": req.reason.clone(),
+            "timestamp": timestamp.clone(),
+        }
+    });
+
     info!(
+        event = %telemetry_event,
         adapter_id = %adapter_id,
         old_state = %old_state,
         new_state = %new_state,
@@ -305,8 +319,6 @@ pub async fn demote_adapter_lifecycle(
         reason = %req.reason,
         "Adapter lifecycle demoted"
     );
-
-    // TODO: Emit structured telemetry event (same as promote)
 
     Ok(Json(LifecycleTransitionResponse {
         adapter_id,
@@ -445,19 +457,51 @@ pub async fn get_adapter_lineage(
     let mut descendants = Vec::new();
     let self_node = LineageNode::from(current_adapter.clone());
 
+    // Build parent chain for current adapter to identify ancestors
+    let mut ancestor_ids = std::collections::HashSet::new();
+    let mut current_parent = current_adapter.parent_id.clone();
+    while let Some(parent_id) = current_parent {
+        ancestor_ids.insert(parent_id.clone());
+        // Find parent in lineage
+        current_parent = lineage_adapters
+            .iter()
+            .find(|a| a.adapter_id.as_ref() == Some(&parent_id))
+            .and_then(|a| a.parent_id.clone());
+    }
+
+    // Build descendant chain by checking if current adapter is in their parent chain
+    let mut descendant_ids = std::collections::HashSet::new();
+    for adapter in &lineage_adapters {
+        let adapter_id_str = adapter.adapter_id.clone().unwrap_or(adapter.id.clone());
+        if adapter_id_str == adapter_id {
+            continue; // Skip self
+        }
+
+        // Walk up this adapter's parent chain to see if it includes current adapter
+        let mut check_parent = adapter.parent_id.clone();
+        while let Some(parent_id) = check_parent {
+            if parent_id == adapter_id {
+                descendant_ids.insert(adapter_id_str.clone());
+                break;
+            }
+            check_parent = lineage_adapters
+                .iter()
+                .find(|a| a.adapter_id.as_ref() == Some(&parent_id))
+                .and_then(|a| a.parent_id.clone());
+        }
+    }
+
+    // Now separate the adapters based on the sets we built
     for adapter in lineage_adapters {
         let adapter_id_str = adapter.adapter_id.clone().unwrap_or(adapter.id.clone());
 
         if adapter_id_str == adapter_id {
-            // This is the queried adapter itself (already have self_node)
-            continue;
+            continue; // Skip self
         }
 
-        // Check if this is an ancestor or descendant by walking the parent chain
-        // Simple heuristic: if created_at is before current adapter, likely ancestor
-        if adapter.created_at < current_adapter.created_at {
+        if ancestor_ids.contains(&adapter_id_str) {
             ancestors.push(LineageNode::from(adapter));
-        } else {
+        } else if descendant_ids.contains(&adapter_id_str) {
             descendants.push(LineageNode::from(adapter));
         }
     }

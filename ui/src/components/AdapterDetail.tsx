@@ -18,16 +18,28 @@ import {
 } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { useToast } from '@/hooks/use-toast';
 import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity } from 'lucide-react';
 
 export const AdapterDetail: React.FC = () => {
   const { adapterId } = useParams<{ adapterId: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const [adapter, setAdapter] = useState<AdapterDetailResponse | null>(null);
   const [lineage, setLineage] = useState<AdapterLineageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Dialog state
+  const [showPromoteDialog, setShowPromoteDialog] = useState(false);
+  const [showDemoteDialog, setShowDemoteDialog] = useState(false);
+  const [promoteReason, setPromoteReason] = useState('');
+  const [demoteReason, setDemoteReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!adapterId) return;
@@ -51,33 +63,63 @@ export const AdapterDetail: React.FC = () => {
     fetchData();
   }, [adapterId]);
 
-  const handlePromote = async () => {
-    if (!adapterId) return;
-    try {
-      const reason = prompt('Enter reason for promotion:');
-      if (!reason) return;
+  const handlePromoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adapterId || !promoteReason.trim()) return;
 
-      await apiClient.promoteAdapterLifecycle(adapterId, reason);
+    setIsSubmitting(true);
+    try {
+      await apiClient.promoteAdapterLifecycle(adapterId, promoteReason.trim());
+
       // Refresh data
       const adapterData = await apiClient.getAdapterDetail(adapterId);
       setAdapter(adapterData);
+
+      toast({
+        title: 'Adapter Promoted',
+        description: `Successfully promoted adapter to next lifecycle state.`,
+      });
+
+      setShowPromoteDialog(false);
+      setPromoteReason('');
     } catch (err) {
-      alert(`Failed to promote adapter: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      toast({
+        title: 'Promotion Failed',
+        description: err instanceof Error ? err.message : 'Unknown error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDemote = async () => {
-    if (!adapterId) return;
-    try {
-      const reason = prompt('Enter reason for demotion:');
-      if (!reason) return;
+  const handleDemoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adapterId || !demoteReason.trim()) return;
 
-      await apiClient.demoteAdapterLifecycle(adapterId, reason);
+    setIsSubmitting(true);
+    try {
+      await apiClient.demoteAdapterLifecycle(adapterId, demoteReason.trim());
+
       // Refresh data
       const adapterData = await apiClient.getAdapterDetail(adapterId);
       setAdapter(adapterData);
+
+      toast({
+        title: 'Adapter Demoted',
+        description: `Successfully demoted adapter to previous lifecycle state.`,
+      });
+
+      setShowDemoteDialog(false);
+      setDemoteReason('');
     } catch (err) {
-      alert(`Failed to demote adapter: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      toast({
+        title: 'Demotion Failed',
+        description: err instanceof Error ? err.message : 'Unknown error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -128,11 +170,11 @@ export const AdapterDetail: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={handlePromote} variant="outline" size="sm">
+          <Button onClick={() => setShowPromoteDialog(true)} variant="outline" size="sm">
             <ArrowUp className="mr-2 h-4 w-4" />
             Promote
           </Button>
-          <Button onClick={handleDemote} variant="outline" size="sm">
+          <Button onClick={() => setShowDemoteDialog(true)} variant="outline" size="sm">
             <ArrowDown className="mr-2 h-4 w-4" />
             Demote
           </Button>
@@ -318,6 +360,92 @@ export const AdapterDetail: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Promote Dialog */}
+      <Dialog open={showPromoteDialog} onOpenChange={setShowPromoteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Promote Adapter Lifecycle</DialogTitle>
+            <DialogDescription>
+              Advance this adapter to the next lifecycle state. Please provide a reason for this promotion.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handlePromoteSubmit}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="promote-reason">Reason for Promotion</Label>
+                <Input
+                  id="promote-reason"
+                  value={promoteReason}
+                  onChange={(e) => setPromoteReason(e.target.value)}
+                  placeholder="e.g., Passed all integration tests"
+                  required
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowPromoteDialog(false);
+                  setPromoteReason('');
+                }}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting || !promoteReason.trim()}>
+                {isSubmitting ? 'Promoting...' : 'Promote'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Demote Dialog */}
+      <Dialog open={showDemoteDialog} onOpenChange={setShowDemoteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Demote Adapter Lifecycle</DialogTitle>
+            <DialogDescription>
+              Move this adapter back to the previous lifecycle state. Please provide a reason for this demotion.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleDemoteSubmit}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="demote-reason">Reason for Demotion</Label>
+                <Input
+                  id="demote-reason"
+                  value={demoteReason}
+                  onChange={(e) => setDemoteReason(e.target.value)}
+                  placeholder="e.g., Failed validation checks"
+                  required
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowDemoteDialog(false);
+                  setDemoteReason('');
+                }}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting || !demoteReason.trim()}>
+                {isSubmitting ? 'Demoting...' : 'Demote'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
