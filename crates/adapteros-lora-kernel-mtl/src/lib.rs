@@ -126,8 +126,16 @@ pub struct IntermediateBuffers {
 
 // Embed precompiled metallib
 // Compiled offline with deterministic build process
+#[cfg(target_os = "macos")]
 const METALLIB_BYTES: &[u8] = include_bytes!("../shaders/aos_kernels.metallib");
+#[cfg(target_os = "macos")]
 const METALLIB_HASH: &str = include_str!("../shaders/kernel_hash.txt");
+
+// Dummy values for non-macOS platforms (Metal kernels not available)
+#[cfg(not(target_os = "macos"))]
+const METALLIB_BYTES: &[u8] = &[];
+#[cfg(not(target_os = "macos"))]
+const METALLIB_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// Metal kernel implementation
 pub struct MetalKernels {
