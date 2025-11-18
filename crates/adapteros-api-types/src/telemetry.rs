@@ -105,6 +105,14 @@ pub struct BundleMetadata {
     pub is_promotion_bundle: bool,
     /// Custom tags for categorization
     pub tags: Vec<String>,
+
+    // Stack versioning fields (PRD-03)
+    /// Stack ID associated with this bundle's events
+    #[serde(default)]
+    pub stack_id: Option<String>,
+    /// Stack version when bundle was created
+    #[serde(default)]
+    pub stack_version: Option<i64>,
 }
 
 impl BundleMetadata {

@@ -2,7 +2,7 @@
 
 **Purpose:** Enable tracking which stack version handled each inference request for audit, replay, and debugging.
 
-**Status:** ✅ Implemented (2025-11-17)
+**Status:** ✅ Complete - Database & Types Fully Functional (2025-11-18)
 
 ---
 
@@ -383,33 +383,48 @@ let event = RouterDecisionEvent {
 
 | Criterion | Status |
 |-----------|--------|
-| Every new inference routed via the router has a `stack_id` and `stack_version` attached in telemetry | ✅ Schema ready, production integration pending |
-| Replay outputs include the stack identity | ⏳ Pending CLI/UI implementation |
-| Telemetry UI and CLI can filter or display events grouped by stack | ⏳ Pending UI implementation |
+| Every new inference routed via the router has a `stack_id` and `stack_version` attached in telemetry | ✅ Schema ready, runtime integration via AppState pending |
+| Replay outputs include the stack identity | ⏳ Schema ready, CLI/UI display pending |
+| Telemetry UI and CLI can filter or display events grouped by stack | ⏳ Schema ready, implementation pending |
 | Old bundles without stack metadata are handled gracefully | ✅ `#[serde(default)]` ensures backwards compatibility |
-| Stack version auto-increments on configuration changes | ✅ Database trigger implemented |
-| API endpoints return stack version in responses | ✅ `StackResponse` updated |
+| Stack version auto-increments on configuration changes | ✅ Application-level increment implemented & tested |
+| API endpoints return stack version in responses | ✅ All endpoints updated (create/list/get) |
+| Database backends include version in all queries | ✅ SQLite & PostgreSQL fully updated |
+| BundleMetadata includes stack correlation fields | ✅ Updated with stack_id & stack_version |
 
 ---
 
-## Migration Checklist
+## Implementation Checklist
 
-**Database:**
+**Database:** ✅ Complete
 - [x] Create migration 0066
 - [x] Add `version` column with default value 1
-- [x] Add auto-increment trigger for version updates
+- [x] Implement application-level version increment logic
 - [x] Create index for (id, version) lookups
-- [ ] Sign migration with Ed25519
+- [x] Create view `active_stacks_with_version`
+- [x] Update SQLite backend (all queries + update logic)
+- [x] Update PostgreSQL backend (all queries + update logic)
+- [x] Sign migration with Ed25519
 
-**Types:**
+**Types:** ✅ Complete
 - [x] Update `StackRecord` with `version` field
 - [x] Update `RouterDecisionEvent` with `stack_id` and `stack_version`
 - [x] Update `InferenceEvent` with `stack_id` and `stack_version`
+- [x] Add `InferenceEvent::with_stack_metadata()` helper method
 - [x] Update `StackResponse` DTO
+- [x] Update `BundleMetadata` with stack fields
 
-**Production Integration:**
-- [ ] Server routing attaches stack metadata to events
-- [ ] Telemetry bundles include stack tags for filtering
+**Testing:** ✅ Complete
+- [x] Test version starts at 1
+- [x] Test version increments on adapter_ids change
+- [x] Test version increments on workflow_type change
+- [x] Test version does NOT increment on metadata-only changes
+- [x] Test multiple sequential increments
+- [x] Test list operations include version
+
+**Production Integration:** ⏳ Schema Ready, Runtime Integration Pending
+- [ ] Server routing attaches stack metadata to events (AppState lookup needed)
+- [ ] Telemetry bundles populate stack fields from AppState
 - [ ] CLI supports `--by-stack` filtering
 - [ ] UI displays stack name + version in telemetry views
 - [ ] Replay view shows "Executed under stack X v Y"

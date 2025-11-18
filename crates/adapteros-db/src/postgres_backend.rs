@@ -61,8 +61,8 @@ impl DatabaseBackend for PostgresBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at::text, updated_at::text, created_by 
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, String, String, Option<String>, i64)>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, created_at::text, updated_at::text, created_by, version
              FROM adapter_stacks WHERE tenant_id = $1 AND id = $2"
         )
         .bind(tenant_id)
@@ -81,6 +81,7 @@ impl DatabaseBackend for PostgresBackend {
             created_at: r.6,
             updated_at: r.7,
             created_by: r.8,
+            version: r.9,
         }))
     }
 
@@ -97,13 +98,15 @@ impl DatabaseBackend for PostgresBackend {
                 String,         // created_at
                 String,         // updated_at
                 Option<String>, // created_by
+                i64,            // version
             ),
         >(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
                    created_at::text as "created_at",
                    updated_at::text as "updated_at",
-                   created_by
+                   created_by,
+                   version
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#,
@@ -124,6 +127,7 @@ impl DatabaseBackend for PostgresBackend {
                 created_at: r.6,
                 updated_at: r.7,
                 created_by: r.8,
+                version: r.9,
             })
             .collect())
     }
@@ -150,21 +154,53 @@ impl DatabaseBackend for PostgresBackend {
         let workflow_type = stack.workflow_type.as_deref().unwrap_or("parallel");
         let description = stack.description.as_deref().unwrap_or("");
 
-        let tenant_id = &stack.tenant_id; // Assume stack has tenant_id
+        let tenant_id = &stack.tenant_id;
 
-        let result = sqlx::query(
-            "UPDATE adapter_stacks SET name = $3, description = $4, adapter_ids_json = $5, workflow_type = $6
-             WHERE tenant_id = $1 AND id = $2"
-        )
-        .bind(tenant_id)
-        .bind(id)
-        .bind(&stack.name)
-        .bind(description)
-        .bind(&adapter_ids_json)
-        .bind(workflow_type)
-        .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
+        // First, fetch the current stack to check if version should increment
+        let current = self.get_stack(tenant_id, id).await?;
+
+        let should_increment_version = if let Some(current_stack) = current {
+            // Increment version if adapter_ids or workflow_type changed
+            let adapter_ids_changed = current_stack.adapter_ids_json != adapter_ids_json;
+            let workflow_type_changed = current_stack.workflow_type.as_deref() != Some(workflow_type);
+            adapter_ids_changed || workflow_type_changed
+        } else {
+            false // Stack doesn't exist, won't update
+        };
+
+        let result = if should_increment_version {
+            sqlx::query(
+                "UPDATE adapter_stacks
+                 SET name = $3, description = $4, adapter_ids_json = $5, workflow_type = $6,
+                     version = version + 1, updated_at = NOW()
+                 WHERE tenant_id = $1 AND id = $2"
+            )
+            .bind(tenant_id)
+            .bind(id)
+            .bind(&stack.name)
+            .bind(description)
+            .bind(&adapter_ids_json)
+            .bind(workflow_type)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
+        } else {
+            sqlx::query(
+                "UPDATE adapter_stacks
+                 SET name = $3, description = $4, adapter_ids_json = $5, workflow_type = $6,
+                     updated_at = NOW()
+                 WHERE tenant_id = $1 AND id = $2"
+            )
+            .bind(tenant_id)
+            .bind(id)
+            .bind(&stack.name)
+            .bind(description)
+            .bind(&adapter_ids_json)
+            .bind(workflow_type)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
+        };
 
         Ok(result.rows_affected() > 0)
     }
@@ -198,7 +234,8 @@ impl DatabaseBackend for PostgresBackend {
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
                    created_at::text as "created_at",
                    updated_at::text as "updated_at",
-                   created_by
+                   created_by,
+                   version
             FROM adapter_stacks
             WHERE tenant_id = $1
             ORDER BY created_at DESC
@@ -221,6 +258,7 @@ impl DatabaseBackend for PostgresBackend {
                 created_at: r.get(6),
                 updated_at: r.get(7),
                 created_by: r.get::<Option<String>, _>(8),
+                version: r.get(9),
             })
             .collect())
     }
