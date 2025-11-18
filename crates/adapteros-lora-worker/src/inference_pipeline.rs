@@ -293,6 +293,8 @@ impl InferencePipeline {
                 tau: self.router.tau(),
                 entropy_floor: self.router.eps(),
                 stack_hash: self.router.stack_hash(),
+                stack_id: request.stack_id.clone(),
+                stack_version: request.stack_version,
             };
             let _ = self.telemetry.log_router_decision(router_event);
 
@@ -356,6 +358,8 @@ impl InferencePipeline {
                 tau: self.router.temperature(),
                 entropy_floor: self.router.entropy_floor(),
                 stack_hash: self.router.stack_hash(),
+                stack_id: request.stack_id.clone(),
+                stack_version: request.stack_version,
             };
 
             if let Err(err) = self.telemetry.log_router_decision(event.clone()) {
@@ -417,6 +421,8 @@ impl InferencePipeline {
             token_count: generated_tokens.len(),
             latency_ms: latency.as_millis() as u64,
             trace,
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
         })
     }
 
@@ -531,6 +537,8 @@ mod tests {
             max_tokens: 100,
             cpid: "test-cp-001".to_string(),
             require_evidence: false,
+            stack_id: None,
+            stack_version: None,
         };
         assert_eq!(request.max_tokens, 100);
     }

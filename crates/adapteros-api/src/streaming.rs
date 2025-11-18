@@ -279,6 +279,8 @@ async fn generate_streaming_response<K: FusedKernels + Send + Sync>(
         max_tokens: request.max_tokens,
         require_evidence: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
+        stack_id: request.stack_id.clone(),
+        stack_version: request.stack_version,
     };
 
     debug!(
@@ -393,6 +395,8 @@ pub async fn completion_handler<K: FusedKernels + Send + Sync>(
         max_tokens: request.max_tokens,
         require_evidence: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
+        stack_id: request.stack_id.clone(),
+        stack_version: request.stack_version,
     };
 
     // Run inference

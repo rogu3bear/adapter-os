@@ -628,6 +628,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                             evidence.len(),
                         )),
                         patch_proposal: None,
+                        stack_id: request.stack_id.clone(),
+                        stack_version: request.stack_version,
                     });
                 }
             }
@@ -733,6 +735,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             trace: self.build_trace(&request.cpid, &evidence, generated_tokens.len()),
             refusal: None,
             patch_proposal: None,
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
         })
     }
 
@@ -943,6 +947,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
                 None
             },
             patch_proposal,
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
         })
     }
 

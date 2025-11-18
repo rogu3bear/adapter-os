@@ -129,6 +129,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + 'static> UdsServer<K> {
                     max_tokens: 100,
                     require_evidence: false,
                     request_type: RequestType::PatchProposal(patch_req.clone()),
+                    stack_id: None,
+                    stack_version: None,
                 };
 
                 let mut worker_guard = worker.lock().await;
