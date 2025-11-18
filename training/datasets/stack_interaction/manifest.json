@@ -1,0 +1,54 @@
+{
+  "name": "stack_interaction_v1",
+  "description": "Multi-adapter composition dataset for testing stack interactions, fusion behaviors, and lineage tracking. Tests sequential adapter stacking, style overlays, multi-layer processing, and deep stack fusion patterns with 405 diverse examples.",
+  "version": "1.0.0",
+  "category": "stack_testing",
+  "scope": "system",
+  "tier": "test",
+  "rank": 4,
+  "alpha": 8.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj"],
+  "entries": [
+    {
+      "path": "stack_interaction-all.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "405 stack interaction examples testing multi-adapter composition and fusion behaviors"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#multi-adapter-stacking",
+      "docs/architecture/MasterPlan.md#adapter-fusion-engine"
+    ],
+    "created_by": "multi-adapter-dataset-task",
+    "created_at": "2025-11-18T00:00:00Z",
+    "last_reviewed_at": "2025-11-18T00:00:00Z",
+    "review_notes": "Dataset Type 3: Stack Interaction Dataset for testing multi-step behavior accumulation and adapter composition"
+  },
+  "evaluation_gates": [
+    "Stack delta modeling accuracy ≥ 95%",
+    "Fusion output matches sequential composition ≥ 98%",
+    "Lineage tracking completeness ≥ 100%",
+    "Multi-layer fusion coherence ≥ 90%",
+    "Deep stack (4+ adapters) stability ≥ 85%"
+  ],
+  "intent": "Validate multi-adapter stacking mechanics by testing sequential composition, fusion algorithms, lineage tracking, and emergent behaviors when combining multiple specialized adapters in production workflows.",
+  "fusion_types": [
+    "sequential",
+    "style_overlay",
+    "multi_layer",
+    "narrative_style",
+    "thematic_narrative",
+    "tone_modulation",
+    "deep_stack"
+  ],
+  "test_coverage": {
+    "2_adapter_stacks": 280,
+    "3_adapter_stacks": 75,
+    "4_adapter_stacks": 50,
+    "total_examples": 405,
+    "unique_stack_combinations": 150
+  }
+}
