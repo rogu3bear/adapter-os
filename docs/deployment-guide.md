@@ -67,6 +67,61 @@ cargo build --release
 
 ## Air-Gapped Installation
 
+<details>
+<summary>📊 Air-Gapped Installation Flow</summary>
+
+```mermaid
+flowchart TD
+    subgraph Connected[Connected Machine]
+        Build[1. Build System<br/>make build]
+        Bundle[2. Create Bundle<br/>tar -czf adapteros-airgap.tar.gz]
+
+        Build --> Bundle
+    end
+
+    subgraph Transfer[Transfer]
+        Bundle --> Media[3. Copy to USB/Media]
+        Media --> AirGap[4. Transfer to Air-Gapped Machine]
+    end
+
+    subgraph AirGapped[Air-Gapped Machine]
+        Extract[5. Extract Bundle<br/>tar -xzf]
+        Bootstrap[6. Run Bootstrap<br/>bootstrap_with_checkpoints.sh]
+        Verify[7. Verify Installation]
+
+        AirGap --> Extract
+        Extract --> Bootstrap
+
+        Bootstrap --> CheckBin{Binaries<br/>Present?}
+        CheckBin -->|No| Fail1[❌ Installation Failed]
+        CheckBin -->|Yes| CheckMetal{Metal Kernels<br/>Compiled?}
+
+        CheckMetal -->|No| Fail2[❌ Metal Compilation Failed]
+        CheckMetal -->|Yes| CheckDB{Database<br/>Initialized?}
+
+        CheckDB -->|No| Fail3[❌ DB Initialization Failed]
+        CheckDB -->|Yes| Success([✅ Installation Complete])
+
+        Verify --> CheckBin
+    end
+
+    style Build fill:#e1f5ff,stroke:#333
+    style Bootstrap fill:#fff4e1,stroke:#333
+    style Success fill:#e8f8e8,stroke:#333
+    style Fail1 fill:#ffe1e1,stroke:#333
+    style Fail2 fill:#ffe1e1,stroke:#333
+    style Fail3 fill:#ffe1e1,stroke:#333
+```
+
+**Installation Bundle Contents:**
+- Compiled binaries (`aosctl`, `aos-cp`)
+- Precompiled Metal kernels (`.metallib`)
+- Configuration files
+- Database migrations
+- Manifest templates
+
+</details>
+
 For environments without internet access:
 
 ### Step 1: Prepare Installation Media

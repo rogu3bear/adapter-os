@@ -133,6 +133,71 @@ See `crates/adapteros-policy/src/packs/` for implementations.
 
 ## RBAC (5 Roles, 20+ Permissions)
 
+<details>
+<summary>📊 RBAC Permission Matrix</summary>
+
+```mermaid
+graph TD
+    subgraph Roles
+        Admin[👑 Admin<br/>Full Control]
+        Operator[⚙️ Operator<br/>Runtime Ops]
+        SRE[🔧 SRE<br/>Infra Debug]
+        Compliance[📋 Compliance<br/>Audit Only]
+        Viewer[👁️ Viewer<br/>Read Only]
+    end
+
+    subgraph Common_Permissions[Common to All Roles]
+        P_List[AdapterList]
+        P_View[AdapterView]
+        P_TrainView[TrainingView]
+        P_PolicyView[PolicyView]
+        P_MetricsView[MetricsView]
+    end
+
+    subgraph Admin_Only[Admin Only]
+        P_Delete[AdapterDelete]
+        P_PolicySign[PolicySign]
+        P_TenantMgmt[TenantManage]
+        P_NodeMgmt[NodeManage]
+    end
+
+    subgraph Operator_Admin[Operator + Admin]
+        P_Register[AdapterRegister]
+        P_Load[AdapterLoad/Unload]
+        P_TrainOps[TrainingStart/Cancel]
+        P_Infer[InferenceExecute]
+    end
+
+    subgraph Audit_Access[SRE + Compliance + Admin]
+        P_Audit[AuditView]
+    end
+
+    subgraph Compliance_Admin[Compliance + Admin]
+        P_PolicyVal[PolicyValidate]
+    end
+
+    Admin --> P_List & P_View & P_TrainView & P_PolicyView & P_MetricsView
+    Operator --> P_List & P_View & P_TrainView & P_PolicyView & P_MetricsView
+    SRE --> P_List & P_View & P_TrainView & P_PolicyView & P_MetricsView
+    Compliance --> P_List & P_View & P_TrainView & P_PolicyView & P_MetricsView
+    Viewer --> P_List & P_View & P_TrainView & P_PolicyView & P_MetricsView
+
+    Admin --> P_Delete & P_PolicySign & P_TenantMgmt & P_NodeMgmt
+    Admin & Operator --> P_Register & P_Load & P_TrainOps & P_Infer
+    Admin & SRE & Compliance --> P_Audit
+    Admin & Compliance --> P_PolicyVal
+
+    style Admin fill:#ffe1e1,stroke:#333
+    style Operator fill:#fff4e1,stroke:#333
+    style SRE fill:#e8f4f8,stroke:#333
+    style Compliance fill:#f0f8e8,stroke:#333
+    style Viewer fill:#f0f0f0,stroke:#333
+```
+
+**Auth Flow:** Login → JWT (Ed25519, 8hr TTL) → Middleware validation → Permission check → Audit log
+
+</details>
+
 **Roles:** Admin (full), Operator (runtime ops), SRE (infra debug), Compliance (audit-only), Viewer (read-only)
 
 **Permission matrix (condensed):**
@@ -178,11 +243,62 @@ log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&i
 | **Heartbeat Recovery** | `adapteros-lora-lifecycle`, `adapteros-db` | 5-min timeout, auto-reset stale adapters |
 
 ### Adapter Lifecycle State Machine
+
+<details>
+<summary>📊 State Machine Diagram</summary>
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unloaded: Adapter registered
+
+    Unloaded --> Cold: First load (activation)
+    Cold --> Warm: Activation % threshold crossed
+    Warm --> Hot: Frequent use
+    Hot --> Resident: Pinned (critical adapter)
+
+    Resident --> Hot: Unpinned
+    Hot --> Warm: Inactivity timeout
+    Warm --> Cold: Demotion (low activation %)
+    Cold --> Unloaded: Eviction (memory pressure)
+
+    Hot --> Unloaded: Force eviction (critical memory)
+    Warm --> Unloaded: Eviction (memory pressure)
+    Resident --> Unloaded: Admin override only
+
+    Unloaded --> [*]: Adapter deleted
+
+    note right of Unloaded
+        State: On disk
+        Memory: 0 MB
+        Load latency: ~500ms
+    end note
+
+    note right of Cold
+        State: In memory, not compiled
+        Memory: ~100 MB
+        Activation: ~50ms
+    end note
+
+    note right of Warm
+        State: Compiled, cached
+        Memory: ~150 MB
+        Activation: ~5ms
+    end note
+
+    note right of Hot
+        State: Hot cache, optimized
+        Memory: ~200 MB
+        Activation: ~1ms
+    end note
+
+    note right of Resident
+        State: Pinned, protected
+        Memory: ~200 MB
+        Eviction: Blocked (unless admin override)
+    end note
 ```
-Unloaded → Cold → Warm → Hot → Resident
-    ↑                              ↓
-    └──────── (eviction) ──────────┘
-```
+
+</details>
 
 **Transitions:** Promotion (activation % ↑), Demotion (activation % ↓ + timeout), Eviction (memory pressure + lowest %), Pinning (→ Resident)
 
@@ -260,14 +376,51 @@ init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, .
 Zero-copy loading with memory-mapped files → GPU VRAM direct transfer.
 
 ### HKDF Hierarchy
+
+<details>
+<summary>📊 Seed Derivation Tree</summary>
+
+```mermaid
+graph TD
+    Root[Global Seed<br/>BLAKE3 Manifest Hash]
+
+    Root --> Router[derive_seed label: router]
+    Root --> Dropout[derive_seed label: dropout]
+    Root --> Sampling[derive_seed label: sampling]
+    Root --> Trainer[derive_seed label: lora_trainer]
+    Root --> GateNoise[derive_seed label: gate_noise]
+    Root --> Executor[derive_seed label: executor]
+    Root --> Other[Other domain labels...]
+
+    Router --> RouterRNG[ChaCha20Rng<br/>K-sparse tie-breaking]
+    Dropout --> DropoutRNG[ChaCha20Rng<br/>LoRA dropout masks]
+    Sampling --> SamplingRNG[ChaCha20Rng<br/>Token sampling]
+    Trainer --> TrainerRNG[ChaCha20Rng<br/>Weight initialization]
+    GateNoise --> GateRNG[ChaCha20Rng<br/>Gate perturbations]
+    Executor --> ExecRNG[ChaCha20Rng<br/>Task scheduling]
+
+    style Root fill:#e1f5ff,stroke:#333,stroke-width:3px
+    style Router fill:#fff4e1,stroke:#333
+    style Dropout fill:#fff4e1,stroke:#333
+    style Sampling fill:#fff4e1,stroke:#333
+    style Trainer fill:#fff4e1,stroke:#333
+    style GateNoise fill:#fff4e1,stroke:#333
+    style Executor fill:#fff4e1,stroke:#333
+
+    style RouterRNG fill:#e8f8e8,stroke:#333
+    style DropoutRNG fill:#e8f8e8,stroke:#333
+    style SamplingRNG fill:#e8f8e8,stroke:#333
+    style TrainerRNG fill:#e8f8e8,stroke:#333
+    style GateRNG fill:#e8f8e8,stroke:#333
+    style ExecRNG fill:#e8f8e8,stroke:#333
 ```
-Global Seed (BLAKE3) → derive_seed(seed, label)
-  ├─ "router" (K-sparse tie-breaking)
-  ├─ "dropout" (LoRA dropout masks)
-  ├─ "sampling" (token sampling)
-  ├─ "lora_trainer" (weight init)
-  └─ "gate_noise", "executor", etc.
-```
+
+**Why HKDF?** Domain-separated seeding ensures:
+- Identical manifest → Identical seeds → Identical execution
+- No cross-contamination between randomness domains
+- Cryptographically secure seed derivation (HKDF-SHA256)
+
+</details>
 
 ```rust
 let global = B3Hash::hash(b"seed_material");
@@ -276,10 +429,54 @@ let mut rng = ChaCha20Rng::from_seed(router_seed.try_into().unwrap());
 ```
 
 ### Hot-Swap Protocol
-1. **Preload** adapter into staging area
-2. **Swap** atomic pointer flip (mutex-guarded)
-3. **Verify** effective-stack hash recomputation
-4. **Rollback** on failure to last verified state
+
+<details>
+<summary>📊 Hot-Swap Flow with Rollback</summary>
+
+```mermaid
+flowchart TD
+    Start([Hot-Swap Request]) --> Preload[1. Preload New Adapter<br/>to staging area]
+    Preload --> MemCheck{Memory<br/>Available?}
+
+    MemCheck -->|No| Evict[Evict cold adapters]
+    Evict --> Preload
+    MemCheck -->|Yes| Lock[2. Acquire Mutex Lock]
+
+    Lock --> Swap[3. Atomic Pointer Flip<br/>Arc swap]
+    Swap --> Verify{4. Verify<br/>Effective-Stack Hash?}
+
+    Verify -->|Valid| Commit[5. Commit Swap<br/>Update active state]
+    Verify -->|Invalid| Rollback[4b. Rollback to<br/>rollback_state]
+
+    Commit --> Release[Release mutex]
+    Rollback --> Restore[Restore previous state]
+    Restore --> Release
+
+    Release --> Retire[Defer old adapter<br/>to retired_queue]
+    Retire --> RefCheck{ref == 0?}
+
+    RefCheck -->|Yes| Unload[Unload from VRAM]
+    RefCheck -->|No| Wait[Wait for readers<br/>RCU grace period]
+
+    Wait --> RefCheck
+    Unload --> Success([Swap Complete])
+    Restore --> Failed([Swap Failed - Rolled Back])
+
+    style Start fill:#e1f5ff,stroke:#333
+    style Verify fill:#fff4e1,stroke:#333
+    style Commit fill:#e8f8e8,stroke:#333
+    style Rollback fill:#ffe1e1,stroke:#333
+    style Success fill:#e8f8e8,stroke:#333
+    style Failed fill:#ffe1e1,stroke:#333
+```
+
+**Key Properties:**
+- **Zero Downtime**: Old adapter remains active during swap
+- **Atomic Safety**: Mutex-guarded pointer flips
+- **Automatic Rollback**: Hash mismatch triggers instant recovery
+- **RCU Grace Period**: Deferred unload when ref count drops to 0
+
+</details>
 
 ```rust
 use adapteros_lora_worker::adapter_hotswap::AdapterTable;
@@ -330,6 +527,72 @@ ledger.record_tick(task_id, &event).await?;
 **Purpose:** AgentBarrier synchronizes multiple agents at tick boundaries with explicit failure handling
 
 **Status (2025-11-16):** All AgentBarrier issues (C-1 through C-8) have been resolved and tested. No additional work required.
+
+<details>
+<summary>📊 Multi-Agent Barrier Coordination</summary>
+
+```mermaid
+sequenceDiagram
+    participant A as Agent A
+    participant B as Agent B
+    participant C as Agent C
+    participant Bar as AgentBarrier<br/>(generation counter)
+
+    Note over A,C: Normal Synchronization Flow
+    A->>Bar: wait("A", tick=100)
+    Note right of Bar: Generation = 0<br/>Waiting agents: [A]
+
+    B->>Bar: wait("B", tick=100)
+    Note right of Bar: Waiting agents: [A, B]
+
+    C->>Bar: wait("C", tick=100)
+    Note right of Bar: All agents arrived!<br/>CAS: generation 0→1
+
+    Bar-->>A: ✅ Proceed (generation advanced)
+    Bar-->>B: ✅ Proceed
+    Bar-->>C: ✅ Proceed
+
+    Note over A,C: Dead Agent Scenario (Agent C crashes)
+    A->>Bar: wait("A", tick=101)
+    B->>Bar: wait("B", tick=101)
+    Note over C: ❌ Agent C crashes
+
+    Note right of Bar: Timeout after 30s
+
+    rect rgb(255, 225, 225)
+        Bar->>Bar: mark_agent_dead("C")
+        Note right of Bar: Dead agents: [C]<br/>Living agents: [A, B]
+    end
+
+    Bar-->>A: ✅ Proceed (2/3 living agents)
+    Bar-->>B: ✅ Proceed
+
+    Note over A,C: CAS Loser Scenario
+    A->>Bar: wait("A", tick=102)
+    Note right of Bar: Generation = 2
+
+    par CAS Race
+        B->>Bar: CAS(2, 3) - WINNER
+        C->>Bar: CAS(2, 3) - LOSER
+    end
+
+    Note right of Bar: B wins, advances generation→3
+
+    Bar-->>C: ✅ Proceed (detected generation change)
+    Bar-->>B: ✅ Proceed
+    Bar-->>A: ✅ Proceed
+
+    style Bar fill:#e8f4f8,stroke:#333
+```
+
+**Telemetry Events:**
+- `barrier.wait_start` (Debug) - Agent enters barrier
+- `barrier.generation_advanced` (Info) - CAS winner advances generation
+- `barrier.cas_loser_proceed` (Debug) - CAS loser detects change
+- `barrier.agent.removed` (Warn) - Dead agent excluded
+- `barrier.timeout` (Error) - 30s timeout indicates coordination failure
+
+</details>
 
 **Fixes implemented in `crates/adapteros-deterministic-exec/src/multi_agent.rs`:**
 - **C-1 (CAS Race Condition):** CAS losers use Acquire ordering and detect advanced generation (lines 312-400)
@@ -391,6 +654,42 @@ Barrier operations emit structured telemetry events for observability:
 ## Document Processing & Training
 
 ### Pipeline (5 Steps)
+
+<details>
+<summary>📊 End-to-End Training Pipeline</summary>
+
+```mermaid
+flowchart LR
+    PDF[PDF/Documents] -->|1. Ingest| Parsed[Parsed Document<br/>DocumentIngestor]
+    Parsed -->|2. Generate| Examples[Training Examples<br/>Identity/QA/MaskedLM]
+
+    Examples -->|3. Create Dataset| DS[(Dataset<br/>BLAKE3 hash)]
+    DS -->|Validate| Check{validation_status<br/>== 'valid'?}
+
+    Check -->|No| Reject[❌ Reject]
+    Check -->|Yes| Train[4. Train<br/>MicroLoRATrainer<br/>rank/alpha config]
+
+    Train -->|5. Package| Weights[.aos archive<br/>safetensors + manifest]
+    Weights -->|Register| Registry[(Registry DB<br/>ACL/Tier assignment)]
+
+    Registry --> Success([✅ Adapter Ready])
+    Reject --> Failed([❌ Training Blocked])
+
+    style PDF fill:#e1f5ff,stroke:#333
+    style Check fill:#fff4e1,stroke:#333
+    style Reject fill:#ffe1e1,stroke:#333
+    style Train fill:#e8f8e8,stroke:#333
+    style Registry fill:#e8f4f8,stroke:#333
+    style Success fill:#e8f8e8,stroke:#333
+```
+
+**Validation Gates:**
+- BLAKE3 content addressing for datasets
+- Schema validation before training
+- Manifest signing after packaging
+
+</details>
+
 1. **Ingest:** `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
 2. **Generate:** `generate_training_data(&doc, &tokenizer, &config)?`
 3. **Dataset:** `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
@@ -584,6 +883,51 @@ WHERE pinned_until IS NULL OR pinned_until > datetime('now');
 - **Query:** `Db::find_expired_adapters()` (`crates/adapteros-db/src/adapters.rs:475-490`)
 - **Cleanup Loop:** Background task in `crates/adapteros-server/src/main.rs:709-728` (5-minute interval)
 - **Lifecycle Integration:** `LifecycleManager::check_memory_pressure()` evicts expired adapters first
+
+<details>
+<summary>📊 Three-Tier TTL Enforcement Flow</summary>
+
+```mermaid
+flowchart TD
+    Create([Adapter Created<br/>with expires_at]) --> Tier1[Tier 1: Database Query<br/>find_expired_adapters]
+    Create --> Tier2[Tier 2: Background Loop<br/>5-min interval]
+    Create --> Tier3[Tier 3: Lifecycle Manager<br/>Memory pressure check]
+
+    Tier1 --> Query1[SELECT * FROM adapters<br/>WHERE expires_at < now]
+    Tier2 --> Loop[tokio::interval::tick<br/>every 300s]
+    Tier3 --> Check[check_memory_pressure]
+
+    Loop --> Query1
+    Query1 --> Delete{Expired<br/>adapters?}
+
+    Delete -->|Yes| DeleteOp[db.delete_adapter]
+    Delete -->|No| Skip1[Skip]
+
+    Check --> Evict1[Step 1: Evict expired first]
+    Evict1 --> Query2[find_expired_adapters]
+    Query2 --> Evict2[evict_adapter for each]
+    Evict2 --> MemCheck[Step 2: Check memory pressure]
+
+    DeleteOp --> Telemetry[Emit telemetry + audit log]
+    Evict2 --> Telemetry
+
+    MemCheck --> Normal{Memory<br/>OK?}
+    Normal -->|Yes| Done1([Done])
+    Normal -->|No| EvictNormal[Evict non-expired<br/>by tier: Cold→Warm→Hot]
+
+    Skip1 --> Done1
+    Telemetry --> Done1
+    EvictNormal --> Done1
+
+    style Tier1 fill:#e8f4f8,stroke:#333
+    style Tier2 fill:#fff4e1,stroke:#333
+    style Tier3 fill:#f0f8e8,stroke:#333
+    style Telemetry fill:#e8f8e8,stroke:#333
+```
+
+**Concurrency Safety:** SQLite transactions provide serialization (no race conditions between tiers)
+
+</details>
 
 **Three-Tier Enforcement Flow:**
 
