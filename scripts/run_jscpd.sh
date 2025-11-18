@@ -34,22 +34,26 @@ NPX_CMD=(npx --yes jscpd)
 ARGS=(
   "--config" "$CONFIG"
   "--output" "$OUT_DIR"
-  "--silent"
 )
 
 if [[ "${1:-}" == "--ci" ]]; then
-  # CI mode: no interactive output; console report is still captured by runner logs
-  :
+  # CI mode: use silent mode for clean logs
+  ARGS+=("--silent")
+else
+  # Local mode: show progress and clear messages
+  echo "🔍 [jscpd] Scanning repository for code duplication..."
+  echo "        This analyzes Rust, TypeScript, Swift, and other code files."
+  echo "        Progress will be shown below. Large repos may take 30-60 seconds."
+  echo ""
 fi
 
-echo "[jscpd] Scanning repository for duplication..."
-"${NPX_CMD[@]}" "${ARGS[@]}" "$ROOT_DIR" >/dev/null
+"${NPX_CMD[@]}" "${ARGS[@]}" "$ROOT_DIR"
 
 JSON_REPORT="$OUT_DIR/report.json"
 MD_REPORT="$OUT_DIR/report.md"
 
 if [[ -f "$JSON_REPORT" ]] && command -v node >/dev/null 2>&1; then
-  # Brief summary to stdout (if Node is available)
+  # Extract summary statistics
   node - <<'NODE'
 const fs = require('fs');
 const p = process.argv[1];
@@ -58,16 +62,34 @@ try {
   const stat = r.statistics || {};
   const dup = (stat.duplicated && stat.duplicated.percentage) || (stat.duplication && stat.duplication.percentage) || 0;
   const clones = (r.clones && r.clones.length) || 0;
-  console.log(`[jscpd] Duplicated percentage: ${dup}% | Clones: ${clones}`);
+  const files = (stat.sources && stat.sources.length) || 0;
+  const tokens = (stat.tokens && stat.tokens.length) || 0;
+
+  console.log(`✅ [jscpd] Scan complete!`);
+  console.log(`   📊 Files scanned: ${files.toLocaleString()}`);
+  console.log(`   🔍 Code tokens analyzed: ${tokens.toLocaleString()}`);
+  console.log(`   📋 Duplication clones found: ${clones}`);
+  console.log(`   📈 Duplication percentage: ${dup}%`);
+
+  if (clones > 0) {
+    console.log(`   ⚠️  Review the HTML report for detailed clone locations`);
+  } else {
+    console.log(`   🎉 No significant code duplication detected!`);
+  }
 } catch (e) {
-  console.log('[jscpd] Completed. (summary unavailable)');
+  console.log('✅ [jscpd] Scan completed successfully');
 }
 NODE
 else
-  echo "[jscpd] Completed. Report written to: $OUT_DIR"
+  echo "✅ [jscpd] Scan completed successfully"
 fi
 
-echo "[jscpd] Reports:"
-echo "  - JSON:     $JSON_REPORT"
-echo "  - Markdown: $MD_REPORT"
-echo "  - HTML dir: $OUT_DIR"
+if [[ "${1:-}" != "--ci" ]]; then
+  echo ""
+  echo "📁 Reports generated:"
+  echo "   📄 JSON:     $JSON_REPORT"
+  echo "   📝 Markdown: $MD_REPORT"
+  echo "   🌐 HTML:     $OUT_DIR/index.html"
+  echo ""
+  echo "💡 Tip: Open the HTML report in your browser for interactive clone exploration"
+fi

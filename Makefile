@@ -94,6 +94,6 @@ endif
 # Use matrix: macos-13, macos-14 for cross-version verification
 
 dup:
-	npx jscpd . --config jscpd.config.json || true
+	bash scripts/run_jscpd.sh || true
 
 .DEFAULT_GOAL := help
