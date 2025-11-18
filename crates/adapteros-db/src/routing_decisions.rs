@@ -69,7 +69,7 @@ impl Db {
     /// Args: `decision` - The routing decision to insert
     /// Errors: `AosError::Database` if insertion fails
     pub async fn insert_routing_decision(&self, decision: &RoutingDecision) -> Result<String> {
-        let result = sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO routing_decisions (
                 id, tenant_id, timestamp, request_id, step, input_token_id,
@@ -77,25 +77,25 @@ impl Db {
                 candidate_adapters, selected_adapter_ids, router_latency_us,
                 total_inference_latency_us, overhead_pct, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            "#,
-            decision.id,
-            decision.tenant_id,
-            decision.timestamp,
-            decision.request_id,
-            decision.step,
-            decision.input_token_id,
-            decision.stack_id,
-            decision.stack_hash,
-            decision.entropy,
-            decision.tau,
-            decision.entropy_floor,
-            decision.k_value,
-            decision.candidate_adapters,
-            decision.selected_adapter_ids,
-            decision.router_latency_us,
-            decision.total_inference_latency_us,
-            decision.overhead_pct,
+            "#
         )
+        .bind(&decision.id)
+        .bind(&decision.tenant_id)
+        .bind(&decision.timestamp)
+        .bind(&decision.request_id)
+        .bind(decision.step)
+        .bind(decision.input_token_id)
+        .bind(&decision.stack_id)
+        .bind(&decision.stack_hash)
+        .bind(decision.entropy)
+        .bind(decision.tau)
+        .bind(decision.entropy_floor)
+        .bind(decision.k_value)
+        .bind(&decision.candidate_adapters)
+        .bind(&decision.selected_adapter_ids)
+        .bind(decision.router_latency_us)
+        .bind(decision.total_inference_latency_us)
+        .bind(decision.overhead_pct)
         .execute(self.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to insert routing decision: {}", e)))?;
@@ -215,25 +215,29 @@ impl Db {
     /// Args: `tenant_id` - Optional tenant filter, `limit` - Maximum number of results
     /// Errors: `AosError::Database` if query fails
     pub async fn get_high_overhead_decisions(&self, tenant_id: Option<String>, limit: usize) -> Result<Vec<RoutingDecision>> {
-        let filters = RoutingDecisionFilters {
-            tenant_id,
-            max_overhead_pct: Some(8.0),  // Note: This is inverted - we want > 8%
-            limit: Some(limit),
-            ..Default::default()
-        };
-
         // Use view instead for performance
-        let query = if let Some(ref tid) = tenant_id {
+        let query = if tenant_id.is_some() {
             format!(
-                "SELECT * FROM routing_decisions_high_overhead WHERE tenant_id = ? LIMIT {}",
+                "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
+                 stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
+                 candidate_adapters, selected_adapter_ids, router_latency_us, \
+                 total_inference_latency_us, overhead_pct, created_at \
+                 FROM routing_decisions_high_overhead WHERE tenant_id = ? LIMIT {}",
                 limit
             )
         } else {
-            format!("SELECT * FROM routing_decisions_high_overhead LIMIT {}", limit)
+            format!(
+                "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
+                 stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
+                 candidate_adapters, selected_adapter_ids, router_latency_us, \
+                 total_inference_latency_us, overhead_pct, created_at \
+                 FROM routing_decisions_high_overhead LIMIT {}",
+                limit
+            )
         };
 
         let mut sql_query = sqlx::query_as::<_, RoutingDecision>(&query);
-        if let Some(ref tid) = tenant_id {
+        if let Some(tid) = tenant_id {
             sql_query = sql_query.bind(tid);
         }
 
@@ -250,17 +254,28 @@ impl Db {
     /// Args: `tenant_id` - Optional tenant filter, `limit` - Maximum number of results
     /// Errors: `AosError::Database` if query fails
     pub async fn get_low_entropy_decisions(&self, tenant_id: Option<String>, limit: usize) -> Result<Vec<RoutingDecision>> {
-        let query = if let Some(ref tid) = tenant_id {
+        let query = if tenant_id.is_some() {
             format!(
-                "SELECT * FROM routing_decisions_low_entropy WHERE tenant_id = ? LIMIT {}",
+                "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
+                 stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
+                 candidate_adapters, selected_adapter_ids, router_latency_us, \
+                 total_inference_latency_us, overhead_pct, created_at \
+                 FROM routing_decisions_low_entropy WHERE tenant_id = ? LIMIT {}",
                 limit
             )
         } else {
-            format!("SELECT * FROM routing_decisions_low_entropy LIMIT {}", limit)
+            format!(
+                "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
+                 stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
+                 candidate_adapters, selected_adapter_ids, router_latency_us, \
+                 total_inference_latency_us, overhead_pct, created_at \
+                 FROM routing_decisions_low_entropy LIMIT {}",
+                limit
+            )
         };
 
         let mut sql_query = sqlx::query_as::<_, RoutingDecision>(&query);
-        if let Some(ref tid) = tenant_id {
+        if let Some(tid) = tenant_id {
             sql_query = sql_query.bind(tid);
         }
 
@@ -277,13 +292,11 @@ impl Db {
     /// Args: `older_than` - ISO-8601 timestamp, delete decisions older than this
     /// Errors: `AosError::Database` if deletion fails
     pub async fn delete_old_routing_decisions(&self, older_than: &str) -> Result<u64> {
-        let result = sqlx::query!(
-            "DELETE FROM routing_decisions WHERE timestamp < ?",
-            older_than
-        )
-        .execute(self.pool())
-        .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to delete old routing decisions: {}", e)))?;
+        let result = sqlx::query("DELETE FROM routing_decisions WHERE timestamp < ?")
+            .bind(older_than)
+            .execute(self.pool())
+            .await
+            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to delete old routing decisions: {}", e)))?;
 
         Ok(result.rows_affected())
     }
