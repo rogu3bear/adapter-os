@@ -58,6 +58,14 @@ Request Arrives
 - ⚠️ **Partial** - Partially implemented, see notes in flow doc
 - 🚫 **Deprecated** - No longer used, see DEPRECATED_PATTERNS.md
 
+## Documentation Accuracy
+
+**Line Numbers**: Line numbers in flow diagrams are accurate as of 2025-11-18 but may drift as code evolves. They point to the correct module and general location. For exact current line numbers, use `grep` or code search.
+
+**Test Names**: All test names are actual tests that exist in the codebase with exact file locations provided.
+
+**Event Types**: All telemetry event types are real structs defined in the codebase (primarily `crates/adapteros-telemetry/src/events.rs` and `crates/adapteros-lora-lifecycle/src/lib.rs`).
+
 ---
 
 **Last Updated**: 2025-11-18
