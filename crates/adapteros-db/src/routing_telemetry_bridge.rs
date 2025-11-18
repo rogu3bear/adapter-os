@@ -152,6 +152,8 @@ mod tests {
             tau: 0.1,
             entropy_floor: 0.01,
             stack_hash: Some("abc123".to_string()),
+            stack_id: None,
+            stack_version: None,
         };
 
         let decision = event_to_decision(&event, "default", Some("req-123")).unwrap();
@@ -181,6 +183,8 @@ mod tests {
             tau: 0.2,
             entropy_floor: 0.01,
             stack_hash: None,
+            stack_id: None,
+            stack_version: None,
         }];
 
         let persisted = persist_router_decisions(&db, &events, "test-tenant", Some("req-001"))

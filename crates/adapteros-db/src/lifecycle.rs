@@ -343,19 +343,17 @@ impl Db {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_bump_version() {
+    #[tokio::test]
+    async fn test_bump_version() {
         // Create a temporary Db instance just for testing the bump_version helper
         use sqlx::SqlitePool;
         use std::str::FromStr;
 
         // Use a simple connection for this test (doesn't need migrations)
-        let pool = futures::executor::block_on(async {
-            let options = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
-                .unwrap()
-                .create_if_missing(true);
-            SqlitePool::connect_with(options).await.unwrap()
-        });
+        let options = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options).await.unwrap();
 
         let db = Db { pool };
 
@@ -374,7 +372,7 @@ mod tests {
             .name("Test Adapter")
             .hash_b3("abc123")
             .rank(8)
-            .tier(1)
+            .tier("tier_1")
             .build()
             .unwrap();
 
@@ -413,7 +411,7 @@ mod tests {
             .name("Test Adapter")
             .hash_b3("abc123")
             .rank(8)
-            .tier(1)
+            .tier("tier_1")
             .build()
             .unwrap();
 
@@ -444,7 +442,7 @@ mod tests {
             .name("Adapter 1")
             .hash_b3("abc123")
             .rank(8)
-            .tier(1)
+            .tier("tier_1")
             .build()
             .unwrap();
         db.register_adapter(params).await.unwrap();

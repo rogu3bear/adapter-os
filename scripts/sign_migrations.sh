@@ -88,7 +88,7 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
 
     # Sign the file hash
     echo -n "$file_hash" > /tmp/hash_input.txt
-    openssl pkeyutl -sign -inkey "$KEY_FILE" -in /tmp/hash_input.txt -out /tmp/migration.sig 2>/dev/null
+    openssl pkeyutl -sign -rawin -inkey "$KEY_FILE" -in /tmp/hash_input.txt -out /tmp/migration.sig 2>/dev/null
     signature=$(base64 < /tmp/migration.sig | tr -d '\n')
     rm -f /tmp/migration.sig /tmp/hash_input.txt
 
@@ -151,7 +151,7 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
     # Verify signature
     echo "$signature" | base64 -d > /tmp/migration.sig
     echo -n "$file_hash" > /tmp/hash_input.txt
-    if openssl pkeyutl -verify -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
+    if openssl pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
         verify_count=$((verify_count + 1))
     else
         echo -e "${RED}✗ Signature verification failed for $filename${NC}"
