@@ -16,6 +16,8 @@ use utoipa_swagger_ui::SwaggerUi;
     paths(
         handlers::health,
         handlers::ready,
+        crate::health::check_all_health,
+        crate::health::check_component_health,
         handlers::auth_login,
         handlers::propose_patch,
         handlers::infer,
@@ -98,6 +100,9 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::LoginRequest,
         crate::types::LoginResponse,
         crate::types::HealthResponse,
+        crate::health::ComponentHealth,
+        crate::health::ComponentStatus,
+        crate::health::SystemHealthResponse,
         crate::types::TenantResponse,
         crate::types::CreateTenantRequest,
         crate::types::ProposePatchRequest,
@@ -204,6 +209,8 @@ pub fn build(state: AppState) -> Router {
     // Public routes (no auth required)
     let public_routes = Router::new()
         .route("/healthz", get(handlers::health))
+        .route("/healthz/all", get(crate::health::check_all_health))
+        .route("/healthz/:component", get(crate::health::check_component_health))
         .route("/readyz", get(handlers::ready))
         .route("/v1/auth/login", post(handlers::auth_login))
         .route("/v1/meta", get(handlers::meta));
