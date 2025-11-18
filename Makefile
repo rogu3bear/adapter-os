@@ -16,7 +16,7 @@ test: ## Run all tests (excluding experimental MLX FFI)
 clean: ## Clean build artifacts
 	cargo clean
 	rm -f metal/*.air metal/*.metallib
-	rm -rf ui/dist ui/node_modules
+	rm -rf dist node_modules
 	rm -rf crates/mplora-server/static
 	cd menu-bar-app && swift package clean || true
 
@@ -30,10 +30,10 @@ metal: ## Build Metal shaders
 	cd metal && bash build.sh
 
 ui: ## Build Web UI (production)
-	bash scripts/build_web_ui.sh
+	pnpm build
 
 ui-dev: ## Start Web UI dev server
-	cd ui && pnpm dev
+	pnpm dev
 
 codegraph-viewer: ## Build CodeGraph Viewer (Tauri desktop app)
 	cd crates/mplora-codegraph-viewer/frontend && pnpm install && pnpm build
