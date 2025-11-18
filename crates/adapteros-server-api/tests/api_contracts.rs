@@ -97,7 +97,7 @@ struct BasicHealthResponse {
 
 #[test]
 fn test_adapters_list_contract_schema() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/adapters_list.json");
+    let json = include_str!("../../../tests/training/datasets/cli_contract/adapters_list.json");
     let response: AdaptersListResponse =
         from_str(json).expect("adapters_list.json should match AdaptersListResponse schema");
 
@@ -133,7 +133,7 @@ fn test_adapters_list_contract_schema() {
 
 #[test]
 fn test_adapters_list_contract_semantic_naming() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/adapters_list.json");
+    let json = include_str!("../../../tests/training/datasets/cli_contract/adapters_list.json");
     let response: AdaptersListResponse = from_str(json).unwrap();
 
     // Validate semantic naming fields (PRD-08)
@@ -157,7 +157,7 @@ fn test_adapters_list_contract_semantic_naming() {
 
 #[test]
 fn test_adapters_list_contract_tier_values() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/adapters_list.json");
+    let json = include_str!("../../../tests/training/datasets/cli_contract/adapters_list.json");
     let response: AdaptersListResponse = from_str(json).unwrap();
 
     let valid_tiers = ["tier_1", "tier_2", "tier_3"];
@@ -174,7 +174,7 @@ fn test_adapters_list_contract_tier_values() {
 
 #[test]
 fn test_adapters_list_contract_state_values() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/adapters_list.json");
+    let json = include_str!("../../../tests/training/datasets/cli_contract/adapters_list.json");
     let response: Value = from_str(json).unwrap();
 
     let valid_states = ["unloaded", "cold", "warm", "hot", "resident"];
@@ -193,7 +193,7 @@ fn test_adapters_list_contract_state_values() {
 #[test]
 fn test_adapter_lineage_contract_schema() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/adapter_lineage.json");
+        include_str!("../../../tests/training/datasets/cli_contract/adapter_lineage.json");
     let response: AdapterLineageResponse =
         from_str(json).expect("adapter_lineage.json should match schema");
 
@@ -219,7 +219,7 @@ fn test_adapter_lineage_contract_schema() {
 #[test]
 fn test_adapter_lineage_contract_ancestry_chain() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/adapter_lineage.json");
+        include_str!("../../../tests/training/datasets/cli_contract/adapter_lineage.json");
     let response: AdapterLineageResponse = from_str(json).unwrap();
 
     // Validate ancestry chain integrity
@@ -251,7 +251,7 @@ fn test_adapter_lineage_contract_ancestry_chain() {
 #[test]
 fn test_adapter_lineage_contract_fork_types() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/adapter_lineage.json");
+        include_str!("../../../tests/training/datasets/cli_contract/adapter_lineage.json");
     let response: AdapterLineageResponse = from_str(json).unwrap();
 
     let valid_fork_types = [
@@ -288,7 +288,7 @@ fn test_adapter_lineage_contract_fork_types() {
 #[test]
 fn test_routing_decisions_contract_schema() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/routing_decisions.json");
+        include_str!("../../../tests/training/datasets/routing/routing_decisions.json");
     let response: RoutingDecisionsResponse =
         from_str(json).expect("routing_decisions.json should match schema");
 
@@ -310,7 +310,7 @@ fn test_routing_decisions_contract_schema() {
 #[test]
 fn test_routing_decisions_contract_candidate_selection() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/routing_decisions.json");
+        include_str!("../../../tests/training/datasets/routing/routing_decisions.json");
     let response: RoutingDecisionsResponse = from_str(json).unwrap();
 
     for decision in &response.decisions {
@@ -353,7 +353,7 @@ fn test_routing_decisions_contract_candidate_selection() {
 #[test]
 fn test_routing_decisions_contract_q15_quantization() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/routing_decisions.json");
+        include_str!("../../../tests/training/datasets/routing/routing_decisions.json");
     let response: RoutingDecisionsResponse = from_str(json).unwrap();
 
     for decision in &response.decisions {
@@ -382,7 +382,7 @@ fn test_routing_decisions_contract_q15_quantization() {
 #[test]
 fn test_routing_decisions_contract_overhead_metrics() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/routing_decisions.json");
+        include_str!("../../../tests/training/datasets/routing/routing_decisions.json");
     let response: RoutingDecisionsResponse = from_str(json).unwrap();
 
     for decision in &response.decisions {
@@ -410,7 +410,7 @@ fn test_routing_decisions_contract_overhead_metrics() {
 #[test]
 fn test_routing_decisions_contract_entropy_bounds() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/routing_decisions.json");
+        include_str!("../../../tests/training/datasets/routing/routing_decisions.json");
     let response: RoutingDecisionsResponse = from_str(json).unwrap();
 
     for decision in &response.decisions {
@@ -445,7 +445,7 @@ fn test_routing_decisions_contract_entropy_bounds() {
 
 #[test]
 fn test_healthz_basic_contract_schema() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/healthz_basic.json");
+    let json = include_str!("../../../tests/training/datasets/metrics/healthz_basic.json");
     let response: BasicHealthResponse =
         from_str(json).expect("healthz_basic.json should match schema");
 
@@ -455,7 +455,7 @@ fn test_healthz_basic_contract_schema() {
 
 #[test]
 fn test_healthz_all_contract_schema() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/healthz_all.json");
+    let json = include_str!("../../../tests/training/datasets/metrics/healthz_all.json");
     let response: SystemHealthResponse =
         from_str(json).expect("healthz_all.json should match schema");
 
@@ -489,7 +489,7 @@ fn test_healthz_all_contract_schema() {
 
 #[test]
 fn test_healthz_all_contract_component_status() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/healthz_all.json");
+    let json = include_str!("../../../tests/training/datasets/metrics/healthz_all.json");
     let response: Value = from_str(json).unwrap();
 
     let valid_statuses = ["healthy", "degraded", "unhealthy"];
@@ -512,7 +512,7 @@ fn test_healthz_all_contract_component_status() {
 #[test]
 fn test_healthz_degraded_contract_overall_status() {
     let json =
-        include_str!("../../../tests/training/datasets/api-contracts/healthz_degraded.json");
+        include_str!("../../../tests/training/datasets/metrics/healthz_degraded.json");
     let response: Value = from_str(json).unwrap();
 
     // Overall status should be degraded
@@ -533,7 +533,7 @@ fn test_healthz_degraded_contract_overall_status() {
 
 #[test]
 fn test_healthz_router_contract_details() {
-    let json = include_str!("../../../tests/training/datasets/api-contracts/healthz_router.json");
+    let json = include_str!("../../../tests/training/datasets/metrics/healthz_router.json");
     let response: ComponentHealth = from_str(json).expect("healthz_router.json should match ComponentHealth schema");
 
     assert_eq!(response.component, "router");
@@ -639,13 +639,13 @@ fn test_contract_pagination_consistency() {
 #[test]
 fn test_all_contract_files_are_valid_json() {
     let files = [
-        include_str!("../../../tests/training/datasets/api-contracts/adapters_list.json"),
-        include_str!("../../../tests/training/datasets/api-contracts/adapter_lineage.json"),
-        include_str!("../../../tests/training/datasets/api-contracts/routing_decisions.json"),
-        include_str!("../../../tests/training/datasets/api-contracts/healthz_basic.json"),
-        include_str!("../../../tests/training/datasets/api-contracts/healthz_all.json"),
-        include_str!("../../../tests/training/datasets/api-contracts/healthz_degraded.json"),
-        include_str!("../../../tests/training/datasets/api-contracts/healthz_router.json"),
+        include_str!("../../../tests/training/datasets/cli_contract/adapters_list.json"),
+        include_str!("../../../tests/training/datasets/cli_contract/adapter_lineage.json"),
+        include_str!("../../../tests/training/datasets/routing/routing_decisions.json"),
+        include_str!("../../../tests/training/datasets/metrics/healthz_basic.json"),
+        include_str!("../../../tests/training/datasets/metrics/healthz_all.json"),
+        include_str!("../../../tests/training/datasets/metrics/healthz_degraded.json"),
+        include_str!("../../../tests/training/datasets/metrics/healthz_router.json"),
     ];
 
     for (i, json) in files.iter().enumerate() {
