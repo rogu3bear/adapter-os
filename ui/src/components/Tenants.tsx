@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
@@ -753,7 +754,10 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
       <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Active Tenants</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Active Tenants
+              <ConceptTooltip concept="tenant" />
+            </CardTitle>
             <div className="flex gap-2">
               <Button
                 variant="outline"

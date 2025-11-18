@@ -1,7 +1,10 @@
 import React, { Suspense, lazy } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Loader2 } from 'lucide-react';
+import { Button } from './ui/button';
+import { Alert, AlertDescription } from './ui/alert';
+import { Loader2, ExternalLink, BookOpen } from 'lucide-react';
 import { Persona, Stage } from '../data/persona-journeys';
+import { useNavigate } from 'react-router-dom';
 
 // Lazy load mock components
 const mockComponents = {
@@ -59,40 +62,91 @@ function LoadingFallback() {
 }
 
 export function StageViewer({ persona, stage }: StageViewerProps) {
+  const navigate = useNavigate();
   const MockComponent = stage.content.mockComponent
     ? mockComponents[stage.content.mockComponent as keyof typeof mockComponents]
     : null;
+
+  const hasRealPage = !!stage.content.route;
+  const hasMentalModelExplanation = !!stage.content.mentalModelExplanation;
 
   return (
     <div className="h-full p-4 bg-background">
       <Card className="h-full">
         <CardHeader className="pb-3">
-          <div className="flex items-center space-x-2">
-            <persona.icon className="h-5 w-5 text-primary" />
-            <div>
-              <CardTitle className="text-lg">{persona.name}</CardTitle>
-              <p className="text-sm text-muted-foreground">{stage.title}</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <persona.icon className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle className="text-lg">{persona.name}</CardTitle>
+                <p className="text-sm text-muted-foreground">{stage.title}</p>
+              </div>
             </div>
+            {hasRealPage && (
+              <Button
+                size="sm"
+                onClick={() => navigate(stage.content.route!)}
+              >
+                <ExternalLink className="h-4 w-4 mr-1" />
+                Open Page
+              </Button>
+            )}
           </div>
         </CardHeader>
 
-        <CardContent className="flex-1 overflow-auto">
-          {MockComponent ? (
-            <Suspense fallback={<LoadingFallback />}>
-              <MockComponent />
-            </Suspense>
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <div className="text-center">
-                <persona.icon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <h3 className="text-lg font-medium mb-2">Stage Preview</h3>
-                <p className="text-sm mb-4">{stage.content.whatAppears}</p>
-                <div className="bg-muted p-4 rounded-lg">
-                  <p className="text-xs italic">
-                    Mock UI component coming soon...
-                  </p>
+        <CardContent className="space-y-4">
+          {/* What Appears */}
+          <div>
+            <h4 className="text-sm font-semibold mb-1">What appears</h4>
+            <p className="text-sm text-muted-foreground">{stage.content.whatAppears}</p>
+          </div>
+
+          {/* Why */}
+          <div>
+            <h4 className="text-sm font-semibold mb-1">Why this matters</h4>
+            <p className="text-sm text-muted-foreground">{stage.content.why}</p>
+          </div>
+
+          {/* Context */}
+          <div>
+            <h4 className="text-sm font-semibold mb-1">Context</h4>
+            <p className="text-sm text-muted-foreground">{stage.content.context}</p>
+          </div>
+
+          {/* Mental Model Explanation */}
+          {hasMentalModelExplanation && (
+            <Alert>
+              <BookOpen className="h-4 w-4" />
+              <AlertDescription>
+                <div className="space-y-1">
+                  <p className="font-semibold text-sm">How this relates to the mental model</p>
+                  <p className="text-sm">{stage.content.mentalModelExplanation}</p>
                 </div>
-              </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Mock Component (if available) */}
+          {MockComponent && (
+            <div className="border rounded-lg p-4 bg-muted/30">
+              <Suspense fallback={<LoadingFallback />}>
+                <MockComponent />
+              </Suspense>
+            </div>
+          )}
+
+          {/* Call to Action */}
+          {hasRealPage && (
+            <div className="pt-2">
+              <Button
+                variant="default"
+                size="lg"
+                className="w-full"
+                onClick={() => navigate(stage.content.route!)}
+              >
+                Go to {stage.title} Page
+                <ExternalLink className="h-4 w-4 ml-2" />
+              </Button>
             </div>
           )}
         </CardContent>

@@ -43,7 +43,6 @@ export interface User {
   token_last_rotated_at?: string;
 }
 
-<<<<<<< HEAD
 export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
 
 export interface SessionInfo {
@@ -91,9 +90,6 @@ export interface UpdateProfileRequest {
 }
 
 export interface ProfileResponse extends UserInfoResponse {}
-=======
-export type UserRole = 'Admin' | 'Operator' | 'SRE' | 'Compliance' | 'Viewer';
->>>>>>> integration-branch
 
 // Tenants
 export interface Tenant {
