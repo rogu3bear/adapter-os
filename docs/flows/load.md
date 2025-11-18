@@ -15,12 +15,12 @@ flowchart TD
     A[API Request<br/>POST /api/adapters/load] --> B[1. Validate Request]
     B --> |Check adapter_id exists<br/>Verify tenant ACL<br/>Check current state| C[2. Memory Pressure Check]
     C --> |✅ check_memory_pressure<br/>crates/adapteros-lora-worker/src/memory.rs:1-150<br/>Query UMA stats, compute headroom<br/>Evict if pressure > 85%| D[3. State Transition]
-    D --> |✅ transition_state<br/>crates/adapteros-lora-lifecycle/src/lib.rs:450-520<br/>Update DB state to 'cold'<br/>Emit transition telemetry| E[4. Load Weights]
-    E --> |✅ AdapterTable::preload<br/>crates/adapteros-lora-worker/src/adapter_hotswap.rs:200-350<br/>Read .aos archive<br/>Parse manifest, load safetensors<br/>Validate BLAKE3 hash| F[5. GPU Upload]
-    F --> |✅ upload_to_vram<br/>crates/adapteros-lora-kernel-mtl/src/lib.rs:400-600<br/>Allocate Metal buffer<br/>Copy weights CPU → GPU| G[6. Hash Verification]
-    G --> |✅ GpuIntegrityVerificationEvent<br/>crates/adapteros-lora-lifecycle/src/lib.rs:600-650<br/>Recompute BLAKE3 of GPU buffer<br/>Rollback on mismatch| H[7. Heartbeat Registration]
-    H --> |✅ heartbeat_adapter<br/>crates/adapteros-db/src/adapters.rs:850-900<br/>Update last_heartbeat timestamp<br/>5min timeout monitoring| I[8. Update State to Target Tier]
-    I --> |✅ update_adapter_state_tx<br/>crates/adapteros-db/src/adapters.rs:752-789<br/>Transaction-protected update<br/>Set tier, update memory_usage_mb| J[9. Emit Telemetry]
+    D --> |✅ State update via DB<br/>crates/adapteros-db/src/adapters.rs:724<br/>Update DB state to 'cold'<br/>Emit transition telemetry| E[4. Load Weights]
+    E --> |✅ AdapterTable::preload<br/>crates/adapteros-lora-worker/src/adapter_hotswap.rs:187<br/>Read .aos archive<br/>Parse manifest, load safetensors<br/>Validate BLAKE3 hash| F[5. GPU Upload]
+    F --> |✅ GPU allocation<br/>Metal buffer management<br/>Copy weights CPU → GPU| G[6. Hash Verification]
+    G --> |✅ GpuIntegrityVerificationEvent<br/>crates/adapteros-lora-lifecycle/src/lib.rs:60-73<br/>Recompute BLAKE3 of GPU buffer<br/>Rollback on mismatch| H[7. Heartbeat Registration]
+    H --> |✅ DB heartbeat update<br/>crates/adapteros-db/src/adapters.rs:~870<br/>Update last_heartbeat timestamp<br/>5min timeout monitoring| I[8. Update State to Target Tier]
+    I --> |✅ update_adapter_state_tx<br/>crates/adapteros-db/src/adapters.rs:763-799<br/>Transaction-protected update<br/>Set tier, update memory_usage_mb| J[9. Emit Telemetry]
     J --> |✅ adapter_loaded event<br/>crates/adapteros-telemetry/src/unified_events.rs<br/>Metadata: adapter_id, tier, memory_mb, hash| K[200 OK Response]
     K --> |JSON response with adapter_id, state, memory_mb| L[Complete]
 
@@ -148,13 +148,14 @@ WHERE adapter_id = ?;
 
 ## Testing Coverage
 
-- ✅ Unit: `test_load_adapter_success()` - Happy path
-- ✅ Unit: `test_load_hash_mismatch()` - Integrity violation
-- ✅ Integration: `test_memory_pressure_eviction()` - Pressure-triggered eviction
-- ✅ Stress: `test_concurrent_loads()` - 20 parallel loads with transaction safety
-- ✅ Loom: Hot-swap concurrency model (5000+ interleavings, no UAF)
+- ✅ Integration: `test_update_adapter_state_persists_to_db` - State persistence (crates/adapteros-lora-lifecycle/tests/lifecycle_db.rs:27)
+- ✅ Integration: `test_record_adapter_activation_updates_db` - Activation tracking (crates/adapteros-lora-lifecycle/tests/lifecycle_db.rs:92)
+- ✅ Integration: `test_evict_adapter_updates_state_and_memory` - Eviction flow (crates/adapteros-lora-lifecycle/tests/lifecycle_db.rs:157)
+- ✅ Integration: `test_multiple_activations_increment_count` - Concurrent activations (crates/adapteros-lora-lifecycle/tests/lifecycle_db.rs:232)
+- ✅ Unit: `test_lifecycle_basic` - Lifecycle state machine (crates/adapteros-lora-lifecycle/src/lib.rs:1670)
+- ✅ Stress: `test_concurrent_state_update_race_condition` - Transaction safety (tests/stability_reinforcement_tests.rs)
 
-[source: tests/stability_reinforcement_tests.rs, crates/adapteros-lora-worker/tests/hotswap_tests.rs]
+[source: crates/adapteros-lora-lifecycle/tests/lifecycle_db.rs, tests/stability_reinforcement_tests.rs]
 
 ## Production Metrics
 

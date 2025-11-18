@@ -231,13 +231,18 @@ pub fn compute_path_scores(
 
 ## Testing Coverage
 
-- ✅ Unit: `test_q15_quantization_determinism()` - Q15 stability
-- ✅ Unit: `test_tie_breaking_reproducibility()` - Seeded RNG
-- ✅ Unit: `test_feature_extraction_rust()` - Language detection
-- ✅ Integration: `test_routing_with_promotion()` - Activation count updates
-- ✅ Stress: `test_routing_100_adapters()` - Performance under load
+- ✅ Unit: `test_deterministic_top_k_ordering` - Top-K ordering stability (crates/adapteros-lora-router/tests/determinism.rs:18)
+- ✅ Unit: `test_q15_quantization_properties` - Q15 quantization correctness (crates/adapteros-lora-router/tests/determinism.rs:51)
+- ✅ Unit: `test_k0_detection_empty_result` - K=0 edge case handling (crates/adapteros-lora-router/tests/determinism.rs:85)
+- ✅ Unit: `test_gate_normalization_and_entropy_floor` - Normalization (crates/adapteros-lora-router/tests/determinism.rs:98)
+- ✅ Unit: `test_multiple_calls_deterministic` - Reproducibility across calls (crates/adapteros-lora-router/tests/determinism.rs:135)
+- ✅ Unit: `test_extract_lang_one_hot` - Language detection (crates/adapteros-lora-router/src/features.rs:439)
+- ✅ Unit: `test_framework_prior` - Framework matching (crates/adapteros-lora-router/src/features.rs:446)
+- ✅ Unit: `test_symbol_hits` - Symbol extraction (crates/adapteros-lora-router/src/features.rs:454)
+- ✅ Unit: `test_path_tokens` - Path token parsing (crates/adapteros-lora-router/src/features.rs:461)
+- ✅ Unit: `test_prompt_verb_classification` - Verb classification (crates/adapteros-lora-router/src/features.rs:468)
 
-[source: crates/adapteros-lora-router/tests/router_tests.rs]
+[source: crates/adapteros-lora-router/tests/determinism.rs, crates/adapteros-lora-router/src/features.rs]
 
 ## Production Metrics
 

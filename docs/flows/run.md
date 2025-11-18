@@ -14,13 +14,13 @@ The run flow executes adapter inference with strict determinism guarantees throu
 flowchart TD
     A[Selected Adapters<br/>K=3 adapters from routing] --> B[1. Initialize Executor]
     B --> |✅ init_global_executor<br/>crates/adapteros-deterministic-exec/src/lib.rs:200-250<br/>Derive global_seed from manifest hash<br/>Configure serial FIFO queue<br/>Enable event logging| C[2. Spawn Inference Task]
-    C --> |✅ spawn_deterministic<br/>crates/adapteros-deterministic-exec/src/lib.rs:300-350<br/>Generate TaskId from seed+seq<br/>Enqueue task in FIFO order<br/>Record task_spawn event| D[3. Allocate Tick]
-    D --> |✅ GlobalTickLedger::record_tick<br/>crates/adapteros-deterministic-exec/src/global_ledger.rs:163<br/>Atomic fetch_add for unique tick<br/>Ensures no duplicate ticks| E[4. Execute Inference]
-    E --> |✅ Worker::infer<br/>crates/adapteros-lora-worker/src/lib.rs:400-700<br/>Run fused Metal kernels<br/>Apply K selected adapters<br/>Generate tokens| F{Multi-Agent?}
+    C --> |✅ spawn_deterministic<br/>crates/adapteros-deterministic-exec/src/lib.rs<br/>Generate TaskId from seed+seq<br/>Enqueue task in FIFO order<br/>Record task_spawn event| D[3. Allocate Tick]
+    D --> |✅ GlobalTickLedger::record_tick<br/>crates/adapteros-deterministic-exec/src/global_ledger.rs:172<br/>Atomic fetch_add for unique tick<br/>Ensures no duplicate ticks| E[4. Execute Inference]
+    E --> |✅ Worker inference<br/>Run fused Metal kernels<br/>Apply K selected adapters<br/>Generate tokens| F{Multi-Agent?}
     F --> |Yes| G[5a. Agent Barrier Wait]
     F --> |No| H[6. Record Tick to Ledger]
-    G --> |✅ AgentBarrier::wait<br/>crates/adapteros-deterministic-exec/src/multi_agent.rs:230-400<br/>CAS-based generation advancement<br/>Notify-based waiting<br/>Handle dead agents| H
-    H --> |✅ GlobalTickLedger::record_tick<br/>crates/adapteros-deterministic-exec/src/global_ledger.rs:163-200<br/>Hash tick entry with prev_hash<br/>Store in Merkle chain<br/>Emit tick_ledger event| I[7. Sample Tokens]
+    G --> |✅ AgentBarrier::wait<br/>crates/adapteros-deterministic-exec/src/multi_agent.rs:202<br/>CAS-based generation advancement<br/>Notify-based waiting<br/>Handle dead agents| H
+    H --> |✅ GlobalTickLedger::record_tick<br/>crates/adapteros-deterministic-exec/src/global_ledger.rs:172<br/>Hash tick entry with prev_hash<br/>Store in Merkle chain<br/>Emit tick_ledger event| I[7. Sample Tokens]
     I --> |✅ sample_with_seed<br/>crates/adapteros-lora-worker/src/sampling.rs:50-200<br/>Derive 'sampling' seed via HKDF<br/>Use ChaCha20Rng for determinism<br/>Top-p/top-k sampling| J[8. Complete Task]
     J --> |✅ Task completion<br/>Record task_complete event<br/>Update execution trace<br/>Free task resources| K[Inference Result]
     K --> |Generated tokens, latency_ms<br/>adapter_contributions, tick_hash| L[Complete]
@@ -232,14 +232,16 @@ pub fn sample_with_seed(logits: &[f32], temperature: f32, seed: &[u8; 32]) -> us
 
 ## Testing Coverage
 
-- ✅ Unit: `test_serial_execution_order()` - Task ordering guarantee
-- ✅ Unit: `test_hkdf_seed_derivation()` - Seed reproducibility
-- ✅ Unit: `test_atomic_tick_assignment()` - No duplicate ticks
-- ✅ Integration: `test_multi_agent_barrier()` - 7-agent synchronization
-- ✅ Stress: `test_barrier_stress()` - 20-100 agents, various scenarios
-- ✅ Loom: `test_barrier_concurrency()` - 5000+ interleavings, no deadlocks
+- ✅ Integration: `test_concurrent_record_tick` - Atomic tick assignment (crates/adapteros-deterministic-exec/tests/tick_ledger_concurrency.rs:30)
+- ✅ Stress: `test_high_frequency_ticks` - Throughput under load (crates/adapteros-deterministic-exec/tests/tick_ledger_concurrency.rs:87)
+- ✅ Integration: `test_merkle_chain_concurrent` - Hash chain integrity (crates/adapteros-deterministic-exec/tests/tick_ledger_concurrency.rs:133)
+- ✅ Integration: `test_concurrent_read_write` - Read/write concurrency (crates/adapteros-deterministic-exec/tests/tick_ledger_concurrency.rs:249)
+- ✅ Unit: `test_agent_barrier_single_agent` - Single agent barrier (crates/adapteros-deterministic-exec/src/multi_agent.rs:557)
+- ✅ Unit: `test_agent_barrier_multiple_agents` - Multi-agent synchronization (crates/adapteros-deterministic-exec/src/multi_agent.rs:570)
+- ✅ Unit: `test_global_sequence` - Sequence ordering (crates/adapteros-deterministic-exec/src/multi_agent.rs:593)
+- ✅ Unit: `test_coordinated_action` - Barrier coordination (crates/adapteros-deterministic-exec/src/multi_agent.rs:607)
 
-[source: crates/adapteros-deterministic-exec/tests/executor_tests.rs]
+[source: crates/adapteros-deterministic-exec/tests/tick_ledger_concurrency.rs, crates/adapteros-deterministic-exec/src/multi_agent.rs]
 
 ## Cross-Host Consistency
 
