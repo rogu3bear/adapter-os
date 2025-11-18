@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import React, { useState, useEffect } from 'react';
 >>>>>>> integration-branch
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -398,7 +399,10 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
         <TabsContent value="basic" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>K-Sparse Configuration</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                K-Sparse Configuration
+                <ConceptTooltip concept="router" />
+              </CardTitle>
               <CardDescription>
                 Configure the number of adapters selected per token (K-sparse routing)
               </CardDescription>

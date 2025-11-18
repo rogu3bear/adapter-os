@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -396,7 +397,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       <Card className="card-standard">
 >>>>>>> integration-branch
         <CardHeader>
-          <CardTitle>Active Policies</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            Active Policies
+            <ConceptTooltip concept="policy" />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Table className="border-collapse w-full">

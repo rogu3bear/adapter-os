@@ -2,9 +2,27 @@
 
 This manual provides an overview of the `aosctl` command‑line interface, including command groups, flag conventions, and usage examples. It is intended as a stable high‑level reference; for exhaustive per‑flag help, run `aosctl <command> --help`.
 
+**New to AdapterOS?** Start with [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) to learn about Tenants, Adapters, Stacks, Router, Telemetry, and Replay.
+
 ---
 
-## 0. Quickstart Overview
+## 0. Core Concepts (Quick Reference)
+
+Before using `aosctl`, understand these core entities:
+
+- **Tenant**: Top-level isolation unit (user, org, environment). Create with `aosctl init-tenant`.
+- **Adapter**: LoRA module that specializes a base model. Register with `aosctl register-adapter`.
+- **Stack**: Tenant-scoped set of adapters + workflow rules. Create with `aosctl create-stack`.
+- **Router**: K-sparse gating mechanism that selects top-K adapters per request.
+- **Telemetry**: Structured event logging for audit trail. Verify with `aosctl telemetry-verify`.
+- **Golden Run**: Verified, deterministic execution for replay verification.
+- **Replay**: Re-execute golden run to verify determinism with `aosctl replay`.
+
+For full details, see [docs/CONCEPTS.md](../../../docs/CONCEPTS.md).
+
+---
+
+## 1. Quickstart Overview
 
 If you just want to bring a node up, migrate the DB, deploy adapters, and verify determinism, the “happy path” looks like:
 
@@ -63,11 +81,14 @@ For more detail, the sections below organize commands by responsibility: tenants
 
 ## 2. Tenant Management
 
+**What is a Tenant?** A tenant is the top-level isolation unit in AdapterOS, representing a user, organization, or environment. Tenants own adapters and stacks, and enforce resource limits.
+
 Tenant commands create and manage isolated tenants on a node.
 
-- `aosctl init-tenant` / `aosctl init`  
-  - Initialize a new tenant with specific UID/GID.  
+- `aosctl init-tenant` / `aosctl init`
+  - Initialize a new tenant with specific UID/GID.
   - Key flags: `--id`, `--uid`, `--gid`.
+  - See [docs/CONCEPTS.md#tenant](../../../docs/CONCEPTS.md#1-tenant) for details.
 
 **Examples**
 
@@ -87,11 +108,16 @@ aosctl init-tenant --id tenant_prod --uid 5000 --gid 5000
 
 ## 3. Adapter Management
 
+**What is an Adapter?** An adapter is a LoRA (Low-Rank Adaptation) module that specializes a base model for a specific task. Adapters have lifecycle states (Unloaded → Cold → Warm → Hot → Resident) and can be pinned to prevent eviction.
+
+**Naming Convention**: `{tenant}/{domain}/{purpose}/{revision}` (e.g., `tenant-a/engineering/code-review/r001`)
+
 Adapter commands manage adapters in the registry (listing, registration, pinning, and air‑gap transfers).
 
-- List adapters  
-  - `aosctl list-adapters`  
+- List adapters
+  - `aosctl list-adapters`
   - Key flags: `--tier` (filter by tier), `--json` for machine‑readable output.
+  - See [docs/CONCEPTS.md#adapter](../../../docs/CONCEPTS.md#2-adapter) for details.
 - Register adapters  
   - `aosctl register-adapter <id> <hash>`  
   - Key flags: `--tier`, `--rank`.
@@ -122,11 +148,15 @@ aosctl register-adapter my_adapter b3:abc123... \
 
 ## 4. Status and Health
 
-The `status` tree makes `aosctl` the “system brain” for high‑level state.
+**What is Status?** Status commands query the system state to show **Adapters** (memory, tier, pinned), **Tenants** (cluster nodes), tick ledger (for determinism tracking), and memory pressure.
 
-- `aosctl status adapters`  
-  - Lists adapters from the control‑plane DB with: `name`, `tenant_id`, `active`, `pinned`, `expires_at`, and `memory_bytes`.  
+The `status` tree makes `aosctl` the "system brain" for high‑level state.
+
+- `aosctl status adapters`
+  - Lists adapters from the control‑plane DB with: `name`, `tenant_id`, `active`, `pinned`, `expires_at`, and `memory_bytes`.
+  - Shows **Lifecycle** tier and **Pinning** status.
   - Respects `--json` for structured output.
+  - See [docs/CONCEPTS.md#adapter](../../../docs/CONCEPTS.md#2-adapter) for lifecycle details.
 
 - `aosctl status cluster`  
   - Lists registered nodes and last heartbeats from the `nodes` table.  
@@ -157,15 +187,19 @@ aosctl status cluster
 
 ## 5. Deploying Adapters
 
+**What is Deploying?** Deployment copies **Adapter** files to the system directory, registers them with semantic names (tenant/domain/purpose/revision), and makes them available for use in **Stacks**.
+
 The `deploy` tree replaces the legacy `scripts/deploy_adapters.sh` script.
 
-- `aosctl deploy adapters`  
-  - Deploys adapter directories, `.aos` files, or `.safetensors` weights.  
-  - Key flags:  
-    - `--path <dir-or-file>` (repeatable): directories, `.aos`, or `.safetensors`.  
-    - `--adapters-dir`: target adapter directory (default `/opt/adapteros/adapters`).  
-    - `--backup-existing`: back up any existing adapter with the same name.  
+- `aosctl deploy adapters`
+  - Deploys adapter directories, `.aos` files, or `.safetensors` weights.
+  - Registers adapters in the system so they can be used in **Stacks**.
+  - Key flags:
+    - `--path <dir-or-file>` (repeatable): directories, `.aos`, or `.safetensors`.
+    - `--adapters-dir`: target adapter directory (default `/opt/adapteros/adapters`).
+    - `--backup-existing`: back up any existing adapter with the same name.
     - `--dry-run`: show what would be done without touching disk or registry.
+  - See [docs/CONCEPTS.md#adapter](../../../docs/CONCEPTS.md#2-adapter) for naming conventions.
 
 Behavior:
 
@@ -196,13 +230,19 @@ aosctl deploy adapters \
 
 ## 6. Inference and Replay
 
+**What is Inference?** Inference sends a prompt to the system. The **Router** selects top-K adapters from a stack, the **Kernel** executes them, and **Telemetry** records all events.
+
+**What is Replay?** Replay re-executes a **Golden Run** (verified execution) to verify determinism by comparing outputs byte-for-byte.
+
 These commands interact with running workers and telemetry bundles.
 
-- `aosctl infer`  
-  - Run an inference against a worker UDS.  
+- `aosctl infer`
+  - Run an inference against a worker UDS.
   - Key flags: `--adapter`, `--prompt`, `--socket`, `--max-tokens`, `--timeout`, `--require-evidence`.
-- `aosctl replay`  
+  - See [docs/CONCEPTS.md#workflow-1](../../../docs/CONCEPTS.md#workflow-1-training--adapter--stack--inference) for full flow.
+- `aosctl replay`
   - Replay a telemetry bundle and optionally check determinism.
+  - See [docs/CONCEPTS.md#golden-run](../../../docs/CONCEPTS.md#7-golden-run--replay) for details.
 
 **Examples**
 
@@ -221,24 +261,29 @@ aosctl infer --adapter my_adapter \
 
 ## 7. Determinism and Verification
 
+**What is Determinism?** Determinism means identical inputs produce identical outputs. Verification checks that **Kernels** are precompiled, **Router** uses fixed seeds, and **Replay** matches **Golden Runs** byte-for-byte.
+
 Determinism and adapter deliverable checks are fronted through `aosctl`.
 
-- `aosctl verify determinism-loop`  
-  - Runs the Determinism Loop verification pipeline:  
-    - Validates presence of key federation, policy, tick ledger, telemetry, CAB, orchestrator, and doc files.  
-    - Runs `cargo check` for determinism‑critical crates.  
-    - Optionally runs `cargo xtask determinism-report`.  
-  - Exit code: `0` if all checks pass, `1` otherwise.  
+- `aosctl verify determinism-loop`
+  - Runs the Determinism Loop verification pipeline:
+    - Validates presence of key federation, policy, tick ledger, telemetry, CAB, orchestrator, and doc files.
+    - Runs `cargo check` for determinism‑critical crates.
+    - Optionally runs `cargo xtask determinism-report`.
+  - Verifies **Kernel** precompilation, HKDF seeding, and canonical JSON serialization.
+  - Exit code: `0` if all checks pass, `1` otherwise.
   - With `--json`, emits a `DeterminismLoopResult { ok, checks[] }`.
+  - See [docs/CONCEPTS.md#golden-run](../../../docs/CONCEPTS.md#7-golden-run--replay) for replay details.
 
 - `aosctl verify-adapters`  
   - Wraps `cargo xtask verify-agents` (adapter deliverables A–F).  
   - Ideal for CI and pre‑release gates.  
   - With `--json`, emits `VerifyAdaptersResult { ok, exit_code, stdout_head, stderr_head }`.
 
-- Telemetry verification  
-  - `aosctl telemetry-verify --bundle-dir ./var/telemetry`  
-  - Validates the Merkle chain and signatures of telemetry bundles.
+- Telemetry verification
+  - `aosctl telemetry-verify --bundle-dir ./var/telemetry`
+  - Validates the **Merkle chain** and Ed25519 signatures of **Telemetry** bundles.
+  - See [docs/CONCEPTS.md#telemetry](../../../docs/CONCEPTS.md#6-telemetry) for bundle format.
 
 **Examples**
 
@@ -257,20 +302,24 @@ aosctl verify adapters --json > verify_adapters.json
 
 ## 8. Maintenance and Garbage Collection
 
+**What is GC?** Garbage collection removes old **Telemetry** bundles to manage disk space while preserving bundles needed for audit, incident response, and **Golden Run** replay.
+
 Maintenance commands manage long‑term storage and housekeeping.
 
-- `aosctl maintenance gc-bundles`  
-  - Garbage‑collects telemetry bundles according to Ruleset #10.  
-  - Key flags:  
-    - `--bundles-path` (default `/srv/aos/bundles`)  
-    - `--db-path` (default `var/aos-cp.sqlite3`)  
-    - `--keep-count N` (default `12`)  
+- `aosctl maintenance gc-bundles`
+  - Garbage‑collects telemetry bundles according to Ruleset #10.
+  - Preserves bundles needed for audit and **Replay**.
+  - Key flags:
+    - `--bundles-path` (default `/srv/aos/bundles`)
+    - `--db-path` (default `var/aos-cp.sqlite3`)
+    - `--keep-count N` (default `12`)
     - `--dry-run`
+  - See [docs/CONCEPTS.md#telemetry](../../../docs/CONCEPTS.md#6-telemetry) for bundle lifecycle.
 
 Semantics:
 
-- Keep last K bundles per CPID (ordered by `created_at`).  
-- Always keep bundles referenced by open incidents.  
+- Keep last K bundles per CPID (ordered by `created_at`).
+- Always keep bundles referenced by open incidents.
 - Always keep promotion bundles referenced by `cp_pointers`.
 
 **Examples**
@@ -294,13 +343,16 @@ aosctl maintenance gc-bundles \
 
 ## 9. Registry Migration
 
+**What is Registry Migration?** Migration upgrades the database schema that stores **Adapters** and **Tenants** while preserving all data, semantic names, and ACLs.
+
 The `registry` tree now owns safe migration of the adapter registry.
 
-- `aosctl registry migrate`  
-  - Migrates a legacy `registry.db` into the current `adapteros-registry` schema.  
-  - Key flags:  
-    - `--from-db` (default `deprecated/registry.db`)  
-    - `--to-db` (default `var/registry.db`)  
+- `aosctl registry migrate`
+  - Migrates a legacy `registry.db` into the current `adapteros-registry` schema.
+  - Preserves **Adapter** names, hashes, tiers, and **Tenant** ACLs.
+  - Key flags:
+    - `--from-db` (default `deprecated/registry.db`)
+    - `--to-db` (default `var/registry.db`)
     - `--dry-run`
 
 Behavior:
@@ -326,16 +378,20 @@ aosctl registry migrate \
 
 ## 10. Metrics, Diagnostics, and SECD
 
+**What are Metrics?** Metrics track system performance: **Router** latency, **Adapter** activation %, memory usage, and **Telemetry** event rates. Use for monitoring and alerting.
+
 These commands inspect system health, metrics, and diagnostics.
 
-- Metrics and health (may be gated by feature flags)  
+- Metrics and health (may be gated by feature flags)
   - `aosctl metrics ...` subcommands: current metrics, history, policy thresholds.
-- Diagnostics  
-  - `aosctl diag` – system and tenant diagnostics, with optional bundle creation.  
+  - Queries **Telemetry** aggregations for real-time system stats.
+- Diagnostics
+  - `aosctl diag` – system and tenant diagnostics, with optional bundle creation.
   - `aosctl manual` – display this manual.
-- SECD status  
-  - `aosctl secd-status`  
+- SECD status
+  - `aosctl secd-status`
   - Key flags: `--database`, `--json`.
+  - See [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) for system architecture.
 
 **Examples**
 
@@ -353,11 +409,16 @@ aosctl diag --full --bundle ./var/diag-bundle.zip
 
 These commands provide documentation and tutorials directly in the CLI.
 
-- `aosctl tutorial`  
+- `aosctl tutorial`
   - Guided walkthrough of common workflows (tenant setup, adapter registration, inference).
-- `aosctl manual`  
-  - Prints this manual in the terminal.  
+  - **Recommended**: Start with the concepts overview to understand the mental model.
+- `aosctl manual`
+  - Prints this manual in the terminal.
   - Use `--help` on specific commands for additional sections and examples.
+- **External Docs**:
+  - [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) - **START HERE** - Unified mental model
+  - [docs/ARCHITECTURE_INDEX.md](../../../docs/ARCHITECTURE_INDEX.md) - Architecture documentation index
+  - [CLAUDE.md](../../../CLAUDE.md) - Developer guide
 
 ---
 
