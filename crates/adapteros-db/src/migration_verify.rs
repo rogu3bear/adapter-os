@@ -158,17 +158,6 @@ impl MigrationVerifier {
             ))
         })?;
 
-        // TEMPORARY: Skip verification for unsigned migrations (PRD-05 migration normalization)
-        // TODO: Remove this bypass after migrations 0066-0070 are properly signed
-        if sig_data.signature.starts_with("TEMPORARY_UNSIGNED_") {
-            warn!(
-                "⚠  Skipping signature verification for {} (unsigned migration)",
-                filename
-            );
-            warn!("   TODO: Sign this migration with scripts/sign_migrations.sh");
-            return Ok(());
-        }
-
         // Compute file hash
         let file_content = fs::read(file_path)
             .map_err(|e| AosError::Io(format!("Failed to read migration file: {}", e)))?;

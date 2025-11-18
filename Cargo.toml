@@ -63,6 +63,7 @@ members = [
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)
+    "crates/sign-migrations",  # Migration signing tool
     "xtask",
     "fuzz",
 ]
