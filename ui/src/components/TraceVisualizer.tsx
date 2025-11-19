@@ -50,48 +50,29 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                 </div>
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {trace.router_decisions.slice(0, 10).map((decision, idx) => (
-
-                    <div
-                      key={idx}
-                      className="p-3 bg-muted rounded-lg text-sm"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">Token {decision.token_idx}</span>
-                        <Badge variant="outline">
-                          {decision.adapters?.length || 0} adapters
-                        </Badge>
-                      </div>
-                      <div className="space-y-1">
-                        {decision.adapters?.map((adapterId, adapterIdx) => (
-                          <div
-                            key={adapterIdx}
-                            className="flex items-center justify-between text-xs"
-                          >
-                            <span className="font-mono">{adapterId}</span>
-                            <span className="text-muted-foreground">
-                              Gate: {decision.gates?.[adapterIdx] || 0}
-
                     <div key={idx} className="p-3 bg-muted rounded-lg text-sm">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex flex-col">
                           <span className="font-medium">
-                            Token {decision.step}
+                            Token {decision.step || decision.token_idx}
                             {decision.input_token_id !== undefined
                               ? ` (input ${decision.input_token_id})`
                               : ''}
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            Entropy: {decision.entropy.toFixed(3)}, Tau:{' '}
-                            {decision.tau.toFixed(3)}, Floor:{' '}
-                            {decision.entropy_floor.toFixed(3)}
-                          </span>
+                          {decision.entropy !== undefined && (
+                            <span className="text-xs text-muted-foreground">
+                              Entropy: {decision.entropy.toFixed(3)}, Tau:{' '}
+                              {decision.tau?.toFixed(3) || 'N/A'}, Floor:{' '}
+                              {decision.entropy_floor?.toFixed(3) || 'N/A'}
+                            </span>
+                          )}
                         </div>
                         <Badge variant="outline">
-                          {decision.candidate_adapters.length} adapters
+                          {decision.candidate_adapters?.length || decision.adapters?.length || 0} adapters
                         </Badge>
                       </div>
                       <div className="space-y-1">
-                        {decision.candidate_adapters.map((candidate, candidateIdx) => (
+                        {decision.candidate_adapters?.map((candidate, candidateIdx) => (
                           <div
                             key={candidateIdx}
                             className="flex items-center justify-between text-xs"
@@ -104,9 +85,18 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                               {candidate.gate_q15}
                             </span>
                           </div>
+                        )) || decision.adapters?.map((adapterId, adapterIdx) => (
+                          <div
+                            key={adapterIdx}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <span className="font-mono">{adapterId}</span>
+                            <span className="text-muted-foreground">
+                              Gate: {decision.gates?.[adapterIdx] || 0}
+                            </span>
+                          </div>
                         ))}
                       </div>
-
 
                       {decision.stack_hash && (
                         <div className="text-xs text-muted-foreground mt-2">

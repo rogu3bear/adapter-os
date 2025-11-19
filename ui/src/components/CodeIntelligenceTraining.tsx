@@ -34,10 +34,6 @@ import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
 import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
 
-import { Repository, Commit, TrainingConfig } from '../api/types';
-import { logger } from '../utils/logger';
-import { toast } from 'sonner';
-
 interface CodeIntelligenceTrainingProps {
   tenantId: string;
   userId: string;
@@ -121,6 +117,10 @@ export function CodeIntelligenceTraining({
     const fetchData = async () => {
       setLoading(true);
       try {
+        logger.info('Fetching repositories and commits', {
+          component: 'CodeIntelligenceTraining',
+          operation: 'fetchData'
+        });
 
         const [repos, commits] = await Promise.all([
           apiClient.listRepositories(),
@@ -128,6 +128,12 @@ export function CodeIntelligenceTraining({
         ]);
         setRepositories(repos);
         setCommits(commits.slice(0, 10));
+
+        logger.info('Successfully loaded repositories and commits', {
+          component: 'CodeIntelligenceTraining',
+          operation: 'fetchData',
+          repositoryCount: repos.length
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to load repositories';
         logger.error('Failed to load repositories', {
@@ -137,111 +143,51 @@ export function CodeIntelligenceTraining({
           error: message,
         }, toError(error));
         toast.error(message);
-
-        logger.info('Fetching repositories and commits', {
-          component: 'CodeIntelligenceTraining',
-          operation: 'fetchData'
-        });
-
-        // Fetch repositories from API
-        const repos = await apiClient.listRepositories();
-        setRepositories(repos);
-
-        // If we have repositories, fetch commits for the first one
-        if (repos.length > 0 && selectedRepo) {
-          const commits = await apiClient.listCommits(selectedRepo);
-          setCommits(commits);
-        }
-
-        logger.info('Successfully loaded repositories and commits', {
-          component: 'CodeIntelligenceTraining',
-          operation: 'fetchData',
-          repositoryCount: repos.length
-        });
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch repositories';
-        logger.error('Failed to fetch repositories', {
-          component: 'CodeIntelligenceTraining',
-          operation: 'fetchData',
-          error: errorMessage
-        });
-        toast.error(`Failed to load repositories: ${errorMessage}`);
-        // Fallback to mock data for demonstration
-        setRepositories(mockRepositories);
-        setCommits(mockCommits);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-
-  }, [selectedRepo]);
-
-  useEffect(() => {
-    onConfigSelect(config);
-  }, [config, onConfigSelect]);
 
   const handleRepoSelect = async (repoId: string) => {
     setSelectedRepo(repoId);
     setConfig((prev) => ({
       ...prev,
       repo_id: repoId,
-
       scope: 'repo',
     }));
-
-
-      scope: 'repo'
-    });
 
     // Fetch commits for selected repository
     try {
       logger.info('Fetching commits for repository', {
         component: 'CodeIntelligenceTraining',
         operation: 'handleRepoSelect',
-
         repoId,
         tenantId,
       });
 
       const repoCommits = await apiClient.listCommits(repoId);
       setCommits(repoCommits);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch commits';
-
-        repoId
-      });
-
-      const commits = await apiClient.listCommits(repoId);
-      setCommits(commits);
 
       logger.info('Successfully loaded commits', {
         component: 'CodeIntelligenceTraining',
         operation: 'handleRepoSelect',
         repoId,
-        commitCount: commits.length
+        commitCount: repoCommits.length
       });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch commits';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch commits';
       logger.error('Failed to fetch commits', {
         component: 'CodeIntelligenceTraining',
         operation: 'handleRepoSelect',
         repoId,
-
         tenantId,
         error: message,
       }, toError(error));
       toast.error(`Failed to load commits: ${message}`);
-
-        error: errorMessage
-      });
-      toast.error(`Failed to load commits: ${errorMessage}`);
-      // Keep mock commits as fallback
     }
   };
 
@@ -304,7 +250,7 @@ export function CodeIntelligenceTraining({
       });
 
       toast.success(`Training started successfully (session ${result.session_id})`);
-      
+
       // Emit activity event (tenant_id/user_id auto-extracted from JWT)
       try {
         await apiClient.createActivityEvent({
@@ -327,7 +273,7 @@ export function CodeIntelligenceTraining({
           error: activityErr instanceof Error ? activityErr.message : String(activityErr),
         });
       }
-      
+
       onTrainingStarted?.(result.session_id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start training';
@@ -339,58 +285,6 @@ export function CodeIntelligenceTraining({
         error: message,
       }, toError(error));
       toast.error(`Failed to start training: ${message}`);
-    }
-  };
-
-  const handleStartTraining = async () => {
-    if (!selectedRepo) {
-      toast.error('Please select a repository first');
-      return;
-    }
-
-    try {
-      logger.info('Starting adapter training', {
-        component: 'CodeIntelligenceTraining',
-        operation: 'handleStartTraining',
-        config
-      });
-
-      const result = await apiClient.startAdapterTraining({
-        repository_path: selectedRepo,
-        adapter_name: `${config.category}_${selectedRepo.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        description: `Adapter trained on ${selectedRepo}${selectedCommit ? ` at commit ${selectedCommit.substring(0, 8)}` : ''}`,
-        training_config: {
-          rank: config.rank || 24,
-          alpha: config.alpha || 48,
-          epochs: config.epochs || 3,
-          learning_rate: config.learning_rate || 0.001,
-          batch_size: config.batch_size || 32,
-          category: config.category || 'codebase',
-          scope: config.scope || 'repo',
-          ...(config.repo_id && { repo_id: config.repo_id }),
-          ...(config.commit_sha && { commit_sha: config.commit_sha }),
-          ...(config.framework_id && { framework_id: config.framework_id }),
-        },
-        tenant_id: 'default' // TODO: Get from context
-      });
-
-      toast.success(`Training started successfully! Session ID: ${result.session_id}`);
-      logger.info('Training started successfully', {
-        component: 'CodeIntelligenceTraining',
-        operation: 'handleStartTraining',
-        sessionId: result.session_id
-      });
-
-      // Navigate to training monitor or show success message
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to start training';
-      logger.error('Failed to start training', {
-        component: 'CodeIntelligenceTraining',
-        operation: 'handleStartTraining',
-        error: errorMessage,
-        config
-      });
-      toast.error(`Failed to start training: ${errorMessage}`);
     }
   };
 
@@ -658,32 +552,29 @@ export function CodeIntelligenceTraining({
                 <div>
                   <div className="text-muted-foreground">Scope</div>
                   <div>{config.scope ?? 'repo'}</div>
+                </div>
 
-
-                {selectedRepo && (
-                  <Alert>
-                    <GitBranch className="h-4 w-4" />
-                    <AlertDescription>
-                      Training adapter for repository: <strong>{selectedRepo}</strong>
-                      {selectedCommit && (
-                        <> at commit: <strong>{selectedCommit.substring(0, 8)}</strong></>
-                      )}
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="status-indicator status-info flex-between">
-                  <div className="flex-center">
-                    <Zap className="icon-standard" />
-                    <span className="text-sm font-medium">
-                      Estimated training time: 2-4 hours
-                    </span>
-                  </div>
-                  <Button size="sm" onClick={handleStartTraining}>
-                    Start Training
-                  </Button>
+                <div>
+                  <div className="text-muted-foreground">Rank</div>
+                  <div>{config.rank ?? 24}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Alpha</div>
+                  <div>{config.alpha ?? 48}</div>
                 </div>
               </div>
+
+              {selectedRepo && (
+                <Alert>
+                  <GitBranch className="h-4 w-4" />
+                  <AlertDescription>
+                    Training adapter for repository: <strong>{selectedRepo}</strong>
+                    {selectedCommit && (
+                      <> at commit: <strong>{selectedCommit.substring(0, 8)}</strong></>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <Alert>
                 <AlertTriangle className="h-4 w-4" />

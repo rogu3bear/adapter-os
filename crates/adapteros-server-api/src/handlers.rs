@@ -6,10 +6,9 @@ use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
-// TODO: Re-enable once adapteros-system-metrics SQLx issues are resolved
-// Using local stubs instead
-use crate::system_metrics_stubs as adapteros_system_metrics;
-use crate::system_metrics_stubs::{
+// System metrics integration
+use adapteros_system_metrics;
+use adapteros_system_metrics::monitoring_types::{
     AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
     CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
@@ -21,6 +20,7 @@ pub mod adapter_stacks;
 pub mod adapters;
 pub mod batch;
 pub mod code;
+pub mod datasets;
 pub mod domain_adapters;
 pub mod federation;
 pub mod git;
@@ -3943,6 +3943,8 @@ pub async fn list_process_alerts(
 ) -> Result<Json<Vec<ProcessAlertResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    tracing::warn!("STUB ENDPOINT: list_process_alerts - returning placeholder data until system-metrics crate is restored");
+
     let tenant_filter = params.get("tenant_id");
     let worker_filter = params.get("worker_id");
     let status_filter = params.get("status");
@@ -3971,6 +3973,8 @@ pub async fn acknowledge_process_alert(
     Json(req): Json<AcknowledgeProcessAlertRequest>,
 ) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    tracing::warn!("STUB ENDPOINT: acknowledge_process_alert - returning placeholder data until system-metrics crate is restored");
 
     // TODO: Implement alert acknowledgment
     Ok(Json(ProcessAlertResponse {
@@ -4018,6 +4022,8 @@ pub async fn list_process_anomalies(
 ) -> Result<Json<Vec<ProcessAnomalyResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    tracing::warn!("STUB ENDPOINT: list_process_anomalies - returning placeholder data until system-metrics crate is restored");
+
     let tenant_filter = params.get("tenant_id");
     let worker_filter = params.get("worker_id");
     let status_filter = params.get("status");
@@ -4046,6 +4052,8 @@ pub async fn update_process_anomaly_status(
     Json(req): Json<UpdateProcessAnomalyStatusRequest>,
 ) -> Result<Json<ProcessAnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    tracing::warn!("STUB ENDPOINT: update_process_anomaly_status - returning placeholder data until system-metrics crate is restored");
 
     // TODO: Implement anomaly status update
     Ok(Json(ProcessAnomalyResponse {
@@ -4093,6 +4101,8 @@ pub async fn list_process_monitoring_dashboards(
 ) -> Result<Json<Vec<ProcessMonitoringDashboardResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    tracing::warn!("STUB ENDPOINT: list_process_monitoring_dashboards - returning placeholder data until system-metrics crate is restored");
+
     let tenant_filter = params.get("tenant_id");
     let is_shared_filter = params.get("is_shared").and_then(|s| s.parse::<bool>().ok());
 
@@ -4115,6 +4125,8 @@ pub async fn create_process_monitoring_dashboard(
     Json(req): Json<CreateProcessMonitoringDashboardRequest>,
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    tracing::warn!("STUB ENDPOINT: create_process_monitoring_dashboard - returning placeholder data until system-metrics crate is restored");
 
     // TODO: Implement dashboard creation
     Ok(Json(ProcessMonitoringDashboardResponse {
@@ -4221,6 +4233,8 @@ pub async fn list_process_monitoring_reports(
 ) -> Result<Json<Vec<ProcessMonitoringReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    tracing::warn!("STUB ENDPOINT: list_process_monitoring_reports - returning placeholder data until system-metrics crate is restored");
+
     let tenant_filter = params.get("tenant_id");
     let report_type_filter = params.get("report_type");
 
@@ -4243,6 +4257,8 @@ pub async fn create_process_monitoring_report(
     Json(req): Json<CreateProcessMonitoringReportRequest>,
 ) -> Result<Json<ProcessMonitoringReportResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    tracing::warn!("STUB ENDPOINT: create_process_monitoring_report - returning placeholder data until system-metrics crate is restored");
 
     // TODO: Implement report generation
     Ok(Json(ProcessMonitoringReportResponse {
@@ -5518,24 +5534,43 @@ pub async fn get_system_metrics(
 pub async fn list_commits(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-    Query(_query): Query<ListCommitsQuery>,
+    Query(query): Query<ListCommitsQuery>,
 ) -> Result<Json<Vec<CommitResponse>>, (StatusCode, Json<ErrorResponse>)> {
     // Use git subsystem if available
-    if let Some(_git_subsystem) = &state.git_subsystem {
-        // TODO: Implement list_commits in GitSubsystem
-        // For now, return empty list with placeholder commit
-        Ok(Json(vec![CommitResponse {
-            id: "abc123".to_string(),
-            repo_id: "default".to_string(),
-            sha: "abc123".to_string(),
-            message: "Initial commit (placeholder)".to_string(),
-            author: "System".to_string(),
-            date: chrono::Utc::now().to_rfc3339(),
-            branch: Some("main".to_string()),
-            changed_files: vec![],
-            impacted_symbols: vec![],
-            ephemeral_adapter_id: None,
-        }]))
+    if let Some(git_subsystem) = &state.git_subsystem {
+        let limit = query.limit.unwrap_or(50).clamp(1, 200) as usize;
+        let commits = git_subsystem
+            .list_commits(query.repo_id.as_deref(), query.branch.as_deref(), limit)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to list commits: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to list commits")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+        let response: Vec<CommitResponse> = commits
+            .into_iter()
+            .map(|commit| CommitResponse {
+                id: commit.sha.clone(),
+                repo_id: commit.repo_id,
+                sha: commit.sha,
+                message: commit.message,
+                author: commit.author,
+                date: commit.date.to_rfc3339(),
+                branch: commit.branch,
+                changed_files: commit.changed_files,
+                impacted_symbols: commit.impacted_symbols,
+                ephemeral_adapter_id: commit.ephemeral_adapter_id,
+            })
+            .collect();
+
+        Ok(Json(response))
     } else {
         Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -5564,20 +5599,42 @@ pub async fn get_commit(
     Path(sha): Path<String>,
 ) -> Result<Json<CommitResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Use git subsystem if available
-    if let Some(_git_subsystem) = &state.git_subsystem {
-        // TODO: Implement get_commit in GitSubsystem
-        // For now, return a placeholder response
+    if let Some(git_subsystem) = &state.git_subsystem {
+        let commit = git_subsystem
+            .get_commit(None, &sha)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get commit {}: {}", sha, e);
+                let status = if e.to_string().contains("not found") {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                };
+                (
+                    status,
+                    Json(
+                        ErrorResponse::new(format!("Failed to get commit: {}", e))
+                            .with_code(if status == StatusCode::NOT_FOUND {
+                                "NOT_FOUND"
+                            } else {
+                                "INTERNAL_ERROR"
+                            })
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
         Ok(Json(CommitResponse {
-            id: sha.clone(),
-            repo_id: "default".to_string(),
-            sha: sha.clone(),
-            message: format!("Commit message for {}", sha),
-            author: "System".to_string(),
-            date: chrono::Utc::now().to_rfc3339(),
-            branch: Some("main".to_string()),
-            changed_files: vec![],
-            impacted_symbols: vec![],
-            ephemeral_adapter_id: None,
+            id: commit.sha.clone(),
+            repo_id: commit.repo_id,
+            sha: commit.sha,
+            message: commit.message,
+            author: commit.author,
+            date: commit.date.to_rfc3339(),
+            branch: commit.branch,
+            changed_files: commit.changed_files,
+            impacted_symbols: commit.impacted_symbols,
+            ephemeral_adapter_id: commit.ephemeral_adapter_id,
         }))
     } else {
         Err((
@@ -5607,15 +5664,37 @@ pub async fn get_commit_diff(
 ) -> Result<Json<CommitDiffResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Use git subsystem if available
     if let Some(git_subsystem) = &state.git_subsystem {
-        // TODO: Implement get_commit_diff in GitSubsystem
-        // For now, return a placeholder response
+        let diff = git_subsystem
+            .get_commit_diff(None, &sha)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get commit diff for {}: {}", sha, e);
+                let status = if e.to_string().contains("not found") {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                };
+                (
+                    status,
+                    Json(
+                        ErrorResponse::new(format!("Failed to get commit diff: {}", e))
+                            .with_code(if status == StatusCode::NOT_FOUND {
+                                "NOT_FOUND"
+                            } else {
+                                "INTERNAL_ERROR"
+                            })
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
         Ok(Json(CommitDiffResponse {
-            sha: sha.clone(),
-            diff: format!("Diff for commit {} (placeholder)", sha),
+            sha: diff.sha,
+            diff: diff.diff,
             stats: DiffStats {
-                files_changed: 0,
-                insertions: 0,
-                deletions: 0,
+                files_changed: diff.files_changed,
+                insertions: diff.insertions,
+                deletions: diff.deletions,
             },
         }))
     } else {

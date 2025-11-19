@@ -33,9 +33,6 @@ import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 
-
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
-
 interface PoliciesProps {
   user?: User;
   selectedTenant?: string;
@@ -98,23 +95,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   useEffect(() => {
     fetchPolicies();
   }, [fetchPolicies]);
-
-  const fetchPolicies = async () => {
-    try {
-      const data = await apiClient.listPolicies();
-      setPolicies(data);
-    } catch (err) {
-      // Replace: console.error('Failed to fetch policies:', err);
-      logger.error('Failed to fetch policies', {
-        component: 'Policies',
-        operation: 'fetchPolicies',
-        tenantId: effectiveTenant,
-        userId: effectiveUser.id
-      }, err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSignPolicy = async (policy: Policy) => {
     try {
@@ -382,8 +362,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         <TabsContent value="packs" className="space-y-4">
 
 
-      <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
-
       <Card className="card-standard">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -475,33 +453,24 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-
-                  <TableCell className="table-cell-standard">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="icon-standard" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}>
-                          <Edit className="icon-standard mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleSignPolicy(policy)}>
-                          <FileSignature className="icon-standard mr-2" />
-                          Sign Policy
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowCompareModal(true); }}>
-                          <GitCompare className="icon-standard mr-2" />
-                          Compare
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleExportPolicy(policy)}>
-                          <Download className="icon-standard mr-2" />
-                          Export
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}>
+                            <Edit className="icon-standard mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSignPolicy(policy)}>
+                            <FileSignature className="icon-standard mr-2" />
+                            Sign Policy
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowCompareModal(true); }}>
+                            <GitCompare className="icon-standard mr-2" />
+                            Compare
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleExportPolicy(policy)}>
+                            <Download className="icon-standard mr-2" />
+                            Export
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -541,9 +510,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
               <div className="mb-4">
                 <p className="font-medium text-sm mb-1">Signed At</p>
-
-              <div className="form-field">
-                <p className="form-label">Signed At</p>
                 <p className="text-sm text-muted-foreground">{useTimestamp(signResult.signed_at)}</p>
               </div>
             </div>

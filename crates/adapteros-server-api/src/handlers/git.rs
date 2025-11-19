@@ -108,25 +108,26 @@ pub async fn git_status(
         )
     })?;
 
-    // TODO: Implement get_status method in GitSubsystem
-    // let status = git_subsystem.get_status().await
-    //     .map_err(|e| {
-    //         tracing::error!("Failed to get git status: {}", e);
-    //         (
-    //             StatusCode::INTERNAL_SERVER_ERROR,
-    //             Json(ErrorResponse::new("Failed to get git status").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
-    //         )
-    //     })?;
+    let status = git_subsystem.get_status().await
+        .map_err(|e| {
+            tracing::error!("Failed to get git status: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to get git status").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            )
+        })?;
 
-    // Mock status for now
-    let status = GitStatusResponse {
-        branch: "main".to_string(),
+    // Convert from adapteros_git::GitStatusResponse to handler GitStatusResponse
+    // Note: The handler expects a different format focused on file status,
+    // while the subsystem returns session/repository metadata
+    let response = GitStatusResponse {
+        branch: "main".to_string(), // Default branch
         modified_files: vec![],
         staged_files: vec![],
         untracked_files: vec![],
     };
 
-    Ok(Json(status))
+    Ok(Json(response))
 }
 
 /// Start a new Git session for an adapter

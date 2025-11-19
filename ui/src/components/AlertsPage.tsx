@@ -1,8 +1,5 @@
-
 // 【ui/src/components/AlertsPage.tsx§131-134】 - Replace manual polling with standardized hook
 import React, { useState, useEffect, useCallback } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -38,9 +35,6 @@ import { usePolling } from '../hooks/usePolling';
 import { useTenant } from '@/layout/LayoutProvider';
 import type { Alert } from '@/api/types';
 
-
-import { useTenant } from '@/layout/LayoutProvider';
-
 interface AlertsPageProps {
   selectedTenant?: string;
 }
@@ -56,23 +50,6 @@ interface AlertRule {
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   notification_channels: string[];
   description: string;
-}
-
-
-
-// Alert rules will be loaded from backend API
-
-interface Alert {
-  id: string;
-  rule_id: string;
-  rule_name: string;
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  message: string;
-  current_value: number;
-  threshold: number;
-  triggered_at: string;
-  resolved_at?: string;
-  acknowledged: boolean;
 }
 
 const DEFAULT_ALERT_RULES: AlertRule[] = [
@@ -131,8 +108,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const effectiveTenant = tenantProp ?? selectedTenant;
 
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
-
-  const [alertRules, setAlertRules] = useState<AlertRule[]>(DEFAULT_ALERT_RULES);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
@@ -168,56 +143,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       if (!rule.enabled) return;
 
       const metricValue = currentMetrics[rule.metric as keyof SystemMetrics] as number | undefined;
-
-
-  useEffect(() => {
-    loadAlerts();
-    loadMetrics();
-
-    // Poll metrics every 2 seconds for instant updates
-    const interval = setInterval(loadMetrics, 2000);
-    return () => clearInterval(interval);
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    // Evaluate alert rules when metrics update
-    if (metrics) {
-      evaluateAlertRules(metrics);
-    }
-  }, [metrics, alertRules]);
-
-  const loadAlerts = () => {
-    // Mock alerts (in production, load from backend)
-    const mockAlerts: Alert[] = [
-      {
-        id: 'alert-1',
-        rule_id: 'rule-1',
-        rule_name: 'High Memory Usage',
-        severity: 'high',
-        message: 'Memory usage at 87% for 5 minutes',
-        current_value: 87,
-        threshold: 85,
-        triggered_at: new Date(Date.now() - 300000).toISOString(),
-        acknowledged: false
-      }
-    ];
-    setAlerts(mockAlerts);
-  };
-
-  const loadMetrics = async () => {
-    try {
-      const metricsData = await apiClient.getSystemMetrics();
-      setMetrics(metricsData);
-    } catch (error) {
-      console.error('Failed to load metrics:', error);
-    }
-  };
-
-  const evaluateAlertRules = (currentMetrics: SystemMetrics) => {
-    alertRules.forEach(rule => {
-      if (!rule.enabled) return;
-
-      const metricValue = (currentMetrics as any)[rule.metric];
       if (metricValue === undefined) return;
 
       let shouldAlert = false;
@@ -234,18 +159,11 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       }
 
       if (shouldAlert) {
-        // Check if alert already exists
-        const existingAlert = alerts.find(
-
-          a => a.rule_id === rule.id && !a.resolved_at && a.status === 'active'
-        );
-        if (!existingAlert) {
-          // Note: Real-time alert generation disabled - alerts should come from backend
-          // Future enhancement: Implement SSE stream endpoint for real-time alert updates
-        }
+        // Note: Real-time alert generation disabled - alerts should come from backend
+        // Future enhancement: Implement SSE stream endpoint for real-time alert updates
       }
     });
-  }, [alertRules, alerts]);
+  }, [alertRules]);
 
   const loadAlerts = useCallback(async () => {
     try {
@@ -463,135 +381,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     }
   }, [effectiveTenant]);
 
-  // Real-time alert streaming using EventSource
-  //
-  // Citations:
-  // - SSE pattern: [source: ui/src/hooks/useActivityFeed.ts L350-L437]
-  // - Backend endpoint: [source: crates/adapteros-server-api/src/handlers.rs L12929-12935]
-  // - Event format: [source: crates/adapteros-server-api/src/types.rs L1732-1760]
-  useEffect(() => {
-    const base = (import.meta as any)?.env?.VITE_SSE_URL
-      ? `http://${(import.meta as any).env.VITE_SSE_URL}`
-      : ((import.meta as any)?.env?.VITE_API_URL || '/api');
-    const url = `${base}/v1/monitoring/alerts/stream`;
-    
-    let eventSource: EventSource | null = null;
-    let reconnectAttempts = 0;
-    const maxReconnect = 5;
-    const baseDelay = 1000;
-
-    const connectSSE = () => {
-      try {
-        eventSource = new EventSource(url);
-        
-        eventSource.addEventListener('alert', (event) => {
-          try {
-            const alert = JSON.parse((event as MessageEvent).data);
-            setAlerts((prev) => {
-              // Update existing alert or add new one
-              const existingIndex = prev.findIndex(a => a.id === alert.id);
-              if (existingIndex >= 0) {
-                const updated = [...prev];
-                updated[existingIndex] = alert;
-                return updated;
-              } else {
-                return [alert, ...prev].slice(0, 100); // Keep last 100 alerts
-              }
-            });
-            reconnectAttempts = 0;
-          } catch (err) {
-            logger.error('Failed to parse alert SSE payload', {
-              component: 'AlertsPage',
-              operation: 'sse_alert_parse',
-            }, toError(err));
-          }
-        });
-        
-        eventSource.addEventListener('open', () => {
-          reconnectAttempts = 0;
-          logger.info('Alert SSE stream connected', {
-            component: 'AlertsPage',
-            operation: 'sse_connect',
-          });
-        });
-        
-        eventSource.addEventListener('error', (evt: any) => {
-          reconnectAttempts++;
-          const unauthorized = evt?.status === 401 || evt?.code === 401;
-          if (unauthorized) {
-            logger.error('Alert SSE unauthorized', {
-              component: 'AlertsPage',
-              operation: 'sse_error',
-            }, new Error('Unauthorized'));
-            if (eventSource) {
-              eventSource.close();
-              eventSource = null;
-            }
-            return;
-          }
-          
-          if (reconnectAttempts >= maxReconnect) {
-            logger.error('Max SSE reconnect threshold reached (alerts)', {
-              component: 'AlertsPage',
-              operation: 'sse_reconnect',
-              reconnectAttempts,
-              maxReconnect,
-            });
-            if (eventSource) {
-              eventSource.close();
-              eventSource = null;
-            }
-            // Fallback to polling
-            const fallbackInterval = setInterval(() => {
-              void loadAlerts();
-            }, 5000);
-            return () => clearInterval(fallbackInterval);
-          }
-          
-          const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts - 1), 30000);
-          if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-          }
-          
-          setTimeout(() => {
-            if (eventSource === null) {
-              connectSSE();
-            }
-          }, delay);
-        });
-      } catch (err) {
-        logger.error('Failed to initialize alert SSE', {
-          component: 'AlertsPage',
-          operation: 'sse_init',
-        }, toError(err));
-      }
-    };
-    
-    // Initial load
-    void loadAlerts();
-    void loadAlertRules();
-
-    // Connect to SSE stream
-    connectSSE();
-    
-    // Cleanup
-    return () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-    };
-  }, [effectiveTenant, loadAlerts, loadAlertRules]);
-
-  // Update metrics and evaluate alert rules when polling data arrives
-  useEffect(() => {
-    if (!metricsData) return;
-    
-    setMetrics(metricsData);
-    evaluateAlertRules(metricsData);
-  }, [metricsData, evaluateAlertRules]);
-
   const handleToggleRule = async (ruleId: string) => {
     try {
       // For now, just update local state since backend doesn't have update endpoint
@@ -674,53 +463,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       }, toError(error));
       toast.error('Failed to save alert rule');
     }
-
-          a => a.rule_id === rule.id && !a.resolved_at
-        );
-        if (!existingAlert) {
-          const newAlert: Alert = {
-            id: `alert-${Date.now()}`,
-            rule_id: rule.id,
-            rule_name: rule.name,
-            severity: rule.severity,
-            message: `${rule.name}: ${metricValue} ${rule.condition === 'gt' ? '>' : rule.condition === 'lt' ? '<' : '='} ${rule.threshold}`,
-            current_value: metricValue,
-            threshold: rule.threshold,
-            triggered_at: new Date().toISOString(),
-            acknowledged: false
-          };
-          setAlerts(prev => [newAlert, ...prev]);
-        }
-      }
-    });
-  };
-
-  const handleToggleRule = (ruleId: string) => {
-    setAlertRules(prev =>
-      prev.map(rule =>
-        rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule
-      )
-    );
-    toast.success('Alert rule updated');
-  };
-
-  const handleDeleteRule = (ruleId: string) => {
-    setAlertRules(prev => prev.filter(rule => rule.id !== ruleId));
-    toast.success('Alert rule deleted');
-  };
-
-  const handleSaveRule = (rule: AlertRule) => {
-    if (isCreatingRule) {
-      setAlertRules(prev => [...prev, { ...rule, id: `rule-${Date.now()}` }]);
-      toast.success('Alert rule created');
-    } else {
-      setAlertRules(prev =>
-        prev.map(r => (r.id === rule.id ? rule : r))
-      );
-      toast.success('Alert rule updated');
-    }
-    setEditingRule(null);
-    setIsCreatingRule(false);
   };
 
   const handleAcknowledgeAlert = (alertId: string) => {
@@ -760,7 +502,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
   const activeAlerts = alerts.filter(a => !a.resolved_at);
   const criticalAlerts = activeAlerts.filter(a => a.severity === 'critical').length;
-
   const unacknowledgedAlerts = activeAlerts.filter(a => !(a.acknowledged_by || a.acknowledged_at)).length;
 
   return (
@@ -768,11 +509,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       {/* Error Recovery */}
       {errorRecovery}
 
-
-  const unacknowledgedAlerts = activeAlerts.filter(a => !a.acknowledged).length;
-
-  return (
-    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -895,28 +631,18 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                       className={`
                         p-4 border-2 rounded-lg
                         ${getSeverityColor(alert.severity)}
-
                         ${(alert.acknowledged_by || alert.acknowledged_at) ? 'opacity-60' : ''}
-
-                        ${alert.acknowledged ? 'opacity-60' : ''}
                       `}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <AlertTriangle className="w-5 h-5" />
-
-                            <span className="font-semibold">{alert.title}</span>
+                            <span className="font-semibold">{alert.title || alert.rule_name || 'Alert'}</span>
                             <Badge variant="outline">
                               {alert.severity.toUpperCase()}
                             </Badge>
                             {(alert.acknowledged_by || alert.acknowledged_at) && (
-
-                            <span className="font-semibold">{alert.rule_name}</span>
-                            <Badge variant="outline">
-                              {alert.severity.toUpperCase()}
-                            </Badge>
-                            {alert.acknowledged && (
                               <Badge variant="outline" className="bg-blue-50">
                                 Acknowledged
                               </Badge>
@@ -924,7 +650,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                           </div>
                           <p className="text-sm mb-2">{alert.message}</p>
                           <div className="flex items-center gap-4 text-xs">
-
                             {alert.metric_value !== undefined && (
                               <span>
                                 Current: {alert.metric_value}
@@ -935,25 +660,20 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                                 Threshold: {alert.threshold_value}
                               </span>
                             )}
-                            <span>
-                              Created: {new Date(alert.created_at).toLocaleString()}
-
-                            <span>
-                              Current: {alert.current_value}
-                            </span>
-                            <span>
-                              Threshold: {alert.threshold}
-                            </span>
-                            <span>
-                              Triggered: {new Date(alert.triggered_at).toLocaleString()}
-                            </span>
+                            {alert.created_at && (
+                              <span>
+                                Created: {new Date(alert.created_at).toLocaleString()}
+                              </span>
+                            )}
+                            {alert.triggered_at && !alert.created_at && (
+                              <span>
+                                Triggered: {new Date(alert.triggered_at).toLocaleString()}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex gap-2">
-
                           {!(alert.acknowledged_by || alert.acknowledged_at) && (
-
-                          {!alert.acknowledged && (
                             <Button
                               size="sm"
                               variant="outline"

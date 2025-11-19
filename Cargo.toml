@@ -19,7 +19,7 @@ members = [
     "crates/adapteros-lora-kernel-mtl",  # Metal kernels (macOS only, available)
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database
-    # "crates/adapteros-system-metrics",
+    "crates/adapteros-system-metrics",
     "crates/adapteros-lora-mlx-ffi",  # MLX backend (fixed bindgen attribute issue)
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",

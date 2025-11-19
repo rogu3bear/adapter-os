@@ -101,6 +101,8 @@ use utoipa_swagger_ui::SwaggerUi;
         // Trace handlers
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
+        // Dataset handlers
+        handlers::datasets::dataset_upload_progress,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -537,6 +539,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/streams/training", get(handlers::training_stream))
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
+        .route("/v1/datasets/upload/progress", get(handlers::datasets::dataset_upload_progress))
         // Code intelligence routes
         .route(
             "/v1/code/register-repo",

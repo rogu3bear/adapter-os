@@ -1,10 +1,6 @@
-
 // 【ui/src/components/ui/use-mobile.ts】 - Mobile detection hook
 // 【ui/src/components/MobileNavigation.tsx】 - Mobile navigation component
 import React, { useState, useEffect, useMemo } from 'react';
-
-import React from 'react';
->
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,17 +49,9 @@ import {
 import type { UserRole } from '@/api/types';
 
 function RootLayoutContent() {
-  // All hooks must be called before any conditional returns
-
-import { useTheme, useAuth, useTenant } from './LayoutProvider';
-import { Lock, Menu, X } from 'lucide-react';
-
-export default function RootLayout() {
->
   const { theme, toggleTheme } = useTheme();
   const { user, isLoading, logout } = useAuth();
   const { selectedTenant, setSelectedTenant, tenants } = useTenant();
-  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -104,8 +92,6 @@ export default function RootLayout() {
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
-  React.useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
-
   // Generate navigation groups from centralized route config
   const navigationGroups = useMemo(() => generateNavigationGroups(user?.role), [user?.role]);
 
@@ -118,11 +104,6 @@ export default function RootLayout() {
     }));
   };
 
-
-
-  React.useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
-
->
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -134,7 +115,6 @@ export default function RootLayout() {
     );
   }
 
-
   // Handle auth at layout level - redirect unauthenticated users to login
   // Exception: /login route is handled by LoginRoute component
   if (!user && location.pathname !== '/login') {
@@ -145,28 +125,11 @@ export default function RootLayout() {
   if (location.pathname === '/login') {
     return (
       <div className="min-h-screen bg-background p-6">
-
-  if (!user) {
-    // Simple unauthenticated shell (feature pages can render their own forms)
-    return (
-      <div className="min-h-screen bg-background p-6">{/* Placeholder outlet for login routes if added later */}
->
         <Outlet />
         <Toaster position="top-right" className="z-40" />
       </div>
     );
   }
-
-
-
-  const items = [
-    { to: '/dashboard', label: 'Dashboard' },
-    { to: '/telemetry', label: 'Telemetry' },
-    { to: '/alerts', label: 'Alerts' },
-    { to: '/replay', label: 'Replay' },
-    { to: '/policies', label: 'Policies' },
-  ];
->
 
   return (
     <div className="min-h-screen bg-background">
@@ -178,7 +141,6 @@ export default function RootLayout() {
               <Lock className="h-5 w-5 text-primary" />
               <h1 className="font-medium">AdapterOS Control Plane</h1>
             </div>
-
             <div className="text-xs rounded px-2 py-0.5 border border-gray-300 text-gray-700 bg-gray-50">Zero Egress Mode</div>
           </div>
           <div className="flex items-center gap-2">
@@ -198,14 +160,6 @@ export default function RootLayout() {
               onOpenChange={setNotificationCenterOpen}
               showCountLabel
             />
-
-            <div className="text-xs rounded px-2 py-0.5 border text-green-700 bg-green-50">Zero Egress Mode</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setMobileMenuOpen(true)} aria-label="Open menu">
-              <Menu className="h-5 w-5" />
-            </Button>
->
             {tenants.length > 0 && (
               <Select value={selectedTenant} onValueChange={setSelectedTenant}>
                 <SelectTrigger className="w-[180px] hidden sm:flex">
@@ -213,11 +167,7 @@ export default function RootLayout() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="default">Default</SelectItem>
-
                   {tenants.filter(t => t.id && t.id !== '').map((t) => (
-
-                  {tenants.map((t) => (
->
                     <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -225,17 +175,13 @@ export default function RootLayout() {
             )}
             <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
             <span className="text-muted-foreground hidden md:inline">{user.email}</span>
-
-
             <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
               {theme === 'dark' ? 'Light' : 'Dark'}
             </Button>
->
             <Button variant="outline" size="sm" onClick={() => void logout()} className="hidden sm:inline-flex">Logout</Button>
           </div>
         </div>
       </header>
-
 
       {/* Overlay for mobile */}
       {isSidebarOpen && <div className={cn("fixed inset-0 z-40", FROST_OVERLAY, "md:hidden")} onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />}
@@ -249,9 +195,9 @@ export default function RootLayout() {
               <X className="h-5 w-5 mr-2" />
               Close Menu
             </Button>
-            
+
             {isMobile ? (
-              <MobileNavigation 
+              <MobileNavigation
                 groups={navigationGroups.filter(group => shouldShowNavGroup(group, user?.role))}
                 onNavigate={(path) => {
                   navigate(path);
@@ -275,7 +221,7 @@ export default function RootLayout() {
                         <ChevronDown className="h-3 w-3" />
                       )}
                     </button>
-                    
+
                     {!isCollapsed && (
                       <div className="mt-1 space-y-1">
                         {group.items.map((item) => {
@@ -306,35 +252,6 @@ export default function RootLayout() {
           </div>
         </aside>
 
-      {/* Body */}
-      <div className="flex">
-        {/* Sidebar */}
-        <nav className={`w-64 border-r bg-card p-4 md:block ${mobileMenuOpen ? 'fixed inset-y-0 left-0 z-10 block' : 'hidden'}`} aria-label="Main navigation">
-          <div className="space-y-2">
-            <Button className="md:hidden mb-4 w-full justify-start" variant="ghost" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">
-              <X className="h-5 w-5 mr-2" />
-              Close Menu
-            </Button>
-            {items.map((item) => (
-              <Button
-                key={item.to}
-                variant={location.pathname === item.to ? 'default' : 'ghost'}
-                className="w-full justify-start"
-                onClick={() => navigate(item.to)}
-                aria-current={location.pathname === item.to ? 'page' : undefined}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </div>
-        </nav>
-
-        {/* Mobile overlay */}
-        {mobileMenuOpen && (
-          <div className="fixed inset-0 bg-black/50 z-10 md:hidden" onClick={() => setMobileMenuOpen(false)} aria-hidden="true" />
-        )}
->
-
         {/* Content */}
         <main className="flex-1 p-4 md:p-6">
           <div className="mx-auto max-w-[1440px]">
@@ -348,17 +265,14 @@ export default function RootLayout() {
 
       {/* Live region for screen reader announcements */}
       <div id="sr-announcer" aria-live="polite" aria-atomic="true" className="sr-only" />
-      
+
       {/* Command Palette */}
       <CommandPalette />
       <NotificationCenter open={notificationCenterOpen} onOpenChange={setNotificationCenterOpen} />
       <HelpCenter open={helpCenterOpen} onOpenChange={setHelpCenterOpen} />
-
->
     </div>
   );
 }
-
 
 export default function RootLayout() {
   const { user } = useAuth();
@@ -439,6 +353,3 @@ export default function RootLayout() {
     </CommandPaletteProvider>
   );
 }
-
-
->

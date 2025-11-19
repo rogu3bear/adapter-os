@@ -50,8 +50,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
               // Log error but continue with fallback
               logger.warn('Failed to validate model', {
                 component: 'ModelSelector',
-                modelId: model.id,
-                error: error instanceof Error ? error.message : String(error)
+                modelId: model.id
               });
               return {
                 modelId: model.id,

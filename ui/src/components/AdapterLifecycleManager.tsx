@@ -391,22 +391,8 @@ export function AdapterLifecycleManager({
 
   const handlePolicyUpdate = async (category: AdapterCategory, policy: CategoryPolicy) => {
     setIsLoading(true);
-
     setStatusMessage(null);
     setErrorRecovery(null);
-    try {
-      await adapterOperations.updateCategoryPolicy(category, policy);
-      setStatusMessage({ message: `Policy updated successfully for ${category}.`, variant: 'success' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update policy';
-      setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handlePolicyUpdate(category, policy)
-        )
-      );
-
     try {
       setPolicies(prev => ({ ...prev, [category]: policy }));
       onPolicyUpdate(category, policy);
@@ -420,6 +406,7 @@ export function AdapterLifecycleManager({
         policy,
         note: 'Local update only - PUT /v1/adapters/category/:category/policy needs implementation'
       });
+      setStatusMessage({ message: `Policy updated successfully for ${category}.`, variant: 'success' });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update policy';
       logger.error('Failed to update policy', {
@@ -428,8 +415,13 @@ export function AdapterLifecycleManager({
         category,
         error: errorMessage
       });
-
-
+      setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
+      setErrorRecovery(
+        ErrorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => handlePolicyUpdate(category, policy)
+        )
+      );
       toast.error(`Failed to update policy: ${errorMessage}`);
     } finally {
       setIsLoading(false);

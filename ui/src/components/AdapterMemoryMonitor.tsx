@@ -414,8 +414,6 @@ export function AdapterMemoryMonitor({
       setSelectedAdapterIds(new Set());
     } else {
       setSelectedAdapterIds(new Set(evictionCandidates.map(a => a.adapter_id)));
-
-      toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
     }
   };
 

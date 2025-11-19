@@ -6,7 +6,6 @@
 //! # Citations
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
-
 //! - Dashboard.tsx L220: Uses real-time activity feed from /v1/telemetry/events/recent
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -14,30 +13,16 @@ import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
 import type { RecentActivityEvent } from '@/api/types';
 
-//! - Dashboard.tsx L220: "TODO: Replace with real-time activity feed from /v1/telemetry/events or audit log"
-
-import { useState, useEffect } from 'react';
-import { logger } from '../utils/logger';
-import apiClient from '../api/client';
->
-
 export interface ActivityEvent {
   id: string;
   timestamp: string;
-
   type: 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error' | 'collaboration';
-
-  type: 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error';
->
   severity: 'info' | 'warning' | 'error' | 'critical';
   message: string;
   component?: string;
   tenantId?: string;
   userId?: string;
-
   workspaceId?: string;
-
->
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -46,11 +31,8 @@ export interface UseActivityFeedOptions {
   maxEvents?: number;
   tenantId?: string;
   userId?: string;
-
   workspaceId?: string;
   useSSE?: boolean;
-
->
 }
 
 export interface UseActivityFeedReturn {
@@ -80,12 +62,8 @@ export interface UseActivityFeedReturn {
  * - Policy Pack #1 (Egress): Uses relative API paths only
  */
 export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivityFeedReturn {
-
   const { enabled = true, maxEvents = 50, tenantId, userId, workspaceId, useSSE = true } = options;
 
-  const { enabled = true, maxEvents = 50, tenantId, userId } = options;
->
-  
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,14 +73,14 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
   const baselineIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
-  
+
   // Store latest values in refs to avoid recreating callbacks
   const enabledRef = useRef(enabled);
   const maxEventsRef = useRef(maxEvents);
   const tenantIdRef = useRef(tenantId);
   const userIdRef = useRef(userId);
   const workspaceIdRef = useRef(workspaceId);
-  
+
   useEffect(() => {
     enabledRef.current = enabled;
     maxEventsRef.current = maxEvents;
@@ -112,68 +90,6 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
   }, [enabled, maxEvents, tenantId, userId, workspaceId]);
 
   const mapEventType = useCallback((eventType: string): ActivityEvent['type'] => {
-
-
-  const fetchEvents = async () => {
-    if (!enabled) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Fetch telemetry events from the audit log
-      const telemetryEvents = await apiClient.getTelemetryEvents({
-        limit: maxEvents,
-        tenantId,
-        userId,
-        startTime: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Last 24 hours
-      });
-
-      // Transform telemetry events to activity events
-      const activityEvents: ActivityEvent[] = telemetryEvents.map(event => ({
-        id: event.id,
-        timestamp: event.timestamp,
-        type: mapEventType(event.event_type),
-        severity: mapSeverity(event.level),
-        message: event.message,
-        component: event.component,
-        tenantId: event.tenant_id,
-        userId: event.user_id,
-        metadata: event.metadata,
-      }));
-
-      // Sort by timestamp (newest first)
-      activityEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
-      setEvents(activityEvents);
-      
-      logger.info('Activity feed updated', {
-        component: 'useActivityFeed',
-        operation: 'fetchEvents',
-        eventCount: activityEvents.length,
-        tenantId,
-        userId
-      });
-      
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch activity events';
-      setError(errorMessage);
-      
-      logger.error('Failed to fetch activity events', {
-        component: 'useActivityFeed',
-        operation: 'fetchEvents',
-        tenantId,
-        userId
-      }, err instanceof Error ? err : new Error(String(err)));
-      
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Map telemetry event types to activity types
-  const mapEventType = (eventType: string): ActivityEvent['type'] => {
->
     switch (eventType) {
       case 'node_recovery':
       case 'worker_recovery':
@@ -199,16 +115,9 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       default:
         return 'telemetry';
     }
-
   }, []);
 
   const mapSeverity = useCallback((level: string): ActivityEvent['severity'] => {
-
-  };
-
-  // Map log levels to severity levels
-  const mapSeverity = (level: string): ActivityEvent['severity'] => {
->
     switch (level.toLowerCase()) {
       case 'error':
         return 'error';
@@ -221,7 +130,6 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       default:
         return 'info';
     }
-
   }, []);
 
   const mapRecentEvent = useCallback((event: RecentActivityEvent): ActivityEvent => {
@@ -285,7 +193,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       });
     } catch (err) {
       if (!isMountedRef.current) return;
-      
+
       const errorMessage = err instanceof Error ? err.message : 'Recent activity unavailable';
       setError(errorMessage);
 
@@ -301,7 +209,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
         setLoading(false);
       }
     }
-  }, [mapRecentEvent]); // Removed other deps - use refs
+  }, [mapRecentEvent]);
 
   useEffect(() => {
     if (!enabled) {
@@ -318,12 +226,17 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
-      stopSSE();
+      if (sseRef.current) {
+        try {
+          sseRef.current.close();
+        } catch {}
+        sseRef.current = null;
+      }
       return;
     }
 
     isMountedRef.current = true;
-    
+
     // Clean up any existing resources first
     if (baselineIntervalRef.current) {
       clearInterval(baselineIntervalRef.current);
@@ -337,7 +250,12 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
-    stopSSE();
+    if (sseRef.current) {
+      try {
+        sseRef.current.close();
+      } catch {}
+      sseRef.current = null;
+    }
 
     fetchEvents();
 
@@ -372,8 +290,8 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
     function stopSSE() {
       if (sseRef.current) {
-        try { 
-          sseRef.current.close(); 
+        try {
+          sseRef.current.close();
         } catch {}
         sseRef.current = null;
       }
@@ -401,7 +319,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
         es.addEventListener('activity', (event) => {
           if (!isMountedRef.current) return;
-          
+
           try {
             const payload = JSON.parse((event as MessageEvent).data);
             const incoming = Array.isArray(payload) ? payload : [payload];
@@ -419,9 +337,9 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
               };
               return mapRecentEvent(recentEvent);
             });
-            
+
             if (!isMountedRef.current) return;
-            
+
             setEvents((prev) => {
               const merged = [...normalized, ...prev];
               const deduped: ActivityEvent[] = [];
@@ -449,7 +367,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
         es.addEventListener('error', (evt: any) => {
           if (!isMountedRef.current) return;
-          
+
           reconnectAttempts++;
           const unauthorized = evt?.status === 401 || evt?.code === 401;
           if (unauthorized) {
@@ -472,7 +390,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
           const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts - 1), 30000);
           startFallbackPolling();
           stopSSE();
-          
+
           clearReconnectTimer();
           reconnectTimerRef.current = setTimeout(() => {
             if (!isMountedRef.current) return;
@@ -491,7 +409,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
     return () => {
       isMountedRef.current = false;
-      
+
       if (baselineIntervalRef.current) {
         clearInterval(baselineIntervalRef.current);
         baselineIntervalRef.current = null;
@@ -501,18 +419,6 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       stopSSE();
     };
   }, [enabled, useSSE, mapRecentEvent, fetchEvents]);
-
-  };
-
-  useEffect(() => {
-    fetchEvents();
-    
-    // Set up polling for real-time updates (every 30 seconds)
-    const interval = setInterval(fetchEvents, 30000);
-    
-    return () => clearInterval(interval);
-  }, [enabled, maxEvents, tenantId, userId]);
->
 
   return {
     events,

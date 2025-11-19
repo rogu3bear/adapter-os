@@ -2107,8 +2107,6 @@ export interface Alert {
   suppression_until?: string;
   escalation_level: number;
   notification_sent: boolean;
-
-  escalation_level: number;
   created_at: string;
   updated_at: string;
 }

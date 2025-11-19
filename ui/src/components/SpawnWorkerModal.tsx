@@ -1,7 +1,4 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
@@ -11,13 +8,10 @@ import { AlertTriangle, CheckCircle, Server } from 'lucide-react';
 
 // 【ui/src/components/SpawnWorkerModal.tsx§1-35】 - Replace toast notifications with ErrorRecovery patterns
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
-import apiClient from '../api/client';
-import { Node, Plan, SpawnWorkerRequest } from '../api/types';
-import { logger, toError } from '../utils/logger';
-
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Node, Plan, SpawnWorkerRequest } from '../api/types';
+import { logger, toError } from '../utils/logger';
 
 interface SpawnWorkerModalProps {
   open: boolean;
@@ -43,17 +37,6 @@ export function SpawnWorkerModal({
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      loadData();
-      setTenantId(selectedTenant);
-    }
-  }, [open, selectedTenant]);
-
-  const loadData = async () => {
     try {
       const [nodesData, plansData] = await Promise.all([
         apiClient.listNodes(),
@@ -102,30 +85,10 @@ export function SpawnWorkerModal({
 
     if (!selectedNode || !selectedPlan || !tenantId) {
       setValidationMessage('Please select node, plan, and tenant.');
-
-      if (healthyNodes.length > 0 && !selectedNode) {
-        setSelectedNode(healthyNodes[0].id);
-      }
-      if (plansData.length > 0 && !selectedPlan) {
-        setSelectedPlan(plansData[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to load data:', err);
-      setError('Failed to load nodes and plans');
-    }
-  };
-
-  const handleSpawn = async () => {
-    if (!selectedNode || !selectedPlan || !tenantId) {
-      setError('Please select node, plan, and tenant');
       return;
     }
 
     setIsLoading(true);
-
-    setModalError(null);
-
-    setError(null);
 
     try {
       const request: SpawnWorkerRequest = {
@@ -136,17 +99,15 @@ export function SpawnWorkerModal({
 
       const worker = await apiClient.spawnWorker(request);
 
-
       toast.success(`Worker ${worker.id} spawned successfully`);
       onSuccess();
       onOpenChange(false);
-      
+
       // Reset form
       setSelectedNode('');
       setSelectedPlan('');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to spawn worker';
-
       const error = err instanceof Error ? err : new Error(errorMessage);
       setModalError(error);
       setValidationMessage(null);
@@ -157,8 +118,6 @@ export function SpawnWorkerModal({
         nodeId: selectedNode,
         planId: selectedPlan,
       }, toError(err));
-
-      setError(errorMessage);
       toast.error(errorMessage);
     } finally {
       setIsLoading(false);
@@ -195,11 +154,6 @@ export function SpawnWorkerModal({
             <Alert className="border-amber-200 bg-amber-50">
               <AlertTriangle className="h-4 w-4 text-amber-600" />
               <AlertDescription className="text-amber-700">{validationMessage}</AlertDescription>
-
-          {error && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
@@ -226,10 +180,7 @@ export function SpawnWorkerModal({
                 <SelectValue placeholder="Select a node..." />
               </SelectTrigger>
               <SelectContent>
-
                 {nodes.filter(node => node.id && node.id !== '').map((node) => (
-
-                {nodes.map((node) => (
                   <SelectItem key={node.id} value={node.id}>
                     {node.hostname} - {node.metal_family} ({node.memory_gb}GB)
                   </SelectItem>
@@ -252,10 +203,7 @@ export function SpawnWorkerModal({
                 <SelectValue placeholder="Select a plan..." />
               </SelectTrigger>
               <SelectContent>
-
                 {plans.filter(plan => plan.id && plan.id !== '').map((plan) => (
-
-                {plans.map((plan) => (
                   <SelectItem key={plan.id} value={plan.id}>
                     {plan.cpid} - {plan.status}
                   </SelectItem>

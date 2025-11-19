@@ -653,13 +653,17 @@ async fn main() -> Result<()> {
     let uma_monitor = Arc::new(UmaPressureMonitor::new(15, Some(metrics_exporter.clone())));
     uma_monitor.start_polling().await;
 
+    // Create broadcast channel for dataset progress (capacity 100)
+    let (dataset_progress_tx, _) = tokio::sync::broadcast::channel(100);
+
     let mut state = AppState::new(
         db.clone(),
         jwt_secret.as_bytes().to_vec(),
         api_config.clone(),
         Arc::clone(&metrics_exporter),
         uma_monitor.clone(),
-    );
+    )
+    .with_dataset_progress(dataset_progress_tx);
 
     state = state.with_plugin_registry(Arc::new(plugin_registry::PluginRegistry::new(db.clone())));
 

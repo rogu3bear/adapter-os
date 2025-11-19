@@ -9,7 +9,7 @@ use adapteros_orchestrator::{CodeJobManager, TrainingService};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 /// Runtime configuration subset needed by API handlers
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +58,19 @@ impl Default for CryptoState {
     }
 }
 
+/// Dataset progress event for SSE streaming
+#[derive(Clone, Debug, Serialize)]
+pub struct DatasetProgressEvent {
+    pub dataset_id: String,
+    pub event_type: String,  // "upload", "validation", "statistics"
+    pub current_file: Option<String>,
+    pub percentage_complete: f32,  // 0.0 to 100.0
+    pub total_files: Option<i32>,
+    pub files_processed: Option<i32>,
+    pub message: String,
+    pub timestamp: String,  // ISO8601 format
+}
+
 /// Shared application state passed to all handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -83,6 +96,7 @@ pub struct AppState {
     pub telemetry_buffer: Arc<crate::telemetry::TelemetryBuffer>,
     pub telemetry_tx: Arc<crate::telemetry::TelemetrySender>,
     pub trace_buffer: Arc<crate::telemetry::TraceBuffer>,
+    pub dataset_progress_tx: Option<Arc<broadcast::Sender<DatasetProgressEvent>>>,
 }
 
 impl AppState {
@@ -128,6 +142,7 @@ impl AppState {
             telemetry_buffer,
             telemetry_tx,
             trace_buffer,
+            dataset_progress_tx: None,
         }
     }
 
@@ -161,6 +176,11 @@ impl AppState {
 
     pub fn with_plugin_registry(mut self, registry: Arc<adapteros_server::PluginRegistry>) -> Self {
         self.plugin_registry = registry;
+        self
+    }
+
+    pub fn with_dataset_progress(mut self, tx: broadcast::Sender<DatasetProgressEvent>) -> Self {
+        self.dataset_progress_tx = Some(Arc::new(tx));
         self
     }
 

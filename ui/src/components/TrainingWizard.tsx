@@ -24,10 +24,6 @@ import { DensityProvider, useDensity } from '../contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
-
-import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
-import { toast } from 'sonner';
-import apiClient from '../api/client';
 import {
   AdapterCategory,
   AdapterScope,
@@ -42,20 +38,18 @@ interface TrainingWizardProps {
 }
 
 interface WizardState {
-
   // Current step
   currentStep?: number;
 
   // Step 1: Category
   category: AdapterCategory | null;
-  
+
   // Step 2: Basic Info
   name: string;
   description: string;
   scope: AdapterScope;
-  
-  // Step 3: Data Source
 
+  // Step 3: Data Source
   dataSourceType: 'repository' | 'template' | 'custom' | 'directory';
   repositoryId?: string;
   templateId?: string;
@@ -63,11 +57,6 @@ interface WizardState {
   datasetPath?: string;
   directoryRoot?: string;
   directoryPath?: string;
-
-  dataSourceType: 'repository' | 'template' | 'custom';
-  repositoryId?: string;
-  templateId?: string;
-  customData?: string;
   
   // Step 4: Category-specific config
   // Code adapter
@@ -95,14 +84,12 @@ interface WizardState {
   warmupSteps?: number;
   maxSeqLength?: number;
 
-
   // Step 6: Packaging & Registration
   packageAfter?: boolean;
   registerAfter?: boolean;
   adaptersRoot?: string;
   adapterId?: string;
   tier?: number;
-
 }
 
 const CATEGORY_ICONS = {
@@ -143,14 +130,6 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
   const initialState: WizardState = {
     currentStep: 0,
-
-export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
-  
-  const [state, setState] = useState<WizardState>({
     category: null,
     name: '',
     description: '',
@@ -162,7 +141,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     epochs: 3,
     learningRate: 3e-4,
     batchSize: 4,
-
     packageAfter: true,
     registerAfter: true,
     adaptersRoot: './adapters',
@@ -190,23 +168,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   useEffect(() => {
     setPersistedState({ currentStep });
   }, [currentStep, setPersistedState]);
-
-  // Update breadcrumbs based on current step
-  useEffect(() => {
-    const stepConfigs = [
-      { id: 'category', label: 'Category', icon: Code },
-      { id: 'basic-info', label: 'Basic Info', icon: FileText },
-      { id: 'data-source', label: 'Data Source', icon: Database },
-      { id: 'category-config', label: 'Configuration', icon: Settings },
-      { id: 'training-params', label: 'Parameters', icon: Zap },
-      { id: 'packaging', label: 'Packaging', icon: Folder },
-      { id: 'review', label: 'Review', icon: CheckCircle }
-    ];
-    // Breadcrumbs are now derived statelessly from URL - no manual management needed
-  }, [currentStep]);
-
-
-  });
 
   useEffect(() => {
     // Load repositories and templates
@@ -257,9 +218,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
   const updateState = (updates: Partial<WizardState>) => {
     setPersistedState(updates);
-
-  const updateState = (updates: Partial<WizardState>) => {
-    setState((prev) => ({ ...prev, ...updates }));
   };
 
   // Step 1: Category Selection
@@ -350,75 +308,73 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   );
 
   // Step 3: Data Source Selection
+  const DataSourceStep = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card
+          className={`cursor-pointer transition-all ${
+            state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
+          }`}
+          onClick={() => updateState({ dataSourceType: 'template' })}
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5" />
+              Template
+              {state.dataSourceType === 'template' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+            </CardTitle>
+            <CardDescription>Use a pre-configured training template</CardDescription>
+          </CardHeader>
+        </Card>
 
-  const DataSourceStep = () => {
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card
-            className={`cursor-pointer transition-all ${
-              state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
-            }`}
-            onClick={() => updateState({ dataSourceType: 'template' })}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Template
-                {state.dataSourceType === 'template' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-              </CardTitle>
-              <CardDescription>Use a pre-configured training template</CardDescription>
-            </CardHeader>
-          </Card>
+        <Card
+          className={`cursor-pointer transition-all ${
+            state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
+          }`}
+          onClick={() => updateState({ dataSourceType: 'repository' })}
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5" />
+              Repository
+              {state.dataSourceType === 'repository' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+            </CardTitle>
+            <CardDescription>Train from a registered repository</CardDescription>
+          </CardHeader>
+        </Card>
 
-          <Card
-            className={`cursor-pointer transition-all ${
-              state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
-            }`}
-            onClick={() => updateState({ dataSourceType: 'repository' })}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <GitBranch className="h-5 w-5" />
-                Repository
-                {state.dataSourceType === 'repository' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-              </CardTitle>
-              <CardDescription>Train from a registered repository</CardDescription>
-            </CardHeader>
-          </Card>
+        <Card
+          className={`cursor-pointer transition-all ${
+            state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
+          }`}
+          onClick={() => updateState({ dataSourceType: 'custom' })}
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Code className="h-5 w-5" />
+              Custom
+              {state.dataSourceType === 'custom' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+            </CardTitle>
+            <CardDescription>Provide custom training data</CardDescription>
+          </CardHeader>
+        </Card>
 
-          <Card
-            className={`cursor-pointer transition-all ${
-              state.dataSourceType === 'directory' ? 'border-primary bg-primary/5' : ''
-            }`}
-            onClick={() => updateState({ dataSourceType: 'directory' })}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Folder className="h-5 w-5" />
-                Directory
-                {state.dataSourceType === 'directory' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-              </CardTitle>
-              <CardDescription>Train from a directory on the system</CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card
-            className={`cursor-pointer transition-all ${
-              state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
-            }`}
-            onClick={() => updateState({ dataSourceType: 'custom' })}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Code className="h-5 w-5" />
-                Custom
-                {state.dataSourceType === 'custom' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-              </CardTitle>
-              <CardDescription>Provide custom training data</CardDescription>
-            </CardHeader>
-          </Card>
-        </div>
+        <Card
+          className={`cursor-pointer transition-all ${
+            state.dataSourceType === 'directory' ? 'border-primary bg-primary/5' : ''
+          }`}
+          onClick={() => updateState({ dataSourceType: 'directory' })}
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Folder className="h-5 w-5" />
+              Directory
+              {state.dataSourceType === 'directory' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+            </CardTitle>
+            <CardDescription>Train from a directory on the system</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
 
       {state.dataSourceType === 'directory' && (
         <div className="space-y-4 pt-4 border-t">
@@ -467,58 +423,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         </div>
       )}
 
-  const DataSourceStep = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card
-          className={`cursor-pointer transition-all ${
-            state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'template' })}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Template
-              {state.dataSourceType === 'template' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-            </CardTitle>
-            <CardDescription>Use a pre-configured training template</CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card
-          className={`cursor-pointer transition-all ${
-            state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'repository' })}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GitBranch className="h-5 w-5" />
-              Repository
-              {state.dataSourceType === 'repository' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-            </CardTitle>
-            <CardDescription>Train from a registered repository</CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card
-          className={`cursor-pointer transition-all ${
-            state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'custom' })}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Code className="h-5 w-5" />
-              Custom
-              {state.dataSourceType === 'custom' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
-            </CardTitle>
-            <CardDescription>Provide custom training data</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-
       {state.dataSourceType === 'template' && (
         <div className="space-y-2">
           <Label htmlFor="template">Select Template</Label>
@@ -527,10 +431,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               <SelectValue placeholder="Choose a template..." />
             </SelectTrigger>
             <SelectContent>
-
               {templates.filter(template => template.id && template.id !== '').map((template) => (
-
-              {templates.map((template) => (
                 <SelectItem key={template.id} value={template.id}>
                   {template.name} - {template.description}
                 </SelectItem>
@@ -548,10 +449,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               <SelectValue placeholder="Choose a repository..." />
             </SelectTrigger>
             <SelectContent>
-
               {repositories.filter(repo => repo.id && repo.id !== '').map((repo) => (
-
-              {repositories.map((repo) => (
                 <SelectItem key={repo.id} value={repo.id}>
                   {repo.url} ({repo.branch})
                 </SelectItem>
@@ -560,10 +458,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           </Select>
         </div>
       )}
-
-
-      {/* File preview functionality can be added when file upload state is needed */}
-
 
       {state.dataSourceType === 'custom' && (
         <div className="space-y-2">
@@ -578,7 +472,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         </div>
       )}
 
-
       <div className="space-y-2">
         <Label htmlFor="datasetPath">Dataset Path (optional)</Label>
         <Input
@@ -589,10 +482,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         />
         <p className="text-xs text-muted-foreground">If provided, the orchestrator will load examples from this JSON file.</p>
       </div>
-    </div>
-  );
-};
-
     </div>
   );
 
@@ -1251,9 +1140,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   );
 
   const handleComplete = async () => {
-
     setWizardError(null);
-
     setIsLoading(true);
     try {
       // Build training config
@@ -1269,7 +1156,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       };
 
       // Start training
-
       const trainingRequest: any = {
         adapter_name: state.name,
         config: trainingConfig,
@@ -1347,6 +1233,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
       // Success - training started, clear persisted state
       clearPersistedState();
+      toast.success(`Training job ${job.id} started successfully!`);
       onComplete(job.id);
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Failed to start training');
@@ -1356,19 +1243,7 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         operation: 'startTraining',
         adapterName: state.name,
       }, toError(error));
-
-      const job = await apiClient.startTraining({
-        adapter_name: state.name,
-        config: trainingConfig,
-        template_id: state.templateId,
-        repo_id: state.repositoryId,
-      });
-
-      toast.success(`Training job ${job.id} started successfully!`);
-      onComplete(job.id);
-    } catch (error) {
-      console.error('Training failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to start training');
+      toast.error(err.message);
     } finally {
       setIsLoading(false);
     }
@@ -1381,13 +1256,9 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Select adapter type',
       component: <CategoryStep />,
       validate: () => {
-
         setValidationError(null);
         if (!state.category) {
           setValidationError('Please select an adapter category');
-
-        if (!state.category) {
-          toast.error('Please select an adapter category');
           return false;
         }
         return true;
@@ -1399,13 +1270,9 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Name and scope',
       component: <BasicInfoStep />,
       validate: () => {
-
         setValidationError(null);
         if (!state.name.trim()) {
           setValidationError('Adapter name is required');
-
-        if (!state.name.trim()) {
-          toast.error('Adapter name is required');
           return false;
         }
         return true;
@@ -1417,7 +1284,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'Select training data',
       component: <DataSourceStep />,
       validate: () => {
-
         setValidationError(null);
         if (state.dataSourceType === 'template' && !state.templateId) {
           setValidationError('Please select a template');
@@ -1433,17 +1299,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         }
         if (state.dataSourceType === 'custom' && !state.datasetPath?.trim()) {
           setValidationError('For custom training, please provide a dataset_path pointing to a training JSON file');
-
-        if (state.dataSourceType === 'template' && !state.templateId) {
-          toast.error('Please select a template');
-          return false;
-        }
-        if (state.dataSourceType === 'repository' && !state.repositoryId) {
-          toast.error('Please select a repository');
-          return false;
-        }
-        if (state.dataSourceType === 'custom' && !state.customData?.trim()) {
-          toast.error('Please provide custom training data');
           return false;
         }
         return true;
@@ -1461,27 +1316,21 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       description: 'LoRA configuration',
       component: <TrainingParamsStep />,
       validate: () => {
-
         setValidationError(null);
         if (state.targets.length === 0) {
           setValidationError('Please select at least one LoRA target module');
-
-        if (state.targets.length === 0) {
-          toast.error('Please select at least one LoRA target module');
           return false;
         }
         return true;
       },
     },
     {
-
       id: 'packaging',
       title: 'Packaging & Registration',
       description: 'Artifacts and registry',
       component: <PackagingStep />,
     },
     {
-
       id: 'review',
       title: 'Review',
       description: 'Confirm and start',
@@ -1490,7 +1339,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   ];
 
   return (
-
     <div className={spacing.sectionGap}>
       {/* Resume Dialog */}
       <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
@@ -1608,18 +1456,3 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     </DensityProvider>
   );
 }
-
-    <Wizard
-      title="Training Wizard"
-      steps={steps}
-      currentStep={currentStep}
-      onStepChange={setCurrentStep}
-      onComplete={handleComplete}
-      onCancel={onCancel}
-      completeButtonText="Start Training"
-      isLoading={isLoading}
-    />
-  );
-}
-
-

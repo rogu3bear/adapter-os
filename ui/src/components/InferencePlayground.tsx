@@ -1,8 +1,4 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { useCancellableOperation } from '../hooks/useCancellableOperation';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -11,23 +7,14 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Slider } from './ui/slider';
 import { Checkbox } from './ui/checkbox';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-
 import {
   Play,
   Copy,
   Download,
   History,
   Settings2,
-
-import { 
-  Play, 
-  Copy, 
-  Download, 
-  History, 
-  Settings2, 
   ChevronDown,
   Zap,
   Clock,
@@ -35,7 +22,6 @@ import {
   Split,
   FileText,
   AlertTriangle,
-
   CheckCircle,
   Code,
   Square,
@@ -48,28 +34,20 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { InferRequest, InferResponse, InferenceSession, Adapter } from '../api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-// 【ui/src/components/InferencePlayground.tsx§1-39】 - Replace toast errors with ErrorRecovery
 import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
 import { useSearchParams } from 'react-router-dom';
-import { ErrorRecovery, ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { ToolPageHeader } from './ui/page-headers/ToolPageHeader';
 import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
-
-  CheckCircle
-} from 'lucide-react';
-import { toast } from 'sonner';
-import apiClient from '../api/client';
-import { InferRequest, InferResponse, InferenceSession } from '../api/types';
-import { TraceVisualizer } from './TraceVisualizer';
+import { useCancellableOperation } from '../hooks/useCancellableOperation';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
 }
-
 
 interface ValidationResult {
   valid: boolean;
@@ -314,11 +292,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   });
   const visibleHint = getVisibleHint();
 
-export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps) {
-  const [mode, setMode] = useState<'single' | 'comparison'>('single');
-  const [prompt, setPrompt] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  
   // Inference configurations
   const [configA, setConfigA] = useState<InferenceConfig>({
     id: 'a',
@@ -346,17 +319,9 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [responseB, setResponseB] = useState<InferResponse | null>(null);
   const [isLoadingA, setIsLoadingA] = useState(false);
   const [isLoadingB, setIsLoadingB] = useState(false);
-  
   const [recentSessions, setRecentSessions] = useState<InferenceSession[]>([]);
 
-
   // Missing function implementations (stubs)
-  const executeInference = useCallback(async (config: any) => {
-    // Stub implementation - would execute inference request
-    logger.info('Executing inference', { config });
-    return null;
-  }, []);
-
   const addManagedSession = useCallback((session: InferenceSession) => {
     // Stub implementation - would add session to managed sessions
     logger.info('Adding managed session', { session });
@@ -378,24 +343,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     setPrompt(template.prompt);
     setShowTemplates(false);
   }, []);
-
-  // Enhanced error recovery with contextual suggestions
-  const getInferenceErrorRecovery = useCallback((error: Error) => {
-    const errorMessage = error.message.toLowerCase();
-
-    if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-      return ErrorRecoveryTemplates.networkError(() => executeInference(configA));
-    }
-
-    if (errorMessage.includes('auth') || errorMessage.includes('401')) {
-      return ErrorRecoveryTemplates.authError(() => executeInference(configA));
-    }
-
-    return ErrorRecoveryTemplates.genericError(
-      error.message,
-      () => executeInference(configA)
-    );
-  }, [configA]);
 
 
   useEffect(() => {
@@ -458,38 +405,17 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   }, [searchParams]);
 
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
-    // Convert InferResponse to EnhancedInferResponse for session storage
-    const enhancedResponse = {
-      ...response,
-      token_count: response.token_count || 0,
-      finish_reason: response.finish_reason || 'stop',
-      latency_ms: response.latency_ms || 0,
-      trace: response.trace,
-    };
-    
-
-        console.error('Failed to load sessions:', err);
-      }
-    }
-  }, []);
-
-  const saveSession = (config: InferenceConfig, response: InferResponse) => {
     const session: InferenceSession = {
       id: Date.now().toString(),
       created_at: new Date().toISOString(),
       prompt: config.prompt,
       request: config,
-
-      response: enhancedResponse as any, // Type compatibility
+      response,
       status: 'completed',
     };
 
     // Use managed sessions to prevent memory leaks
     addManagedSession(session);
-
-      response,
-      status: 'completed',
-    };
 
     const updated = [session, ...recentSessions].slice(0, 10); // Keep last 10
     setRecentSessions(updated);
@@ -498,22 +424,15 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
     if (!config.prompt.trim()) {
-
       setInferenceError(new Error('Please enter a prompt'));
       return;
     }
 
     setInferenceError(null);
-
-      toast.error('Please enter a prompt');
-      return;
-    }
-
     setLoading(true);
     setResponse(null);
 
     try {
-
       await startInference(async (signal) => {
         // Include adapters array if selected
         const inferenceRequest: InferRequest = {
@@ -537,14 +456,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           adapterId: selectedAdapterId,
         }, toError(err));
       }
-
-      const response = await apiClient.infer(config);
-      setResponse(response);
-      saveSession(config, response);
-      toast.success('Inference completed');
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Inference failed';
-      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -552,10 +463,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-
     // Success - no need for toast, UI feedback is sufficient
-
-    toast.success('Copied to clipboard');
   };
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
@@ -577,10 +485,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-
     // Success - browser download feedback is sufficient
-
-    toast.success('Exported successfully');
   };
 
   const loadSession = (session: InferenceSession) => {
@@ -589,7 +494,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     if (session.response) {
       setResponseA(session.response);
     }
-
     // Success - UI updates are sufficient feedback
   };
 
@@ -598,21 +502,14 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     logger.info('Replay requested', { bundleId });
     // const trace = await apiClient.getReplayBundle(bundleId);
     // setTrace(trace.data); // Display bundle
-
-    toast.success('Session loaded');
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
     <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
       <CollapsibleTrigger asChild>
-
         <Button variant="ghost" className="w-full justify-between" aria-label="Toggle advanced options" aria-expanded={showAdvanced}>
           <span className="flex items-center gap-2">
             <Settings2 className="h-4 w-4" aria-hidden="true" />
-
-        <Button variant="ghost" className="w-full justify-between">
-          <span className="flex items-center gap-2">
-            <Settings2 className="h-4 w-4" />
             Advanced Options
           </span>
           <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
@@ -699,63 +596,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   );
 
 
-  const renderResponse = (response: InferResponse | null, isLoading: boolean, isStreamingMode: boolean = false, streamingTokens: StreamingToken[] = []) => {
-    // Handle streaming mode with throttled updates for performance
-    if (isStreamingMode && isStreaming) {
-      const streamingText = throttledStreamingTokens.map(t => t.token).join('');
-      return (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Wifi className="h-4 w-4 text-green-500 animate-pulse" />
-                  Live Streaming
-                </CardTitle>
-                <div className="flex gap-2">
-                  {streamController && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => streamController.abort()}
-                      aria-label="Stop streaming"
-                    >
-                      <Square className="h-4 w-4" />
-                    </Button>
-                  )}
-                  <Badge variant="outline" className="gap-1">
-                    <TrendingUp className="h-3 w-3" />
-                    {throttledStreamingTokens.length} tokens
-                  </Badge>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div
-                ref={streamingRef}
-                className="relative"
-              >
-                <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg min-h-[100px]">
-                  {streamingText}
-                  <span className="animate-pulse text-primary">▊</span>
-                </pre>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute top-2 right-2"
-                  onClick={() => handleCopy(streamingText)}
-                  disabled={!streamingText.trim()}
-                >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-
-
   const renderResponse = (response: InferResponse | null, isLoading: boolean) => {
     if (isLoading) {
       return (
@@ -783,7 +623,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-
               <CardTitle className="text-base flex items-center gap-2">
                 {inferenceMode === 'streaming' && <CheckCircle className="h-4 w-4 text-green-500" />}
                 Response
@@ -803,54 +642,34 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                     {metrics.tokensPerSecond.toFixed(1)} t/s
                   </Badge>
                 )}
-
-              <CardTitle className="text-base">Response</CardTitle>
-              <div className="flex gap-2">
-                <Badge variant="outline" className="gap-1">
-                  <Clock className="h-3 w-3" />
-                  {response.trace?.latency_ms || 0}ms
-                </Badge>
-                <Badge variant="outline" className="gap-1">
-                  <FileText className="h-3 w-3" />
-                  {response.tokens?.length || 0} tokens
-                </Badge>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="relative">
-
               <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg">
-
-              <pre className="whitespace-pre-wrap text-sm p-4 bg-muted rounded-lg">
                 {response.text}
               </pre>
               <Button
                 variant="ghost"
                 size="sm"
-
-                onClick={() => handleCopy(response.text)}
-              >
-                <Copy className="h-4 w-4" aria-hidden="true" />
-
                 className="absolute top-2 right-2"
                 onClick={() => handleCopy(response.text)}
               >
-                <Copy className="h-4 w-4" />
+                <Copy className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
           </CardContent>
         </Card>
 
         {/* Trace Information */}
-
         {response.trace && 'latency_ms' in response.trace && (
           <TraceVisualizer trace={response.trace as any} />
         )}
 
         {/* Enhanced Metadata */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
             <div>
               <div className="text-sm font-medium">Finish Reason</div>
@@ -875,15 +694,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               </div>
             </div>
           </div>
-
-        {response.trace && (
-          <TraceVisualizer trace={response.trace} />
-        )}
-
-        {/* Finish Reason */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Finish Reason:</span>
-          <Badge>{response.finish_reason}</Badge>
         </div>
       </div>
     );
@@ -1063,7 +873,7 @@ What is the capital of France?"
               </div>
 
               <Button
-                onClick={executeBatchInference}
+                onClick={() => executeBatchInference(batchPrompts)}
                 disabled={batchPrompts.filter(p => p.trim()).length === 0 || isBatchRunning}
                 className="w-full"
               >
@@ -1083,14 +893,14 @@ What is the capital of France?"
           </Card>
 
           {/* Batch Results */}
-          {batchResults && (
+          {batchResults && batchResults.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Batch Results</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {batchResults.responses?.map((item: any, index: number) => (
+                  {batchResults.map((item: any, index: number) => (
                     <Card key={item.id || index}>
                       <CardHeader className="pb-2">
                         <div className="flex items-center justify-between">
@@ -1124,34 +934,6 @@ What is the capital of France?"
           )}
         </div>
       ) : mode === 'single' ? (
-
-      {/* Header */}
-      <div className="flex-between">
-        <div>
-          <h1 className="text-2xl font-bold">Inference Playground</h1>
-          <p className="text-sm text-muted-foreground">
-            Test model inference with advanced configuration options
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant={mode === 'single' ? 'default' : 'outline'}
-            onClick={() => setMode('single')}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Single
-          </Button>
-          <Button
-            variant={mode === 'comparison' ? 'default' : 'outline'}
-            onClick={() => setMode('comparison')}
-          >
-            <Split className="h-4 w-4 mr-2" />
-            Comparison
-          </Button>
-        </div>
-      </div>
-
-      {mode === 'single' ? (
         /* Single Mode */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Configuration Panel */}
@@ -1214,82 +996,6 @@ What is the capital of France?"
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="adapter">
-                    Adapter Selection {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None - base model only)</span>}
-                  </Label>
-                  <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId} disabled={adapters.length === 0}>
-                    <SelectTrigger id="adapter">
-                      <SelectValue placeholder={
-                        adapters.length === 0
-                          ? "No adapters available"
-                          : selectedAdapterId === 'none'
-                            ? "🤖 Auto-select (Router chooses best adapters)"
-                            : "Select adapter..."
-                      } />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">
-                          <div className="flex items-center gap-2">
-                          <Target className="h-4 w-4 text-primary" />
-                          <div>
-                            <div className="font-medium">Auto-select (Recommended)</div>
-                            <div className="text-xs text-muted-foreground">Router chooses optimal adapters based on your prompt</div>
-                          </div>
-                          </div>
-                        </SelectItem>
-                      {adapters.filter(adapter => adapter.id && adapter.id !== '').map((adapter) => {
-                        const getStateIcon = () => {
-                          switch (adapter.current_state) {
-                            case 'hot': return <div className="w-2 h-2 bg-green-500 rounded-full" />;
-                            case 'warm': return <div className="w-2 h-2 bg-yellow-500 rounded-full" />;
-                            case 'resident': return <div className="w-2 h-2 bg-blue-500 rounded-full" />;
-                            case 'cold': return <div className="w-2 h-2 bg-gray-400 rounded-full" />;
-                            default: return <div className="w-2 h-2 bg-gray-300 rounded-full" />;
-                          }
-                        };
-
-                        const getStateColor = () => {
-                          switch (adapter.current_state) {
-                            case 'hot': return 'text-green-600';
-                            case 'warm': return 'text-yellow-600';
-                            case 'resident': return 'text-blue-600';
-                            case 'cold': return 'text-gray-600';
-                            default: return 'text-gray-500';
-                          }
-                        };
-
-                        return (
-                          <SelectItem key={adapter.id} value={adapter.id}>
-                            <div className="flex items-center gap-2 w-full">
-                              {getStateIcon()}
-                              <Code className="h-4 w-4 flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium truncate">{adapter.name}</div>
-                                <div className={`text-xs ${getStateColor()}`}>
-                                  {adapter.current_state || 'unknown'} • {adapter.languages?.join(', ') || 'general'}
-                                </div>
-                              </div>
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>
-                      {selectedAdapterId === 'none'
-                        ? '🤖 Router will automatically select the best adapters for your prompt using K-sparse routing.'
-                        : 'Using selected adapter for inference. Router decisions will still apply if multiple adapters match.'}
-                    </p>
-                    {adapters.length > 0 && (
-                      <p>
-                        💡 <strong>Pro tip:</strong> Try "Auto-select" to let the router optimize adapter selection based on your prompt content.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="prompt">
                       Prompt
@@ -1310,9 +1016,6 @@ What is the capital of France?"
                       </Button>
                     </div>
                   </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="prompt">Prompt</Label>
                   <Textarea
                     id="prompt"
                     placeholder="Enter your prompt here..."

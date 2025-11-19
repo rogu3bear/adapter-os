@@ -77,10 +77,6 @@ class Logger {
   private errorToastHistory = new Map<string, number>();
   private readonly ERROR_TOAST_THROTTLE_MS = 10000; // 10 seconds
 
-class Logger {
-  private isDevelopment = import.meta.env.DEV;
->
-  
   /**
    * Log a message with structured context and error information
    *
@@ -124,21 +120,21 @@ class Logger {
 
     // User-facing errors: Show toast notification (with throttling to prevent spam)
     if (level === LogLevel.ERROR && error) {
-      const isBackgroundOperation = context?.operation === 'fetchNotifications' || 
+      const isBackgroundOperation = context?.operation === 'fetchNotifications' ||
                                    context?.operation === 'sse_init' ||
                                    context?.operation === 'storage_listener';
-      
+
       // For background operations, suppress toasts (errors still logged and shown in UI)
       // For user-initiated actions, show toast with throttling
       if (!isBackgroundOperation) {
         const now = Date.now();
         const lastShown = this.errorToastHistory.get(message);
-        
+
         // Show toast if we haven't shown this error recently (throttle duplicate errors)
         if (!lastShown || (now - lastShown) > this.ERROR_TOAST_THROTTLE_MS) {
           toast.error(message);
           this.errorToastHistory.set(message, now);
-          
+
           // Clean up old entries periodically to prevent memory leaks
           if (this.errorToastHistory.size > 50) {
             const cutoff = now - this.ERROR_TOAST_THROTTLE_MS * 2;
@@ -152,11 +148,6 @@ class Logger {
       }
       // Background operations: errors are logged but no toast shown
       // Users can see errors in NotificationCenter UI or check console logs
-
-    // User-facing errors: Show toast notification
-    if (level === LogLevel.ERROR && error) {
-      toast.error(message);
->
     }
   }
 
@@ -203,16 +194,6 @@ class Logger {
       case LogLevel.WARN: return 'Warn';
       case LogLevel.ERROR: return 'Error';
       default: return 'Info';
-
-      await fetch('/api/v1/telemetry/logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logEntry),
-      });
-    } catch (err) {
-      // Fallback to console in case of telemetry failure
-      console.error('Failed to send log to telemetry:', err);
->
     }
   }
 

@@ -28,8 +28,6 @@ import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
 import { useViewTransition } from '../hooks/useViewTransition';
 import { useUndoRedoContext } from '../contexts/UndoRedoContext';
 import { useProgressOperation } from '../hooks/useProgressOperation';
-
-import { TrainingWizard } from './TrainingWizard';
 import { 
   Plus, 
   Code, 
@@ -180,11 +178,6 @@ interface TrainingMetrics {
   tokens_per_second: number;
 }
 
-interface AdaptersProps {
-  user: User;
-  selectedTenant: string;
-}
-
 export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const navigate = useNavigate();
   const { addAction } = useUndoRedoContext();
@@ -228,8 +221,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
   };
-
-  const [activeTab, setActiveTab] = useState('registry');
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -549,32 +540,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         )
       );
       setStatusMessage(null);
-    }
-  };
-
-  const handleLoadAdapter = async (adapterId: string) => {
-    try {
-      toast.info('Loading adapter...');
-      await apiClient.loadAdapter(adapterId);
-      toast.success('Adapter loaded successfully');
-      // Reload adapters to get updated state
-      loadAdapters();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load adapter';
-      toast.error(errorMsg);
-    }
-  };
-
-  const handleUnloadAdapter = async (adapterId: string) => {
-    try {
-      toast.info('Unloading adapter...');
-      await apiClient.unloadAdapter(adapterId);
-      toast.success('Adapter unloaded successfully');
-      // Reload adapters to get updated state
-      loadAdapters();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to unload adapter';
-      toast.error(errorMsg);
     }
   };
 
@@ -1321,10 +1286,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           </AlertDescription>
         </Alert>
       )}
-
-      <ContentSection
-        title="Adapter Management"
-        subtitle="Train, manage, and monitor adapters for your models"
 
       <ContentSection
         title="Adapter Management"
@@ -2185,177 +2146,135 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               showStatus(`Adapter "${adapter.name}" imported successfully.`, 'success');
             }}
             onCancel={() => setShowImportDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
-      {step === 1 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+      {/* Directory Upsert Dialog */}
+      <Dialog open={upsertOpen} onOpenChange={setUpsertOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Directory Upsert</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
             <div>
-              <Label htmlFor="name">Adapter Name</Label>
-              <Input id="name" placeholder="my-adapter-v1" />
-            </div>
-            <div>
-              <Label htmlFor="category">Category</Label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="code">Code</SelectItem>
-                  <SelectItem value="framework">Framework</SelectItem>
-                  <SelectItem value="codebase">Codebase</SelectItem>
-                  <SelectItem value="ephemeral">Ephemeral</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="rank">Rank</Label>
-              <Input 
-                id="rank" 
-                type="number" 
-                value={config.rank} 
-                onChange={(e) => setConfig({...config, rank: parseInt(e.target.value)})}
+              <Label htmlFor="upsert-root">Root Directory</Label>
+              <Input
+                id="upsert-root"
+                value={upsertRoot}
+                onChange={(e) => setUpsertRoot(e.target.value)}
+                placeholder="/path/to/adapters"
               />
             </div>
             <div>
-              <Label htmlFor="alpha">Alpha</Label>
-              <Input 
-                id="alpha" 
-                type="number" 
-                value={config.alpha} 
-                onChange={(e) => setConfig({...config, alpha: parseInt(e.target.value)})}
+              <Label htmlFor="upsert-path">Adapter Path (relative to root)</Label>
+              <Input
+                id="upsert-path"
+                value={upsertPath}
+                onChange={(e) => setUpsertPath(e.target.value)}
+                placeholder="my-adapter.aos"
               />
             </div>
-            <div>
-              <Label htmlFor="epochs">Epochs</Label>
-              <Input 
-                id="epochs" 
-                type="number" 
-                value={config.epochs} 
-                onChange={(e) => setConfig({...config, epochs: parseInt(e.target.value)})}
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="upsert-activate"
+                checked={upsertActivate}
+                onCheckedChange={setUpsertActivate}
               />
+              <Label htmlFor="upsert-activate">Activate after upsert</Label>
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="learning_rate">Learning Rate</Label>
-              <Input 
-                id="learning_rate" 
-                type="number" 
-                step="0.0001"
-                value={config.learning_rate} 
-                onChange={(e) => setConfig({...config, learning_rate: parseFloat(e.target.value)})}
-              />
-            </div>
-            <div>
-              <Label htmlFor="batch_size">Batch Size</Label>
-              <Input 
-                id="batch_size" 
-                type="number" 
-                value={config.batch_size} 
-                onChange={(e) => setConfig({...config, batch_size: parseInt(e.target.value)})}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="scope">Scope</Label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Select scope" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="global">Global</SelectItem>
-                <SelectItem value="tenant">Tenant</SelectItem>
-                <SelectItem value="repo">Repository</SelectItem>
-                <SelectItem value="commit">Commit</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="repo_id">Repository ID</Label>
-              <Input id="repo_id" placeholder="acme/payments" />
-            </div>
-            <div>
-              <Label htmlFor="commit_sha">Commit SHA</Label>
-              <Input id="commit_sha" placeholder="abc123def456" />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="framework">Framework</Label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Select framework (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="django">Django</SelectItem>
-                <SelectItem value="react">React</SelectItem>
-                <SelectItem value="fastapi">FastAPI</SelectItem>
-                <SelectItem value="nextjs">Next.js</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="space-y-4">
-          <Alert>
-            <CheckCircle className="h-4 w-4" />
-            <AlertDescription>
-              Ready to start training. This will consume GPU resources and may take several hours.
-            </AlertDescription>
-          </Alert>
-
-          <div className="bg-gray-50 p-4 rounded-md">
-            <h4 className="font-medium mb-2">Training Configuration</h4>
-            <div className="space-y-1 text-sm">
-              <div>Name: {config.name || 'my-adapter-v1'}</div>
-              <div>Category: {config.category}</div>
-              <div>Rank: {config.rank} • Alpha: {config.alpha}</div>
-              <div>Epochs: {config.epochs} • Learning Rate: {config.learning_rate}</div>
-              <div>Batch Size: {config.batch_size}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <div className="flex space-x-2">
-          {step > 1 && (
-            <Button variant="outline" onClick={() => setStep(step - 1)}>
-              Previous
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpsertOpen(false)}>
+              Cancel
             </Button>
-          )}
-          {step < 3 ? (
-            <Button onClick={() => setStep(step + 1)}>
-              Next
-            </Button>
-          ) : (
-            <Button onClick={() => {
-              // Training start - placeholder implementation
-              onClose();
+            <Button onClick={async () => {
+              try {
+                await apiClient.upsertAdapter({
+                  root: upsertRoot,
+                  path: upsertPath,
+                  activate: upsertActivate,
+                });
+                showStatus('Adapter upserted successfully.', 'success');
+                setUpsertOpen(false);
+                await loadAdapters();
+              } catch (err) {
+                const error = err instanceof Error ? err : new Error('Failed to upsert adapter');
+                setErrorRecovery(
+                  ErrorRecoveryTemplates.genericError(
+                    error,
+                    () => {}
+                  )
+                );
+              }
             }}>
-              Start Training
+              Upsert
             </Button>
-          )}
-        </div>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        open={deleteConfirmId !== null}
+        adapterId={deleteConfirmId}
+        onConfirm={handleDeleteAdapter}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
     </div>
   );
+}
+
+// Helper function to get category icon
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case 'code':
+      return <Code className="h-4 w-4 text-blue-500" />;
+    case 'framework':
+      return <Layers className="h-4 w-4 text-green-500" />;
+    case 'codebase':
+      return <GitBranch className="h-4 w-4 text-purple-500" />;
+    case 'ephemeral':
+      return <Clock className="h-4 w-4 text-orange-500" />;
+    default:
+      return <Code className="h-4 w-4" />;
+  }
+}
+
+// Helper function to get state badge variant
+function getStateBadgeVariant(state: string): "default" | "secondary" | "outline" | "destructive" {
+  switch (state) {
+    case 'resident':
+      return 'default';
+    case 'hot':
+      return 'default';
+    case 'warm':
+      return 'secondary';
+    case 'cold':
+      return 'outline';
+    case 'unloaded':
+      return 'outline';
+    default:
+      return 'secondary';
+  }
+}
+
+// Helper function to get state icon
+function getStateIcon(state: string) {
+  switch (state) {
+    case 'resident':
+      return <Anchor className="h-3 w-3" />;
+    case 'hot':
+      return <Flame className="h-3 w-3" />;
+    case 'warm':
+      return <Thermometer className="h-3 w-3" />;
+    case 'cold':
+      return <Snowflake className="h-3 w-3" />;
+    case 'unloaded':
+      return <Square className="h-3 w-3" />;
+    default:
+      return null;
+  }
 }
 
 // Register Adapter Form Component

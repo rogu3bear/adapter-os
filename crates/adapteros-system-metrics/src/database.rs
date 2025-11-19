@@ -394,9 +394,22 @@ mod tests {
     use sqlx::SqlitePool;
 
     async fn create_test_pool() -> SqlitePool {
-        SqlitePool::connect(":memory:")
+        let pool = SqlitePool::connect(":memory:")
             .await
-            .expect("Failed to create test pool")
+            .expect("Failed to create test pool");
+
+        // Apply migrations
+        sqlx::query(include_str!("../migrations/0001_system_metrics_init.sql"))
+            .execute(&pool)
+            .await
+            .expect("Failed to apply migration 0001");
+
+        sqlx::query(include_str!("../migrations/0002_add_missing_metrics_columns.sql"))
+            .execute(&pool)
+            .await
+            .expect("Failed to apply migration 0002");
+
+        pool
     }
 
     #[tokio::test]
@@ -411,10 +424,15 @@ mod tests {
             memory_usage: 60.0,
             disk_read_bytes: 1000,
             disk_write_bytes: 2000,
+            disk_usage_percent: 45.0,
             network_rx_bytes: 3000,
             network_tx_bytes: 4000,
+            network_rx_packets: 1500,
+            network_tx_packets: 1600,
+            network_bandwidth_mbps: 100.0,
             gpu_utilization: Some(70.0),
             gpu_memory_used: Some(5000),
+            gpu_memory_total: Some(8000),
             uptime_seconds: 3600,
             process_count: 100,
             load_1min: 1.5,

@@ -1,7 +1,4 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -196,36 +193,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   }, [workerId]);
 
   const fetchDebugSessions = useCallback(async () => {
-
-  const [logLevelFilter, setLogLevelFilter] = useState<string>('');
-  const [searchFilter, setSearchFilter] = useState<string>('');
-
-  const fetchLogs = async () => {
-    try {
-      setLoading(true);
-      // Citation: ui/src/api/client.ts L748-L755
-      const data = await apiClient.getProcessLogs(workerId, { level: logLevelFilter });
-      setLogs(data);
-    } catch (error) {
-      console.error('Failed to fetch logs:', error);
-      toast.error('Failed to load process logs');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchCrashes = async () => {
-    try {
-      // Citation: ui/src/api/client.ts L758-L760
-      const data = await apiClient.getProcessCrashes(workerId);
-      setCrashes(data);
-    } catch (error) {
-      console.error('Failed to fetch crashes:', error);
-      toast.error('Failed to load crash dumps');
-    }
-  };
-
-  const fetchDebugSessions = async () => {
     try {
       // Citation: ui/src/api/client.ts L762-L767
       const data = await apiClient.startDebugSession(workerId, {
@@ -260,15 +227,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   }, [workerId]);
 
   const fetchTroubleshootingSteps = useCallback(async () => {
-
-      setDebugSessions([data]);
-    } catch (error) {
-      console.error('Failed to fetch debug sessions:', error);
-      toast.error('Failed to load debug sessions');
-    }
-  };
-
-  const fetchTroubleshootingSteps = async () => {
     try {
       // Citation: ui/src/api/client.ts L769-L774
       const data = await apiClient.runTroubleshootingStep(workerId, {
@@ -305,22 +263,12 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
     }
   }, [workerId]);
 
-      setTroubleshootingSteps([data]);
-    } catch (error) {
-      console.error('Failed to fetch troubleshooting steps:', error);
-      toast.error('Failed to load troubleshooting steps');
-    }
-  };
-
   useEffect(() => {
     fetchLogs();
     fetchCrashes();
     fetchDebugSessions();
     fetchTroubleshootingSteps();
-
   }, [fetchLogs, fetchCrashes, fetchDebugSessions, fetchTroubleshootingSteps]);
-
-  }, [workerId]);
 
   const getLogLevelColor = (level: string) => {
     switch (level) {
@@ -355,11 +303,8 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const filteredLogs = logs.filter(log => {
-
     const matchesLevel = logLevelFilter === 'all' || log.level === logLevelFilter;
-
-    const matchesLevel = !logLevelFilter || log.level === logLevelFilter;
-    const matchesSearch = !searchFilter || 
+    const matchesSearch = !searchFilter ||
       log.message.toLowerCase().includes(searchFilter.toLowerCase()) ||
       log.level.toLowerCase().includes(searchFilter.toLowerCase());
     return matchesLevel && matchesSearch;
@@ -472,10 +417,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                       <SelectValue placeholder="All levels" />
                     </SelectTrigger>
                     <SelectContent>
-
                       <SelectItem value="all">All levels</SelectItem>
-
-                      <SelectItem value="">All levels</SelectItem>
                       <SelectItem value="debug">Debug</SelectItem>
                       <SelectItem value="info">Info</SelectItem>
                       <SelectItem value="warn">Warning</SelectItem>
@@ -505,7 +447,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
               </CardTitle>
             </CardHeader>
             <CardContent>
-
               <div className="rounded-md border">
                 <ScrollArea className="h-96">
                   <Table>
@@ -543,42 +484,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   </Table>
                 </ScrollArea>
               </div>
-
-              <ScrollArea className="h-96">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Level</TableHead>
-                      <TableHead>Message</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLogs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <Badge className={`gap-1 ${getLogLevelColor(log.level)}`}>
-                            {getLogLevelIcon(log.level)}
-                            {log.level.toUpperCase()}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {log.message}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(log.timestamp).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
             </CardContent>
           </Card>
         </TabsContent>
@@ -597,7 +502,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   No crash dumps found for this worker.
                 </div>
               ) : (
-
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -638,45 +542,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     </TableBody>
                   </Table>
                 </div>
-
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Crash Type</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Recovery Action</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {crashes.map((crash) => (
-                      <TableRow key={crash.id}>
-                        <TableCell>
-                          <Badge variant="destructive">
-                            {crash.crash_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(crash.crash_timestamp).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          {crash.recovery_action || 'None'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={crash.recovered_at ? 'default' : 'destructive'}>
-                            {crash.recovered_at ? 'Recovered' : 'Failed'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
               )}
             </CardContent>
           </Card>
@@ -740,48 +605,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     </TableBody>
                   </Table>
                 </div>
-
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {debugSessions.map((session) => (
-                      <TableRow key={session.id}>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {session.session_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={session.status === 'active' ? 'default' : 'secondary'}>
-                            {session.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(session.started_at).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {session.ended_at 
-                            ? `${Math.floor((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 1000)}s`
-                            : 'Running'
-                          }
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
               )}
             </CardContent>
           </Card>
@@ -846,49 +669,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     </TableBody>
                   </Table>
                 </div>
-
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Step Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {troubleshootingSteps.map((step) => (
-                      <TableRow key={step.id}>
-                        <TableCell className="font-medium">
-                          {step.step_name}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {step.step_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={
-                            step.status === 'completed' ? 'default' :
-                            step.status === 'failed' ? 'destructive' :
-                            step.status === 'running' ? 'secondary' : 'outline'
-                          }>
-                            {step.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {new Date(step.started_at).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
               )}
             </CardContent>
           </Card>
