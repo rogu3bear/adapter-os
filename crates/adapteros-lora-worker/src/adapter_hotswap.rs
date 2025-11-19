@@ -976,27 +976,28 @@ where
                     drop(kernels_lock);
                 }
 
-                let (vram_delta, _added_count) = self.table.swap(&add_ids, &remove_ids)?;
+                let (vram_delta, _added_count) = self.table.swap(&add_ids, &remove_ids).await?;
                 let stack_hash = self.table.compute_stack_hash();
 
-                let cross_layer_hash = if let Some(ref kernels) = self.kernels {
-                    let active_adapters = self.table.get_active();
-                    let mut gpu_fingerprints = Vec::new();
+                let cross_layer_hash = if let Some(ref _kernels) = self.kernels {
+                    let _active_adapters = self.table.get_active();
+                    let gpu_fingerprints = Vec::new();
 
-                    let mut kernels_lock = kernels.lock().await;
-                    let vram_tracker = kernels_lock.vram_tracker();
+                    // TODO: Implement vram_tracker() method on FusedKernels trait
+                    // For now, skip GPU fingerprinting
+                    // let mut kernels_lock = kernels.lock().await;
+                    // let vram_tracker = kernels_lock.vram_tracker();
 
-                    for adapter_state in &active_adapters {
-                        let adapter_id_u16 = adapter_id_to_u16(&adapter_state.id) as u32;
-                        if let Some(fp) = vram_tracker.fingerprints.get(&adapter_id_u16) {
-                            gpu_fingerprints.push(GpuFingerprint {
-                                adapter_id: adapter_state.id.clone(),
-                                buffer_bytes: fp.buffer_bytes, // Assuming GpuBufferFingerprint has buffer_bytes: u64
-                                checkpoint_hash: fp.checkpoint_hash, // Assuming B3Hash
-                            });
-                        }
-                    }
-                    drop(kernels_lock);
+                    // for adapter_state in &active_adapters {
+                    //     let adapter_id_u16 = adapter_id_to_u16(&adapter_state.id) as u32;
+                    //     if let Some(fp) = vram_tracker.fingerprints.get(&adapter_id_u16) {
+                    //         gpu_fingerprints.push(GpuFingerprint {
+                    //             adapter_id: adapter_state.id.clone(),
+                    //             buffer_bytes: fp.buffer_bytes,
+                    //             checkpoint_hash: fp.checkpoint_hash,
+                    //         });
+                    //     }
+                    // }
 
                     if !gpu_fingerprints.is_empty() {
                         let checkpoint = self.table.create_checkpoint(gpu_fingerprints);
@@ -1026,7 +1027,7 @@ where
             }
 
             AdapterCommand::Rollback => {
-                self.table.rollback()?;
+                self.table.rollback().await?;
                 let stack_hash = self.table.compute_stack_hash();
 
                 AdapterCommandResult {
@@ -1042,24 +1043,25 @@ where
                 let stack_hash = self.table.compute_stack_hash();
 
                 // Verify GPU state and create cross-layer checkpoint
-                let cross_layer_hash = if let Some(ref kernels) = self.kernels {
-                    let active_adapters = self.table.get_active();
-                    let mut gpu_fingerprints = Vec::new();
+                let cross_layer_hash = if let Some(ref _kernels) = self.kernels {
+                    let _active_adapters = self.table.get_active();
+                    let gpu_fingerprints = Vec::new();
 
-                    let mut kernels_lock = kernels.lock().await;
-                    let vram_tracker = kernels_lock.vram_tracker();
+                    // TODO: Implement vram_tracker() method on FusedKernels trait
+                    // For now, skip GPU fingerprinting
+                    // let mut kernels_lock = kernels.lock().await;
+                    // let vram_tracker = kernels_lock.vram_tracker();
 
-                    for adapter_state in &active_adapters {
-                        let adapter_id_u16 = adapter_id_to_u16(&adapter_state.id) as u32;
-                        if let Some(fp) = vram_tracker.fingerprints.get(&adapter_id_u16) {
-                            gpu_fingerprints.push(GpuFingerprint {
-                                adapter_id: adapter_state.id.clone(),
-                                buffer_bytes: fp.buffer_bytes,
-                                checkpoint_hash: fp.checkpoint_hash,
-                            });
-                        }
-                    }
-                    drop(kernels_lock);
+                    // for adapter_state in &active_adapters {
+                    //     let adapter_id_u16 = adapter_id_to_u16(&adapter_state.id) as u32;
+                    //     if let Some(fp) = vram_tracker.fingerprints.get(&adapter_id_u16) {
+                    //         gpu_fingerprints.push(GpuFingerprint {
+                    //             adapter_id: adapter_state.id.clone(),
+                    //             buffer_bytes: fp.buffer_bytes,
+                    //             checkpoint_hash: fp.checkpoint_hash,
+                    //         });
+                    //     }
+                    // }
 
                     // Verify against latest checkpoint if available
                     let checkpoints = self.table.get_checkpoints(1);
@@ -1137,14 +1139,11 @@ where
 
                 // Collect indices of stacks that can be unloaded
                 let stacks_to_check: Vec<usize> = {
-                    let retired_guard = manager.table.retired_stacks.lock().unwrap();
+                    let retired_guard = manager.table.retired_stacks.lock().await;
+                    let refcounts_guard = manager.table.refcounts.lock().await;
                     retired_guard.iter().enumerate().filter_map(|(i, stack)| {
                         let can_unload = stack.active.iter().all(|(id, _)| {
-                            manager
-                                .table
-                                .refcounts
-                                .lock()
-                                .unwrap()
+                            refcounts_guard
                                 .get(id)
                                 .map_or(false, |rc| rc.load(Ordering::Relaxed) == 0)
                         });
@@ -1160,7 +1159,7 @@ where
 
                         // Get stack info before unloading
                         let stack_generation = {
-                            let retired_guard = manager.table.retired_stacks.lock().unwrap();
+                            let retired_guard = manager.table.retired_stacks.lock().await;
                             if let Some(stack) = retired_guard.get(stack_index) {
                                 Some((stack.active.clone(), stack.generation))
                             } else {
@@ -1179,7 +1178,7 @@ where
                             }
 
                             if !unload_failed {
-                                let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                                let mut retired_guard = manager.table.retired_stacks.lock().await;
                                 if stack_index < retired_guard.len() {
                                     retired_guard.remove(stack_index);
                                     tracing::info!(
@@ -1191,7 +1190,7 @@ where
                         }
                     } else {
                         // No kernels, just remove from retired list
-                        let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                        let mut retired_guard = manager.table.retired_stacks.lock().await;
                         if stack_index < retired_guard.len() {
                             retired_guard.remove(stack_index);
                             tracing::info!("Unloaded retired stack (no kernels)");

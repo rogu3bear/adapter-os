@@ -232,7 +232,7 @@ impl InferencePipeline {
             );
 
             self.infer_inner(request, start_time).await
-        }.with_timeout(timeout_duration)).await??
+        }.with_timeout(timeout_duration)).await?
     }
 
     /// Internal inference implementation without circuit breaker

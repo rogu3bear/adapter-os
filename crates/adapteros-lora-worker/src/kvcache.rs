@@ -374,14 +374,14 @@ impl KvCache {
                 let zero_slice = vec![0u8; self.capacity_bytes as usize];
                 // Alignment check for safety
                 assert_eq!(
-                    contents.as_ptr() as usize % std::mem::align_of::<u8>(),
+                    contents as usize % std::mem::align_of::<u8>(),
                     0,
                     "K buffer misaligned"
                 );
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         zero_slice.as_ptr(),
-                        contents.as_mut_ptr() as *mut u8,
+                        contents as *mut u8,
                         zero_slice.len(),
                     );
                 }
@@ -392,14 +392,14 @@ impl KvCache {
                 let zero_slice = vec![0u8; self.capacity_bytes as usize];
                 // Alignment check for safety
                 assert_eq!(
-                    contents.as_ptr() as usize % std::mem::align_of::<u8>(),
+                    contents as usize % std::mem::align_of::<u8>(),
                     0,
                     "V buffer misaligned"
                 );
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         zero_slice.as_ptr(),
-                        contents.as_mut_ptr() as *mut u8,
+                        contents as *mut u8,
                         zero_slice.len(),
                     );
                 }

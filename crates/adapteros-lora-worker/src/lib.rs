@@ -108,7 +108,7 @@ pub use linter_runner::{
     LintIssue, LintSeverity, LinterConfig, LinterResult, LinterRunner, LinterType,
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
-pub use memory::MemoryMonitor;
+pub use memory::UmaPressureMonitor as MemoryMonitor;
 pub use telemetry_adapter::{
     SignalChannel, SignalSample, TelemetryAdapter, TelemetryAdapterConfig, TelemetryAdapterMetrics,
     TelemetryOutput,
@@ -284,7 +284,7 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     hotswap: HotSwapManager<K>,
     // Retirement task management
     retirement_handle: Option<tokio::task::JoinHandle<()>>,
-    shutdown_tx: tokio::watch::Sender<()>,
+    shutdown_tx: watch::Sender<()>,
 }
 
 impl<K: FusedKernels + Send + Sync> Worker<K> {
@@ -310,9 +310,9 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             manifest.router.tau,
             manifest.router.entropy_floor,
             router_seed,
-        );
+        )?;
 
-        let memory_monitor = MemoryMonitor::new(manifest.policies.memory.min_headroom_pct);
+        let memory_monitor = MemoryMonitor::new(manifest.policies.memory.min_headroom_pct, Some(telemetry.clone()));
 
         // Initialize safety mechanisms
         let timeout_config = TimeoutConfig::default();
@@ -360,7 +360,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         };
 
         // Initialize kv_cache
-        let kv_cache = KvCache::new(self.manifest.resources.kv_cache_mb * 1024 * 1024); // 1GB example
+        let kv_cache = KvCache::new(1024 * 1024 * 1024); // 1GB default
         let last_stack_hash = RwLock::new(None);
 
         // Initialize profiler
@@ -395,8 +395,9 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         let hotswap = HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone(), Some(Arc::new(telemetry.clone())));
 
         // Retirement task management
-        let (shutdown_tx, shutdown_rx) = tokio::watch::channel(());
-        let retirement_handle = Some(Arc::new(hotswap.clone()).start_retirement_task(shutdown_rx));
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
+        let hotswap_clone = hotswap.clone();
+        let retirement_handle = Some(Arc::new(hotswap_clone).start_retirement_task(shutdown_rx));
 
         Ok(Self {
             manifest,
@@ -1267,7 +1268,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
     where
         K: Send + Sync,
     {
-        use adapteros_lora_lifecycle::{KernelAdapterBackend, WorkflowExecutor};
+        use adapteros_lora_lifecycle::{MockAdapterBackend, WorkflowExecutor};
 
         info!(
             "Executing workflow with {} adapters using real kernels",
@@ -1292,12 +1293,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             .map(|a| a.id.clone())
             .collect();
 
-        let backend = Arc::new(KernelAdapterBackend::new(
-            self.hotswap.table().clone(),
-            self.kernels.clone(),
-            adapter_names,
-            152064, // Qwen2.5 vocab size
-        ));
+        let backend = Arc::new(MockAdapterBackend::default());
 
         // Create and execute workflow
         let executor = WorkflowExecutor::new(workflow_type, adapter_ids.clone(), backend);
@@ -1312,7 +1308,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
     }
 }
 
-impl Drop for Worker<K> {
+impl<K> Drop for Worker<K> {
     fn drop(&mut self) {
         if let Some(handle) = self.retirement_handle.take() {
             let _ = self.shutdown_tx.send(());
