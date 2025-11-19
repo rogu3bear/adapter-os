@@ -200,17 +200,16 @@ impl MigrationVerifier {
         use base64::{engine::general_purpose, Engine as _};
         use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-        // Decode public key PEM from base64
+        // Decode base64 to get PEM bytes
         let public_key_pem_bytes = general_purpose::STANDARD
             .decode(&self.signatures.public_key)
-            .map_err(|e| AosError::Crypto(format!("Invalid public key encoding: {}", e)))?;
+            .map_err(|e| AosError::Crypto(format!("Invalid public key base64 encoding: {}", e)))?;
 
-        // Convert bytes to string for PEM parsing
+        // Convert PEM bytes to string
         let public_key_pem = String::from_utf8(public_key_pem_bytes)
-            .map_err(|e| AosError::Crypto(format!("Invalid PEM encoding: {}", e)))?;
+            .map_err(|e| AosError::Crypto(format!("Public key PEM is not valid UTF-8: {}", e)))?;
 
-        // Parse PEM and extract raw Ed25519 public key
-        // PEM format: -----BEGIN PUBLIC KEY-----\n<base64>\n-----END PUBLIC KEY-----
+        // Extract raw Ed25519 public key from PEM
         let public_key_bytes = Self::extract_ed25519_public_key_from_pem(&public_key_pem)?;
 
         // Create Ed25519 verifying key
