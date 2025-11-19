@@ -10,6 +10,55 @@ fn main() {
         return;
     }
 
+    // Compile CoreML bridge if feature is enabled
+    #[cfg(feature = "coreml-backend")]
+    {
+        compile_coreml_bridge();
+    }
+
+    // Continue with Metal shader compilation
+    compile_metal_shaders();
+}
+
+#[cfg(feature = "coreml-backend")]
+fn compile_coreml_bridge() {
+    use std::path::PathBuf;
+
+    println!("cargo:rerun-if-changed=src/coreml_bridge.mm");
+    println!("cargo:rerun-if-changed=src/coreml_ffi.h");
+
+    // Check if CoreML bridge files exist
+    let coreml_bridge_path = PathBuf::from("src/coreml_bridge.mm");
+    let coreml_ffi_header = PathBuf::from("src/coreml_ffi.h");
+
+    if !coreml_bridge_path.exists() {
+        println!("cargo:warning=CoreML bridge source file not found, skipping CoreML compilation");
+        return;
+    }
+
+    if !coreml_ffi_header.exists() {
+        println!("cargo:warning=CoreML FFI header not found, skipping CoreML compilation");
+        return;
+    }
+
+    // Compile Objective-C++ bridge for CoreML
+    cc::Build::new()
+        .file("src/coreml_bridge.mm")
+        .flag("-framework")
+        .flag("CoreML")
+        .flag("-framework")
+        .flag("Foundation")
+        .flag("-std=c++17")
+        .flag("-fobjc-arc") // Enable Automatic Reference Counting
+        .cpp(true)
+        .compile("coreml_bridge");
+
+    println!("cargo:rustc-link-lib=framework=CoreML");
+    println!("cargo:rustc-link-lib=framework=Foundation");
+    println!("cargo:warning=CoreML bridge compiled successfully");
+}
+
+fn compile_metal_shaders() {
     // Rebuild if any kernel sources change
     println!("cargo:rerun-if-changed=../../metal/src/kernels/adapteros_kernels.metal");
     println!("cargo:rerun-if-changed=../../metal/src/kernels/common.metal");

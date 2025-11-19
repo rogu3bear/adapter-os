@@ -209,6 +209,52 @@ pub trait FusedKernels: Send + Sync + 'static {
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (true, 0.0, None) // No anomaly detection for non-GPU backends
     }
+
+    /// Perform backend health check
+    ///
+    /// Returns health status indicating if backend is operational.
+    /// Default implementation returns Healthy for backends without health checks.
+    fn health_check(&self) -> Result<BackendHealth> {
+        Ok(BackendHealth::Healthy)
+    }
+
+    /// Get backend metrics for monitoring
+    ///
+    /// Returns performance and resource utilization metrics.
+    /// Default implementation returns empty metrics.
+    fn get_metrics(&self) -> BackendMetrics {
+        BackendMetrics::default()
+    }
+}
+
+/// Backend health check status
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BackendHealth {
+    /// Backend is healthy and operational
+    Healthy,
+    /// Backend is degraded but functional
+    Degraded { reason: String },
+    /// Backend has failed
+    Failed { reason: String },
+}
+
+/// Backend performance and resource metrics
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BackendMetrics {
+    /// Total inference operations executed
+    pub total_operations: u64,
+    /// Average latency in microseconds
+    pub avg_latency_us: f32,
+    /// Peak memory usage in bytes
+    pub peak_memory_bytes: u64,
+    /// Current memory usage in bytes
+    pub current_memory_bytes: u64,
+    /// GPU/ANE utilization percentage (0-100)
+    pub utilization_percent: f32,
+    /// Number of errors encountered
+    pub error_count: u64,
+    /// Backend-specific custom metrics
+    pub custom_metrics: std::collections::HashMap<String, f32>,
 }
 
 /// Mock kernels implementation for testing
@@ -315,6 +361,14 @@ impl FusedKernels for Box<dyn FusedKernels> {
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
     }
+
+    fn health_check(&self) -> Result<BackendHealth> {
+        (**self).health_check()
+    }
+
+    fn get_metrics(&self) -> BackendMetrics {
+        (**self).get_metrics()
+    }
 }
 
 /// Impl FusedKernels for Box<dyn FusedKernels + Send + Sync> to enable dynamic dispatch with explicit bounds
@@ -366,6 +420,14 @@ impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
         buffer_size: u64,
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
+    }
+
+    fn health_check(&self) -> Result<BackendHealth> {
+        (**self).health_check()
+    }
+
+    fn get_metrics(&self) -> BackendMetrics {
+        (**self).get_metrics()
     }
 }
 

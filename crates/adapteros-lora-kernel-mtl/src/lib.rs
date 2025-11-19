@@ -39,6 +39,18 @@ pub mod ring_buffer;
 pub mod vision_kernels;
 pub mod vram;
 
+// CoreML backend support (conditional compilation)
+#[cfg(all(feature = "coreml-backend", target_os = "macos"))]
+pub mod coreml;
+
+#[cfg(all(feature = "coreml-backend", target_os = "macos"))]
+pub mod coreml_backend;
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+pub use coreml_backend::{
+    init_coreml, is_coreml_available, is_neural_engine_available, shutdown_coreml, CoreMLBackend,
+};
+
 pub use compute_shaders::{ComputeShaderDescriptor, ComputeShaderRegistry, ShaderExecutionStats};
 pub use debug::{KernelDebugger, KernelParams};
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};

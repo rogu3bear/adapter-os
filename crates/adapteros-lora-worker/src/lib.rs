@@ -46,6 +46,7 @@ use tracing::info;
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
 pub mod backend_factory;
+pub mod backend_coordinator;
 pub mod base_model_state;
 pub mod contact_discovery;
 pub mod conv_pipeline;

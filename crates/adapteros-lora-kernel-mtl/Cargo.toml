@@ -5,6 +5,19 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+# Default: Metal backend only
+default = ["metal-backend"]
+
+# Metal backend (GPU acceleration via Metal Performance Shaders)
+metal-backend = []
+
+# CoreML backend (Neural Engine acceleration via CoreML)
+coreml-backend = []
+
+# Enable all backends (Metal + CoreML)
+all-backends = ["metal-backend", "coreml-backend"]
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
@@ -34,6 +47,8 @@ core-foundation = { workspace = true }
 [build-dependencies]
 blake3 = "1.5"
 chrono = "0.4"
+cc = "1.0"
 
 [dev-dependencies]
 bytemuck = { workspace = true }
+adapteros-memory = { path = "../adapteros-memory" }
