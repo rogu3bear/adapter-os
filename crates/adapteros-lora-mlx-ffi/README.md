@@ -49,13 +49,13 @@ MLX is primarily a Python framework. When Apple releases a stable C++ API:
 2. Link against MLX C++ library
 3. Enable in `build.rs` by removing stub guard
 
-### Option 2: PyO3 Integration (Alternative)
+### Option 2: Alternative Backends (Current Recommendation)
 
-For immediate training support, use PyO3 to call MLX Python API:
+For production training and inference, use Metal backend:
 
-1. Add PyO3 dependency
-2. Implement Python bridge in `adapteros-lora-mlx` crate
-3. Handle process isolation for Python runtime
+1. Use `adapteros-lora-kernel-mtl` for GPU acceleration
+2. Enable with `--features metal-backend`
+3. Full production support on Apple Silicon
 
 ## Development
 

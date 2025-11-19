@@ -1,8 +1,45 @@
-# MLX C++ FFI Integration
+# MLX Integration - Future Research Path
 
-This document explains how the MLX (Apple) C++ FFI path is detected, built, and used in AdapterOS, and how to verify whether you have a real integration or a stub build.
+**Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
+**Last Updated:** 2025-01-19
+**Status:** Future Research (Experimental)
 
-**Note:** MLX backend uses pure C++ FFI - no Python or PyO3 required. The backend is production-ready and can be enabled via the `mlx-ffi-backend` feature flag.
+---
+
+## Overview
+
+This document describes the MLX (Apple Machine Learning Framework) backend integration path for AdapterOS. MLX is currently **experimental** and positioned as a **future research backend** for rapid prototyping and training exploration.
+
+### Current Status: Experimental
+
+**⚠️ Important:** MLX backend is NOT production-ready. Use Metal backend for production deployments.
+
+| Aspect | Status | Notes |
+|--------|--------|-------|
+| **Determinism** | ❌ Non-Deterministic | System entropy RNG (see below for future HKDF path) |
+| **Production Use** | ❌ Not Recommended | Experimental-only, gated behind `--features experimental-backends` |
+| **FFI Path** | 🚧 Under Development | C++ FFI planned, currently PyO3 |
+| **Training Support** | ⏳ Future | Potential for training backend research |
+
+---
+
+## Architecture Decision Context
+
+See [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) for the full rationale on **Metal-first, CoreML-active, MLX-future** strategy.
+
+### Why MLX is "Future Research"
+
+**Current Limitations:**
+1. **Non-Deterministic by Default:** Uses system entropy for RNG
+2. **Python Runtime Dependency:** Requires PyO3 FFI (adds complexity)
+3. **API Stability:** MLX is experimental (Apple), API may change
+4. **PyO3 Linker Issues:** Known issues on some macOS versions (#1247)
+
+**Future Potential:**
+1. **Training Backend:** Automatic differentiation, dynamic graphs
+2. **Rapid Prototyping:** Python-native API for model experimentation
+3. **HKDF-Seeded Determinism:** Research prototype exists (see below)
+4. **C++ FFI Path:** Avoid PyO3 overhead, production-ready determinism
 
 ## Feature Flag
 
