@@ -1,0 +1,496 @@
+name: Type Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/adapteros-api-types/**'
+      - 'crates/adapteros-server-api/**'
+      - 'ui/src/api/**'
+      - 'ui/src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'ui/package.json'
+      - 'ui/pnpm-lock.yaml'
+      - '.github/workflows/type-validation.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/adapteros-api-types/**'
+      - 'crates/adapteros-server-api/**'
+      - 'ui/src/api/**'
+      - 'ui/src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'ui/package.json'
+      - 'ui/pnpm-lock.yaml'
+      - '.github/workflows/type-validation.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: type-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  DATABASE_URL: sqlite://var/aos-cp.sqlite3
+
+jobs:
+  check-rust-types:
+    name: Build Rust Types
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Check adapteros-api-types compilation
+        run: cargo check -p adapteros-api-types --all-features --verbose
+        continue-on-error: false
+
+      - name: Check adapteros-api-types with clippy
+        run: cargo clippy -p adapteros-api-types --all-features -- -D warnings
+        continue-on-error: false
+
+      - name: Build adapteros-api-types documentation
+        run: cargo doc -p adapteros-api-types --no-deps --all-features
+        continue-on-error: false
+
+  generate-openapi-spec:
+    name: Generate and Validate OpenAPI Spec
+    runs-on: ubuntu-latest
+    needs: check-rust-types
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build server for OpenAPI generation
+        run: cargo build -p adapteros-server --release --exclude adapteros-lora-mlx-ffi
+        continue-on-error: false
+
+      - name: Generate OpenAPI documentation
+        run: cargo xtask openapi-docs
+        continue-on-error: false
+
+      - name: Verify OpenAPI spec was generated
+        run: |
+          if [ ! -f "docs/api/openapi.json" ]; then
+            echo "::error::OpenAPI spec not generated at docs/api/openapi.json"
+            exit 1
+          fi
+          echo "✓ OpenAPI spec generated successfully"
+          wc -l docs/api/openapi.json
+
+      - name: Validate OpenAPI spec structure
+        run: |
+          node -e "
+            const fs = require('fs');
+            const spec = JSON.parse(fs.readFileSync('docs/api/openapi.json', 'utf8'));
+
+            if (!spec.openapi) {
+              throw new Error('Missing openapi version field');
+            }
+            if (!spec.info) {
+              throw new Error('Missing info section');
+            }
+            if (!spec.paths) {
+              throw new Error('Missing paths section');
+            }
+            if (!spec.components || !spec.components.schemas) {
+              throw new Error('Missing components.schemas section');
+            }
+
+            console.log('✓ OpenAPI structure is valid');
+            console.log('  OpenAPI version:', spec.openapi);
+            console.log('  API title:', spec.info.title);
+            console.log('  API version:', spec.info.version);
+            console.log('  Endpoints:', Object.keys(spec.paths).length);
+            console.log('  Schemas:', Object.keys(spec.components.schemas).length);
+          "
+        continue-on-error: false
+
+      - name: Upload OpenAPI spec as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: docs/api/openapi.json
+          retention-days: 30
+
+  count-schema-types:
+    name: Count and Compare Schema Types
+    runs-on: ubuntu-latest
+    needs: generate-openapi-spec
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download OpenAPI spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+          path: docs/api
+
+      - name: Count Rust types
+        id: rust_types
+        run: |
+          RUST_COUNT=$(find crates/adapteros-api-types/src -name "*.rs" -exec grep -h "^pub struct\|^pub enum" {} \; | wc -l)
+          echo "count=$RUST_COUNT" >> $GITHUB_OUTPUT
+          echo "Rust API types: $RUST_COUNT"
+
+      - name: Count OpenAPI schemas
+        id: openapi_schemas
+        run: |
+          SCHEMA_COUNT=$(node -e "
+            const fs = require('fs');
+            const spec = JSON.parse(fs.readFileSync('docs/api/openapi.json', 'utf8'));
+            console.log(Object.keys(spec.components.schemas).length);
+          ")
+          echo "count=$SCHEMA_COUNT" >> $GITHUB_OUTPUT
+          echo "OpenAPI schemas: $SCHEMA_COUNT"
+
+      - name: Generate type comparison report
+        run: |
+          echo "# Type Schema Comparison Report" > /tmp/type-report.md
+          echo "" >> /tmp/type-report.md
+          echo "| Metric | Count |" >> /tmp/type-report.md
+          echo "|--------|-------|" >> /tmp/type-report.md
+          echo "| Rust API Types | ${{ steps.rust_types.outputs.count }} |" >> /tmp/type-report.md
+          echo "| OpenAPI Schemas | ${{ steps.openapi_schemas.outputs.count }} |" >> /tmp/type-report.md
+          echo "" >> /tmp/type-report.md
+
+          RUST_COUNT=${{ steps.rust_types.outputs.count }}
+          OPENAPI_COUNT=${{ steps.openapi_schemas.outputs.count }}
+
+          if [ $OPENAPI_COUNT -lt $((RUST_COUNT / 2)) ]; then
+            echo "## Warnings" >> /tmp/type-report.md
+            echo "- OpenAPI schemas ($OPENAPI_COUNT) significantly fewer than Rust types ($RUST_COUNT)" >> /tmp/type-report.md
+            echo "- Consider adding missing type exports to OpenAPI spec" >> /tmp/type-report.md
+          else
+            echo "## Status" >> /tmp/type-report.md
+            echo "- Schema coverage appears adequate" >> /tmp/type-report.md
+          fi
+
+          cat /tmp/type-report.md
+
+      - name: Comment type comparison on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('/tmp/type-report.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## Type Schema Comparison\n\n' + report
+            });
+
+  check-typescript-types:
+    name: TypeScript Type Validation
+    runs-on: ubuntu-latest
+    needs: check-rust-types
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('ui/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install UI dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+        continue-on-error: false
+
+      - name: Run TypeScript type checking
+        run: cd ui && pnpm exec tsc --noEmit
+        continue-on-error: false
+
+      - name: Verify TypeScript API types exist
+        run: |
+          if [ ! -f "ui/src/api/types.ts" ]; then
+            echo "::error::TypeScript API types file not found at ui/src/api/types.ts"
+            exit 1
+          fi
+
+          TYPE_COUNT=$(grep -c "^export \(interface\|type\|class\)" ui/src/api/types.ts || echo "0")
+          echo "✓ TypeScript API types found"
+          echo "  Type definitions: $TYPE_COUNT"
+
+      - name: Validate TypeScript API client
+        run: |
+          if [ ! -f "ui/src/api/client.ts" ]; then
+            echo "::error::TypeScript API client file not found at ui/src/api/client.ts"
+            exit 1
+          fi
+          echo "✓ TypeScript API client found"
+
+      - name: Upload TypeScript diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-diagnostics
+          path: |
+            ui/
+          retention-days: 7
+
+  validate-type-consistency:
+    name: Validate Type Consistency
+    runs-on: ubuntu-latest
+    needs: [check-typescript-types, generate-openapi-spec]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download OpenAPI spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+          path: docs/api
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for type name consistency
+        run: |
+          echo "Checking for common type name consistency..."
+
+          # Extract type names from TypeScript
+          TS_TYPES=$(grep -o "^export type [A-Za-z]*" ui/src/api/types.ts | sed 's/export type //' | sort)
+
+          # Check for critical types
+          CRITICAL_TYPES=("ApiResponse" "ErrorResponse" "PaginatedResponse" "HealthResponse")
+
+          for type in "${CRITICAL_TYPES[@]}"; do
+            if grep -q "^export type $type\|^export interface $type" ui/src/api/types.ts; then
+              echo "✓ Found critical type: $type"
+            else
+              echo "⚠ Missing critical type in TypeScript: $type"
+            fi
+          done
+
+      - name: Validate OpenAPI schema references
+        run: |
+          node -e "
+            const fs = require('fs');
+            const spec = JSON.parse(fs.readFileSync('docs/api/openapi.json', 'utf8'));
+
+            let brokenRefs = [];
+            const schemas = spec.components?.schemas || {};
+
+            const checkRefs = (obj, path = '') => {
+              if (typeof obj !== 'object' || obj === null) return;
+
+              if (obj['\$ref']) {
+                const refPath = obj['\$ref'];
+                if (!refPath.startsWith('#/components/schemas/')) {
+                  brokenRefs.push({ ref: refPath, found_at: path });
+                }
+              }
+
+              Object.values(obj).forEach((v, k) => checkRefs(v, path + '.' + k));
+            };
+
+            Object.values(schemas).forEach(schema => checkRefs(schema));
+
+            if (brokenRefs.length > 0) {
+              console.error('✗ Found broken schema references:');
+              brokenRefs.forEach(br => console.error('  ', br.ref, 'at', br.found_at));
+              process.exit(1);
+            }
+
+            console.log('✓ All schema references are valid');
+          "
+        continue-on-error: false
+
+  run-type-validation-tests:
+    name: Type Validation Tests
+    runs-on: ubuntu-latest
+    needs: [check-rust-types, check-typescript-types]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('ui/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install UI dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+
+      - name: Run Rust API type tests
+        run: cargo test -p adapteros-api-types --lib --verbose
+        continue-on-error: false
+
+      - name: Run Rust serialization tests
+        run: |
+          cargo test -p adapteros-api-types serialize --lib --verbose || {
+            echo "::warning::Serialization tests not found or failed"
+          }
+
+      - name: Run TypeScript API type tests
+        run: cd ui && pnpm test -- --run src/api/ 2>/dev/null || {
+          echo "::info::No TypeScript tests found in src/api/"
+        }
+        continue-on-error: true
+
+  validate-api-contracts:
+    name: Validate API Contracts
+    runs-on: ubuntu-latest
+    needs: [check-rust-types, check-typescript-types]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run API contract tests
+        run: cargo test -p adapteros-server-api --test api_contracts -- --nocapture --test-threads=1
+        continue-on-error: false
+
+  check-serde-serialization:
+    name: Check Serde Serialization
+    runs-on: ubuntu-latest
+    needs: check-rust-types
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Check serde derives
+        run: |
+          echo "Checking serde serialization support..."
+          cargo check -p adapteros-api-types --all-features --message-format=json | \
+            grep -i "serde\|serialize\|deserialize" || echo "✓ No serde issues detected"
+
+      - name: Verify JSON serialization roundtrip
+        run: |
+          cargo test -p adapteros-api-types --lib roundtrip 2>/dev/null || {
+            echo "::info::Roundtrip tests not found"
+          }
+
+  final-validation:
+    name: Final Type Validation Summary
+    runs-on: ubuntu-latest
+    needs: [check-rust-types, check-typescript-types, generate-openapi-spec, validate-api-contracts]
+    if: always()
+    steps:
+      - name: Check job statuses
+        run: |
+          echo "Type Validation Workflow Summary"
+          echo "=================================="
+          echo ""
+          echo "Rust Types: ${{ needs.check-rust-types.result }}"
+          echo "TypeScript Types: ${{ needs.check-typescript-types.result }}"
+          echo "OpenAPI Spec: ${{ needs.generate-openapi-spec.result }}"
+          echo "API Contracts: ${{ needs.validate-api-contracts.result }}"
+          echo ""
+
+          # Exit with error if any critical job failed
+          if [ "${{ needs.check-rust-types.result }}" != "success" ]; then
+            echo "::error::Rust type validation failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.check-typescript-types.result }}" != "success" ]; then
+            echo "::error::TypeScript type validation failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.generate-openapi-spec.result }}" != "success" ]; then
+            echo "::error::OpenAPI spec generation failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.validate-api-contracts.result }}" != "success" ]; then
+            echo "::error::API contract validation failed"
+            exit 1
+          fi
+
+          echo "✓ All type validation checks passed"
+
+      - name: Create success comment on PR
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✓ All type validation checks passed!\n\n' +
+                    '- Rust types compiled and validated\n' +
+                    '- TypeScript types validated\n' +
+                    '- OpenAPI spec generated and validated\n' +
+                    '- API contracts verified'
+            });

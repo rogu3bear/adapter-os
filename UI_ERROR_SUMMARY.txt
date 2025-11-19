@@ -1,0 +1,206 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║           TYPESCRIPT UI ERROR ANALYSIS - SUMMARY & RECOMMENDATIONS             ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+📊 ERROR DISTRIBUTION
+
+  ┌─────────────────────────────────────────────┐
+  │ TS2339 (Missing Properties)     ████████░░ 20  │
+  │ TS2322 (Type Mismatches)        ████████░░ 17  │
+  │ TS2345 (Arg Type Mismatch)      ████████░░ 16  │
+  │ TS2552 (Missing Names)          ██░░░░░░░░  4  │
+  │ TS2554 (Wrong Arg Count)        ██░░░░░░░░  4  │
+  │ TS2440 (Name Conflicts)         ██░░░░░░░░  3  │
+  │ TS2304 (Can't Find Name)        ██░░░░░░░░  2  │
+  │ TS2741 (Missing Props)          ██░░░░░░░░  2  │
+  │ Other (TS1117, TS2353, etc)     ████░░░░░░  6  │
+  └─────────────────────────────────────────────┘
+  Total: 84 errors across 30 files
+
+
+🎯 TOP PRIORITY FIXES (Quick Wins - 5-15 min)
+
+  1. ✋ REMOVE self-import in ui/alert.tsx:5
+     Line: import { Alert, AlertDescription, AlertTitle } from './alert'
+     Fixes: 3 TS2440 errors
+
+  2. ✋ ADD VariantProps import to alert.tsx & button.tsx
+     Add: import { VariantProps } from 'class-variance-authority'
+     Fixes: 2 TS2304 errors
+
+  3. ✋ REMOVE duplicate 'content' key in src/data/help-text.ts:22
+     Delete one of duplicate lines (both define content property)
+     Fixes: 1 TS1117 error
+
+  4. ✋ ADD types import to components/Tenants.tsx
+     Add: import * as types from '../api/types'
+     Fixes: 1 TS2503 error
+
+  5. ✋ INSTALL embla-carousel-react & fix carousel.tsx
+     pnpm install embla-carousel-react
+     Fix import from 'embla-carousel-react'
+     Fixes: 4 TS2552 errors
+
+
+⚠️  HIGH PRIORITY FIXES (Refactoring - 60-90 min)
+
+  6. 🔧 FIX Error → String assignments (11 components, 14 instances)
+     Files: AdaptersPage, BaseModelLoader, TrainingMonitor, etc.
+     Pattern: Change setError(error) → setError(error.message)
+     OR: setError(error instanceof Error ? error.message : String(error))
+
+  7. 🔧 FIX logger.warn() calls (4 instances in hooks)
+     Files: useProgressOperation.ts (3x), useSSE.ts (1x)
+     Issue: Called with 3 args, signature expects 1-2
+     Fix: Merge 3rd arg into metadata object: warn(msg, { ...meta, error })
+
+  8. 🔧 ADD missing Adapter type properties
+     File: src/api/types.ts
+     Add to Adapter interface:
+       - state?: AdapterState
+       - languages?: string[]
+     Reason: API contract mismatch with code references
+
+  9. 🔧 ADD ApiClient.get() method
+     File: src/api/client.ts
+     Method: async get<T>(path: string): Promise<T>
+     Called by: PluginStatusWidget.tsx:20
+
+  10. 🔧 EXTEND type definitions
+      File: src/api/types.ts
+      Add to RoutingDecision: adapters?: string[]
+      Add to RouteConfig: disabled?: boolean, external?: boolean
+      Add to StageContent: mockComponent?: ComponentType
+      Implement ServiceLifecycleManager.waitForHealthy() method
+
+
+📁 FILES BY ERROR COUNT
+
+  5+ errors (Critical):
+    • src/hooks/useProgressOperation.ts ........... 12 errors
+    • src/components/InferencePlayground.tsx ..... 6 errors
+    • src/components/ui/alert.tsx ............... 4 errors
+    • src/components/ui/carousel.tsx ............ 4 errors
+    • src/components/TestingPage.tsx ............ 4 errors
+    • src/services/ServiceLifecycleManager.ts ... 4 errors
+
+  2-4 errors (High):
+    • 10 additional files need modifications
+
+  1-2 errors (Medium):
+    • 14 additional files need minor fixes
+
+
+⏱️  ESTIMATED EFFORT
+
+  Phase 1: Critical Fixes ..................... 5-10 min
+  Phase 2: Import Fixes ....................... 10-15 min
+  Phase 3: Type Definitions ................... 30-45 min
+  Phase 4: API Methods & Implementations ...... 15-20 min
+  Phase 5: Error Handling Refactors ........... 60-90 min
+  Phase 6: Testing & Verification ............ 20-30 min
+  ──────────────────────────────────────────────────
+  TOTAL ESTIMATED TIME: 2.5-3.5 hours
+
+
+✅ EXECUTION CHECKLIST
+
+  Phase 1: Critical Fixes (Quick Wins)
+    □ Remove alert.tsx:5 self-import
+    □ Delete duplicate content in help-text.ts:22
+    □ Add import in Tenants.tsx
+
+  Phase 2: Import & Dependency Fixes
+    □ Add VariantProps imports to alert.tsx & button.tsx
+    □ npm install embla-carousel-react
+    □ Fix carousel.tsx useEmblaCarousel import
+
+  Phase 3: Type System Updates
+    □ Extend Adapter interface with state & languages
+    □ Extend RoutingDecision, RouteConfig, StageContent
+    □ Handle LifecyclePhase union type properly
+
+  Phase 4: API & Implementation
+    □ Add ApiClient.get() method
+    □ Implement ServiceLifecycleManager.waitForHealthy()
+    □ Replace fetch timeout with AbortController
+
+  Phase 5: Component Error Handling
+    □ Fix Error→String in 11 components (extract .message)
+    □ Fix logger.warn() calls in 4 hook files
+    □ Fix React ref type in InferencePlayground
+    □ Fix component props in CodeIntelligencePage & PlansPage
+
+  Phase 6: Verification
+    □ cd ui && pnpm exec tsc --noEmit (should show 0 errors)
+    □ pnpm build (verify production build succeeds)
+    □ pnpm exec eslint src/ (check lint pass)
+
+
+🔗 DETAILED ANALYSIS
+
+  See: /Users/star/Dev/aos/UI_TYPESCRIPT_ERROR_REPORT.md
+
+  Contains:
+    • Detailed breakdown of all 84 errors
+    • Root cause analysis per error category
+    • Code examples & specific line numbers
+    • Complete priority matrix
+    • Impact assessment for each fix
+    • File-by-file recommendations
+
+
+📋 ERROR CATEGORIES SUMMARY
+
+  Type Mismatches (TS2322, TS2345) .......... 33 errors (39%)
+    → Error objects assigned to string state
+    → Objects rendered as React nodes
+    → Function arguments with wrong types
+
+  Missing Properties (TS2339, TS2741) ...... 22 errors (26%)
+    → ApiClient missing get() method
+    → Adapter type incomplete (no state, languages)
+    → RouteConfig missing disabled, external
+    → Component props missing user field
+
+  Missing Names/Imports (TS2304, TS2552, TS2503) ... 10 errors (12%)
+    → VariantProps not imported
+    → useEmblaCarousel hook missing
+    → types namespace not imported
+
+  Other Issues ............................ 19 errors (23%)
+    → Wrong function argument count
+    → Name conflicts (self-imports)
+    → Duplicate object keys
+    → Invalid object literals
+
+
+💡 KEY INSIGHTS
+
+  1. Error Handling Pattern: Inconsistent across components
+     Most catch blocks assign Error directly to string state
+     Should extract error.message or use error handler component
+
+  2. Type Definitions: Out of sync with API contracts
+     Adapter has current_state but code uses state
+     RoutingDecision has more fields than type reflects
+
+  3. Hook Signature Changes: logger.warn() signature mismatch
+     All 4 instances merge error into metadata object
+
+  4. Missing Dependencies: embla-carousel-react installed but not imported
+     carousel.tsx references useEmblaCarousel but doesn't import
+
+  5. Self-Imports: alert.tsx imports from itself
+     File defines Alert components and imports them from self
+
+
+🚀 NEXT STEPS
+
+  1. Run Phase 1 fixes first (quick wins, 5-10 min)
+  2. Run Phase 2 fixes (dependencies, 10-15 min)
+  3. Verify with: cd ui && pnpm exec tsc --noEmit
+  4. Continue with Phase 3-5 (main refactoring)
+  5. Final verification and build test
+
+Expected result: 0 TypeScript compilation errors

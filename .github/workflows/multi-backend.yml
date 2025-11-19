@@ -1,0 +1,251 @@
+name: Multi-Backend Testing
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Linux builds - no Metal, no CoreML
+  linux-build:
+    name: Linux Build (No Metal/CoreML)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - "deterministic-only"
+          - "full"
+          - "no-metal"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build with features
+        run: |
+          cargo build --workspace \
+            --exclude adapteros-lora-kernel-mtl \
+            --exclude adapteros-lora-mlx-ffi \
+            --features "${{ matrix.features }}"
+
+      - name: Test with features
+        run: |
+          cargo test --workspace \
+            --exclude adapteros-lora-kernel-mtl \
+            --exclude adapteros-lora-mlx-ffi \
+            --features "${{ matrix.features }}"
+
+  # macOS builds - Metal backend
+  macos-metal:
+    name: macOS Metal Backend
+    runs-on: macos-14  # macOS Sonoma with Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-metal-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check Xcode version
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-version
+
+      - name: Build Metal backend only
+        run: |
+          cargo build -p adapteros-lora-kernel-mtl \
+            --features metal-backend
+
+      - name: Test Metal backend
+        run: |
+          cargo test -p adapteros-lora-kernel-mtl \
+            --features metal-backend
+
+      - name: Verify Metal shader compilation
+        run: |
+          ls -lh crates/adapteros-lora-kernel-mtl/shaders/
+          cat crates/adapteros-lora-kernel-mtl/shaders/kernel_hash.txt
+
+  # macOS builds - CoreML backend
+  macos-coreml:
+    name: macOS CoreML Backend
+    runs-on: macos-14  # Requires macOS 13+ for Neural Engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-coreml-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check CoreML availability
+        run: |
+          system_profiler SPSoftwareDataType
+
+      - name: Build CoreML backend only
+        run: |
+          cargo build -p adapteros-lora-kernel-mtl \
+            --features coreml-backend
+
+      - name: Test CoreML backend
+        run: |
+          cargo test -p adapteros-lora-kernel-mtl \
+            --features coreml-backend \
+            -- --nocapture
+
+  # macOS builds - All backends
+  macos-all-backends:
+    name: macOS All Backends
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-all-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build all backends
+        run: |
+          cargo build -p adapteros-lora-kernel-mtl \
+            --features all-backends
+
+      - name: Test all backends
+        run: |
+          cargo test -p adapteros-lora-kernel-mtl \
+            --features all-backends \
+            -- --nocapture
+
+      - name: Build workspace with all backends
+        run: |
+          cargo build --workspace \
+            --exclude adapteros-lora-mlx-ffi \
+            --features all-backends
+
+  # Feature matrix validation
+  feature-matrix:
+    name: Feature Matrix Validation
+    runs-on: macos-14
+    strategy:
+      matrix:
+        feature_combo:
+          - ""  # Default features
+          - "metal-backend"
+          - "coreml-backend"
+          - "all-backends"
+          - "deterministic-only"
+          - "full,metal-backend"
+          - "full,all-backends"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build with feature combination
+        run: |
+          if [ -z "${{ matrix.feature_combo }}" ]; then
+            cargo build -p adapteros-lora-kernel-mtl
+          else
+            cargo build -p adapteros-lora-kernel-mtl \
+              --features "${{ matrix.feature_combo }}"
+          fi
+
+      - name: Check for feature conflicts
+        run: |
+          cargo tree -p adapteros-lora-kernel-mtl \
+            --features "${{ matrix.feature_combo }}" \
+            -e features
+
+  # Clippy with all backends
+  clippy-backends:
+    name: Clippy Multi-Backend
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Clippy Metal backend
+        run: |
+          cargo clippy -p adapteros-lora-kernel-mtl \
+            --features metal-backend \
+            -- -D warnings
+
+      - name: Clippy CoreML backend
+        run: |
+          cargo clippy -p adapteros-lora-kernel-mtl \
+            --features coreml-backend \
+            -- -D warnings
+
+      - name: Clippy all backends
+        run: |
+          cargo clippy -p adapteros-lora-kernel-mtl \
+            --features all-backends \
+            -- -D warnings
