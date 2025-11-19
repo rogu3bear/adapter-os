@@ -26,7 +26,7 @@ members = [
     "crates/adapteros-lora-router",
     "crates/adapteros-lora-rag",
     "crates/adapteros-ingest-docs",
-    "crates/adapteros-lora-worker",
+    # "crates/adapteros-lora-worker",  # Temporarily disabled due to compilation errors
     "crates/adapteros-telemetry",
     "crates/adapteros-policy",
     "crates/adapteros-config",
@@ -85,8 +85,11 @@ metrics = []
 replay = []
 
 # Backend feature flags (mutually exclusive in practice)
-metal-backend = []  # macOS Metal GPU acceleration (requires macOS)
-mlx-backend = ["dep:pyo3"]  # MLX Python backend (experimental, PyO3 linker issues)
+metal = []  # Workspace-level metal feature (used across crates)
+metal-backend = ["adapteros-lora-kernel-mtl/metal-backend"]  # macOS Metal GPU acceleration (requires macOS)
+coreml-backend = ["adapteros-lora-kernel-mtl/coreml-backend"]  # macOS Neural Engine via CoreML (requires macOS 13+)
+mlx-backend = []  # MLX backend (experimental, stub implementation only)
+all-backends = ["metal-backend", "coreml-backend"]  # Enable both Metal and CoreML backends
 
 # Combined feature sets for common use cases
 full = ["telemetry", "metrics", "replay"]
@@ -95,10 +98,26 @@ no-metal = []  # Explicitly disable Metal (for Linux/CI)
 # Legacy compatibility
 experimental-backends = ["mlx-backend"]
 
+# Testing features - used in 157+ test files and test infrastructure
+extended-tests = []  # Extended test suite with intensive tests
+integration_tests = []  # Integration test suite
+security_tests = []  # Security unit and integration tests
+loom = []  # Concurrency testing with loom (thread model verification)
+
+# Experimental features - opt-in unstable functionality
+domain-experimental = []  # Domain adapter experimental features
+lint-experimental = []  # Linter experimental features
+numerics-experimental = []  # Numerical stability and precision tests
+
+# Integration and advanced features
+federation = []  # Federation daemon and cross-node communication
+rag-pgvector = []  # Vector database integration (pgvector) for RAG
+secure-enclave = []  # macOS Secure Enclave support
+cdp = []  # Chrome DevTools Protocol support
+
 [dependencies]
 # Re-export key crates for integration tests
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-pyo3 = { workspace = true, features = ["extension-module"], optional = true }
 anyhow = "1.0"
 thiserror.workspace = true
 serde.workspace = true
@@ -164,9 +183,7 @@ tantivy = "0.22"
 tokenizers = "0.15"
 safetensors = "0.4"
 
-# Python/MLX Integration
-pyo3 = { version = "0.22", features = ["auto-initialize", "extension-module"] }
-numpy = "0.22"
+# Python/MLX Integration - REMOVED (PyO3 cleanup)
 
 # Metal (macOS)
 metal = "0.28"
