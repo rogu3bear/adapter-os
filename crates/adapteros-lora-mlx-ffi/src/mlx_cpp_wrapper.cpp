@@ -272,11 +272,24 @@ mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_
         auto inp = reinterpret_cast<StubArray*>(input);
         
         // Stub forward pass with hidden states
+        // Create dummy hidden states for the 4 target modules
+        const int num_modules = 4;
+        mlx_array_t** hidden_array = new mlx_array_t*[num_modules];
+
+        // Create stub hidden states for q_proj, k_proj, v_proj, o_proj
+        for (int i = 0; i < num_modules; ++i) {
+            std::vector<float> hidden_data(inp->data.size(), 0.5f + i * 0.1f);
+            auto hidden = new StubArray(hidden_data);
+            hidden_array[i] = reinterpret_cast<mlx_array_t*>(hidden);
+        }
+
+        *hidden_states = reinterpret_cast<mlx_array_t*>(hidden_array);
+        *num_hidden = num_modules;
+
+        // Return output logits
         std::vector<float> output(inp->data.size(), 0.5f);
         auto result = new StubArray(output);
-        *hidden_states = nullptr;
-        *num_hidden = 0;
-        
+
         return reinterpret_cast<mlx_array_t*>(result);
     } catch (const std::exception& e) {
         g_last_error = e.what();
@@ -287,6 +300,23 @@ mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_
 void mlx_model_free(mlx_model_t* model) {
     if (model) {
         delete reinterpret_cast<StubModel*>(model);
+    }
+}
+
+void mlx_hidden_states_free(mlx_array_t* hidden_states, int num_hidden) {
+    if (hidden_states && num_hidden > 0) {
+        // Cast back to array of pointers
+        mlx_array_t** hidden_array = reinterpret_cast<mlx_array_t**>(hidden_states);
+
+        // Free each individual hidden state array
+        for (int i = 0; i < num_hidden; ++i) {
+            if (hidden_array[i]) {
+                mlx_array_free(hidden_array[i]);
+            }
+        }
+
+        // Free the array of pointers itself
+        delete[] hidden_array;
     }
 }
 
@@ -508,17 +538,84 @@ mlx_array_t* mlx_lora_combine(mlx_array_t* base_output, mlx_array_t* lora_output
     try {
         auto base = reinterpret_cast<StubArray*>(base_output);
         auto lora = reinterpret_cast<StubArray*>(lora_output);
-        
+
         std::vector<float> result;
         size_t min_size = std::min(base->data.size(), lora->data.size());
         for (size_t i = 0; i < min_size; ++i) {
             result.push_back(base->data[i] + gate * lora->data[i]);
         }
-        
+
         auto result_array = new StubArray(result);
         return reinterpret_cast<mlx_array_t*>(result_array);
     } catch (const std::exception& e) {
         g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+// Multi-adapter LoRA routing (K-sparse) - Stub implementation
+mlx_array_t* mlx_multi_lora_forward(
+    mlx_array_t* input,
+    mlx_array_t** lora_a_list,
+    mlx_array_t** lora_b_list,
+    int num_adapters,
+    const uint16_t* gates_q15,
+    float alpha,
+    float rank
+) {
+    if (!input || !lora_a_list || !lora_b_list || !gates_q15 || num_adapters <= 0) {
+        g_last_error = "Invalid parameters for multi-adapter LoRA forward";
+        return nullptr;
+    }
+
+    // Enforce maximum K=8 adapters
+    if (num_adapters > 8) {
+        g_last_error = "Number of adapters exceeds maximum (K=8)";
+        return nullptr;
+    }
+
+    try {
+        auto inp = reinterpret_cast<StubArray*>(input);
+
+        // Initialize result with input (identity path)
+        std::vector<float> result = inp->data;
+
+        // Scaling factor for LoRA
+        float scaling = alpha / rank;
+
+        // Process each adapter with its gate weight
+        for (int i = 0; i < num_adapters; ++i) {
+            // Skip null adapters
+            if (!lora_a_list[i] || !lora_b_list[i]) {
+                continue;
+            }
+
+            // Dequantize Q15 gate: gate_f32 = gate_u16 / 32767.0
+            float gate_weight = static_cast<float>(gates_q15[i]) / 32767.0f;
+
+            // Skip adapters with zero or negligible gate
+            if (gate_weight <= 1e-6f) {
+                continue;
+            }
+
+            auto a = reinterpret_cast<StubArray*>(lora_a_list[i]);
+            auto b = reinterpret_cast<StubArray*>(lora_b_list[i]);
+
+            // Simplified stub LoRA forward pass
+            // Real implementation would do: input @ A @ B
+            // Stub: apply a simple transformation
+            float combined_scale = gate_weight * scaling;
+            for (size_t j = 0; j < result.size(); ++j) {
+                // Dummy computation: scale input by combined factor
+                result[j] += inp->data[j] * combined_scale * 0.1f;
+            }
+        }
+
+        auto result_array = new StubArray(result);
+        return reinterpret_cast<mlx_array_t*>(result_array);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Multi-adapter LoRA forward failed: ") + e.what();
         return nullptr;
     }
 }

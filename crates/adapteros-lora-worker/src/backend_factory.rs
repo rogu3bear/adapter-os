@@ -411,11 +411,21 @@ impl FusedKernels for MlxBackend {
         let reseeded = derive_seed(&self.base_seed, &label);
         self.base_seed = B3Hash::from_bytes(reseeded);
 
+        // Set MLX's RNG seed for deterministic dropout/sampling
+        let seed_slice: [u8; 32] = self.base_seed.as_bytes().try_into()
+            .map_err(|_| AosError::Internal("Failed to convert hash to seed".to_string()))?;
+
+        #[cfg(feature = "experimental-backends")]
+        {
+            use adapteros_lora_mlx_ffi::mlx_set_seed_from_bytes;
+            mlx_set_seed_from_bytes(&seed_slice)?;
+        }
+
         tracing::info!(
             path = %self.model_path.display(),
             plan_len = plan_bytes.len(),
             seed_preview = %self.base_seed.to_short_hex(),
-            "MLX backend loaded plan deterministically"
+            "MLX backend loaded plan and seeded RNG deterministically"
         );
 
         Ok(())
@@ -447,23 +457,46 @@ impl FusedKernels for MlxBackend {
     }
 
     fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        // MLX backend attestation: RNG seeding is deterministic, but execution
+        // order is NOT deterministic due to GPU scheduling and async operations.
+        //
+        // Why deterministic: false?
+        // 1. MLX's async execution model can reorder operations between runs
+        // 2. GPU scheduler may vary task ordering based on hardware state
+        // 3. Floating-point rounding may differ in multi-threaded contexts
+        //
+        // What IS deterministic:
+        // - HKDF-derived seeds control dropout and sampling operations
+        // - Initial model weights are deterministic
+        // - Routing decisions are deterministic (via Q15 quantization)
+        //
+        // Use case: MLX backend suitable for research/prototyping, not production
+        // determinism-critical inference. Use Metal backend for guaranteed determinism.
         Ok(attestation::DeterminismReport {
             backend_type: attestation::BackendType::Mlx,
             metallib_hash: None,
             manifest: None,
             rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
-            floating_point_mode: attestation::FloatingPointMode::Deterministic,
-            compiler_flags: vec!["-DMLX_DETERMINISTIC".to_string()],
-            deterministic: true,
+            floating_point_mode: attestation::FloatingPointMode::Unknown,
+            compiler_flags: vec!["-DMLX_HKDF_SEEDED".to_string()],
+            deterministic: false,
         })
     }
 
     fn load_adapter(&mut self, id: u16, _weights: &[u8]) -> Result<()> {
         let adapter_seed = self.derive_adapter_seed(id);
+
+        // Set MLX's RNG seed for adapter-specific operations
+        #[cfg(feature = "experimental-backends")]
+        {
+            use adapteros_lora_mlx_ffi::mlx_set_seed_from_bytes;
+            mlx_set_seed_from_bytes(&adapter_seed)?;
+        }
+
         tracing::info!(
             adapter_id = id,
             seed_preview = %hex::encode(&adapter_seed[..4]),
-            "MLX backend registered adapter deterministically"
+            "MLX backend registered adapter with deterministic RNG seeding"
         );
         Ok(())
     }
