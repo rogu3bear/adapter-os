@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-#![cfg(all(test, feature = "extended-tests"))]
-
-=======
->>>>>>> integration-branch
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use adapteros_benchmarks::*;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
@@ -264,13 +259,235 @@ fn bench_deterministic_operations(c: &mut Criterion) {
     });
 }
 
+/// Benchmark CoreML vs Metal comparison
+#[cfg(target_os = "macos")]
+fn bench_backend_comparison(c: &mut Criterion) {
+    use adapteros_lora_kernel_api::MockKernels;
+    use adapteros_lora_kernel_mtl::ane_acceleration::{
+        ANEAccelerator, ANEModelConfig, ANEDataType, ANELoRAConfig,
+        ANEQuantization, ANECalibrationMethod,
+    };
+
+    // Metal backend benchmark
+    c.bench_function("backend_metal_inference", |b| {
+        let rt = Runtime::new().unwrap();
+
+        b.iter(|| {
+            rt.block_on(async {
+                // Mock Metal inference
+                let mut kernels = MockKernels::new();
+                kernels.load(b"metal_plan").unwrap();
+
+                let ring = RouterRing::from_slices(&[0, 1], &[16384, 16384]);
+                let mut io = IoBuffers::new(1024);
+                io.input_ids = vec![1, 2, 3, 4];
+
+                black_box(kernels.run_step(&ring, &mut io).unwrap());
+            })
+        })
+    });
+
+    // CoreML/ANE backend benchmark
+    c.bench_function("backend_coreml_inference", |b| {
+        let accelerator_result = ANEAccelerator::new();
+
+        if let Ok(mut accelerator) = accelerator_result {
+            if accelerator.capabilities().available {
+                let config = ANEModelConfig {
+                    model_id: "bench_model".to_string(),
+                    input_dimensions: vec![1, 256],
+                    output_dimensions: vec![1, 256],
+                    data_type: ANEDataType::Float16,
+                    lora_config: ANELoRAConfig {
+                        rank: 8,
+                        alpha: 16.0,
+                        target_modules: vec!["proj".to_string()],
+                        quantization: ANEQuantization {
+                            enabled: false,
+                            bits: 16,
+                            calibration_method: ANECalibrationMethod::Static,
+                        },
+                    },
+                };
+
+                let _session_id = accelerator.create_session(config).unwrap();
+
+                b.iter(|| {
+                    // Benchmark would execute ANE inference here
+                    // For now, just measure overhead
+                    black_box(accelerator.performance_metrics());
+                })
+            } else {
+                b.iter(|| {
+                    // ANE not available, skip
+                    black_box(0);
+                })
+            }
+        }
+    });
+
+    // Compare latencies
+    c.bench_function("backend_comparison_overhead", |b| {
+        let backends = vec!["Metal", "CoreML", "MLX", "Mock"];
+
+        b.iter(|| {
+            for backend in &backends {
+                // Simulate backend selection overhead
+                let _selected = black_box(*backend);
+                std::hint::black_box(backend.len());
+            }
+        })
+    });
+}
+
+/// Benchmark training operations
+#[cfg(target_os = "macos")]
+fn bench_training_operations(c: &mut Criterion) {
+    // Benchmark gradient computation
+    c.bench_function("training_gradient_computation", |b| {
+        let weights = vec![0.5f32; 1024];
+        let gradients = vec![0.01f32; 1024];
+        let learning_rate = 0.001f32;
+
+        b.iter(|| {
+            let mut updated_weights = weights.clone();
+            for (w, g) in updated_weights.iter_mut().zip(&gradients) {
+                *w -= learning_rate * g;
+            }
+            black_box(updated_weights);
+        })
+    });
+
+    // Benchmark LoRA weight update
+    c.bench_function("training_lora_weight_update", |b| {
+        let rank = 16;
+        let hidden = 1024;
+        let lora_a = vec![0.1f32; rank * hidden];
+        let lora_b = vec![0.1f32; hidden * rank];
+        let grads_a = vec![0.01f32; rank * hidden];
+        let grads_b = vec![0.01f32; hidden * rank];
+        let lr = 0.001f32;
+
+        b.iter(|| {
+            let mut a_updated = lora_a.clone();
+            let mut b_updated = lora_b.clone();
+
+            for (w, g) in a_updated.iter_mut().zip(&grads_a) {
+                *w -= lr * g;
+            }
+            for (w, g) in b_updated.iter_mut().zip(&grads_b) {
+                *w -= lr * g;
+            }
+
+            black_box((a_updated, b_updated));
+        })
+    });
+
+    // Benchmark quantization
+    c.bench_function("training_int8_quantization", |b| {
+        let weights = vec![0.5f32; 4096];
+
+        b.iter(|| {
+            let max_val = weights.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+            let scale = max_val / 127.0;
+
+            let quantized: Vec<i8> = weights.iter()
+                .map(|&w| (w / scale).round().clamp(-128.0, 127.0) as i8)
+                .collect();
+
+            black_box((quantized, scale));
+        })
+    });
+}
+
+/// Benchmark memory efficiency
+#[cfg(target_os = "macos")]
+fn bench_memory_efficiency(c: &mut Criterion) {
+    use adapteros_memory::unified_memory::{UnifiedMemoryManager, AllocationRequest, MemoryType};
+
+    c.bench_function("memory_allocation_throughput", |b| {
+        let mut manager = UnifiedMemoryManager::new(100 * 1024 * 1024);
+        manager.init_pool("bench", 80 * 1024 * 1024).unwrap();
+
+        b.iter(|| {
+            let request = AllocationRequest {
+                size: 1024 * 1024, // 1MB
+                backend: "bench".to_string(),
+                alignment: 16,
+                memory_type: MemoryType::GPU,
+                ..Default::default()
+            };
+
+            if let Ok(block) = manager.allocate(request) {
+                manager.deallocate(&block).unwrap();
+            }
+        })
+    });
+
+    c.bench_function("memory_fragmentation_test", |b| {
+        let mut manager = UnifiedMemoryManager::new(100 * 1024 * 1024);
+        manager.init_pool("bench", 80 * 1024 * 1024).unwrap();
+
+        b.iter(|| {
+            let mut blocks = Vec::new();
+
+            // Allocate 10 blocks
+            for _ in 0..10 {
+                let request = AllocationRequest {
+                    size: 2 * 1024 * 1024,
+                    backend: "bench".to_string(),
+                    alignment: 16,
+                    memory_type: MemoryType::GPU,
+                    ..Default::default()
+                };
+
+                if let Ok(block) = manager.allocate(request) {
+                    blocks.push(block);
+                }
+            }
+
+            // Free alternating blocks
+            for (i, block) in blocks.iter().enumerate() {
+                if i % 2 == 0 {
+                    manager.deallocate(block).unwrap();
+                }
+            }
+
+            // Cleanup remaining
+            for (i, block) in blocks.iter().enumerate() {
+                if i % 2 != 0 {
+                    manager.deallocate(block).unwrap();
+                }
+            }
+
+            black_box(());
+        })
+    });
+}
+
+#[cfg(target_os = "macos")]
 criterion_group!(
     name = kernel_benches;
     config = Criterion::default()
         .sample_size(100)
         .measurement_time(std::time::Duration::from_secs(10))
         .noise_threshold(0.05);
-    targets = bench_metal_kernels, bench_memory_operations, bench_deterministic_operations
+    targets = bench_metal_kernels,
+              bench_memory_operations,
+              bench_deterministic_operations,
+              bench_backend_comparison,
+              bench_training_operations,
+              bench_memory_efficiency
+);
+
+#[cfg(not(target_os = "macos"))]
+criterion_group!(
+    name = kernel_benches;
+    config = Criterion::default()
+        .sample_size(100)
+        .measurement_time(std::time::Duration::from_secs(10))
+        .noise_threshold(0.05);
+    targets = bench_memory_operations, bench_deterministic_operations
 );
 
 criterion_main!(kernel_benches);
