@@ -5,11 +5,7 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "Bash(./test_cli_integration.sh:*)",
-      "Bash(/Users/star/Dev/aos/target/debug/aos:*)",
-      "Bash(/Users/star/Dev/aos/test_database_integration.sh)",
-      "Bash(/Users/star/Dev/aos/test_cli_database_integration.sh)",
-      "Bash(./test_cli_database_integration.sh:*)",
-      "Bash(/Users/star/Dev/aos/quick_integration_test.sh)"
+      "Bash(/Users/star/Dev/:*)"
     ],
     "deny": [],
     "ask": []
