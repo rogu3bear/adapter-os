@@ -1,0 +1,29 @@
+@@ -19,6 +19,7 @@
+ import { toast } from 'sonner';
+ import apiClient from '../api/client';
+ import { logger, toError } from '../utils/logger';
++import { DatasetBuilder, type DatasetBuilderState } from './DatasetBuilder';
+ import { DensityProvider, useDensity } from '../contexts/DensityContext';
+ import { BreadcrumbNavigation } from './BreadcrumbNavigation';
+ import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+@@ -26,6 +27,7 @@
+ import {
+   AdapterCategory,
+   AdapterScope,
++  Info,
+   TrainingConfig,
+   TrainingTemplate,
+   Repository,
+@@ -85,6 +87,12 @@
+   warmupSteps?: number;
+   maxSeqLength?: number;
+ 
++  // Step 4b: Dataset Builder (optional, for custom data source)
++  datasetBuilderState?: DatasetBuilderState;
++  datasetId?: string;
++  useDatasetBuilder?: boolean;
++
++  // Step 5b: Packaging & Registration
+   packageAfter?: boolean;
+   registerAfter?: boolean;
+   adaptersRoot?: string;

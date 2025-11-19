@@ -22,11 +22,7 @@ import { useTimestamp } from '../hooks/useTimestamp';
 import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
 import { HelpTooltip } from './ui/help-tooltip';
-
 import { useSSE } from '../hooks/useSSE';
-import { useTimestamp } from '../hooks/useTimestamp';
-import { canonicalKey } from './ui/utils';
-import { HashChainView } from './HashChainView';
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
@@ -38,13 +34,9 @@ import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { DensityControls } from './ui/density-controls';
 import { useDensity } from '../contexts/DensityContext';
 
-import { useAuth, useTenant } from '@/layout/LayoutProvider';
-
 interface TelemetryProps {
   user?: User;
   selectedTenant?: string;
-
-  onToolbarChange?: (actions: React.ReactNode) => void;
 }
 
 interface TelemetryToolbarProps {
@@ -90,16 +82,10 @@ function TelemetryToolbar({
   );
 }
 
-export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolbarChange }: TelemetryProps) {
-  const { user } = useAuth();
-  const { selectedTenant } = useTenant();
-  const { density, setDensity } = useDensity();
-
-}
-
 export function Telemetry({ user: userProp, selectedTenant: tenantProp }: TelemetryProps) {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
+  const { density, setDensity } = useDensity();
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
@@ -479,16 +465,13 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   if (telemetryError) {
     return (
       <ErrorRecovery
-        title="Telemetry Error"
-        message={telemetryError.message}
-        recoveryActions={[
-          { label: 'Retry Loading', action: () => {
+        {...ErrorRecoveryTemplates.genericError(
+          telemetryError.message,
+          () => {
             setTelemetryError(null);
-            // Trigger refetch by re-running useEffect
             window.location.reload();
-          }},
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
+          }
+        )}
       />
     );
   }
@@ -503,23 +486,6 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     );
   }
 
-  useEffect(() => {
-    if (!onToolbarChange) return;
-    const toolbar = (
-      <TelemetryToolbar
-        density={density}
-        onDensityChange={setDensity}
-        connected={sseConnected}
-        onExportAll={handleExportAllBundles}
-        exportDisabled={bundles.length === 0}
-        onPurge={() => setShowPurgeModal(true)}
-      />
-    );
-    onToolbarChange(toolbar);
-    return () => {
-      onToolbarChange(null);
-    };
-  }, [onToolbarChange, density, setDensity, sseConnected, handleExportAllBundles, bundles.length]);
 
   return (
     <div className="space-y-6">

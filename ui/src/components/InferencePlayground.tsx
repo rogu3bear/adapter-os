@@ -9,6 +9,7 @@ import { Slider } from './ui/slider';
 import { Checkbox } from './ui/checkbox';
 import { Alert, AlertDescription } from './ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { BatchResults } from './inference/BatchResults';
 import {
   Play,
   Copy,
@@ -28,7 +29,9 @@ import {
   Wifi,
   Layers,
   TrendingUp,
-  Target
+  Target,
+  Plus,
+  Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
@@ -44,6 +47,9 @@ import { ProgressiveHint } from './ui/progressive-hint';
 import { ToolPageHeader } from './ui/page-headers/ToolPageHeader';
 import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
 import { useCancellableOperation } from '../hooks/useCancellableOperation';
+import { PromptTemplateManager } from './PromptTemplateManager';
+import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '../hooks/usePromptTemplates';
+import { InferenceRequestSchema, BatchPromptSchema } from '../schemas';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -231,14 +237,6 @@ interface StreamingToken {
   timestamp: number;
 }
 
-interface PromptTemplate {
-  id: string;
-  name: string;
-  description: string;
-  prompt: string;
-  category: string;
-}
-
 export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps) {
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
@@ -249,6 +247,14 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('none');
   const [inferenceError, setInferenceError] = useState<Error | null>(null);
   const [adaptersLoadError, setAdaptersLoadError] = useState<Error | null>(null);
+
+  // Template management
+  const { recordTemplateUsage, substituteVariables, getRecentTemplates } = usePromptTemplates();
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplateType | null>(null);
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
+  const [showVariableInputs, setShowVariableInputs] = useState(false);
+  const [promptModifiedSinceTemplate, setPromptModifiedSinceTemplate] = useState(false);
 
   // Additional state for streaming, metrics, and batch operations
   const [metrics, setMetrics] = useState<any>(null);
@@ -329,19 +335,148 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   }, []);
 
   const executeBatchInference = useCallback(async (prompts: string[]) => {
-    // Stub implementation - would execute batch inference
-    logger.info('Executing batch inference', { count: prompts.length });
-    setIsBatchRunning(true);
-    // Simulate batch processing
-    setTimeout(() => setIsBatchRunning(false), 1000);
-    return [];
-  }, []);
+    if (prompts.length === 0) {
+      toast.error('No prompts to process');
+      return;
+    }
 
-  const applyTemplate = useCallback((template: PromptTemplate) => {
-    // Stub implementation - would apply prompt template
-    logger.info('Applying template', { template });
-    setPrompt(template.prompt);
-    setShowTemplates(false);
+    // Validate all prompts first using both custom validation and schema
+    const validations = await Promise.all(prompts.map(async (p) => {
+      const customValidation = validatePrompt(p);
+      if (!customValidation.valid) {
+        return customValidation;
+      }
+
+      // Also validate against schema
+      try {
+        await BatchPromptSchema.parseAsync({
+          prompt: p,
+          max_tokens: configA.max_tokens,
+          temperature: configA.temperature,
+        });
+        return customValidation;
+      } catch (error) {
+        if (error instanceof Error) {
+          return {
+            valid: false,
+            error: error.message,
+          };
+        }
+        return customValidation;
+      }
+    }));
+
+    setBatchValidation(validations);
+
+    if (validations.some(v => !v.valid)) {
+      toast.error('Some prompts have validation errors. Please fix them before proceeding.');
+      return;
+    }
+
+    setIsBatchRunning(true);
+    setBatchResults([]);
+
+    logger.info('Executing batch inference', {
+      component: 'InferencePlayground',
+      operation: 'executeBatchInference',
+      count: prompts.length
+    });
+
+    try {
+      // Create batch request items
+      const batchItems = prompts.map((prompt, idx) => ({
+        id: `batch-${Date.now()}-${idx}`,
+        prompt: sanitizeInput(prompt),
+        max_tokens: configA.max_tokens,
+        temperature: configA.temperature,
+        top_k: configA.top_k,
+        top_p: configA.top_p,
+        seed: configA.seed,
+        require_evidence: configA.require_evidence,
+        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+      }));
+
+      // Call batch inference API
+      const response = await apiClient.batchInfer({ requests: batchItems });
+
+      setBatchResults(response.responses);
+
+      const successCount = response.responses.filter(r => r.response).length;
+      const errorCount = response.responses.filter(r => r.error).length;
+
+      toast.success(`Batch complete: ${successCount} succeeded, ${errorCount} failed`);
+
+      logger.info('Batch inference completed', {
+        component: 'InferencePlayground',
+        operation: 'executeBatchInference',
+        total: prompts.length,
+        success: successCount,
+        errors: errorCount
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Batch inference failed');
+      setInferenceError(error);
+      toast.error(`Batch inference failed: ${error.message}`);
+      logger.error('Batch inference failed', {
+        component: 'InferencePlayground',
+        operation: 'executeBatchInference',
+      }, toError(err));
+    } finally {
+      setIsBatchRunning(false);
+    }
+  }, [configA, selectedAdapterId]);
+
+  const handleApplyTemplate = useCallback((template: PromptTemplateType) => {
+    logger.info('Applying template', { templateId: template.id, templateName: template.name });
+
+    // Record usage
+    recordTemplateUsage(template.id);
+
+    // Set template and show variable inputs if needed
+    setSelectedTemplate(template);
+    setTemplateVariables({});
+    setPromptModifiedSinceTemplate(false);
+
+    if (template.variables.length > 0) {
+      // Show variable inputs for substitution
+      setShowVariableInputs(true);
+    } else {
+      // No variables, apply directly
+      setConfigA({ ...configA, prompt: template.prompt });
+      setPrompt(template.prompt);
+      setShowTemplates(false);
+    }
+  }, [recordTemplateUsage, configA]);
+
+  const handleApplyVariableSubstitution = useCallback(() => {
+    if (!selectedTemplate) return;
+
+    const substituted = substituteVariables(selectedTemplate.id, templateVariables);
+    if (substituted) {
+      setConfigA({ ...configA, prompt: substituted });
+      setPrompt(substituted);
+      setShowVariableInputs(false);
+      setShowTemplates(false);
+      logger.info('Variables substituted', { templateId: selectedTemplate.id, variableCount: Object.keys(templateVariables).length });
+    }
+  }, [selectedTemplate, templateVariables, substituteVariables, configA]);
+
+  const handleResetToTemplate = useCallback(() => {
+    if (!selectedTemplate) return;
+
+    if (confirm('Reset prompt to template? Any manual edits will be lost.')) {
+      setConfigA({ ...configA, prompt: selectedTemplate.prompt });
+      setPrompt(selectedTemplate.prompt);
+      setTemplateVariables({});
+      setShowVariableInputs(false);
+      setPromptModifiedSinceTemplate(false);
+      logger.info('Prompt reset to template', { templateId: selectedTemplate.id });
+    }
+  }, [selectedTemplate, configA]);
+
+  const handleSavePromptAsTemplate = useCallback(() => {
+    // Delegate to template manager
+    setShowTemplateManager(true);
   }, []);
 
 
@@ -423,16 +558,23 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   };
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
-    if (!config.prompt.trim()) {
-      setInferenceError(new Error('Please enter a prompt'));
-      return;
-    }
-
     setInferenceError(null);
     setLoading(true);
     setResponse(null);
 
     try {
+      // Validate prompt against schema
+      const validationResult = await InferenceRequestSchema.parseAsync({
+        prompt: config.prompt,
+        max_tokens: config.max_tokens,
+        temperature: config.temperature,
+        top_k: config.top_k,
+        top_p: config.top_p,
+        seed: config.seed,
+        require_evidence: config.require_evidence,
+        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+      });
+
       await startInference(async (signal) => {
         // Include adapters array if selected
         const inferenceRequest: InferRequest = {
@@ -445,9 +587,16 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         return response;
       }, `inference-${config.id}`);
     } catch (err) {
-      if (err) { // Only set error if it's not a cancellation
-        const error = err instanceof Error ? err : new Error('Inference failed');
-        setInferenceError(error);
+      const error = err instanceof Error ? err : new Error('Inference failed');
+      setInferenceError(error);
+
+      if (error.name === 'ZodError') {
+        logger.warn('Inference validation failed', {
+          component: 'InferencePlayground',
+          operation: 'validate',
+          configId: config.id,
+        });
+      } else {
         logger.error('Inference request failed', {
           component: 'InferencePlayground',
           operation: 'infer',
@@ -487,6 +636,140 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     URL.revokeObjectURL(url);
     // Success - browser download feedback is sufficient
   };
+
+  const handleBatchExportJSON = useCallback(() => {
+    if (batchResults.length === 0) return;
+
+    const data = {
+      batchSize: batchResults.length,
+      timestamp: new Date().toISOString(),
+      config: {
+        max_tokens: configA.max_tokens,
+        temperature: configA.temperature,
+        top_k: configA.top_k,
+        top_p: configA.top_p,
+        seed: configA.seed,
+        require_evidence: configA.require_evidence,
+        adapter: selectedAdapterId !== 'none' ? selectedAdapterId : null,
+      },
+      results: batchResults.map((result, idx) => ({
+        id: result.id,
+        prompt: batchPrompts[idx] || '',
+        response: result.response?.text,
+        token_count: result.response?.token_count,
+        latency_ms: result.response?.latency_ms,
+        finish_reason: result.response?.finish_reason,
+        error: result.error?.error,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `batch-inference-${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    logger.info('Batch results exported as JSON', {
+      component: 'InferencePlayground',
+      operation: 'exportJSON',
+      resultCount: batchResults.length,
+    });
+  }, [batchResults, batchPrompts, configA, selectedAdapterId]);
+
+  const handleBatchExportCSV = useCallback(() => {
+    if (batchResults.length === 0) return;
+
+    // CSV header
+    const headers = ['ID', 'Prompt', 'Status', 'Response', 'Token Count', 'Latency (ms)', 'Finish Reason', 'Error'];
+
+    // CSV rows
+    const rows = batchResults.map((result, idx) => {
+      const prompt = (batchPrompts[idx] || '').replace(/"/g, '""'); // Escape quotes
+      const response = (result.response?.text || '').replace(/"/g, '""');
+      const error = (result.error?.error || '').replace(/"/g, '""');
+      const status = result.error ? 'Error' : result.response ? 'Success' : 'Pending';
+
+      return [
+        result.id,
+        `"${prompt}"`,
+        status,
+        `"${response}"`,
+        result.response?.token_count || '',
+        result.response?.latency_ms || '',
+        result.response?.finish_reason || '',
+        `"${error}"`,
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `batch-inference-${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    logger.info('Batch results exported as CSV', {
+      component: 'InferencePlayground',
+      operation: 'exportCSV',
+      resultCount: batchResults.length,
+    });
+  }, [batchResults, batchPrompts]);
+
+  const handleBatchRetry = useCallback(async (itemId: string) => {
+    const index = batchResults.findIndex(r => r.id === itemId);
+    if (index === -1) return;
+
+    const prompt = batchPrompts[index];
+    if (!prompt) return;
+
+    logger.info('Retrying batch item', {
+      component: 'InferencePlayground',
+      operation: 'retryBatchItem',
+      itemId,
+    });
+
+    try {
+      const batchItem = {
+        id: `retry-${Date.now()}`,
+        prompt: sanitizeInput(prompt),
+        max_tokens: configA.max_tokens,
+        temperature: configA.temperature,
+        top_k: configA.top_k,
+        top_p: configA.top_p,
+        seed: configA.seed,
+        require_evidence: configA.require_evidence,
+        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+      };
+
+      const response = await apiClient.batchInfer({ requests: [batchItem] });
+
+      // Update the result in the batch results
+      const newResults = [...batchResults];
+      newResults[index] = response.responses[0];
+      setBatchResults(newResults);
+
+      if (response.responses[0].error) {
+        toast.error('Retry failed');
+      } else {
+        toast.success('Retry successful');
+      }
+    } catch (err) {
+      toast.error('Retry failed');
+      logger.error('Batch retry failed', {
+        component: 'InferencePlayground',
+        operation: 'retryBatchItem',
+        itemId,
+      }, toError(err));
+    }
+  }, [batchResults, batchPrompts, configA, selectedAdapterId]);
 
   const loadSession = (session: InferenceSession) => {
     setPrompt(session.prompt);
@@ -811,7 +1094,47 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
             <CardContent className="space-y-4">
               {/* Batch Prompts Input */}
               <div className="space-y-2">
-                <Label>Prompts (one per line)</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Prompts (one per line or upload CSV)</Label>
+                  <Input
+                    type="file"
+                    accept=".csv,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        const text = event.target?.result as string;
+                        if (file.name.endsWith('.csv')) {
+                          // Parse CSV (simple approach - assumes prompts in first column)
+                          const lines = text.split('\n').slice(1); // Skip header
+                          const prompts = lines
+                            .map(line => line.split(',')[0].replace(/^"|"$/g, '').trim())
+                            .filter(p => p);
+                          setBatchPrompts(prompts);
+                          logger.info('CSV file uploaded', {
+                            component: 'InferencePlayground',
+                            operation: 'uploadCSV',
+                            count: prompts.length,
+                          });
+                        } else {
+                          // Plain text file
+                          const prompts = text.split('\n').filter(p => p.trim());
+                          setBatchPrompts(prompts);
+                          logger.info('Text file uploaded', {
+                            component: 'InferencePlayground',
+                            operation: 'uploadText',
+                            count: prompts.length,
+                          });
+                        }
+                        toast.success(`Loaded ${batchPrompts.length} prompts from file`);
+                      };
+                      reader.readAsText(file);
+                    }}
+                    className="w-48 h-9 text-xs"
+                  />
+                </div>
                 <Textarea
                   placeholder="Enter one prompt per line...
 Write a Python function to calculate fibonacci
@@ -822,9 +1145,12 @@ What is the capital of France?"
                   rows={8}
                   className={batchValidation.some(v => !v.valid) ? 'border-destructive' : ''}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {batchPrompts.filter(p => p.trim()).length} prompts ready for batch processing
-                </p>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{batchPrompts.filter(p => p.trim()).length} prompts ready for batch processing</span>
+                  {batchPrompts.length > 100 && (
+                    <span className="text-yellow-600">⚠ Recommended max: 100 prompts</span>
+                  )}
+                </div>
 
                 {/* Batch validation errors */}
                 {batchValidation.some(v => !v.valid) && (
@@ -894,43 +1220,13 @@ What is the capital of France?"
 
           {/* Batch Results */}
           {batchResults && batchResults.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Batch Results</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {batchResults.map((item: any, index: number) => (
-                    <Card key={item.id || index}>
-                      <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-sm">Prompt {index + 1}</CardTitle>
-                          {item.error ? (
-                            <Badge variant="destructive">Error</Badge>
-                          ) : (
-                            <Badge variant="default">Success</Badge>
-                          )}
-                        </div>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        <div className="text-sm text-muted-foreground mb-2">
-                          {batchPrompts[index]}
-                        </div>
-                        {item.response ? (
-                          <div className="text-sm bg-muted p-3 rounded">
-                            {item.response.text}
-                          </div>
-                        ) : item.error ? (
-                          <div className="text-sm text-destructive bg-destructive/10 p-3 rounded">
-                            {item.error}
-                          </div>
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <BatchResults
+              results={batchResults}
+              prompts={batchPrompts}
+              onRetry={handleBatchRetry}
+              onExportJSON={handleBatchExportJSON}
+              onExportCSV={handleBatchExportCSV}
+            />
           )}
         </div>
       ) : mode === 'single' ? (
@@ -1024,13 +1320,19 @@ What is the capital of France?"
                     onChange={(e) => {
                       const sanitized = sanitizeInput(e.target.value);
                       setConfigA({ ...configA, prompt: sanitized });
+                      setPromptValidation(validatePrompt(sanitized));
+
+                      // Track if prompt has been modified since template was applied
+                      if (selectedTemplate) {
+                        setPromptModifiedSinceTemplate(sanitized !== selectedTemplate.prompt);
+                      }
                     }}
                     rows={6}
-                    className={promptValidation.valid ? '' : 'border-destructive'}
-                    aria-describedby={promptValidation.error ? "prompt-error" : promptValidation.warning ? "prompt-warning" : undefined}
-                    aria-invalid={!promptValidation.valid}
+                    className={promptValidation?.valid === false ? 'border-destructive' : ''}
+                    aria-describedby={promptValidation?.error ? "prompt-error" : promptValidation?.warning ? "prompt-warning" : undefined}
+                    aria-invalid={promptValidation?.valid === false}
                   />
-                  {promptValidation.error && (
+                  {promptValidation?.error && (
                     <Alert variant="destructive" className="text-sm" id="prompt-error">
                       <AlertTriangle className="h-4 w-4" />
                       <AlertDescription>
@@ -1043,7 +1345,7 @@ What is the capital of France?"
                       </AlertDescription>
                     </Alert>
                   )}
-                  {promptValidation.warning && (
+                  {promptValidation?.warning && (
                     <Alert variant="default" className="text-sm border-yellow-200 bg-yellow-50" id="prompt-warning">
                       <AlertTriangle className="h-4 w-4 text-yellow-600" />
                       <AlertDescription className="text-yellow-800">
@@ -1051,7 +1353,7 @@ What is the capital of France?"
                       </AlertDescription>
                     </Alert>
                   )}
-                  {!promptValidation.valid && !promptValidation.error && (
+                  {promptValidation?.valid === false && !promptValidation.error && (
                     <div className="text-xs text-muted-foreground">
                       Character count: {configA.prompt.length.toLocaleString()} / {MAX_PROMPT_LENGTH.toLocaleString()}
                     </div>
@@ -1061,33 +1363,146 @@ What is the capital of France?"
                       💡 Swipe left/right to change modes, swipe up for templates
                     </div>
                   )}
+                  {/* Template Status Indicator */}
+                  {selectedTemplate && !promptModifiedSinceTemplate && (
+                    <Alert className="bg-blue-50 border-blue-200 text-sm">
+                      <Check className="h-4 w-4 text-blue-600" />
+                      <AlertDescription className="text-blue-800">
+                        Using template: <strong>{selectedTemplate.name}</strong>
+                        {selectedTemplate.variables.length > 0 && (
+                          <span className="ml-2">
+                            ({selectedTemplate.variables.length} variable{selectedTemplate.variables.length !== 1 ? 's' : ''})
+                          </span>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {selectedTemplate && promptModifiedSinceTemplate && (
+                    <Alert className="bg-yellow-50 border-yellow-200 text-sm">
+                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-800">
+                        Prompt has been modified from template: <strong>{selectedTemplate.name}</strong>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleResetToTemplate}
+                          className="ml-2 h-6 text-xs"
+                        >
+                          Reset
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Template Selection and Management */}
                   {showTemplates && (
-                    <div className="border rounded-md p-3 bg-muted/50">
-                      <div className="text-sm font-medium mb-2">Prompt Templates</div>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {templates.map((template) => (
-                          <Button
-                            key={template.id}
-                            variant="ghost"
-                            className="w-full justify-start text-left h-auto p-2"
-                            onClick={() => applyTemplate(template)}
-                          >
-                            <div>
-                              <div className="font-medium text-sm">{template.name}</div>
-                              <div className="text-xs text-muted-foreground">{template.description}</div>
-                              <Badge variant="outline" className="mt-1 text-xs">
-                                {template.category}
-                              </Badge>
-                            </div>
-                          </Button>
-                        ))}
+                    <div className="border rounded-md p-3 bg-muted/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium">Prompt Templates</div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowTemplateManager(true)}
+                          className="h-7 text-xs gap-1"
+                        >
+                          <Settings2 className="h-3 w-3" />
+                          Manage
+                        </Button>
                       </div>
+
+                      {/* Quick Access to Recent Templates */}
+                      {getRecentTemplates().length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-xs font-medium text-muted-foreground">Recent</div>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {getRecentTemplates().map((template) => (
+                              <Button
+                                key={template.id}
+                                variant="ghost"
+                                className="w-full justify-start text-left h-auto p-2 text-xs hover:bg-background"
+                                onClick={() => handleApplyTemplate(template)}
+                              >
+                                <div className="truncate">
+                                  <div className="font-medium">{template.name}</div>
+                                  <div className="text-xs text-muted-foreground line-clamp-1">
+                                    {template.description}
+                                  </div>
+                                </div>
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <Button
+                        variant="outline"
+                        className="w-full text-xs"
+                        onClick={() => setShowTemplateManager(true)}
+                      >
+                        View All Templates
+                      </Button>
                     </div>
                   )}
 
-                    onChange={(e) => setConfigA({ ...configA, prompt: e.target.value })}
-                    rows={6}
-                  />
+                  {/* Variable Substitution Inputs */}
+                  {showVariableInputs && selectedTemplate && selectedTemplate.variables.length > 0 && (
+                    <div className="border rounded-md p-3 bg-blue-50 border-blue-200 space-y-3">
+                      <div className="text-sm font-medium">Enter Template Variables</div>
+                      <div className="space-y-2">
+                        {selectedTemplate.variables.map((variable) => (
+                          <div key={variable}>
+                            <Label htmlFor={`var-${variable}`} className="text-xs">
+                              {variable}
+                            </Label>
+                            <Textarea
+                              id={`var-${variable}`}
+                              placeholder={`Enter ${variable}...`}
+                              value={templateVariables[variable] || ''}
+                              onChange={(e) =>
+                                setTemplateVariables({
+                                  ...templateVariables,
+                                  [variable]: e.target.value,
+                                })
+                              }
+                              rows={2}
+                              className="text-xs"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Real-time preview */}
+                      <div className="text-xs space-y-1">
+                        <div className="font-medium">Preview:</div>
+                        <pre className="bg-white p-2 rounded text-xs overflow-auto max-h-24 text-muted-foreground border">
+                          {substituteVariables(selectedTemplate.id, templateVariables) || selectedTemplate.prompt}
+                        </pre>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={handleApplyVariableSubstitution}
+                          className="flex-1 text-xs h-8"
+                        >
+                          Apply Template
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setShowVariableInputs(false);
+                            setSelectedTemplate(null);
+                            setTemplateVariables({});
+                          }}
+                          className="text-xs h-8"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {renderAdvancedOptions(configA, setConfigA)}
@@ -1114,15 +1529,6 @@ What is the capital of France?"
                   )}
                 </div>
 
-                <Button
-                  className="w-full"
-                  onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                  disabled={isLoadingA}
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  {isLoadingA ? 'Generating...' : 'Generate'}
-                </Button>
-
                 {responseA && (
                   <Button
                     variant="outline"
@@ -1133,6 +1539,17 @@ What is the capital of France?"
                     Export
                   </Button>
                 )}
+
+                {configA.prompt && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleSavePromptAsTemplate}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Save Prompt as Template
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -1141,10 +1558,7 @@ What is the capital of France?"
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
-
                     <History className="h-4 w-4" aria-hidden="true" />
-
-                    <History className="h-4 w-4" />
                     Recent Sessions
                   </CardTitle>
                 </CardHeader>
@@ -1176,9 +1590,6 @@ What is the capital of France?"
                 <CardTitle className="text-base">Output</CardTitle>
               </CardHeader>
               <CardContent>
-
-                {renderResponse(responseA, isLoadingA, inferenceMode === 'streaming' && isStreaming, streamingTokens)}
-
                 {renderResponse(responseA, isLoadingA)}
               </CardContent>
             </Card>
@@ -1239,14 +1650,6 @@ What is the capital of France?"
                   )}
                 </div>
 
-                <Button
-                  className="w-full"
-                  onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                  disabled={isLoadingA || !prompt.trim()}
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  Generate A
-                </Button>
                 {renderResponse(responseA, isLoadingA)}
               </CardContent>
             </Card>
@@ -1282,14 +1685,6 @@ What is the capital of France?"
                   )}
                 </div>
 
-                <Button
-                  className="w-full"
-                  onClick={() => handleInfer(configB, setResponseB, setIsLoadingB)}
-                  disabled={isLoadingB || !prompt.trim()}
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  Generate B
-                </Button>
                 {renderResponse(responseB, isLoadingB)}
               </CardContent>
             </Card>
@@ -1300,10 +1695,7 @@ What is the capital of France?"
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-
                   <BarChart3 className="h-4 w-4" aria-hidden="true" />
-
-                  <BarChart3 className="h-4 w-4" />
                   Comparison Summary
                 </CardTitle>
               </CardHeader>
@@ -1312,43 +1704,28 @@ What is the capital of France?"
                   <div>
                     <p className="text-sm font-medium">Latency</p>
                     <div className="flex items-center gap-2 mt-1">
-
-                      <Badge variant="outline">A: {responseA.latency_ms || 0}ms</Badge>
-                      <Badge variant="outline">B: {responseB.latency_ms || 0}ms</Badge>
-
-                      <Badge variant="outline">A: {responseA.trace?.latency_ms || 0}ms</Badge>
-                      <Badge variant="outline">B: {responseB.trace?.latency_ms || 0}ms</Badge>
+                      <Badge variant="outline">A: {responseA.latency_ms || responseA.trace?.latency_ms || 0}ms</Badge>
+                      <Badge variant="outline">B: {responseB.latency_ms || responseB.trace?.latency_ms || 0}ms</Badge>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Tokens</p>
                     <div className="flex items-center gap-2 mt-1">
-
-                      <Badge variant="outline">A: {responseA.token_count || 0}</Badge>
-                      <Badge variant="outline">B: {responseB.token_count || 0}</Badge>
-
-                      <Badge variant="outline">A: {responseA.tokens?.length || 0}</Badge>
-                      <Badge variant="outline">B: {responseB.tokens?.length || 0}</Badge>
+                      <Badge variant="outline">A: {responseA.token_count || responseA.tokens?.length || 0}</Badge>
+                      <Badge variant="outline">B: {responseB.token_count || responseB.tokens?.length || 0}</Badge>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Finish Reason</p>
                     <div className="flex items-center gap-2 mt-1">
-
                       <Badge variant="outline">{responseA.finish_reason || 'unknown'}</Badge>
                       <Badge variant="outline">{responseB.finish_reason || 'unknown'}</Badge>
-
-                      <Badge variant="outline">{responseA.finish_reason}</Badge>
-                      <Badge variant="outline">{responseB.finish_reason}</Badge>
                     </div>
                   </div>
                   <div>
                     <p className="text-sm font-medium">Winner</p>
                     <Badge className="mt-1">
-
-                      {(responseA.latency_ms || 0) < (responseB.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
-
-                      {(responseA.trace?.latency_ms || 0) < (responseB.trace?.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
+                      {((responseA.latency_ms || responseA.trace?.latency_ms || 0) < (responseB.latency_ms || responseB.trace?.latency_ms || 0)) ? 'A (Faster)' : 'B (Faster)'}
                     </Badge>
                   </div>
                 </div>
@@ -1357,10 +1734,13 @@ What is the capital of France?"
           )}
         </div>
       )}
+
+      {/* Prompt Template Manager Dialog */}
+      <PromptTemplateManager
+        open={showTemplateManager}
+        onOpenChange={setShowTemplateManager}
+        onSelectTemplate={handleApplyTemplate}
+      />
     </div>
   );
 }
-
-
-
-

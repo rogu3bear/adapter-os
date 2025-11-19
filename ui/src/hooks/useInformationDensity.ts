@@ -42,9 +42,6 @@ export interface UseInformationDensityReturn {
  * @returns Object with density state, setter, and utility functions
  */
 export function useInformationDensity(config: InformationDensityConfig): UseInformationDensityReturn {
-
-export function useInformationDensity(config: InformationDensityConfig) {
->
   const { key, defaultDensity = 'comfortable', persist = true } = config;
   
   // Get initial state from localStorage if persistence is enabled

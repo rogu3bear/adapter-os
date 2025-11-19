@@ -1,7 +1,4 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -70,18 +67,13 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
   // Citation: docs/architecture/MasterPlan.md L41-L44
 
   const operationTabs = useMemo(() => [
-
-  const operationTabs = [
     { id: 'plans', label: 'Plans', icon: FileText, description: 'Execution plan compilation', advanced: false },
     { id: 'promotion', label: 'Promotion', icon: ArrowUp, description: 'Control plane promotion gates', advanced: true },
     { id: 'telemetry', label: 'Telemetry', icon: Activity, description: 'Event bundle management', advanced: true },
     { id: 'inference', label: 'Inference', icon: Zap, description: 'Interactive inference testing', advanced: false },
     { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring', advanced: false },
     { id: 'federation', label: 'Federation', icon: Link, description: 'Cross-host federation status', advanced: true }
-
   ], []);
-
-  ];
 
   // Filter tabs based on advanced visibility
   const visibleTabs = operationTabs.filter(tab => !tab.advanced || showAdvanced);

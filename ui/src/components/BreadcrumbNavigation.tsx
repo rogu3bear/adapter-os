@@ -1,8 +1,5 @@
 import React from 'react';
 
-import { Link } from 'react-router-dom';
-import { useBreadcrumbs } from '@/hooks/useBreadcrumbs';
-
 import { useBreadcrumb } from '../contexts/BreadcrumbContext';
 import {
   Breadcrumb,
@@ -20,14 +17,6 @@ import { ChevronRight, Home } from 'lucide-react';
  * Derives breadcrumbs from current URL pathname using route configuration
  */
 export function BreadcrumbNavigation() {
-  const breadcrumbs = useBreadcrumbs();
-
-  // Filter out Home since we'll add it explicitly, and non-clickable items
-  const displayBreadcrumbs = breadcrumbs.filter(b => b.id !== 'home' && b.href !== '#');
-
-  if (displayBreadcrumbs.length === 0) {
-
-export function BreadcrumbNavigation() {
   const { breadcrumbs } = useBreadcrumb();
 
   if (breadcrumbs.length === 0) {
@@ -43,10 +32,6 @@ export function BreadcrumbNavigation() {
             <span className="sr-only">Home</span>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        
-
-        {displayBreadcrumbs.map((item, index) => {
-          const isLast = index === displayBreadcrumbs.length - 1;
 
         {breadcrumbs.map((item, index) => {
           const isLast = index === breadcrumbs.length - 1;
@@ -64,15 +49,8 @@ export function BreadcrumbNavigation() {
                     {item.label}
                   </BreadcrumbPage>
                 ) : (
-
-                  <BreadcrumbLink asChild>
-                    <Link to={item.href} className="flex items-center gap-1">
-                      {Icon && <Icon className="h-4 w-4" />}
-                      {item.label}
-                    </Link>
-
-                  <BreadcrumbLink 
-                    href={item.href || '#'} 
+                  <BreadcrumbLink
+                    href={item.href || '#'}
                     className="flex items-center gap-1"
                   >
                     {Icon && <Icon className="h-4 w-4" />}

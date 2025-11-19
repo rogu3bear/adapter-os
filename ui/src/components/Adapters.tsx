@@ -91,6 +91,7 @@ import { DomainAdapterManager } from './DomainAdapterManager';
 import { logger, toError } from '../utils/logger';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 import { BookmarkButton } from './ui/bookmark-button';
+import { getLifecycleVariant } from '../utils/lifecycle';
 
 interface AdaptersProps {
   user: User;
@@ -1353,9 +1354,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
             className="mb-4"
             title="Filter Adapters"
           />
-          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
-
-        <TabsContent value="registry" className="form-field">
           <Card className="card-standard">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1409,6 +1407,8 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                       </TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Name</TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Category</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Version</TableHead>
+                      <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Lifecycle</TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">State</TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Memory</TableHead>
                       <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Activations</TableHead>
@@ -1420,7 +1420,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   <TableBody>
                     {filteredAdapters.length === 0 ? (
                       <TableRow role="row">
-                        <TableCell colSpan={8} className="h-32" role="gridcell" aria-live="polite">
+                        <TableCell colSpan={10} className="h-32" role="gridcell" aria-live="polite">
                           <EmptyState
                             icon={Code}
                             title={adapters.length === 0 ? "No Adapters Registered" : "No Adapters Match Filters"}
@@ -1465,6 +1465,14 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                                   {getCategoryIcon(adapterTyped.category)}
                                   <span>{adapterTyped.category}</span>
                                 </div>
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
+                                {adapterTyped.version || '1.0.0'}
+                              </TableCell>
+                              <TableCell className="p-4 border-b border-border">
+                                <Badge variant={getLifecycleVariant(adapterTyped.lifecycle_state)}>
+                                  {adapterTyped.lifecycle_state || 'active'}
+                                </Badge>
                               </TableCell>
                               <TableCell className="p-4 border-b border-border">
                                 <div className="flex items-center justify-center">
@@ -1562,145 +1570,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   </TableBody>
                 </Table>
               </div>
-
-                  ) : (
-                    adapters.map((adapter) => (
-                      <TableRow key={adapter.id}>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          {getCategoryIcon(adapter.category)}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">
-                                {adapter.adapter_name ? (
-                                  // Display semantic name: tenant/domain/purpose
-                                  <>
-                                    <span className="text-blue-600">{adapter.tenant_namespace}</span>
-                                    <span className="text-muted-foreground">/</span>
-                                    <span className="text-green-600">{adapter.domain}</span>
-                                    <span className="text-muted-foreground">/</span>
-                                    <span>{adapter.purpose}</span>
-                                  </>
-                                ) : (
-                                  // Fallback to legacy name
-                                  adapter.name
-                                )}
-                              </span>
-                              {adapter.revision && (
-                                <Badge variant="outline" className="text-xs">
-                                  {adapter.revision}
-                                </Badge>
-                              )}
-                              {adapter.fork_type && (
-                                <Badge variant={adapter.fork_type === 'extension' ? 'default' : 'secondary'} className="text-xs">
-                                  {adapter.fork_type === 'extension' ? (
-                                    <><GitBranch className="w-3 h-3 mr-1" />Extend</>
-                                  ) : (
-                                    <><Layers className="w-3 h-3 mr-1" />Fork</>
-                                  )}
-                                </Badge>
-                              )}
-                              {adapter.parent_id && (
-                                <Badge variant="outline" className="text-xs text-purple-600">
-                                  <GitBranch className="w-3 h-3 mr-1" />Lineage
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-sm text-muted-foreground mt-1">
-                              Tier {adapter.tier} • Rank {adapter.rank}
-                              {adapter.fork_reason && <> • {adapter.fork_reason}</>}
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="status-indicator status-neutral flex-center">
-                          {getCategoryIcon(adapter.category)}
-                          <span>{adapter.category}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          {getStateIcon(adapter.current_state)}
-                          <div className={`status-indicator ${
-                            adapter.current_state === 'hot' ? 'status-error' :
-                            adapter.current_state === 'warm' ? 'status-warning' :
-                            adapter.current_state === 'cold' ? 'status-info' :
-                            adapter.current_state === 'resident' ? 'status-success' :
-                            'status-neutral'
-                          }`}>
-                            {adapter.current_state}
-                          </div>
-                          {adapter.pinned && (
-                            <Pin className="icon-standard text-purple-500" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          <MemoryStick className="icon-standard" />
-                          <span>{Math.round(adapter.memory_bytes / 1024 / 1024)} MB</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          <Target className="icon-standard" />
-                          <span>{adapter.activation_count}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <div className="flex-center">
-                          <Clock className="icon-standard" />
-                          <span>{adapter.last_activated ? new Date(adapter.last_activated).toLocaleString() : 'Never'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="table-cell-standard">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {adapter.current_state === 'warm' || adapter.current_state === 'hot' || adapter.current_state === 'resident' ? (
-                              <DropdownMenuItem onClick={() => handleUnloadAdapter(adapter.adapter_id)}>
-                                <Pause className="mr-2 h-4 w-4" />
-                                Unload
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem onClick={() => handleLoadAdapter(adapter.adapter_id)}>
-                                <Play className="mr-2 h-4 w-4" />
-                                Load
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => handlePinToggle(adapter)}>
-                              <Pin className="mr-2 h-4 w-4" />
-                              {adapter.pinned ? 'Unpin' : 'Pin'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handlePromoteState(adapter.adapter_id)}>
-                              <ArrowUp className="mr-2 h-4 w-4" />
-                              Promote State
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleViewHealth(adapter.adapter_id)}>
-                              <Activity className="mr-2 h-4 w-4" />
-                              View Health
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadManifest(adapter.adapter_id)}>
-                              <Download className="mr-2 h-4 w-4" />
-                              Download Manifest
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setDeleteConfirmId(adapter.adapter_id)}>
-                              <Trash2 className="mr-2 h-4 w-4 text-red-600" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1722,124 +1591,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           <CodeIntelligence user={user} selectedTenant={selectedTenant} />
         </TabsContent>
 
-
-        <TabsContent value="training" className="space-y-4">
-          <TrainingStreamPage selectedTenant={selectedTenant} />
-
-          {selectedTrainingJob ? (
-            <TrainingMonitor 
-              jobId={selectedTrainingJob} 
-              onClose={() => setSelectedTrainingJob(null)} 
-            />
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Brain className="mr-2 h-5 w-5" />
-                  Training Jobs
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {trainingJobs.map((job) => (
-                    <Card key={job.id} className="cursor-pointer hover:shadow-md transition-shadow">
-                      <CardContent className="pt-6">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center space-x-2">
-                            <Brain className="h-5 w-5" />
-                            <h3 className="font-medium">{job.adapter_name}</h3>
-                            <Badge className={getStateBadge(job.status)}>
-                              {job.status}
-                            </Badge>
-                          </div>
-                          <div className="flex space-x-2">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setSelectedTrainingJob(job.id)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm">
-                              <Pause className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm">
-                              <Square className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="space-y-3">
-                          <div className="flex items-center space-x-4">
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between text-sm mb-1">
-                                <span>Progress</span>
-                                <span>{job.progress}%</span>
-                              </div>
-                              <Progress value={job.progress} />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                            <div className="flex items-center space-x-2">
-                              <Cpu className="h-4 w-4" />
-                              <span>GPU: {job.metrics.gpu_utilization}%</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <MemoryStick className="h-4 w-4" />
-                              <span>Memory: {job.metrics.memory_usage}GB</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <Zap className="h-4 w-4" />
-                              <span>{job.metrics.tokens_per_second} tok/s</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <Target className="h-4 w-4" />
-                              <span>Loss: {job.metrics.loss.toFixed(4)}</span>
-                            </div>
-                          </div>
-
-                          <div className="text-sm text-muted-foreground">
-                            Epoch {job.metrics.current_epoch}/{job.metrics.total_epochs} • 
-                            Started {new Date(job.started_at).toLocaleString()}
-                            {job.estimated_completion && (
-                              <> • ETA {new Date(job.estimated_completion).toLocaleString()}</>
-                            )}
-                          </div>
-
-                          <div className="text-xs text-muted-foreground">
-                            Metrics and artifacts download coming soon.
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-
-                  {trainingJobs.length === 0 && (
-                    <div className="text-center text-muted-foreground py-12">
-                      No training jobs in progress. Launch a new job to get started.
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-
-        {/* Router Config Tab */}
-        <TabsContent value="router" className="space-y-4">
-          <RouterConfigPage selectedTenant={selectedTenant} />
-        </TabsContent>
-
-        {/* Code Intelligence Tab */}
-        <TabsContent value="code-intel" className="space-y-4">
-          <CodeIntelligence user={user} selectedTenant={selectedTenant} />
-        </TabsContent>
-
-
       </Tabs>
-
-      </ContentSection>
 
       {/* Training Dialog */}
       <Dialog open={isTrainingDialogOpen} onOpenChange={setIsTrainingDialogOpen}>
@@ -2023,14 +1775,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <DeleteConfirmDialog
-        open={deleteConfirmId !== null}
-        adapterId={deleteConfirmId}
-        onConfirm={handleDeleteAdapter}
-        onCancel={() => setDeleteConfirmId(null)}
-      />
-
       {/* Health Modal */}
       <Dialog open={showHealthModal} onOpenChange={setShowHealthModal}>
         <DialogContent>
@@ -2078,12 +1822,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           )}
         </DialogContent>
       </Dialog>
-
-
-      </ContentSection>
-    </div>
-  );
-}
 
       {/* Bulk Action Bar */}
       <BulkActionBar
@@ -2221,6 +1959,8 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         onConfirm={handleDeleteAdapter}
         onCancel={() => setDeleteConfirmId(null)}
       />
+
+      </ContentSection>
     </div>
   );
 }
@@ -2336,22 +2076,20 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <Label htmlFor="rank">Rank</Label>
-          <Input 
-            id="rank" 
-            type="number" 
+          <Input
+            id="rank"
+            type="number"
             value={formData.rank}
             onChange={(e) => setFormData({...formData, rank: parseInt(e.target.value)})}
           />
-        </DialogContent>
-      </Dialog>
-
-
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="framework">Framework</Label>
-          <Input 
-            id="framework" 
+          <Input
+            id="framework"
             value={formData.framework}
             onChange={(e) => setFormData({...formData, framework: e.target.value})}
             placeholder="django"
@@ -2359,8 +2097,8 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
         </div>
         <div>
           <Label htmlFor="framework_version">Framework Version</Label>
-          <Input 
-            id="framework_version" 
+          <Input
+            id="framework_version"
             value={formData.framework_version}
             onChange={(e) => setFormData({...formData, framework_version: e.target.value})}
             placeholder="4.2"

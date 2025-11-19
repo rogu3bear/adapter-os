@@ -123,7 +123,7 @@ impl TelemetryWriter {
         let handle = thread::spawn(move || {
             if let Err(e) = run_writer(receiver, output_dir, max_events, max_bytes, signing_keypair)
             {
-                tracing::error!(error = %e, "Telemetry writer thread failed");
+                eprintln!("Telemetry writer thread failed: {}", e);
             }
         });
 
@@ -324,7 +324,7 @@ fn run_writer(
     for event in receiver {
         // In run_writer function, after receiving event
         if let Err(e) = event.identity.validate() {
-            tracing::error!("Invalid identity in telemetry event: {}", e);
+            eprintln!("Invalid identity in telemetry event: {}", e);
             continue; // Skip invalid event
         }
         // Then process

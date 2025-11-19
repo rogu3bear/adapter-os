@@ -1,4 +1,3 @@
-
 // 【ui/src/components/WorkersTab.tsx§64-69】 - Replace manual polling with standardized hook
 
 import React, { useState, useEffect } from 'react';
@@ -9,10 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
-
-import { Dialog, DialogContent } from './ui/dialog';
 import {
   Activity,
   Play,
@@ -96,36 +92,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     setError(null);
   }, [workersData]);
 
-  const [loading, setLoading] = useState(true);
-  const [showSpawnModal, setShowSpawnModal] = useState(false);
-  const [debugWorkerId, setDebugWorkerId] = useState<string | null>(null);
-  
-  // Filters
-  const [filterTenant, setFilterTenant] = useState<string>('');
-  const [filterNode, setFilterNode] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
-
-  const fetchWorkers = async () => {
-    try {
-      setLoading(true);
-      const data = await apiClient.listWorkers(selectedTenant || undefined);
-      setWorkers(data);
-      setFilteredWorkers(data);
-    } catch (error) {
-      console.error('Failed to fetch workers:', error);
-      toast.error('Failed to load workers');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchWorkers();
-    // Poll every 1 second for instant updates
-    const interval = setInterval(fetchWorkers, 1000);
-    return () => clearInterval(interval);
-  }, [selectedTenant]);
-
   useEffect(() => {
     // Apply filters
     let filtered = workers;
@@ -138,8 +104,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     }
 
     if (filterStatus && filterStatus !== 'all') {
-
-    if (filterStatus) {
       filtered = filtered.filter((w) => w.status === filterStatus);
     }
 
@@ -150,7 +114,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     try {
       await apiClient.stopWorker(workerId, force);
       toast.success(`Worker ${workerId} stopped`);
-
       await refreshWorkers();
     } catch (error) {
       logger.error('Failed to stop worker', {
@@ -159,10 +122,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         workerId,
         force,
       }, toError(error));
-
-      await fetchWorkers();
-    } catch (error) {
-      console.error('Failed to stop worker:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to stop worker');
     }
   };
@@ -206,17 +165,10 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   if (error) {
     return (
       <ErrorRecovery
-        title="Workers Tab Error"
-        message={error.message}
-        recoveryActions={[
-          { label: 'Retry', action: () => refreshWorkers() },
-          { label: 'Clear Filters', action: () => {
-            setFilterTenant('');
-            setFilterNode('');
-            setFilterStatus('');
-            setError(null);
-          }}
-        ]}
+        {...ErrorRecoveryTemplates.genericError(
+          error.message,
+          () => refreshWorkers()
+        )}
       />
     );
   }
@@ -229,21 +181,16 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex-between">
+      <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Workers</h2>
           <p className="text-sm text-muted-foreground">
             Manage worker processes across compute nodes
           </p>
-
           {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refreshWorkers()}>
-
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchWorkers}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -251,11 +198,9 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
             <Play className="h-4 w-4 mr-2" />
             Spawn Worker
           </Button>
-
           <Button variant="outline" onClick={() => setHotSwapOpen(true)}>
             Hot-swap
           </Button>
-
         </div>
       </div>
 
@@ -294,10 +239,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
-
                   <SelectItem value="all">All</SelectItem>
-
-                  <SelectItem value="">All</SelectItem>
                   <SelectItem value="starting">Starting</SelectItem>
                   <SelectItem value="ready">Ready</SelectItem>
                   <SelectItem value="busy">Busy</SelectItem>

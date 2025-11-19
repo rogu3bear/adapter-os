@@ -350,12 +350,12 @@ impl KvCache {
                 std::ptr::write_bytes(
                     k_buf.contents() as *mut u8,
                     0,
-                    (self.capacity_bytes / std::mem::size_of::<u8>()) as usize,
+                    (self.capacity_bytes / std::mem::size_of::<u8>() as u64) as usize,
                 );
                 std::ptr::write_bytes(
                     v_buf.contents() as *mut u8,
                     0,
-                    (self.capacity_bytes / std::mem::size_of::<u8>()) as usize,
+                    (self.capacity_bytes / std::mem::size_of::<u8>() as u64) as usize,
                 );
             }
         }

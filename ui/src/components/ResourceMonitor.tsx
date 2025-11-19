@@ -190,13 +190,8 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
           nodeId
         }, err);
       }
-
-    if (isMonitoring) {
-      // Fixed 1-second interval for instant updates
-      intervalRef.current = window.setInterval(fetchData, 1000);
     }
   );
-
 
   // Update metrics when polling data arrives
   useEffect(() => {
@@ -204,13 +199,6 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
     setMetrics(prev => [...prev.slice(-59), polledMetrics]); // Keep last 60 data points
     setError(null);
   }, [polledMetrics]);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [jobId, nodeId, isMonitoring]);
 
   const getStatusColor = (usage: number) => {
     if (usage > 90) return 'text-red-600';
@@ -250,12 +238,10 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   if (error) {
     return (
       <ErrorRecovery
-        title="Resource Monitor Error"
-        message={error.message}
-        recoveryActions={[
-          { label: 'Retry', action: () => refreshMetrics() },
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
+        {...ErrorRecoveryTemplates.genericError(
+          error.message,
+          () => refreshMetrics()
+        )}
       />
     );
   }

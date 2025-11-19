@@ -16,8 +16,9 @@ use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 use adapteros_telemetry::TelemetryWriter;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::generation::Generator;
@@ -179,6 +180,7 @@ impl InferencePipeline {
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
         quarantine_manager: Arc<Mutex<QuarantineManager>>,
+        circuit_breaker: Arc<StandardCircuitBreaker>,
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
@@ -219,7 +221,7 @@ impl InferencePipeline {
 
             // Check quarantine before serving (Determinism Ruleset #2)
             {
-                let quarantine = self.quarantine_manager.lock().unwrap();
+                let quarantine = self.quarantine_manager.lock().await;
                 quarantine.check_operation(QuarantineOperation::Inference)?;
             }
 

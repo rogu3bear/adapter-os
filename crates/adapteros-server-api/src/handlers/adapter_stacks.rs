@@ -30,6 +30,8 @@ pub struct CreateStackRequest {
 /// Response for adapter stack operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackResponse {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
     pub id: String,
     pub tenant_id: String,
     pub name: String,
@@ -41,6 +43,10 @@ pub struct StackResponse {
     pub is_active: bool,
     /// Stack version for telemetry correlation (PRD-03)
     pub version: i64,
+}
+
+fn default_schema_version() -> String {
+    adapteros_api_types::API_SCHEMA_VERSION.to_string()
 }
 
 /// Workflow type for adapter stacks
@@ -115,6 +121,7 @@ pub async fn create_stack(
     Ok((
         StatusCode::CREATED,
         Json(StackResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: id.clone(),
             tenant_id,
             name: req.name,
@@ -163,6 +170,7 @@ pub async fn list_stacks(
         });
 
         stacks.push(StackResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: row.id,
             tenant_id: row.tenant_id,
             name: row.name,
@@ -232,6 +240,7 @@ pub async fn get_stack(
     });
 
     Ok(Json(StackResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: row.id,
         tenant_id: row.tenant_id,
         name: row.name,

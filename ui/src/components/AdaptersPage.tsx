@@ -25,6 +25,7 @@ import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { useAdapterOperations } from '../hooks/useAdapterOperations';
 import { ConceptTooltip } from './ConceptTooltip';
+import { getLifecycleVariant } from '../utils/lifecycle';
 
 interface AdaptersData {
   adapters: Adapter[];
@@ -196,6 +197,8 @@ export function AdaptersPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
+                  <TableHead>Version</TableHead>
+                  <TableHead>Lifecycle</TableHead>
                   <TableHead>State</TableHead>
                   <TableHead>Memory</TableHead>
                   <TableHead>Activations</TableHead>
@@ -209,6 +212,14 @@ export function AdaptersPage() {
                     <TableCell className="font-medium">{adapter.name}</TableCell>
                     <TableCell>
                       <Badge>{getCategoryIcon(adapter.category)} {adapter.category}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {adapter.version || '1.0.0'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getLifecycleVariant(adapter.lifecycle_state)}>
+                        {adapter.lifecycle_state || 'active'}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge>{adapter.current_state}</Badge>

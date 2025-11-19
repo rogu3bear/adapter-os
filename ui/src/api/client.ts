@@ -911,6 +911,18 @@ class ApiClient {
     }, skipRetry, cancelToken);
   }
 
+  async batchInfer(data: types.BatchInferRequest, cancelToken?: AbortSignal): Promise<types.BatchInferResponse> {
+    logger.info('Batch inference requested', {
+      component: 'ApiClient',
+      operation: 'batchInfer',
+      batchSize: data.requests.length,
+    });
+    return this.request<types.BatchInferResponse>('/api/batch/infer', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, false, cancelToken);
+  }
+
   // ===== Phase 6: Policy Operations =====
   async signPolicy(cpid: string): Promise<types.SignPolicyResponse> {
     return this.request<types.SignPolicyResponse>(`/v1/policies/${cpid}/sign`, {

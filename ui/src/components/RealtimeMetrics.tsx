@@ -70,10 +70,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     }
   );
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const UPDATE_INTERVAL = 50; // ms - instant updates
-  const MAX_HISTORY = 120; // Keep last 120 data points (6 seconds at 50ms)
-  
   // Training metrics
   const [trainingJobs, setTrainingJobs] = useState({
     active: 0,
@@ -81,7 +77,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     pending: 0,
     total: 0,
   });
-  
+
   // Workload metrics
   const [workload, setWorkload] = useState({
     activeWorkers: 0,
@@ -89,7 +85,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     throughput: 0,
     avgLatency: 0,
   });
-  
+
   // Import metrics
   const [imports, setImports] = useState({
     reposScanning: 0,
@@ -97,7 +93,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     modelsImported: 0,
     totalArtifacts: 0,
   });
-  
 
   // Update metrics and derived state when polling data arrives
   useEffect(() => {
@@ -123,33 +118,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       });
 
       // Update training metrics (mock for now)
-
-  const fetchMetrics = async () => {
-    try {
-      // Citation: ui/src/api/client.ts L454-L456
-      const data = await apiClient.getSystemMetrics();
-      setMetrics(data);
-        
-        // Add to history
-        setHistory(prev => {
-          const newHistory = [...prev, {
-            timestamp: Date.now(),
-            cpu: data.cpu_usage || 0,
-            memory: data.memory_usage || 0,
-            gpu: data.gpu_utilization || 0,
-            tokensPerSec: data.tokens_per_second || 0,
-            latency: data.avg_latency_ms || 0,
-          }];
-          
-          // Keep only last MAX_HISTORY points
-          if (newHistory.length > MAX_HISTORY) {
-            return newHistory.slice(-MAX_HISTORY);
-          }
-          return newHistory;
-        });
-      }
-      
-      // Fetch training metrics (mock for now)
       setTrainingJobs({
         active: Math.floor(Math.random() * 5),
         completed: 42,
@@ -175,23 +143,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
     }
   }, [polledMetrics]);
   
-
-  // Removed: SSE + manual polling logic replaced with usePolling hook above
-
-  useEffect(() => {
-    // Initial fetch
-    fetchMetrics();
-    
-    // Set up interval for real-time updates
-    intervalRef.current = setInterval(fetchMetrics, UPDATE_INTERVAL);
-    
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [selectedTenant]);
-  
   // Format chart data
   const chartData = history.map((h, idx) => ({
     time: idx,
@@ -209,18 +160,14 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex-between flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Activity className="icon-standard" />
+            <Activity className="h-5 w-5" />
             Real-time Metrics
           </h1>
-
           <p className="text-sm text-muted-foreground">
             System performance with real-time updates
-
-          <p className="section-description">
-            System performance updated every {UPDATE_INTERVAL}ms - instant real-time
           </p>
           {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
@@ -229,7 +176,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
-
       </div>
       
       {/* System Resources */}

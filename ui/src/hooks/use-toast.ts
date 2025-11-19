@@ -20,8 +20,6 @@ export interface ToastAction {
  *
  * @returns Object with toast creation and dismissal functions
  */
-
->
 export function useToast(): ToastAction {
   const [toasts, setToasts] = useState<Toast[]>([]);
 

@@ -90,6 +90,12 @@ pub enum Permission {
     // Contact permissions
     ContactView,
     ContactManage,
+
+    // Dataset permissions
+    DatasetView,
+    DatasetUpload,
+    DatasetValidate,
+    DatasetDelete,
 }
 
 /// Check if a role has a specific permission
@@ -134,6 +140,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Viewer, Permission::FederationView) => true,
         (Role::Viewer, Permission::TelemetryView) => true,
         (Role::Viewer, Permission::ContactView) => true,
+        (Role::Viewer, Permission::DatasetView) => true,
         (Role::Viewer, _) => false, // All write operations blocked
 
         // ========== OPERATOR ROLE ==========
@@ -168,6 +175,10 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::ContactManage) => true,
         (Role::Operator, Permission::PlanView) => true,
         (Role::Operator, Permission::TelemetryView) => true,
+        (Role::Operator, Permission::DatasetView) => true,
+        (Role::Operator, Permission::DatasetUpload) => true,
+        (Role::Operator, Permission::DatasetValidate) => true,
+        (Role::Operator, Permission::DatasetDelete) => false, // Cannot delete (Admin only)
         (Role::Operator, _) => false,
 
         // ========== SRE ROLE ==========
@@ -200,6 +211,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::SRE, Permission::TelemetryView) => true,
         (Role::SRE, Permission::ReplayManage) => true, // Can create/verify replay sessions for debugging
         (Role::SRE, Permission::FederationView) => true,
+        (Role::SRE, Permission::DatasetView) => true,
         (Role::SRE, _) => false,
 
         // ========== COMPLIANCE ROLE ==========
@@ -232,6 +244,8 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Compliance, Permission::TelemetryView) => true,
         (Role::Compliance, Permission::ReplayManage) => true, // Can verify replay sessions for compliance
         (Role::Compliance, Permission::ContactView) => true,
+        (Role::Compliance, Permission::DatasetView) => true,
+        (Role::Compliance, Permission::DatasetValidate) => true, // Can validate datasets
         (Role::Compliance, _) => false,
     }
 }

@@ -1,0 +1,130 @@
+/**
+ * Validation Schema Index
+ *
+ * Central export point for all Zod validation schemas.
+ * These schemas provide type-safe validation for frontend forms and API requests,
+ * matching backend validation rules from Rust types.
+ */
+
+// ===== Form Schemas (UI-specific) =====
+export {
+  TrainingConfigSchema,
+  type TrainingConfigFormData,
+  DatasetConfigSchema,
+  type DatasetConfigFormData,
+  InferenceRequestSchema,
+  type InferenceRequestFormData,
+  PromotionRequestSchema,
+  type PromotionRequestFormData,
+  BatchPromptSchema,
+  type BatchPromptFormData,
+} from './forms';
+
+// ===== Backend-Mapped Training Schemas =====
+export {
+  TrainingConfigSchema as BackendTrainingConfigSchema,
+  StartTrainingRequestSchema,
+  TrainingJobStatusSchema,
+  UploadDatasetRequestSchema,
+  ValidateDatasetRequestSchema,
+  TrainingTemplates,
+  type TrainingConfig as BackendTrainingConfig,
+  type StartTrainingRequest,
+  type TrainingJobStatus,
+  type UploadDatasetRequest,
+  type ValidateDatasetRequest,
+} from './training.schema';
+
+// ===== Backend-Mapped Adapter Schemas =====
+export {
+  AdapterNameSchema,
+  RegisterAdapterRequestSchema,
+  AdapterNameValidationSchema,
+  AdapterLifecycleStateSchema,
+  AdapterTierSchema,
+  StackNameSchema,
+  CreateAdapterStackRequestSchema,
+  PinAdapterRequestSchema,
+  AdapterTTLSchema,
+  AdapterNameUtils,
+  SupportedLanguages,
+  ReservedTenants,
+  ReservedDomains,
+  type RegisterAdapterRequest,
+  type AdapterNameValidation,
+  type AdapterLifecycleState,
+  type CreateAdapterStackRequest,
+  type PinAdapterRequest,
+} from './adapter.schema';
+
+// ===== Backend-Mapped Inference Schemas =====
+export {
+  InferRequestSchema as BackendInferRequestSchema,
+  StreamingInferenceRequestSchema,
+  FinishReasonSchema,
+  RouterCandidateSchema,
+  RouterDecisionSchema,
+  InferenceTraceSchema,
+  InferencePresets,
+  InferenceUtils,
+  type InferRequest as BackendInferRequest,
+  type StreamingInferenceRequest,
+  type FinishReason,
+  type RouterCandidate,
+  type RouterDecision,
+  type InferenceTrace,
+} from './inference.schema';
+
+// ===== Common Schemas =====
+export {
+  TenantIdSchema,
+  RepositoryIdSchema,
+  CommitShaSchema,
+  Blake3HashSchema,
+  DescriptionSchema,
+  FilePathSchema,
+  PaginationSchema,
+  TimestampSchema,
+  EmailSchema,
+  UuidSchema,
+  UrlSchema,
+  PercentageSchema,
+  ChunkSizeSchema,
+  FileSizeSchema,
+  BatchSizeSchema,
+  LanguageSchema,
+  ValidationStatusSchema,
+  ErrorResponseSchema,
+  ValidationUtils,
+  type TenantId,
+  type RepositoryId,
+  type CommitSha,
+  type Blake3Hash,
+  type Description,
+  type FilePath,
+  type Pagination,
+  type Timestamp,
+  type Email,
+  type Uuid,
+  type Url,
+  type Percentage,
+  type ChunkSize,
+  type FileSize,
+  type BatchSize,
+  type Language,
+  type ValidationStatus,
+  type ErrorResponse,
+} from './common.schema';
+
+// ===== Validation Utilities =====
+export {
+  formatValidationError,
+  parseValidationErrors,
+  validateField,
+  formatFieldError,
+} from './utils';
+
+/**
+ * Re-export zod for convenience
+ */
+export { z } from 'zod';

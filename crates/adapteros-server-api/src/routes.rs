@@ -102,7 +102,26 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
         // Dataset handlers
+        handlers::datasets::upload_dataset,
+        handlers::datasets::initiate_chunked_upload,
+        handlers::datasets::list_datasets,
+        handlers::datasets::get_dataset,
+        handlers::datasets::get_dataset_files,
+        handlers::datasets::get_dataset_statistics,
+        handlers::datasets::validate_dataset,
+        handlers::datasets::preview_dataset,
+        handlers::datasets::delete_dataset,
         handlers::datasets::dataset_upload_progress,
+        // Golden run handlers
+        handlers::golden::list_golden_runs,
+        handlers::golden::get_golden_run,
+        handlers::golden::golden_compare,
+        // Promotion workflow handlers
+        handlers::promotion::request_promotion,
+        handlers::promotion::get_promotion_status,
+        handlers::promotion::approve_or_reject_promotion,
+        handlers::promotion::rollback_promotion,
+        handlers::promotion::get_gate_status,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -190,6 +209,16 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::git::EndGitSessionResponse,
         handlers::git::SessionAction,
         handlers::git::FileChangeEvent,
+        // Promotion types
+        crate::handlers::promotion::PromoteRequest,
+        crate::handlers::promotion::PromoteResponse,
+        crate::handlers::promotion::PromotionStatusResponse,
+        crate::handlers::promotion::GateStatus,
+        crate::handlers::promotion::ApprovalRecord,
+        crate::handlers::promotion::ApproveRequest,
+        crate::handlers::promotion::ApproveResponse,
+        crate::handlers::promotion::RollbackRequest,
+        crate::handlers::promotion::RollbackResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -210,6 +239,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "git", description = "Git integration and session management"),
         (name = "federation", description = "Federation verification and quarantine management"),
         (name = "inference", description = "Model inference endpoints"),
+        (name = "promotion", description = "Golden run promotion workflow"),
     )
 )]
 pub struct ApiDoc;
@@ -539,6 +569,16 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/streams/training", get(handlers::training_stream))
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
+        // Dataset routes
+        .route("/v1/datasets/upload", post(handlers::datasets::upload_dataset))
+        .route("/v1/datasets/chunked-upload/initiate", post(handlers::datasets::initiate_chunked_upload))
+        .route("/v1/datasets", get(handlers::datasets::list_datasets))
+        .route("/v1/datasets/:dataset_id", get(handlers::datasets::get_dataset))
+        .route("/v1/datasets/:dataset_id", delete(handlers::datasets::delete_dataset))
+        .route("/v1/datasets/:dataset_id/files", get(handlers::datasets::get_dataset_files))
+        .route("/v1/datasets/:dataset_id/statistics", get(handlers::datasets::get_dataset_statistics))
+        .route("/v1/datasets/:dataset_id/validate", post(handlers::datasets::validate_dataset))
+        .route("/v1/datasets/:dataset_id/preview", get(handlers::datasets::preview_dataset))
         .route("/v1/datasets/upload/progress", get(handlers::datasets::dataset_upload_progress))
         // Code intelligence routes
         .route(
@@ -650,6 +690,15 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/plugins/:name", get(handlers::plugins::plugin_status))
         .route("/v1/plugins", get(handlers::plugins::list_plugins))
         .route("/v1/system/memory", get(handlers::get_uma_memory))
+        // Golden run promotion routes
+        .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
+        .route("/v1/golden/runs/:name", get(handlers::golden::get_golden_run))
+        .route("/v1/golden/compare", post(handlers::golden::golden_compare))
+        .route("/v1/golden/:run_id/promote", post(handlers::promotion::request_promotion))
+        .route("/v1/golden/:run_id/promotion", get(handlers::promotion::get_promotion_status))
+        .route("/v1/golden/:run_id/approve", post(handlers::promotion::approve_or_reject_promotion))
+        .route("/v1/golden/:run_id/gates", get(handlers::promotion::get_gate_status))
+        .route("/v1/golden/:stage/rollback", post(handlers::promotion::rollback_promotion))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

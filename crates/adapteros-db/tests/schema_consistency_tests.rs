@@ -146,13 +146,6 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
         .alpha(16.0)
         .category("code")
         .scope("global")
-        .aos_file_path(Some("/tmp/test.aos"))
-        .aos_file_hash(Some("b3:aoshash"))
-        .adapter_name(Some("test/code/review/r001"))
-        .tenant_namespace(Some("test"))
-        .domain(Some("code"))
-        .purpose(Some("review"))
-        .revision(Some("r001"))
         .build()?;
 
     // This will fail if INSERT statement references non-existent columns
@@ -271,8 +264,6 @@ async fn test_aos_file_metadata_storage() -> Result<()> {
         .name("Test Adapter 4")
         .hash_b3("b3:test012")
         .rank(16)
-        .aos_file_path(Some("/adapters/test.aos"))
-        .aos_file_hash(Some("b3:aosfilehash123"))
         .build()?;
 
     let id = db.register_adapter(params).await?;

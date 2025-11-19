@@ -24,6 +24,8 @@ import { DensityProvider, useDensity } from '../contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
+import { useFormValidation } from '../hooks/useFormValidation';
+import { TrainingConfigSchema, formatValidationError } from '../schemas';
 import {
   AdapterCategory,
   AdapterScope,
@@ -1141,8 +1143,47 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
   const handleComplete = async () => {
     setWizardError(null);
+    setValidationError(null);
     setIsLoading(true);
     try {
+      // Validate form data against schema
+      const validationResult = await TrainingConfigSchema.parseAsync({
+        name: state.name,
+        description: state.description,
+        category: state.category,
+        scope: state.scope,
+        dataSourceType: state.dataSourceType,
+        templateId: state.templateId,
+        repositoryId: state.repositoryId,
+        customData: state.customData,
+        datasetPath: state.datasetPath,
+        directoryRoot: state.directoryRoot,
+        directoryPath: state.directoryPath,
+        language: state.language,
+        symbolTargets: state.symbolTargets,
+        frameworkId: state.frameworkId,
+        frameworkVersion: state.frameworkVersion,
+        apiPatterns: state.apiPatterns,
+        repoScope: state.repoScope,
+        filePatterns: state.filePatterns,
+        excludePatterns: state.excludePatterns,
+        ttlSeconds: state.ttlSeconds,
+        contextWindow: state.contextWindow,
+        rank: state.rank,
+        alpha: state.alpha,
+        epochs: state.epochs,
+        learningRate: state.learningRate,
+        batchSize: state.batchSize,
+        targets: state.targets,
+        warmupSteps: state.warmupSteps,
+        maxSeqLength: state.maxSeqLength,
+        packageAfter: state.packageAfter,
+        registerAfter: state.registerAfter,
+        adaptersRoot: state.adaptersRoot,
+        adapterId: state.adapterId,
+        tier: state.tier,
+      });
+
       // Build training config
       const trainingConfig: TrainingConfig = {
         rank: state.rank,
@@ -1209,20 +1250,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         trainingRequest.repo_id = state.repositoryId;
       } else if (state.dataSourceType === 'directory') {
         // Directory-based training
-        if (!state.directoryRoot) {
-          setWizardError(new Error('Please provide a directory root path for directory-based training'));
-          setIsLoading(false);
-          return;
-        }
         trainingRequest.directory_root = state.directoryRoot;
         trainingRequest.directory_path = state.directoryPath || '.';
       } else if (state.dataSourceType === 'custom') {
-        // For custom, require dataset_path
-        if (!state.datasetPath) {
-          setWizardError(new Error('For custom training, please provide a dataset_path pointing to a training JSON file'));
-          setIsLoading(false);
-          return;
-        }
+        // For custom, dataset_path is included
       }
 
       if (state.datasetPath) {
@@ -1236,14 +1267,26 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
       toast.success(`Training job ${job.id} started successfully!`);
       onComplete(job.id);
     } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to start training');
-      setWizardError(err);
-      logger.error('Training job start failed', {
-        component: 'TrainingWizard',
-        operation: 'startTraining',
-        adapterName: state.name,
-      }, toError(error));
-      toast.error(err.message);
+      if (error instanceof Error && error.name === 'ZodError') {
+        // Format Zod validation errors
+        const validationResult = formatValidationError(error as any);
+        const firstError = validationResult.errors[0];
+        setValidationError(firstError?.message || 'Validation failed');
+        logger.warn('Training wizard validation failed', {
+          component: 'TrainingWizard',
+          operation: 'validateForm',
+          errorCount: validationResult.errors.length,
+        });
+      } else {
+        const err = error instanceof Error ? error : new Error('Failed to start training');
+        setWizardError(err);
+        logger.error('Training job start failed', {
+          component: 'TrainingWizard',
+          operation: 'startTraining',
+          adapterName: state.name,
+        }, toError(error));
+        toast.error(err.message);
+      }
     } finally {
       setIsLoading(false);
     }

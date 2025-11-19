@@ -40,7 +40,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use tokio::watch;
+use tokio::sync::watch;
+use parking_lot::RwLock;
 use tracing::info;
 
 pub mod adapter_hotswap;
@@ -275,7 +276,7 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     _resource_limiter: ResourceLimiter,
     _deadlock_detector: DeadlockDetector,
     health_monitor: HealthMonitor,
-    telemetry: TelemetryWriter,
+    telemetry: Option<TelemetryWriter>,
     // Lifecycle management
     profiler: adapteros_profiler::AdapterProfiler,
     lifecycle: adapteros_lora_lifecycle::LifecycleManager,
@@ -391,7 +392,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         // Create shared kernels Arc for both Worker and HotSwapManager
         let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
-        let hotswap = HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone());
+        let hotswap = HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone(), Some(Arc::new(telemetry.clone())));
 
         // Retirement task management
         let (shutdown_tx, shutdown_rx) = tokio::watch::channel(());
@@ -416,7 +417,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             _resource_limiter: resource_limiter,
             _deadlock_detector: deadlock_detector,
             health_monitor,
-            telemetry,
+            telemetry: Some(telemetry),
             profiler,
             lifecycle,
             hotswap,

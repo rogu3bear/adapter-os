@@ -23,6 +23,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity } from 'lucide-react';
+import { getLifecycleVariant } from '../utils/lifecycle';
 
 export const AdapterDetail: React.FC = () => {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -281,6 +282,20 @@ export const AdapterDetail: React.FC = () => {
               <p className="text-sm text-gray-500">Tier</p>
               <p>{adapter.tier}</p>
             </div>
+            {(adapter as any).lifecycle_state && (
+              <div>
+                <p className="text-sm text-gray-500">Lifecycle State</p>
+                <Badge variant={getLifecycleVariant((adapter as any).lifecycle_state)}>
+                  {(adapter as any).lifecycle_state}
+                </Badge>
+              </div>
+            )}
+            {(adapter as any).version && (
+              <div>
+                <p className="text-sm text-gray-500">Version</p>
+                <p>{(adapter as any).version}</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -77,6 +77,11 @@ impl B3Hash {
         arr.copy_from_slice(&bytes);
         Ok(Self(arr))
     }
+
+    /// Zero hash placeholder (32 zero bytes)
+    pub const fn zero() -> Self {
+        Self([0u8; 32])
+    }
 }
 
 impl fmt::Debug for B3Hash {

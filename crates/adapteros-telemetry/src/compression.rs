@@ -167,9 +167,7 @@ impl TelemetryCompressor {
 
     /// Compress using LZ4
     fn compress_lz4(&self, data: &[u8]) -> Result<Vec<u8>> {
-        lz4_flex::compress_prepend_size(data)
-            .map_err(|e| AosError::Telemetry(format!("LZ4 compression failed: {}", e)))
-            .map(|v| v.into())
+        Ok(lz4_flex::compress_prepend_size(data))
     }
 
     /// Decompress using LZ4

@@ -25,6 +25,8 @@ pub mod domain_adapters;
 pub mod federation;
 pub mod git;
 pub mod git_repository;
+pub mod golden;
+pub mod promotion;
 pub mod replay;
 pub mod routing_decisions;
 pub mod telemetry;
@@ -4345,6 +4347,7 @@ pub async fn list_adapters(
             .unwrap_or_default();
 
         responses.push(AdapterResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: adapter.id,
             adapter_id: adapter.adapter_id,
             name: adapter.name,
@@ -4360,6 +4363,8 @@ pub async fn list_adapters(
                 avg_gate_value: avg_gate,
                 selection_rate,
             }),
+            version: adapter.version,
+            lifecycle_state: adapter.lifecycle_state,
         });
     }
 
@@ -4423,21 +4428,24 @@ pub async fn get_adapter(
         .unwrap_or_default();
 
     Ok(Json(AdapterResponse {
-        id: adapter.id,
-        adapter_id: adapter.adapter_id,
-        name: adapter.name,
-        hash_b3: adapter.hash_b3,
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        id: adapter.id.clone(),
+        adapter_id: adapter.adapter_id.clone(),
+        name: adapter.name.clone(),
+        hash_b3: adapter.hash_b3.clone(),
         rank: adapter.rank,
         tier: adapter.tier,
         languages,
-        framework: adapter.framework,
-        created_at: adapter.created_at,
+        framework: adapter.framework.clone(),
+        created_at: adapter.created_at.clone(),
         stats: Some(AdapterStats {
             total_activations: total,
             selected_count: selected,
             avg_gate_value: avg_gate,
             selection_rate,
         }),
+        version: adapter.version,
+        lifecycle_state: adapter.lifecycle_state,
     }))
 }
 /// Register new adapter

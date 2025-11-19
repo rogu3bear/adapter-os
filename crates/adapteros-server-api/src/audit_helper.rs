@@ -217,6 +217,11 @@ pub mod actions {
     pub const TELEMETRY_BUNDLE_EXPORT: &str = "telemetry.bundle.export";
     pub const TELEMETRY_BUNDLE_VERIFY: &str = "telemetry.bundle.verify";
     pub const TELEMETRY_BUNDLE_PURGE: &str = "telemetry.bundle.purge";
+
+    // Dataset actions
+    pub const DATASET_UPLOAD: &str = "dataset.upload";
+    pub const DATASET_VALIDATE: &str = "dataset.validate";
+    pub const DATASET_DELETE: &str = "dataset.delete";
 }
 
 /// Resource types as constants
@@ -244,4 +249,5 @@ pub mod resources {
     pub const PROMOTION: &str = "promotion";
     pub const TELEMETRY_BUNDLE: &str = "telemetry_bundle";
     pub const STREAM_ENDPOINT: &str = "stream_endpoint";
+    pub const DATASET: &str = "dataset";
 }

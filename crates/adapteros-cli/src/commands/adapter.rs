@@ -470,6 +470,18 @@ pub enum AdapterCommand {
         #[arg(long, default_value = "10000")]
         timeout: u64,
     },
+
+    /// Update adapter lifecycle state
+    #[command(
+        after_help = "Examples:\n  aosctl adapter update-lifecycle adapter-1 deprecated\n  aosctl adapter update-lifecycle adapter-1 active\n  aosctl adapter update-lifecycle adapter-1 retired --json"
+    )]
+    UpdateLifecycle {
+        /// Adapter ID
+        adapter_id: String,
+
+        /// New lifecycle state (draft, active, deprecated, retired)
+        state: String,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -485,6 +497,7 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::Evict { .. } => "adapter_evict".to_string(),
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
         AdapterCommand::VerifyGpu { .. } => "adapter_verify_gpu".to_string(),
+        AdapterCommand::UpdateLifecycle { .. } => "adapter_update_lifecycle".to_string(),
     }
 }
 
@@ -501,6 +514,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Evict { tenant, .. } => tenant.clone(),
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
+        AdapterCommand::UpdateLifecycle { .. } => None, // No tenant parameter
     }
 }
 
@@ -567,6 +581,10 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
                 .await
                 .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
         }
+        AdapterCommand::UpdateLifecycle {
+            adapter_id,
+            state,
+        } => update_lifecycle(&adapter_id, &state, output).await,
     }
 }
 
@@ -1491,6 +1509,69 @@ async fn evict_adapter(
     Ok(())
 }
 
+/// Update adapter lifecycle state
+async fn update_lifecycle(
+    adapter_id: &str,
+    state_str: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    use adapteros_core::lifecycle::LifecycleState;
+    use std::str::FromStr;
+
+    validate_adapter_id(adapter_id)?;
+
+    info!(adapter_id = %adapter_id, state = %state_str, "Updating adapter lifecycle state");
+
+    // Parse the lifecycle state
+    let new_state = LifecycleState::from_str(state_str).map_err(|e| {
+        adapteros_core::AosError::Validation(format!(
+            "Invalid lifecycle state '{}': {}. Must be one of: draft, active, deprecated, retired",
+            state_str, e
+        ))
+    })?;
+
+    // Connect to database and update lifecycle state
+    let db = adapteros_db::Db::connect_env().await?;
+
+    match db.update_adapter_lifecycle_state(adapter_id, new_state).await {
+        Ok(_) => {
+            if output.mode().is_json() {
+                let response = serde_json::json!({
+                    "success": true,
+                    "message": "Adapter lifecycle state updated successfully",
+                    "adapter_id": adapter_id,
+                    "new_state": new_state.as_str()
+                });
+                output.result(&serde_json::to_string_pretty(&response)?);
+            } else {
+                output.success(&format!(
+                    "Updated adapter {} to lifecycle state: {}",
+                    adapter_id,
+                    new_state.as_str()
+                ));
+            }
+            Ok(())
+        }
+        Err(e) => {
+            // Check if error is due to invalid transition
+            let error_msg = format!("{}", e);
+
+            if output.mode().is_json() {
+                let response = serde_json::json!({
+                    "success": false,
+                    "error": error_msg,
+                    "adapter_id": adapter_id,
+                    "requested_state": new_state.as_str()
+                });
+                output.result(&serde_json::to_string_pretty(&response)?);
+            } else {
+                output.error(&format!("Failed to update lifecycle state: {}", error_msg));
+            }
+            Err(e)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1763,5 +1844,28 @@ mod tests {
         assert_eq!(profile.state, deserialized.state);
         assert_eq!(profile.activation_pct, deserialized.activation_pct);
         assert_eq!(profile.activations, deserialized.activations);
+    }
+
+    #[test]
+    fn test_update_lifecycle_command_name() {
+        assert_eq!(
+            get_adapter_command_name(&AdapterCommand::UpdateLifecycle {
+                adapter_id: "test".to_string(),
+                state: "active".to_string()
+            }),
+            "adapter_update_lifecycle"
+        );
+    }
+
+    #[test]
+    fn test_update_lifecycle_no_tenant() {
+        // UpdateLifecycle does not have a tenant parameter
+        assert_eq!(
+            extract_tenant_from_adapter_command(&AdapterCommand::UpdateLifecycle {
+                adapter_id: "test".to_string(),
+                state: "active".to_string()
+            }),
+            None
+        );
     }
 }

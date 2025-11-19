@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -10,20 +9,10 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './
 import { Shield, Play, Hash } from 'lucide-react';
 import apiClient from '../api/client';
 import { ReplaySession, ReplayVerificationResponse } from '../api/types';
-// 【ui/src/components/ReplayPanel.tsx§1-19】 - Replace toast errors with ErrorRecovery
 import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { logger, toError } from '../utils/logger';
-
-import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Badge } from './ui/badge';
-import { Shield, Play, Hash } from 'lucide-react';
-import apiClient from '../api/client';
-import { ReplaySession } from '../api/types';
-import { useTimestamp } from '../hooks/useTimestamp';
-import { toast } from 'sonner';
 
 import { useTenant } from '@/layout/LayoutProvider';
 
@@ -52,7 +41,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   useEffect(() => {
     const fetchSessions = async () => {
       try {
-
         setReplayError(null);
         const data = await apiClient.listReplaySessions(tenantId);
         setSessions(data);
@@ -64,11 +52,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
           tenantId,
         }, toError(err));
         setReplayError(error);
-
-        const data = await apiClient.listReplaySessions(tenantId);
-        setSessions(data);
-      } catch (err) {
-        toast.error('Failed to load replay sessions');
       } finally {
         setLoading(false);
       }
@@ -115,15 +98,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
         tenantId,
       }, toError(err));
       setReplayError(error);
-
-      
-      if (result.signature_valid && result.hash_chain_valid) {
-        toast.success('Replay session verified successfully');
-      } else {
-        toast.error(`Verification failed: ${result.divergences.length} divergences found`);
-      }
-    } catch (err) {
-      toast.error('Verification error');
     } finally {
       setVerifying(false);
     }
@@ -151,8 +125,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
 
   return (
     <div>
-
-  return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center">
@@ -171,10 +143,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
             <SelectValue placeholder="Select replay session" />
           </SelectTrigger>
           <SelectContent>
-
             {sessions.filter(session => session.id && session.id !== '').map(session => (
-
-            {sessions.map(session => (
               <SelectItem key={session.id} value={session.id}>
                 {session.cpid} @ {useTimestamp(session.snapshot_at)}
               </SelectItem>
@@ -399,7 +368,3 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
     </div>
   );
 }
-
-  );
-}
-

@@ -1,7 +1,4 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
@@ -25,12 +22,10 @@ import {
 import apiClient from '../api/client';
 import { RouterConfig, FeatureVector, AdapterScore } from '../api/types';
 
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { logger } from '../utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
-
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
 
 interface RouterConfigPageProps {
   selectedTenant: string;
@@ -74,13 +69,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     setIsLoading(true);
     setPageError(null);
 
-
-  useEffect(() => {
-    loadRouterConfig();
-  }, [selectedTenant]);
-
-  const loadRouterConfig = async () => {
-    setIsLoading(true);
     try {
       // Load current policy to get router config
       const policies = await apiClient.listPolicies();
@@ -121,12 +109,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     loadRouterConfig();
   }, [loadRouterConfig]);
 
-      toast.error('Failed to load router configuration');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleConfigChange = (field: keyof RouterConfig, value: any) => {
     setConfig(prev => ({ ...prev, [field]: value }));
     setHasUnsavedChanges(true);
@@ -146,8 +128,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     setFeatureWeights(normalized);
 
     setStatusMessage({ message: 'Feature weights normalized to sum to 1.0.', variant: 'success' });
-
-    toast.success('Weights normalized to sum to 1.0');
   };
 
   const resetToDefaults = () => {
@@ -167,13 +147,10 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     setHasUnsavedChanges(false);
 
     setStatusMessage({ message: 'Router configuration reset to defaults.', variant: 'success' });
-
-    toast.success('Reset to default configuration');
   };
 
   const saveConfiguration = async () => {
     setIsSaving(true);
-
     setPageError(null);
 
     try {
@@ -216,36 +193,27 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       });
 
       setStatusMessage({ message: 'Router configuration saved successfully.', variant: 'success' });
-
-      toast.success('Router configuration saved successfully');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save router config';
+      const err = error instanceof Error ? error : new Error('Failed to save router config');
       logger.error('Failed to save router config', {
         component: 'RouterConfigPage',
         operation: 'saveConfiguration',
         tenant: selectedTenant,
-        error: errorMessage
+        error: err.message
       });
 
-      const err = error instanceof Error ? error : new Error(errorMessage);
       setPageError(err);
       setStatusMessage({ message: 'Failed to save configuration.', variant: 'warning' });
-
-      toast.error('Failed to save configuration');
     } finally {
       setIsSaving(false);
     }
   };
 
   const testRouterConfig = async () => {
-
     setValidationMessage(null);
     setPageError(null);
     if (!testPrompt.trim()) {
       setValidationMessage('Please enter a test prompt before running the router test.');
-
-    if (!testPrompt.trim()) {
-      toast.error('Please enter a test prompt');
       return;
     }
 
@@ -262,22 +230,17 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       });
 
       setStatusMessage({ message: 'Router test completed successfully.', variant: 'success' });
-
-      toast.success('Router test completed');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to test router';
+      const err = error instanceof Error ? error : new Error('Failed to test router');
       logger.error('Failed to test router', {
         component: 'RouterConfigPage',
         operation: 'testRouterConfig',
         testPrompt,
-        error: errorMessage
+        error: err.message
       });
 
-      const err = error instanceof Error ? error : new Error(errorMessage);
       setPageError(err);
       setStatusMessage({ message: 'Router test failed.', variant: 'warning' });
-
-      toast.error('Router test failed');
     } finally {
       setIsLoading(false);
     }
@@ -289,14 +252,18 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   return (
     <div className="space-y-6">
 
-      {pageError && ErrorRecoveryTemplates.genericError(
-        pageError,
-        () => {
-          if (validationMessage) {
-            setValidationMessage(null);
-          }
-          loadRouterConfig();
-        }
+      {pageError && (
+        <ErrorRecovery
+          {...ErrorRecoveryTemplates.genericError(
+            pageError.message,
+            () => {
+              if (validationMessage) {
+                setValidationMessage(null);
+              }
+              loadRouterConfig();
+            }
+          )}
+        />
       )}
 
       {statusMessage && (

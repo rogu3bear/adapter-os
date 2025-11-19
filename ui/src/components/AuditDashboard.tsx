@@ -1,7 +1,4 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -24,17 +21,11 @@ import {
   Filter
 } from 'lucide-react';
 import apiClient from '../api/client';
-
 import { Policy, TelemetryBundle, PromotionGate, ComplianceControl, PolicyViolationRecord } from '../api/types';
-// 【ui/src/components/AuditDashboard.tsx§1-30】 - Replace toast errors with ErrorRecovery
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { ExportDialog, ExportOptions } from './ui/export-dialog';
-
-import { Policy, TelemetryBundle, PromotionGate } from '../api/types';
-import { toast } from 'sonner';
-import { logger } from '../utils/logger';
 
 interface AuditDashboardProps {
   selectedTenant: string;
@@ -158,13 +149,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const [showExportDialog, setShowExportDialog] = useState(false);
 
   const loadAuditData = useCallback(async () => {
-
-
-  useEffect(() => {
-    loadAuditData();
-  }, [selectedTenant]);
-
-  const loadAuditData = async () => {
     setIsLoading(true);
     try {
       // Load policies
@@ -206,12 +190,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   useEffect(() => {
     loadAuditData();
   }, [loadAuditData]);
-
-      toast.error('Failed to load audit data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const generateComplianceData = (policies: Policy[]) => {
     const controls: ComplianceStatus[] = [
@@ -402,6 +380,8 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         error: errorMessage
       });
       toast.error(`Failed to export audit logs: ${errorMessage}`);
+    }
+  };
 
   const handleExportReport = () => {
     try {
@@ -527,7 +507,7 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           <Button variant="outline" onClick={() => setShowExportDialog(true)}>
             <Download className="w-4 h-4 mr-2" />
             Export Audit Logs
-
+          </Button>
           <Button variant="outline" onClick={handleExportReport}>
             <Download className="w-4 h-4 mr-2" />
             Export Report
@@ -899,34 +879,22 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       const verificationError = result.verification_error || 'Unknown error';
 
       if (result.valid) {
-        // Verification success shown in UI modal
-
-      if (result.valid) {
-        toast.success(`Bundle signature verified successfully!\nSigner: ${result.signer || 'Unknown'}`);
+        toast.success(`Bundle signature verified successfully!\nSigner: ${signer}`);
         logger.info('Bundle signature verified', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
           bundleId,
           valid: true,
-
           signer,
         });
       } else {
         setAuditError(new Error(`Bundle signature verification failed: ${verificationError}`));
-
-          signer: result.signer
-        });
-      } else {
-        toast.error(`Bundle signature verification failed!\n${result.error || 'Unknown error'}`);
         logger.warn('Bundle signature verification failed', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
           bundleId,
           valid: false,
-
           error: verificationError,
-
-          error: result.error
         });
       }
     } catch (error) {
@@ -939,8 +907,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       });
 
       setAuditError(new Error(`Failed to verify bundle: ${errorMessage}`));
-
-      toast.error(`Failed to verify bundle: ${errorMessage}`);
     }
   }
 }

@@ -88,18 +88,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   };
 
   const loadRepositories = useCallback(async () => {
-
-  useEffect(() => {
-    loadRepositories();
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    if (selectedRepo) {
-      loadCommits(selectedRepo.id);
-    }
-  }, [selectedRepo]);
-
-  const loadRepositories = async () => {
     setIsLoading(true);
     try {
       const repos = await apiClient.listRepositories();
@@ -140,14 +128,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   }, [loadRepositories]);
 
   const loadCommits = useCallback(async (repoId: string) => {
-
-      toast.error('Failed to load repositories');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadCommits = async (repoId: string) => {
     setIsLoading(true);
     try {
       const commitsList = await apiClient.listCommits(repoId);
@@ -182,12 +162,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       loadCommits(selectedRepo.id);
     }
   }, [selectedRepo, loadCommits]);
-
-      toast.error('Failed to load commits');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const loadCommitDiff = async (sha: string) => {
     setIsLoading(true);

@@ -24,9 +24,6 @@ export interface UseProgressiveDisclosureReturn {
  * @returns Object with visibility state and control functions
  */
 export function useProgressiveDisclosure(config: ProgressiveDisclosureConfig): UseProgressiveDisclosureReturn {
-
-export function useProgressiveDisclosure(config: ProgressiveDisclosureConfig) {
->
   const { key, defaultVisible = false, persist = true } = config;
   
   // Get initial state from localStorage if persistence is enabled

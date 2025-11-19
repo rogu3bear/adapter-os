@@ -416,16 +416,10 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         </Alert>
       )}
 
-      <div className="flex items-center justify-between flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Compute Infrastructure</h1>
           <p className="text-sm text-muted-foreground">
-            Manage compute nodes and worker processes
-          </p>
-        </div>
-
-          <h1 className="section-title">Compute Infrastructure</h1>
-          <p className="section-description">
             Manage compute nodes and worker processes
           </p>
         </div>
@@ -446,24 +440,14 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         <TabsContent value="nodes" className="space-y-4">
           <div className="flex-standard justify-end">
             <Button variant="outline" size="sm" onClick={fetchNodes}>
-
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
             <Button onClick={() => setShowRegisterModal(true)}>
               <Server className="h-4 w-4 mr-2" />
-
-              <RefreshCw className="icon-standard mr-2" />
-              Refresh
-            </Button>
-            <Button onClick={() => setShowRegisterModal(true)}>
-              <Server className="icon-standard mr-2" />
               Register Node
             </Button>
           </div>
-
-
-          <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
 
           <Card className="card-standard">
         <CardHeader>
@@ -803,13 +787,6 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         onRedo={actionHistory.redo}
         currentActionDescription={actionHistory.currentAction?.description}
       />
-
-        </TabsContent>
-
-        <TabsContent value="workers">
-          <WorkersTab selectedTenant={selectedTenant} />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }

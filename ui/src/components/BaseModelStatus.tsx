@@ -7,14 +7,6 @@ import {
   Clock,
   AlertTriangle,
   Cpu,
-
-import React, { useState, useEffect } from 'react';
-import { 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  AlertTriangle, 
-  Cpu, 
   HardDrive,
   RefreshCw,
   Info
@@ -27,8 +19,6 @@ import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
-
-import { toast } from 'react-hot-toast';
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -180,7 +170,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
   if (error) {
     return (
-
       <ErrorRecovery
         title="Model Status Error"
         message={error.message}
@@ -189,16 +178,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
           { label: 'View Logs', action: () => {/* Navigate to logs */} }
         ]}
       />
-
-      <div className="bg-white rounded-lg border border-red-200 p-6">
-        <div className="flex items-center space-x-3">
-          <AlertTriangle className="h-5 w-5 text-red-500" />
-          <div>
-            <h3 className="text-lg font-medium text-red-900">Base Model Status</h3>
-            <p className="text-sm text-red-600">{error}</p>
-          </div>
-        </div>
-      </div>
     );
   }
 

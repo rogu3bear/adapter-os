@@ -14,7 +14,7 @@ serde_jcs = { workspace = true }
 crossbeam = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
 tempfile = { workspace = true, optional = true }
 prometheus = { workspace = true }
 tokio = { workspace = true }

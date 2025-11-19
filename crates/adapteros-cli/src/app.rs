@@ -84,12 +84,17 @@ pub enum Commands {
   aosctl list-adapters
   aosctl list-adapters --tier persistent
   aosctl list-adapters --json > adapters.json
+  aosctl list-adapters --include-meta
 "#
     )]
     AdapterList {
         /// Filter by tier
         #[arg(short, long)]
         tier: Option<String>,
+
+        /// Output full metadata as JSON
+        #[arg(long)]
+        include_meta: bool,
     },
 
     /// Register a new adapter
@@ -1318,8 +1323,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Adapter Management
-        Commands::AdapterList { tier } => {
-            list_adapters::run(tier.as_deref(), output).await?;
+        Commands::AdapterList { tier, include_meta } => {
+            list_adapters::run(tier.as_deref(), *include_meta, output).await?;
         }
         Commands::AdapterRegister {
             id,

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2025-11-19T03:44:37Z",
+  "signed_at": "2025-11-19T17:49:37Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQWdVYUxaL3ZQSE8zdXkxaWVoNUU2Uld5dEtMMWZ5cVlPYXEyQllCamJtOEU9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "q+KagnRL8AVwXsV8wP+bcomgRPOxaM6mQi3O29lI9ArD8Uyx3txgbtibyL64qwy2hsCofY1uhMJsUPDyjwGvCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -73,6 +73,11 @@
     "0068_metadata_normalization.sql": {"hash": "cecbd8937a415fdd24db668867803b6b83dd3d2bc56f818a690a17e803236541", "signature": "K9upeN2AinbXyCZzBEU5RSztjRgBoWiysdxKJIEFUvd9CXpK6Ga3CTxeCqCIwniCx3xYy66KHyu6OH5tG3/fCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0069_plugin_tenant_enables.sql": {"hash": "5e22ae5b2c07e2914db511ce363e6a40cd5333851b07e6064cbd1ef71620999b", "signature": "vrONXHo8JfPGXktSLwhzdlM5FLKhC1dvoB0ZrEsahoGygWFIlTx6MTK/D+GldRucf++1xs1xW5TIT79hkkICDQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0070_routing_decisions.sql": {"hash": "07d775bcb3794812eda23957e35dc97671c8a0eb85b0234fb40029d2f1860089", "signature": "JtmuvVQlb2mtEu39UMKGkD04uZwhll0dmZaLH1MsbkkxKb2RxJGqoGRkmD7S05Ni5OB8xl/zCY+YF3qUX+/9AQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0071_lifecycle_version_history.sql": {"hash": "47eb87552c6e72624438602cb6a104a04de8513f9cdc9bdeb3f6f7ceff22e513", "signature": "+KnOGbKPhKqsAO/wuocKAH4ZOkxsed3Dg2u61Pyf7ZzAWimx1HxZqPKvU7OG2chegFf8HAscayI00rAsFyt2Bg==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "0071_lifecycle_version_history.sql": {"hash": "47eb87552c6e72624438602cb6a104a04de8513f9cdc9bdeb3f6f7ceff22e513", "signature": "+KnOGbKPhKqsAO/wuocKAH4ZOkxsed3Dg2u61Pyf7ZzAWimx1HxZqPKvU7OG2chegFf8HAscayI00rAsFyt2Bg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0072_tenant_snapshots.sql": {"hash": "03a9b2f35ef2db35493ff35b3f31d8fce72b95f9b7881893b265b841420807a1", "signature": "k407EhcA0J+MAzLgqWcuANpgSMx8d7Zqcf0zN13fnMOPEBeI96SacovQ2rdTmuPskHOnT9rqt3dPVxMujNZhCA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0073_index_hashes.sql": {"hash": "aad8082e520179977f0560715139b473a9eb5177b70e69bb6be7b93fb22af533", "signature": "iH5jdDDQ5Yump67Ro68WJG6tNajEY9V7fvtu3X7PxsYnLiq/HSY7wNoSHphgvuK9MoS8HwU4WHpWV47AIFqRBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0074_legacy_index_migration.sql": {"hash": "4612f35e5d4392abf74950b3d944c44cc17d425e4852184fea6154562c1e19b3", "signature": "CWj0iC2MppT/vQs+/BT1w26P2QJqwTWUD9AAHTAJMApWLOV/RWlXjco9utH9GPUk3lgY82cBug+tCuLJu6VDDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0075_lifecycle_state_transition_triggers.sql": {"hash": "ac976565c7db6679e33f49f2261af475875caab861c328b8c40bf8e5fe0fe9dd", "signature": "TB2+QM3JER1utCDxAarW//3C20dPEIYwYXcqNnOV+wFyPL5RekX1OGqBHrVl8QRjzIluZV5zz3L1dCqGHOO2AQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0076_golden_run_promotions.sql": {"hash": "f3387619820b6978563cdd07eb4b29d3cf448600ee0abb4ea747f77eb74f2c36", "signature": "0yTjfoUNnb4fnYE6lYL6iDylqQ4vQeepSTvfZBXtiUtRH9DLo2IkRyM8NNAjwSqaZufgAPMTzsfmUOa13kUpCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

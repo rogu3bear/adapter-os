@@ -170,10 +170,12 @@ pub struct UploadDatasetResponse {
     pub schema_version: String,
     pub dataset_id: String,
     pub name: String,
+    pub description: Option<String>,
     pub file_count: i32,
     pub total_size_bytes: i64,
-    pub hash_b3: String,
-    pub validation_status: String,
+    pub format: String,
+    pub hash: String,
+    pub created_at: String,
 }
 
 /// Dataset response
@@ -182,19 +184,19 @@ pub struct UploadDatasetResponse {
 pub struct DatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub id: String,
+    pub dataset_id: String,
     pub name: String,
     pub description: Option<String>,
     pub file_count: i32,
     pub total_size_bytes: i64,
     pub format: String,
-    pub hash_b3: String,
+    pub hash: String,
+    pub storage_path: String,
     pub validation_status: String,
     pub validation_errors: Option<String>,
-    pub created_by: Option<String>,
+    pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
-    pub statistics: Option<DatasetStatisticsResponse>,
 }
 
 /// Dataset statistics response
@@ -203,6 +205,7 @@ pub struct DatasetResponse {
 pub struct DatasetStatisticsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
+    pub dataset_id: String,
     pub num_examples: i32,
     pub avg_input_length: f64,
     pub avg_target_length: f64,
@@ -218,11 +221,11 @@ pub struct DatasetStatisticsResponse {
 pub struct DatasetFileResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub id: String,
-    pub dataset_id: String,
+    pub file_id: String,
     pub file_name: String,
+    pub file_path: String,
     pub size_bytes: i64,
-    pub hash_b3: String,
+    pub hash: String,
     pub mime_type: Option<String>,
     pub created_at: String,
 }
@@ -231,7 +234,7 @@ pub struct DatasetFileResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ValidateDatasetRequest {
-    pub dataset_id: String,
+    pub check_format: Option<bool>,
 }
 
 /// Dataset validation response
@@ -241,8 +244,8 @@ pub struct ValidateDatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
     pub dataset_id: String,
-    pub status: String,
-    pub errors: Vec<String>,
-    pub warnings: Vec<String>,
-    pub statistics: Option<DatasetStatisticsResponse>,
+    pub is_valid: bool,
+    pub validation_status: String,
+    pub errors: Option<Vec<String>>,
+    pub validated_at: String,
 }

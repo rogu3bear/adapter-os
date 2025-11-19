@@ -34,6 +34,10 @@ pub struct AdapterResponse {
     pub framework: Option<String>,
     pub created_at: String,
     pub stats: Option<AdapterStats>,
+    /// Adapter version from migration 0068 (semantic or monotonic)
+    pub version: String,
+    /// Lifecycle state from migration 0068 (draft/active/deprecated/retired)
+    pub lifecycle_state: String,
 }
 
 /// Adapter statistics
