@@ -27,6 +27,15 @@ blake3 = { workspace = true }
 clap = { workspace = true }
 tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
+rand = { workspace = true }
+zstd = "0.13"
+flate2 = "1.0"
+lz4_flex = "0.11"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+[[bench]]
+name = "telemetry_overhead"
+harness = false
