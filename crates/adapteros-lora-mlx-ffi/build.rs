@@ -137,7 +137,7 @@ fn generate_stub_bindings() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     let stub_bindings = r#"// Stub bindings for MLX FFI development
 // Generated when MLX is not installed
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
+#[allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
 use std::os::raw::{c_char, c_int, c_uint, c_float, c_void};
 

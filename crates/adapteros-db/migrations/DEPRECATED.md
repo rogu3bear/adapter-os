@@ -36,6 +36,21 @@ directory (`/migrations/`), creating schema inconsistencies and conflicts.
    - Root: Missing
    - **Resolution:** Ported to root as `0068_create_pinned_adapters_table.sql`
 
+5. **Migration 0066 Conflict (PRD-01)**
+   - Crate: `0066_tenant_snapshots.sql` (tenant state snapshots)
+   - Root: `0066_stack_versioning.sql` (different purpose - adapter stack versions)
+   - **Resolution:** Renumbered crate version to `0072_tenant_snapshots.sql` in root
+
+6. **Migration 0067 Conflict (PRD-01)**
+   - Crate: `0067_index_hashes.sql` (index integrity tracking)
+   - Root: `0067_add_tenant_to_adapter_stacks.sql` (different purpose - multi-tenancy)
+   - **Resolution:** Renumbered crate version to `0073_index_hashes.sql` in root
+
+7. **Migration 0068 Conflict (PRD-01)**
+   - Crate: `0068_legacy_index_migration.sql` (index version tracking)
+   - Root: `0068_metadata_normalization.sql` (different purpose - lifecycle metadata)
+   - **Resolution:** Renumbered crate version to `0074_legacy_index_migration.sql` in root
+
 ---
 
 ## Consolidation Status
@@ -47,6 +62,9 @@ directory (`/migrations/`), creating schema inconsistencies and conflicts.
 | 0057_fix_domain_adapters_sqlite_compatibility.sql | 0066_fix_domain_adapters_sqlite_compatibility.sql | Convert PostgreSQL types to SQLite |
 | 0058_cleanup_unused_tables.sql | 0067_cleanup_unused_tables.sql | Drop 15+ unused tables |
 | 0060_create_pinned_adapters_table.sql | 0068_create_pinned_adapters_table.sql | Pinned adapters with TTL |
+| 0066_tenant_snapshots.sql | 0072_tenant_snapshots.sql | Tenant state snapshots for point-in-time recovery |
+| 0067_index_hashes.sql | 0073_index_hashes.sql | Index hash tracking for integrity verification |
+| 0068_legacy_index_migration.sql | 0074_legacy_index_migration.sql | Index version tracking and hash recomputation |
 
 ### Migrations Merged into Root
 
@@ -119,5 +137,5 @@ For migration issues, consult:
 - `CLAUDE.md` - Developer guide (updated with migration consolidation)
 
 **Maintained by:** James KC Auchterlonie
-**Last Updated:** 2025-01-16
-**Schema Consolidation Plan:** Multi-agent schema audit (Agent B)
+**Last Updated:** 2025-11-19 (PRD-01 conflict resolution)
+**Schema Consolidation Plan:** Multi-agent schema audit (Agent B) + PRD-01 migration conflict resolution
