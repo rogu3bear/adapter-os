@@ -14,15 +14,21 @@ pub mod alerting;
 pub mod audit_log;
 pub mod bundle;
 pub mod bundle_store;
+pub mod compression;
+pub mod crash_journal;
 pub mod event;
 pub mod events;
 pub mod health_monitoring;
+pub mod logging_macros;
 pub mod merkle;
 pub mod metrics;
 pub mod monitoring;
 pub mod performance_monitoring;
 pub mod replay;
 pub mod report;
+pub mod ring_buffer;
+pub mod sampling;
+pub mod tracing;
 pub mod uds_exporter;
 pub mod unified_events;
 pub mod writer;
@@ -38,6 +44,9 @@ pub use bundle::BundleWriter;
 pub use bundle_store::{
     BundleMetadata as StoredBundleMetadata, BundleStore, ChainVerificationReport, EvictionStrategy,
     GarbageCollectionReport, RetentionPolicy, StorageStats,
+};
+pub use compression::{
+    CompressionAlgorithm, CompressionLevel, CompressedBundleMetadata, TelemetryCompressor,
 };
 pub use event::Event;
 pub use events::{
@@ -61,6 +70,12 @@ pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
 pub use report::generate_html_report;
+pub use ring_buffer::{TelemetryRingBuffer, RingBufferStats};
+pub use sampling::{EventSampler, SamplingStrategy, SamplingStats};
+pub use tracing::{
+    Span, SpanEvent, SpanKind, SpanStatus, Trace, TraceBuffer, TraceBufferStats,
+    TraceContext, TraceSearchQuery,
+};
 pub use uds_exporter::{MetricMetadata, MetricValue, UdsMetricsExporter};
 pub use unified_events::{
     EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
