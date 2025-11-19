@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Login request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
@@ -14,6 +15,7 @@ pub struct LoginRequest {
 
 /// Login response with JWT token
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct LoginResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -24,6 +26,7 @@ pub struct LoginResponse {
 
 /// User information response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct UserInfoResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -35,6 +38,7 @@ pub struct UserInfoResponse {
 
 /// Logout request (empty for now, but extensible)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct LogoutRequest {
     // Future: could include session invalidation details
 }

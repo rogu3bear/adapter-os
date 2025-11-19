@@ -1,13 +1,16 @@
 //! Training types
 
-use adapteros_orchestrator::{TrainingConfig, TrainingJob, TrainingTemplate};
+use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::schema_version;
 
+// ===== Request/Response Types =====
+
 /// Training configuration request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TrainingConfigRequest {
     pub rank: u32,
     pub alpha: u32,
@@ -22,15 +25,18 @@ pub struct TrainingConfigRequest {
 
 /// Start training request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct StartTrainingRequest {
     pub adapter_name: String,
     pub config: TrainingConfigRequest,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    pub dataset_id: Option<String>,
 }
 
 /// Training job response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TrainingJobResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -38,6 +44,7 @@ pub struct TrainingJobResponse {
     pub adapter_name: String,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    pub dataset_id: Option<String>,
     pub status: String,
     pub progress_pct: f32,
     pub current_epoch: u32,
@@ -60,6 +67,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             adapter_name: job.adapter_name,
             template_id: job.template_id,
             repo_id: job.repo_id,
+            dataset_id: job.dataset_id,
             status: job.status.to_string(),
             progress_pct: job.progress_pct,
             current_epoch: job.current_epoch,
@@ -78,6 +86,7 @@ impl From<TrainingJob> for TrainingJobResponse {
 
 /// Training template response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TrainingTemplateResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -105,6 +114,7 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
+            weight_group_config: None,
         }
     }
 }
@@ -129,6 +139,7 @@ impl From<TrainingTemplate> for TrainingTemplateResponse {
 
 /// Training metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TrainingMetricsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -144,6 +155,7 @@ pub struct TrainingMetricsResponse {
 
 /// Upload dataset request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct UploadDatasetRequest {
     pub name: String,
     pub description: Option<String>,
@@ -152,6 +164,7 @@ pub struct UploadDatasetRequest {
 
 /// Upload dataset response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct UploadDatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -165,6 +178,7 @@ pub struct UploadDatasetResponse {
 
 /// Dataset response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct DatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -185,6 +199,7 @@ pub struct DatasetResponse {
 
 /// Dataset statistics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct DatasetStatisticsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -199,6 +214,7 @@ pub struct DatasetStatisticsResponse {
 
 /// Dataset file response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct DatasetFileResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -213,12 +229,14 @@ pub struct DatasetFileResponse {
 
 /// Dataset validation request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct ValidateDatasetRequest {
     pub dataset_id: String,
 }
 
 /// Dataset validation response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct ValidateDatasetResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,

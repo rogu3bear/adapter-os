@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Register adapter request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct RegisterAdapterRequest {
     pub adapter_id: String,
     pub name: String,
@@ -19,6 +20,7 @@ pub struct RegisterAdapterRequest {
 
 /// Adapter response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -36,6 +38,7 @@ pub struct AdapterResponse {
 
 /// Adapter statistics
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterStats {
     pub total_activations: i64,
     pub selected_count: i64,
@@ -45,6 +48,7 @@ pub struct AdapterStats {
 
 /// Adapter activation response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterActivationResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -58,6 +62,7 @@ pub struct AdapterActivationResponse {
 
 /// Adapter state transition response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterStateResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -69,6 +74,7 @@ pub struct AdapterStateResponse {
 
 /// Adapter manifest for download
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterManifest {
     pub adapter_id: String,
     pub name: String,
@@ -90,6 +96,7 @@ pub struct AdapterManifest {
 
 /// Adapter health status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterHealthResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,

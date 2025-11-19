@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Inference request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct InferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,6 +26,7 @@ pub struct InferRequest {
 
 /// Inference response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct InferResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -36,6 +38,7 @@ pub struct InferResponse {
 
 /// Inference trace for observability
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct InferenceTrace {
     pub adapters_used: Vec<String>,
     pub router_decisions: Vec<RouterDecision>,
@@ -44,6 +47,7 @@ pub struct InferenceTrace {
 
 /// Candidate adapter entry for router trace
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct RouterCandidate {
     pub adapter_idx: u16,
     pub raw_score: f32,
@@ -52,6 +56,7 @@ pub struct RouterCandidate {
 
 /// Router decision at a specific position (canonical schema)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct RouterDecision {
     pub step: usize,
     pub input_token_id: Option<u32>,

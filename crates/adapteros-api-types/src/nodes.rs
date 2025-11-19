@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Register node request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct RegisterNodeRequest {
     pub hostname: String,
     pub agent_endpoint: String,
@@ -14,6 +15,7 @@ pub struct RegisterNodeRequest {
 
 /// Node response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct NodeResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -26,6 +28,7 @@ pub struct NodeResponse {
 
 /// Node ping response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct NodePingResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -36,6 +39,7 @@ pub struct NodePingResponse {
 
 /// Worker info for node details
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct WorkerInfo {
     pub id: String,
     pub tenant_id: String,
@@ -45,6 +49,7 @@ pub struct WorkerInfo {
 
 /// Node details response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct NodeDetailsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,

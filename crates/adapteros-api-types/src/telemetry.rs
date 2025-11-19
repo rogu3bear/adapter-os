@@ -10,6 +10,7 @@ use crate::schema_version;
 
 /// API telemetry event (DTO for public API)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct ApiTelemetryEvent {
     pub event_type: String,
     pub timestamp: String,
@@ -33,6 +34,7 @@ impl From<TelemetryEvent> for ApiTelemetryEvent {
 
 /// Telemetry bundle response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TelemetryBundleResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -45,6 +47,7 @@ pub struct TelemetryBundleResponse {
 
 /// Export telemetry bundle request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct ExportTelemetryBundleRequest {
     pub bundle_id: String,
     pub format: String, // "json", "ndjson", "csv"
@@ -52,6 +55,7 @@ pub struct ExportTelemetryBundleRequest {
 
 /// Verify bundle signature request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct VerifyBundleSignatureRequest {
     pub bundle_id: String,
     pub expected_signature: String,
@@ -59,6 +63,7 @@ pub struct VerifyBundleSignatureRequest {
 
 /// Bundle verification response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct BundleVerificationResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -73,6 +78,7 @@ pub struct BundleVerificationResponse {
 /// Per Artifacts Ruleset #13: All bundles must be signed with Ed25519
 /// This type provides a single source of truth for bundle signature metadata across AdapterOS.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct BundleMetadata {
     // Core fields (required)
     /// Content hash of the bundle (BLAKE3)

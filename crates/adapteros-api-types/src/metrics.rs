@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Quality metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct QualityMetricsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -19,6 +20,7 @@ pub struct QualityMetricsResponse {
 
 /// Adapter metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterMetricsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -27,6 +29,7 @@ pub struct AdapterMetricsResponse {
 
 /// Adapter performance metrics
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct AdapterPerformance {
     pub adapter_id: String,
     pub name: String,
@@ -37,6 +40,7 @@ pub struct AdapterPerformance {
 
 /// System metrics response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct SystemMetricsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -56,6 +60,7 @@ pub struct SystemMetricsResponse {
 
 /// Load average response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct LoadAverageResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -66,6 +71,7 @@ pub struct LoadAverageResponse {
 
 /// Network I/O metrics
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct NetworkMetrics {
     pub bytes_in: u64,
     pub bytes_out: u64,

@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Create tenant request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct CreateTenantRequest {
     pub name: String,
     pub itar_flag: bool,
@@ -14,6 +15,7 @@ pub struct CreateTenantRequest {
 
 /// Tenant response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TenantResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -26,6 +28,7 @@ pub struct TenantResponse {
 
 /// Update tenant request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct UpdateTenantRequest {
     pub name: Option<String>,
     pub itar_flag: Option<bool>,
@@ -33,6 +36,7 @@ pub struct UpdateTenantRequest {
 
 /// Tenant usage statistics
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TenantUsageResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,

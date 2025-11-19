@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Spawn worker request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct SpawnWorkerRequest {
     pub tenant_id: String,
     pub node_id: String,
@@ -16,6 +17,7 @@ pub struct SpawnWorkerRequest {
 
 /// Worker response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct WorkerResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -32,6 +34,7 @@ pub struct WorkerResponse {
 
 /// Worker status update
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct WorkerStatusUpdate {
     pub worker_id: String,
     pub status: String,

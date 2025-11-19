@@ -7,6 +7,7 @@ use crate::schema_version;
 
 /// Register repository request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct RegisterRepositoryRequest {
     pub repo_id: String,
     pub path: String,
@@ -16,6 +17,7 @@ pub struct RegisterRepositoryRequest {
 
 /// Repository response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct RepositoryResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
@@ -34,12 +36,14 @@ pub struct RepositoryResponse {
 
 /// Trigger scan request
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct TriggerScanRequest {
     pub repo_id: String,
 }
 
 /// Scan status response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct ScanStatusResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
