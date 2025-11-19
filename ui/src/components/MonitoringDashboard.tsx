@@ -2,7 +2,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 
 import React, { useEffect, useMemo, useState } from 'react';
->
 import {
   Card,
   CardContent,
@@ -30,7 +29,6 @@ import * as types from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 
->
 
 interface AlertEntry {
   id: string;
@@ -174,7 +172,6 @@ export const MonitoringDashboard: React.FC = () => {
           apiClient.getAdapterMetrics(),
         ]);
         if (!isMounted) return;
->
 
         setSystemMetrics(system);
         setQualityMetrics(quality);
@@ -316,7 +313,6 @@ export const MonitoringDashboard: React.FC = () => {
 
     setAlerts((prev) => [...newAlerts, ...prev].slice(0, 25));
   };
->
 
   const cpuHistory = useMemo(
     () => metricHistory.map((entry) => ({ ...entry, label: 'CPU %' })),

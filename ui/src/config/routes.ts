@@ -56,6 +56,8 @@ export interface RouteConfig {
   navTitle?: string;
   navIcon?: LucideIcon;
   navOrder?: number;
+  disabled?: boolean;
+  external?: boolean;
 }
 
 export const routes: RouteConfig[] = [

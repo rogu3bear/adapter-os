@@ -13,7 +13,6 @@ import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 
->
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '../api/types';
@@ -36,7 +35,6 @@ import { ProgressiveHint } from './ui/progressive-hint';
 
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
->
 
 interface PoliciesProps {
   user?: User;
@@ -51,7 +49,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
   const effectiveUserId = effectiveUser.id;
 
->
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [policiesError, setPoliciesError] = useState<Error | null>(null);
@@ -97,7 +94,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
     }
   }, [effectiveTenant, effectiveUserId]);
 
->
 
   useEffect(() => {
     fetchPolicies();
@@ -134,7 +130,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
       toast.error('Failed to sign policy');
       // Replace: console.error(err);
->
       logger.error('Failed to sign policy', {
         component: 'Policies',
         operation: 'signPolicy',
@@ -161,7 +156,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
       toast.error('Failed to compare policies');
       // Replace: console.error(err);
->
       logger.error('Failed to compare policies', {
         component: 'Policies',
         operation: 'comparePolicies',
@@ -194,7 +188,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
       toast.error('Failed to export policy');
       // Replace: console.error(err);
->
       logger.error('Failed to export policy', {
         component: 'Policies',
         operation: 'exportPolicy',
@@ -329,7 +322,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   }
 
 
->
   // Citation: CLAUDE.md L151-L172 - 20 policy packs enforced by mplora-policy
   const policyTabs = [
     { id: 'packs', label: 'Policy Packs', icon: Shield, description: '20 policy packs enforcement' },
@@ -349,7 +341,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         />
       )}
 
->
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -366,7 +357,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             formats={['csv', 'json']}
           />
 
->
           <Button onClick={() => { setSelectedPolicy(null); setShowEditorModal(true); }}>
             <Plus className="h-4 w-4 mr-2" />
             New Policy
@@ -395,7 +385,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
 
       <Card className="card-standard">
->
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             Active Policies
@@ -495,7 +484,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
->
                         <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}>
                           <Edit className="icon-standard mr-2" />
                           Edit
@@ -556,7 +544,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
 
               <div className="form-field">
                 <p className="form-label">Signed At</p>
->
                 <p className="text-sm text-muted-foreground">{useTimestamp(signResult.signed_at)}</p>
               </div>
             </div>
@@ -756,7 +743,6 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         itemName="policy"
       />
 
->
     </div>
   );
 }

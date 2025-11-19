@@ -50,6 +50,7 @@ import {
   Upload
 } from 'lucide-react';
 import apiClient from '../api/client';
+import * as types from '../api/types';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '../api/types';
 
 import { logger, toError } from '../utils/logger';
@@ -58,7 +59,6 @@ import { BookmarkButton } from './ui/bookmark-button';
 
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->
 
 interface TenantsProps {
   user: User;
@@ -124,7 +124,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         userId: user.id
       }, err instanceof Error ? err : new Error(String(err)));
       toast.error('Failed to load tenants');
->
     } finally {
       setLoading(false);
     }
@@ -144,18 +143,10 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         setPolicies(policiesData);
         setAdapters(adaptersData);
       } catch (err) {
-
-        logger.error('Failed to fetch policies/adapters', {
-          component: 'Tenants',
-          operation: 'fetchPoliciesAdapters',
-          userId
-
-        // Replace: console.error('Failed to fetch policies/adapters:', err);
         logger.error('Failed to fetch policies/adapters', {
           component: 'Tenants',
           operation: 'fetchPoliciesAdapters',
           userId: user.id
->
         }, err instanceof Error ? err : new Error(String(err)));
       }
     };
@@ -521,7 +512,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         return <div className="status-indicator status-neutral"><Lock className="h-3 w-3" />Inactive</div>;
 
         return <div className="status-indicator status-neutral"><Lock className="icon-small" />Inactive</div>;
->
       case 'archived':
         return <div className="status-indicator status-neutral"><Database className="h-3 w-3" />Archived</div>;
       default:
@@ -781,41 +771,7 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
         <CardContent>
 
           <div className="max-h-[600px] overflow-auto" data-virtual-container>
-            <Table className="border-collapse w-full" role="table" aria-label="Tenant management">
-              <TableHeader>
-                <TableRow role="row">
-                  <TableHead className="p-4 border-b border-border w-12" role="columnheader" scope="col">
-                    <Checkbox
-                      checked={
-                        tenants.length === 0
-                          ? false
-                          : selectedTenants.length === tenants.length
-                            ? true
-                            : selectedTenants.length > 0
-                              ? 'indeterminate'
-                              : false
-                      }
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          setSelectedTenants(tenants.map(t => t.id));
-                        } else {
-                          setSelectedTenants([]);
-                        }
-                      }}
-                      aria-label="Select all tenants"
-                    />
-                  </TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Tenant</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Status</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Classification</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Users</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Adapters</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Policies</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">ITAR</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Last Activity</TableHead>
-                  <TableHead className="p-4 border-b border-border" role="columnheader" scope="col">Actions</TableHead>
-
-          <Table className="table-standard">
+            <Table className="table-standard">
             <TableHeader>
               <TableRow>
                 <TableHead className="table-cell-standard">Tenant</TableHead>
@@ -830,92 +786,6 @@ export function Tenants({ user, selectedTenant }: TenantsProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tenants.map((tenant) => (
-                <TableRow key={tenant.id}>
-                  <TableCell className="table-cell-standard">
-                    <div>
-                      <p className="font-medium">{tenant.name}</p>
-                      <p className="text-sm text-muted-foreground">{tenant.description || 'No description'}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">{getStatusBadge(tenant.status)}</TableCell>
-                  <TableCell className="table-cell-standard">{getClassificationBadge(tenant.data_classification)}</TableCell>
-                  <TableCell className="table-cell-standard">
-                    <div className="flex-center">
-                      <UserCheck className="icon-small text-muted-foreground" />
-                      <span>{tenant.users || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <div className="flex-center">
-                      <Network className="icon-small text-muted-foreground" />
-                      <span>{tenant.adapters || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <div className="flex-center">
-                      <Shield className="icon-small text-muted-foreground" />
-                      <span>{tenant.policies || 0}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    {tenant.itar_compliant ? (
-                      <div className="status-indicator status-success">Yes</div>
-                    ) : (
-                      <div className="status-indicator status-neutral">No</div>
-                    )}
-                  </TableCell>
-                  <TableCell className="table-cell-standard text-sm text-muted-foreground">
-                    {tenant.last_activity || 'Unknown'}
-                  </TableCell>
-                  <TableCell className="table-cell-standard">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setEditName(tenant.name);
-                          setShowEditModal(true);
-                        }}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setShowAssignPoliciesModal(true);
-                        }}>
-                          <Shield className="mr-2 h-4 w-4" />
-                          Assign Policies
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setShowAssignAdaptersModal(true);
-                        }}>
-                          <Layers className="mr-2 h-4 w-4" />
-                          Assign Adapters
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleViewUsage(tenant)}>
-                          <BarChart3 className="mr-2 h-4 w-4" />
-                          View Usage
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setSelectedTenantForAction(tenant);
-                          setShowArchiveModal(true);
-                        }}>
-                          <Archive className="mr-2 h-4 w-4 text-red-600" />
-                          Archive
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
->
-                </TableRow>
-              </TableHeader>
-              <TableBody>
                 <VirtualizedTableRows items={tenants} estimateSize={60}>
                   {(tenant) => {
                     const tenantTyped = tenant as typeof tenants[0];

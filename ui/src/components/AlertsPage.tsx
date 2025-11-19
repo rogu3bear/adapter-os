@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -15,7 +14,6 @@ import { Slider } from './ui/slider';
 import { HelpTooltip } from './ui/help-tooltip';
 import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
 
->
 import {
   Bell,
   AlertTriangle,
@@ -42,7 +40,6 @@ import type { Alert } from '@/api/types';
 
 
 import { useTenant } from '@/layout/LayoutProvider';
->
 
 interface AlertsPageProps {
   selectedTenant?: string;
@@ -128,7 +125,6 @@ const DEFAULT_ALERT_RULES: AlertRule[] = [
     description: 'Alert when adapter count exceeds capacity'
   }
 ];
->
 
 export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const { selectedTenant } = useTenant();
@@ -137,7 +133,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
 
   const [alertRules, setAlertRules] = useState<AlertRule[]>(DEFAULT_ALERT_RULES);
->
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
@@ -223,7 +218,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       if (!rule.enabled) return;
 
       const metricValue = (currentMetrics as any)[rule.metric];
->
       if (metricValue === undefined) return;
 
       let shouldAlert = false;
@@ -727,7 +721,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     }
     setEditingRule(null);
     setIsCreatingRule(false);
->
   };
 
   const handleAcknowledgeAlert = (alertId: string) => {
@@ -780,7 +773,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
   return (
     <div className="space-y-6">
->
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -907,7 +899,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                         ${(alert.acknowledged_by || alert.acknowledged_at) ? 'opacity-60' : ''}
 
                         ${alert.acknowledged ? 'opacity-60' : ''}
->
                       `}
                     >
                       <div className="flex items-start justify-between">
@@ -926,7 +917,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                               {alert.severity.toUpperCase()}
                             </Badge>
                             {alert.acknowledged && (
->
                               <Badge variant="outline" className="bg-blue-50">
                                 Acknowledged
                               </Badge>
@@ -956,7 +946,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                             </span>
                             <span>
                               Triggered: {new Date(alert.triggered_at).toLocaleString()}
->
                             </span>
                           </div>
                         </div>
@@ -965,7 +954,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                           {!(alert.acknowledged_by || alert.acknowledged_at) && (
 
                           {!alert.acknowledged && (
->
                             <Button
                               size="sm"
                               variant="outline"
@@ -1004,7 +992,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
             </Card>
           )}
 
->
           {(editingRule || isCreatingRule) && (
             <Card>
               <CardHeader>
@@ -1131,7 +1118,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
               </div>
 
 
->
                 <div className="space-y-2">
                   <Label htmlFor="rule-severity">Severity</Label>
                   <select
@@ -1205,7 +1191,6 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                                 </span>
                               )}
 
->
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">
                           {rule.description}

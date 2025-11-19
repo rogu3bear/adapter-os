@@ -30,7 +30,6 @@ import { useUndoRedoContext } from '../contexts/UndoRedoContext';
 import { useProgressOperation } from '../hooks/useProgressOperation';
 
 import { TrainingWizard } from './TrainingWizard';
->
 import { 
   Plus, 
   Code, 
@@ -231,7 +230,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   };
 
   const [activeTab, setActiveTab] = useState('registry');
->
   const [selectedTrainingJob, setSelectedTrainingJob] = useState<string | null>(null);
   const [trainingConfig, setTrainingConfig] = useState<Partial<TrainingConfig>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -1331,7 +1329,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       <ContentSection
         title="Adapter Management"
         subtitle="Train, manage, and monitor LoRA adapters for your models"
->
         level="primary"
         variant="default"
         actions={
@@ -1346,7 +1343,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               Train Language Base Adapter
             </Button>
 
->
             <Button onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Register Adapter
@@ -1361,7 +1357,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               Directory Upsert
             </Button>
 
->
           </div>
         }
       >
@@ -1401,7 +1396,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
         <TabsContent value="registry" className="form-field">
           <Card className="card-standard">
->
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center justify-center">
@@ -1746,7 +1740,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   )}
                 </TableBody>
               </Table>
->
             </CardContent>
           </Card>
         </TabsContent>
@@ -1769,7 +1762,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsContent>
 
 
->
         <TabsContent value="training" className="space-y-4">
           <TrainingStreamPage selectedTenant={selectedTenant} />
 
@@ -1884,7 +1876,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         </TabsContent>
 
 
->
       </Tabs>
 
       </ContentSection>
@@ -1898,7 +1889,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               showStatus(`Training job ${jobId} started.`, 'success');
 
               toast.success(`Training job ${jobId} started`);
->
               setIsTrainingDialogOpen(false);
               // Optionally refresh adapters or navigate to training monitor
             }}
@@ -2133,7 +2123,6 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     </div>
   );
 }
->
 
       {/* Bulk Action Bar */}
       <BulkActionBar
@@ -2433,7 +2422,6 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
             type="number" 
             value={formData.rank}
             onChange={(e) => setFormData({...formData, rank: parseInt(e.target.value)})}
->
           />
         </DialogContent>
       </Dialog>
@@ -2473,7 +2461,6 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
           Register Adapter
         </Button>
       </div>
->
     </div>
   );
 }

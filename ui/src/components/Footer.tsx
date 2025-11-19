@@ -12,7 +12,6 @@ interface MetaData {
   uptime: number;
   last_updated: string;
 }
->
 
 export const Footer: React.FC = () => {
   const { data: meta, isLoading } = useQuery<MetaResponse>({
@@ -26,7 +25,6 @@ export const Footer: React.FC = () => {
       return apiClient.getMeta();
     },
     refetchInterval: 30000, // Refresh every 30 seconds
->
   });
 
   const formatUptime = (seconds?: number) => {

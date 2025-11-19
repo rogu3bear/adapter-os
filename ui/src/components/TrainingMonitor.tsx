@@ -35,7 +35,6 @@ import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { TrainingJob, TrainingMetrics } from '../api/types';
 import { logger } from '../utils/logger';
 import { toast } from 'sonner';
->
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -114,7 +113,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
     if (isPolling && job?.status === 'running') {
       intervalRef.current = window.setInterval(fetchJobData, 1000); // Poll every 1 second for instant updates
->
     }
     
     throw new Error('Either sessionId or jobId must be provided');
@@ -266,7 +264,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         error: errorMessage
       });
       toast.error(`Failed to pause training: ${errorMessage}`);
->
     }
   };
 
@@ -293,7 +290,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
       const error = err instanceof Error ? err : new Error('Failed to cancel training');
 
       const errorMessage = err instanceof Error ? err.message : 'Failed to cancel training';
->
       logger.error('Failed to cancel training', {
         component: 'TrainingMonitor',
         operation: 'handleStop',
@@ -306,7 +302,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         error: errorMessage
       });
       toast.error(`Failed to cancel training: ${errorMessage}`);
->
     }
   };
 

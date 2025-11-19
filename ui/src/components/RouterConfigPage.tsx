@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ConceptTooltip } from './ConceptTooltip';
 import { Button } from './ui/button';
@@ -32,7 +31,6 @@ import { Alert, AlertDescription } from './ui/alert';
 
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->
 
 interface RouterConfigPageProps {
   selectedTenant: string;
@@ -83,7 +81,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
   const loadRouterConfig = async () => {
     setIsLoading(true);
->
     try {
       // Load current policy to get router config
       const policies = await apiClient.listPolicies();
@@ -129,7 +126,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       setIsLoading(false);
     }
   };
->
 
   const handleConfigChange = (field: keyof RouterConfig, value: any) => {
     setConfig(prev => ({ ...prev, [field]: value }));
@@ -152,7 +148,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     setStatusMessage({ message: 'Feature weights normalized to sum to 1.0.', variant: 'success' });
 
     toast.success('Weights normalized to sum to 1.0');
->
   };
 
   const resetToDefaults = () => {
@@ -174,7 +169,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
     setStatusMessage({ message: 'Router configuration reset to defaults.', variant: 'success' });
 
     toast.success('Reset to default configuration');
->
   };
 
   const saveConfiguration = async () => {
@@ -182,7 +176,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
     setPageError(null);
 
->
     try {
       // Get current policy
       const policies = await apiClient.listPolicies();
@@ -225,7 +218,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       setStatusMessage({ message: 'Router configuration saved successfully.', variant: 'success' });
 
       toast.success('Router configuration saved successfully');
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to save router config';
       logger.error('Failed to save router config', {
@@ -240,7 +232,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       setStatusMessage({ message: 'Failed to save configuration.', variant: 'warning' });
 
       toast.error('Failed to save configuration');
->
     } finally {
       setIsSaving(false);
     }
@@ -255,7 +246,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
 
     if (!testPrompt.trim()) {
       toast.error('Please enter a test prompt');
->
       return;
     }
 
@@ -274,7 +264,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       setStatusMessage({ message: 'Router test completed successfully.', variant: 'success' });
 
       toast.success('Router test completed');
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to test router';
       logger.error('Failed to test router', {
@@ -289,7 +278,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       setStatusMessage({ message: 'Router test failed.', variant: 'warning' });
 
       toast.error('Router test failed');
->
     } finally {
       setIsLoading(false);
     }
@@ -348,7 +336,6 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       )}
 
 
->
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

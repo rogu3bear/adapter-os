@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -19,7 +18,6 @@ import { ScrollArea } from './ui/scroll-area';
 
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
->
 import { 
   Bug, 
   Play, 
@@ -69,7 +67,6 @@ import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
 
 import { toast } from 'sonner';
->
 
 interface ProcessDebuggerProps {
   workerId: string;
@@ -229,7 +226,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const fetchDebugSessions = async () => {
->
     try {
       // Citation: ui/src/api/client.ts L762-L767
       const data = await apiClient.startDebugSession(workerId, {
@@ -273,7 +269,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   };
 
   const fetchTroubleshootingSteps = async () => {
->
     try {
       // Citation: ui/src/api/client.ts L769-L774
       const data = await apiClient.runTroubleshootingStep(workerId, {
@@ -316,7 +311,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       toast.error('Failed to load troubleshooting steps');
     }
   };
->
 
   useEffect(() => {
     fetchLogs();
@@ -327,7 +321,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
   }, [fetchLogs, fetchCrashes, fetchDebugSessions, fetchTroubleshootingSteps]);
 
   }, [workerId]);
->
 
   const getLogLevelColor = (level: string) => {
     switch (level) {
@@ -366,7 +359,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
     const matchesLevel = logLevelFilter === 'all' || log.level === logLevelFilter;
 
     const matchesLevel = !logLevelFilter || log.level === logLevelFilter;
->
     const matchesSearch = !searchFilter || 
       log.message.toLowerCase().includes(searchFilter.toLowerCase()) ||
       log.level.toLowerCase().includes(searchFilter.toLowerCase());
@@ -411,7 +403,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       )}
 
 
->
       {/* Header */}
       <div className="flex-between">
         <div>
@@ -485,7 +476,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                       <SelectItem value="all">All levels</SelectItem>
 
                       <SelectItem value="">All levels</SelectItem>
->
                       <SelectItem value="debug">Debug</SelectItem>
                       <SelectItem value="info">Info</SelectItem>
                       <SelectItem value="warn">Warning</SelectItem>
@@ -589,7 +579,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                   </TableBody>
                 </Table>
               </ScrollArea>
->
             </CardContent>
           </Card>
         </TabsContent>
@@ -688,7 +677,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     ))}
                   </TableBody>
                 </Table>
->
               )}
             </CardContent>
           </Card>
@@ -794,7 +782,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     ))}
                   </TableBody>
                 </Table>
->
               )}
             </CardContent>
           </Card>
@@ -902,7 +889,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
                     ))}
                   </TableBody>
                 </Table>
->
               )}
             </CardContent>
           </Card>
@@ -948,7 +934,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
 
               toast.success('Debug session started');
               setShowDebugModal(false);
->
             }}>
               Start Session
             </Button>
@@ -1003,7 +988,6 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
 
               toast.success('Troubleshooting step started');
               setShowTroubleshootModal(false);
->
             }}>
               Run Step
             </Button>

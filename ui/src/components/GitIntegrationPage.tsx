@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -61,7 +60,6 @@ function formatRepositoryUrl(url: string, isFallback?: boolean): string {
 
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->
 
 interface GitIntegrationPageProps {
   selectedTenant: string;
@@ -78,7 +76,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
->
 
   // New repository form
   const [newRepoUrl, setNewRepoUrl] = useState('');
@@ -103,7 +100,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   }, [selectedRepo]);
 
   const loadRepositories = async () => {
->
     setIsLoading(true);
     try {
       const repos = await apiClient.listRepositories();
@@ -118,7 +114,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       if (repos.length > 0 && !selectedRepo) {
         setSelectedRepo(repos[0]);
       }
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load repositories';
       logger.error('Failed to load repositories', {
@@ -153,7 +148,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   };
 
   const loadCommits = async (repoId: string) => {
->
     setIsLoading(true);
     try {
       const commitsList = await apiClient.listCommits(repoId);
@@ -162,7 +156,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       setStatusMessage(null);
       setErrorRecovery(null);
 
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load commits';
       logger.error('Failed to load commits', {
@@ -195,7 +188,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       setIsLoading(false);
     }
   };
->
 
   const loadCommitDiff = async (sha: string) => {
     setIsLoading(true);
@@ -206,7 +198,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       setStatusMessage(null);
       setErrorRecovery(null);
 
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load commit diff';
       logger.error('Failed to load commit diff', {
@@ -225,7 +216,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       );
 
       toast.error('Failed to load commit diff');
->
     } finally {
       setIsLoading(false);
     }
@@ -237,7 +227,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       showStatus('Please enter a repository URL.', 'warning');
 
       toast.error('Please enter a repository URL');
->
       return;
     }
 
@@ -251,7 +240,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       showStatus('Repository registered successfully.', 'success');
 
       toast.success('Repository registered successfully');
->
       setShowAddRepo(false);
       setNewRepoUrl('');
       setNewRepoBranch('main');
@@ -275,7 +263,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       );
 
       toast.error('Failed to register repository');
->
     } finally {
       setIsLoading(false);
     }
@@ -289,7 +276,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       showStatus('Repository scan started.', 'success');
 
       toast.success('Repository scan started');
->
       // Wait a bit and reload commits
       setTimeout(() => loadCommits(repoId), 2000);
     } catch (error) {
@@ -310,7 +296,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       );
 
       toast.error('Failed to scan repository');
->
     } finally {
       setIsLoading(false);
     }
@@ -355,7 +340,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       )}
 
 
->
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -461,7 +445,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
                         </span>
 
                         <span className="font-mono text-sm">{repo.url}</span>
->
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">

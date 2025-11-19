@@ -73,7 +73,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const UPDATE_INTERVAL = 50; // ms - instant updates
   const MAX_HISTORY = 120; // Keep last 120 data points (6 seconds at 50ms)
->
   
   // Training metrics
   const [trainingJobs, setTrainingJobs] = useState({
@@ -151,7 +150,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       }
       
       // Fetch training metrics (mock for now)
->
       setTrainingJobs({
         active: Math.floor(Math.random() * 5),
         completed: 42,
@@ -193,7 +191,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       }
     };
   }, [selectedTenant]);
->
   
   // Format chart data
   const chartData = history.map((h, idx) => ({
@@ -224,7 +221,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
 
           <p className="section-description">
             System performance updated every {UPDATE_INTERVAL}ms - instant real-time
->
           </p>
           {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
         </div>
@@ -234,7 +230,6 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           Refresh
         </Button>
 
->
       </div>
       
       {/* System Resources */}

@@ -24,7 +24,6 @@ import apiClient from '../api/client';
 import { ReplaySession } from '../api/types';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { toast } from 'sonner';
->
 
 import { useTenant } from '@/layout/LayoutProvider';
 
@@ -49,7 +48,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   const [newBundleIds, setNewBundleIds] = useState('');
 
   const [verifying, setVerifying] = useState(false);
->
 
   useEffect(() => {
     const fetchSessions = async () => {
@@ -71,7 +69,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
         setSessions(data);
       } catch (err) {
         toast.error('Failed to load replay sessions');
->
       } finally {
         setLoading(false);
       }
@@ -127,7 +124,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
       }
     } catch (err) {
       toast.error('Verification error');
->
     } finally {
       setVerifying(false);
     }
@@ -157,7 +153,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
     <div>
 
   return (
->
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center">
@@ -171,7 +166,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
           <Button variant="outline" onClick={() => setCreateOpen(true)}>New Session</Button>
         </div>
 
->
         <Select value={selectedSession || ''} onValueChange={handleSessionSelect}>
           <SelectTrigger>
             <SelectValue placeholder="Select replay session" />
@@ -181,7 +175,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
             {sessions.filter(session => session.id && session.id !== '').map(session => (
 
             {sessions.map(session => (
->
               <SelectItem key={session.id} value={session.id}>
                 {session.cpid} @ {useTimestamp(session.snapshot_at)}
               </SelectItem>
@@ -290,7 +283,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                 </div>
               )}
             </div>
->
 
             <Button 
               onClick={handleVerify} 
@@ -355,7 +347,6 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
               </div>
             )}
 
->
           </div>
         )}
       </CardContent>
@@ -412,4 +403,3 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
   );
 }
 
->

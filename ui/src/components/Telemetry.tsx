@@ -27,7 +27,6 @@ import { useSSE } from '../hooks/useSSE';
 import { useTimestamp } from '../hooks/useTimestamp';
 import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
->
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
@@ -101,7 +100,6 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp, onToolba
 export function Telemetry({ user: userProp, selectedTenant: tenantProp }: TelemetryProps) {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
->
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
@@ -740,7 +738,6 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                 <p className="form-label">Signed At</p>
                 <p className="text-sm text-muted-foreground">{useTimestamp(verifyResult.signed_at)}</p>
               </div>
->
               {verifyResult.verification_error && (
                 <div className="mb-4">
                   <p className="font-medium text-sm mb-1 text-red-600">Error</p>

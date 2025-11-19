@@ -15,7 +15,6 @@ import {
   Clock, 
   AlertTriangle, 
   Cpu, 
->
   HardDrive,
   RefreshCw,
   Info
@@ -30,7 +29,6 @@ import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 import { toast } from 'react-hot-toast';
->
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -104,7 +102,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
     const interval = setInterval(fetchStatus, 1000);
     return () => clearInterval(interval);
   }, [selectedTenant]);
->
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -202,7 +199,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
           </div>
         </div>
       </div>
->
     );
   }
 
@@ -233,7 +229,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
 
             {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
 
->
           </div>
         </div>
       </div>

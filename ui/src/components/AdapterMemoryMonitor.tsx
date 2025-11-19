@@ -37,7 +37,6 @@ import { logger } from '../utils/logger';
 import { ErrorRecoveryTemplates } from './ui/error-recovery';
 
 import { toast } from 'sonner';
->
 
 interface AdapterMemoryMonitorProps {
   adapters: Adapter[];
@@ -200,7 +199,6 @@ export function AdapterMemoryMonitor({
 
 
       toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
->
       logger.info('Adapter evicted successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'evictAdapter',
@@ -210,7 +208,6 @@ export function AdapterMemoryMonitor({
 
       setErrorRecovery(null);
 
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
       logger.error('Failed to evict adapter', {
@@ -229,7 +226,6 @@ export function AdapterMemoryMonitor({
       );
 
       toast.error(`Failed to evict adapter: ${errorMessage}`);
->
     }
   };
 
@@ -251,7 +247,6 @@ export function AdapterMemoryMonitor({
 
 
       toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
->
       logger.info('Adapter pin status updated successfully', {
         component: 'AdapterMemoryMonitor',
         operation: 'pinToggle',
@@ -261,7 +256,6 @@ export function AdapterMemoryMonitor({
 
       setErrorRecovery(null);
 
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
       logger.error('Failed to pin/unpin adapter', {
@@ -422,7 +416,6 @@ export function AdapterMemoryMonitor({
       setSelectedAdapterIds(new Set(evictionCandidates.map(a => a.adapter_id)));
 
       toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
->
     }
   };
 

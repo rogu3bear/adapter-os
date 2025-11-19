@@ -102,7 +102,6 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                             <span className="text-muted-foreground">
                               Score: {candidate.raw_score.toFixed(3)} | Gate:{' '}
                               {candidate.gate_q15}
->
                             </span>
                           </div>
                         ))}
@@ -114,7 +113,6 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                           Stack hash: {decision.stack_hash.slice(0, 12)}...
                         </div>
                       )}
->
                     </div>
                   ))}
                 </div>

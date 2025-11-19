@@ -5,7 +5,6 @@ import { cn } from './utils';
 
 import { getHelpText } from '@/data/help-text';
 
->
 
 interface HelpTooltipProps {
   helpId: string;
@@ -69,7 +68,6 @@ export function HelpTooltip({
   };
 
   const helpText = getHelpText(helpId);
->
 
   return (
     <Tooltip>

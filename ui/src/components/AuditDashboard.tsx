@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -36,7 +35,6 @@ import { ExportDialog, ExportOptions } from './ui/export-dialog';
 import { Policy, TelemetryBundle, PromotionGate } from '../api/types';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->
 
 interface AuditDashboardProps {
   selectedTenant: string;
@@ -148,7 +146,6 @@ function mapViolationRecordToViolation(record: PolicyViolationRecord): PolicyVio
 }
 
 
->
 export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [telemetryBundles, setTelemetryBundles] = useState<TelemetryBundle[]>([]);
@@ -168,7 +165,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   }, [selectedTenant]);
 
   const loadAuditData = async () => {
->
     setIsLoading(true);
     try {
       // Load policies
@@ -192,7 +188,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       // Generate mock compliance data (in production, this would come from backend)
       generateComplianceData(policiesList);
       generateViolationData();
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load audit data';
       logger.error('Failed to load audit data', {
@@ -313,7 +308,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
     setViolations(mockViolations);
   };
->
 
   const handleRunAudit = async () => {
     setIsLoading(true);
@@ -328,7 +322,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       // Audit progress shown in UI
 
       toast.success('Audit started');
->
       await new Promise(resolve => setTimeout(resolve, 2000));
       await loadAuditData();
 
@@ -342,7 +335,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       // Audit completion shown in UI updates
 
       toast.success('Audit completed');
->
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to run audit';
       logger.error('Failed to run audit', {
@@ -355,7 +347,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       setAuditError(new Error(errorMessage));
 
       toast.error('Audit failed');
->
     } finally {
       setIsLoading(false);
     }
@@ -453,7 +444,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         error: errorMessage
       });
       toast.error('Failed to export report');
->
     }
   };
 
@@ -522,7 +512,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   }
 
 
->
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -542,7 +531,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           <Button variant="outline" onClick={handleExportReport}>
             <Download className="w-4 h-4 mr-2" />
             Export Report
->
           </Button>
           <Button onClick={handleRunAudit} disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
@@ -893,7 +881,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         defaultEndDate={new Date().toISOString().split('T')[0]}
       />
 
->
     </div>
   );
 
@@ -916,7 +903,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
       if (result.valid) {
         toast.success(`Bundle signature verified successfully!\nSigner: ${result.signer || 'Unknown'}`);
->
         logger.info('Bundle signature verified', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
@@ -932,7 +918,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
         });
       } else {
         toast.error(`Bundle signature verification failed!\n${result.error || 'Unknown error'}`);
->
         logger.warn('Bundle signature verification failed', {
           component: 'AuditDashboard',
           operation: 'handleVerifyBundle',
@@ -942,7 +927,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
           error: verificationError,
 
           error: result.error
->
         });
       }
     } catch (error) {
@@ -957,7 +941,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       setAuditError(new Error(`Failed to verify bundle: ${errorMessage}`));
 
       toast.error(`Failed to verify bundle: ${errorMessage}`);
->
     }
   }
 }

@@ -56,7 +56,6 @@ import { useFeatureDegradation } from '../hooks/useFeatureDegradation';
 import { useAdapterOperations } from '../hooks/useAdapterOperations';
 
 import { toast } from 'sonner';
->
 
 interface AdapterLifecycleManagerProps {
   adapters: Adapter[];
@@ -316,47 +315,16 @@ export function AdapterLifecycleManager({
       }
       onAdapterUpdate(adapterId, { current_state: newState });
       setErrorRecovery(null);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatusMessage({ message: `Failed to update state: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handleStateTransition(adapterId, newState)
-        )
-      );
-
-        await apiClient.promoteAdapterState(adapterId);
-        onAdapterUpdate(adapterId, { current_state: newState });
-        toast.success(`Adapter state promoted successfully`);
-        logger.info('Adapter state promoted', {
-          component: 'AdapterLifecycleManager',
-          operation: 'handleStateTransition',
-          adapterId,
-          newState
-        });
-      } else {
-        // For demotion or other state changes, update locally
-        // TODO: Implement full state transition API on backend
-        onAdapterUpdate(adapterId, { current_state: newState });
-        toast.info(`Local state updated to ${newState}. Note: Backend sync pending.`);
-      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update adapter state';
->
       logger.error('Failed to update adapter state', {
         component: 'AdapterLifecycleManager',
         operation: 'handleStateTransition',
         adapterId,
-
         newState,
         error: errorMessage
       });
-
-        error: errorMessage
-      });
       toast.error(`Failed to update state: ${errorMessage}`);
->
     } finally {
       setIsLoading(false);
     }
@@ -367,21 +335,6 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
-
-      await adapterOperations.pinAdapter(adapterId, pinned);
-      setStatusMessage({ message: pinned ? 'Adapter pinned successfully.' : 'Adapter unpinned successfully.', variant: 'success' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handlePinToggle(adapterId, pinned)
-        )
-      );
-      logger.error('Failed to toggle adapter pin state', {
-
-      // Call API to pin or unpin the adapter
       await apiClient.pinAdapter(adapterId, pinned);
       onAdapterPin(adapterId, pinned);
       toast.success(pinned ? 'Adapter pinned successfully' : 'Adapter unpinned successfully');
@@ -394,17 +347,13 @@ export function AdapterLifecycleManager({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to pin/unpin adapter';
       logger.error('Failed to pin/unpin adapter', {
->
         component: 'AdapterLifecycleManager',
         operation: 'handlePinToggle',
         adapterId,
         pinned,
         error: errorMessage
       });
-
-
       toast.error(`Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`);
->
     } finally {
       setIsLoading(false);
     }
@@ -415,20 +364,6 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
-
-      await adapterOperations.evictAdapter(adapterId);
-      setStatusMessage({ message: 'Adapter evicted successfully.', variant: 'success' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMessage),
-          () => handleEvictAdapter(adapterId)
-        )
-      );
-
-      // Call API to evict the adapter from memory
       const result = await apiClient.evictAdapter(adapterId);
       onAdapterEvict(adapterId);
       toast.success(`Adapter evicted: ${result.message || 'Memory freed successfully'}`);
@@ -440,7 +375,6 @@ export function AdapterLifecycleManager({
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapter';
->
       logger.error('Failed to evict adapter', {
         component: 'AdapterLifecycleManager',
         operation: 'handleEvictAdapter',
@@ -450,7 +384,6 @@ export function AdapterLifecycleManager({
 
 
       toast.error(`Failed to evict adapter: ${errorMessage}`);
->
     } finally {
       setIsLoading(false);
     }
@@ -489,7 +422,6 @@ export function AdapterLifecycleManager({
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update policy';
->
       logger.error('Failed to update policy', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePolicyUpdate',
@@ -499,7 +431,6 @@ export function AdapterLifecycleManager({
 
 
       toast.error(`Failed to update policy: ${errorMessage}`);
->
     } finally {
       setIsLoading(false);
     }

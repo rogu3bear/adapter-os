@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -10,7 +9,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 
 import { useBreadcrumb } from '../contexts/BreadcrumbContext';
->
 import { useProgressiveDisclosure } from '../hooks/useProgressiveDisclosure';
 import { AdvancedToggle } from './ui/advanced-toggle';
 import { HelpTooltip } from './ui/help-tooltip';
@@ -63,7 +61,6 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
 
 
   const { addBreadcrumb, clearBreadcrumbs } = useBreadcrumb();
->
   const { isVisible: showAdvanced, toggle: toggleAdvanced } = useProgressiveDisclosure({
     key: 'operations-advanced',
     defaultVisible: false,
@@ -75,7 +72,6 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
   const operationTabs = useMemo(() => [
 
   const operationTabs = [
->
     { id: 'plans', label: 'Plans', icon: FileText, description: 'Execution plan compilation', advanced: false },
     { id: 'promotion', label: 'Promotion', icon: ArrowUp, description: 'Control plane promotion gates', advanced: true },
     { id: 'telemetry', label: 'Telemetry', icon: Activity, description: 'Event bundle management', advanced: true },
@@ -86,7 +82,6 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
   ], []);
 
   ];
->
 
   // Filter tabs based on advanced visibility
   const visibleTabs = operationTabs.filter(tab => !tab.advanced || showAdvanced);
@@ -115,7 +110,6 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
       });
     }
   }, [activeTab, addBreadcrumb]);
->
 
   return (
     <div className="space-y-6">

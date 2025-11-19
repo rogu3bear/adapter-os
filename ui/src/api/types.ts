@@ -423,10 +423,14 @@ export interface Adapter {
   
   // Lifecycle state management
   current_state: AdapterState;
+  state?: AdapterState;  // Alias for current_state (for backward compatibility)
   pinned: boolean;
   memory_bytes: number;
   last_activated?: string;
   activation_count: number;
+
+  // Language support
+  languages?: string[];  // Parsed array from languages_json
 
   // Metadata normalization (PRD-02)
   version: string;              // Semantic version (e.g., "1.0.0") or monotonic
@@ -896,6 +900,7 @@ export interface RoutingDecision {
 
   // Candidates (parsed from JSON)
   candidates: RouterCandidateInfo[];
+  adapters?: string[];  // Selected adapter IDs
 
   // Timing Metrics
   router_latency_us?: number;
@@ -969,12 +974,12 @@ export interface BatchInferItemResponse {
 
 export interface BatchInferResponse {
   responses: BatchInferItemResponse[];
+}
 
 export interface RouterCandidate {
   adapter_idx: number;
   raw_score: number;
   gate_q15: number;
->
 }
 
 export interface RouterDecision {
@@ -1437,7 +1442,6 @@ export interface OnboardingJourneyStep {
 }
 
 
->
 export interface CreateDomainAdapterRequest {
   name: string;
   version: string;
@@ -1840,7 +1844,6 @@ export interface DetailedRouterDecision {
   tau: number;
   entropy_floor: number;
   stack_hash?: string;
->
   feature_vector?: FeatureVector;
   selection_reason?: string;
 }
@@ -2106,7 +2109,6 @@ export interface Alert {
   notification_sent: boolean;
 
   escalation_level: number;
->
   created_at: string;
   updated_at: string;
 }
@@ -2197,7 +2199,6 @@ export interface TelemetryEvent {
 
   trace_id?: string;
 
->
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -2223,10 +2224,10 @@ export interface RoutingDecision {
   id: string;
   prompt_hash: string;
   adapter_selections: AdapterSelection[];
+  adapters?: string[];  // Selected adapter IDs (alternative representation)
   confidence_scores: Record<string, number>;
   timestamp: string;
   trace_id: string;
->
 }
 
 export interface AdapterSelection {
@@ -2499,4 +2500,3 @@ export interface ResetDashboardConfigResponse {
   message: string;
 }
 
->

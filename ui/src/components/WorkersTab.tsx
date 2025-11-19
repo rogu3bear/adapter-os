@@ -1,7 +1,6 @@
 
 // 【ui/src/components/WorkersTab.tsx§64-69】 - Replace manual polling with standardized hook
 
->
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -14,7 +13,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 
 import { Dialog, DialogContent } from './ui/dialog';
->
 import {
   Activity,
   Play,
@@ -36,7 +34,6 @@ import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
->
 
 interface WorkersTabProps {
   selectedTenant: string;
@@ -128,7 +125,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     const interval = setInterval(fetchWorkers, 1000);
     return () => clearInterval(interval);
   }, [selectedTenant]);
->
 
   useEffect(() => {
     // Apply filters
@@ -144,7 +140,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     if (filterStatus && filterStatus !== 'all') {
 
     if (filterStatus) {
->
       filtered = filtered.filter((w) => w.status === filterStatus);
     }
 
@@ -168,7 +163,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
       await fetchWorkers();
     } catch (error) {
       console.error('Failed to stop worker:', error);
->
       toast.error(error instanceof Error ? error.message : 'Failed to stop worker');
     }
   };
@@ -228,7 +222,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
   }
 
 
->
   if (loading && workers.length === 0) {
     return <div className="text-center p-8">Loading workers...</div>;
   }
@@ -251,7 +244,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={fetchWorkers}>
->
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -264,7 +256,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
             Hot-swap
           </Button>
 
->
         </div>
       </div>
 
@@ -307,7 +298,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                   <SelectItem value="all">All</SelectItem>
 
                   <SelectItem value="">All</SelectItem>
->
                   <SelectItem value="starting">Starting</SelectItem>
                   <SelectItem value="ready">Ready</SelectItem>
                   <SelectItem value="busy">Busy</SelectItem>
@@ -459,7 +449,6 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
       </Dialog>
 
 
->
       {/* Process Debugger Modal */}
       {debugWorkerId && (
         <Dialog open={!!debugWorkerId} onOpenChange={() => setDebugWorkerId(null)}>
@@ -479,4 +468,3 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
 
 
 
->

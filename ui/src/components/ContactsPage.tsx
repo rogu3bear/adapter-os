@@ -106,7 +106,6 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
     }
   };
 
->
   const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

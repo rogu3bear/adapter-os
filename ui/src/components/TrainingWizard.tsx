@@ -1,7 +1,6 @@
 
 // 【ui/src/components/TrainingWizard.tsx§1-981】 - Add density controls and breadcrumbs
 
->
 import React, { useState, useEffect } from 'react';
 import { Wizard, WizardStep } from './ui/wizard';
 import { Input } from './ui/input';
@@ -29,7 +28,6 @@ import { useWizardPersistence } from '../hooks/useWizardPersistence';
 import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
->
 import {
   AdapterCategory,
   AdapterScope,
@@ -48,7 +46,6 @@ interface WizardState {
   // Current step
   currentStep?: number;
 
->
   // Step 1: Category
   category: AdapterCategory | null;
   
@@ -71,7 +68,6 @@ interface WizardState {
   repositoryId?: string;
   templateId?: string;
   customData?: string;
->
   
   // Step 4: Category-specific config
   // Code adapter
@@ -107,7 +103,6 @@ interface WizardState {
   adapterId?: string;
   tier?: number;
 
->
 }
 
 const CATEGORY_ICONS = {
@@ -156,7 +151,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
   
   const [state, setState] = useState<WizardState>({
->
     category: null,
     name: '',
     description: '',
@@ -214,7 +208,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
   });
 
->
   useEffect(() => {
     // Load repositories and templates
     const loadData = async () => {
@@ -222,7 +215,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
         setWizardError(null);
 
->
         const [reposData, templatesData] = await Promise.all([
           apiClient.listRepositories(),
           apiClient.listTrainingTemplates(),
@@ -240,7 +232,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
         console.error('Failed to load data:', error);
         toast.error('Failed to load repositories and templates');
->
       }
     };
     loadData();
@@ -269,7 +260,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
   const updateState = (updates: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...updates }));
->
   };
 
   // Step 1: Category Selection
@@ -528,7 +518,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           </CardHeader>
         </Card>
       </div>
->
 
       {state.dataSourceType === 'template' && (
         <div className="space-y-2">
@@ -542,7 +531,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               {templates.filter(template => template.id && template.id !== '').map((template) => (
 
               {templates.map((template) => (
->
                 <SelectItem key={template.id} value={template.id}>
                   {template.name} - {template.description}
                 </SelectItem>
@@ -564,7 +552,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
               {repositories.filter(repo => repo.id && repo.id !== '').map((repo) => (
 
               {repositories.map((repo) => (
->
                 <SelectItem key={repo.id} value={repo.id}>
                   {repo.url} ({repo.branch})
                 </SelectItem>
@@ -578,7 +565,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
       {/* File preview functionality can be added when file upload state is needed */}
 
 
->
       {state.dataSourceType === 'custom' && (
         <div className="space-y-2">
           <Label htmlFor="customData">Custom Training Data</Label>
@@ -609,7 +595,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
     </div>
   );
->
 
   // Step 4: Category-Specific Configuration
   const CategoryConfigStep = () => {
@@ -922,7 +907,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
   );
 
 
->
   // Step 6: Review & Confirm
   const ReviewStep = () => (
     <div className="space-y-4">
@@ -1263,7 +1247,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
           </div>
         </CardContent>
       </Card>
->
     </div>
   );
 
@@ -1271,7 +1254,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
     setWizardError(null);
 
->
     setIsLoading(true);
     try {
       // Build training config
@@ -1387,7 +1369,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     } catch (error) {
       console.error('Training failed:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to start training');
->
     } finally {
       setIsLoading(false);
     }
@@ -1407,7 +1388,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
         if (!state.category) {
           toast.error('Please select an adapter category');
->
           return false;
         }
         return true;
@@ -1426,7 +1406,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
         if (!state.name.trim()) {
           toast.error('Adapter name is required');
->
           return false;
         }
         return true;
@@ -1465,7 +1444,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
         }
         if (state.dataSourceType === 'custom' && !state.customData?.trim()) {
           toast.error('Please provide custom training data');
->
           return false;
         }
         return true;
@@ -1490,7 +1468,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 
         if (state.targets.length === 0) {
           toast.error('Please select at least one LoRA target module');
->
           return false;
         }
         return true;
@@ -1505,7 +1482,6 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
     },
     {
 
->
       id: 'review',
       title: 'Review',
       description: 'Confirm and start',
@@ -1647,4 +1623,3 @@ export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
 }
 
 
->

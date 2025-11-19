@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import { useBreadcrumbs } from '@/hooks/useBreadcrumbs';
 
 import { useBreadcrumb } from '../contexts/BreadcrumbContext';
->
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -32,7 +31,6 @@ export function BreadcrumbNavigation() {
   const { breadcrumbs } = useBreadcrumb();
 
   if (breadcrumbs.length === 0) {
->
     return null;
   }
 
@@ -52,7 +50,6 @@ export function BreadcrumbNavigation() {
 
         {breadcrumbs.map((item, index) => {
           const isLast = index === breadcrumbs.length - 1;
->
           const Icon = item.icon;
           
           return (
@@ -80,7 +77,6 @@ export function BreadcrumbNavigation() {
                   >
                     {Icon && <Icon className="h-4 w-4" />}
                     {item.label}
->
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>

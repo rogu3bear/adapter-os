@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useCancellableOperation } from '../hooks/useCancellableOperation';
 
 import React, { useState, useEffect } from 'react';
->
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -29,7 +28,6 @@ import {
   Download, 
   History, 
   Settings2, 
->
   ChevronDown,
   Zap,
   Clock,
@@ -67,7 +65,6 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { InferRequest, InferResponse, InferenceSession } from '../api/types';
 import { TraceVisualizer } from './TraceVisualizer';
->
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -246,7 +243,6 @@ const recordPrivacySafeMetrics = (operation: string, data: any) => {
 };
 
 
->
 interface InferenceConfig extends InferRequest {
   id: string;
 }
@@ -322,7 +318,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
->
   
   // Inference configurations
   const [configA, setConfigA] = useState<InferenceConfig>({
@@ -403,7 +398,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   }, [configA]);
 
 
->
   useEffect(() => {
     // Load recent sessions from localStorage
     const stored = localStorage.getItem('inference_sessions');
@@ -480,7 +474,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   }, []);
 
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
->
     const session: InferenceSession = {
       id: Date.now().toString(),
       created_at: new Date().toISOString(),
@@ -501,7 +494,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     const updated = [session, ...recentSessions].slice(0, 10); // Keep last 10
     setRecentSessions(updated);
     localStorage.setItem('inference_sessions', JSON.stringify(updated));
->
   };
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
@@ -517,7 +509,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       return;
     }
 
->
     setLoading(true);
     setResponse(null);
 
@@ -554,7 +545,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Inference failed';
       toast.error(errorMessage);
->
     } finally {
       setLoading(false);
     }
@@ -566,7 +556,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     // Success - no need for toast, UI feedback is sufficient
 
     toast.success('Copied to clipboard');
->
   };
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
@@ -592,7 +581,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     // Success - browser download feedback is sufficient
 
     toast.success('Exported successfully');
->
   };
 
   const loadSession = (session: InferenceSession) => {
@@ -612,7 +600,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     // setTrace(trace.data); // Display bundle
 
     toast.success('Session loaded');
->
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
@@ -626,7 +613,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         <Button variant="ghost" className="w-full justify-between">
           <span className="flex items-center gap-2">
             <Settings2 className="h-4 w-4" />
->
             Advanced Options
           </span>
           <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
@@ -771,7 +757,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
 
   const renderResponse = (response: InferResponse | null, isLoading: boolean) => {
->
     if (isLoading) {
       return (
         <div className="flex items-center justify-center p-8">
@@ -829,7 +814,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                   <FileText className="h-3 w-3" />
                   {response.tokens?.length || 0} tokens
                 </Badge>
->
               </div>
             </div>
           </CardHeader>
@@ -839,7 +823,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
               <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg">
 
               <pre className="whitespace-pre-wrap text-sm p-4 bg-muted rounded-lg">
->
                 {response.text}
               </pre>
               <Button
@@ -854,7 +837,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                 onClick={() => handleCopy(response.text)}
               >
                 <Copy className="h-4 w-4" />
->
               </Button>
             </div>
           </CardContent>
@@ -902,7 +884,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Finish Reason:</span>
           <Badge>{response.finish_reason}</Badge>
->
         </div>
       </div>
     );
@@ -1171,7 +1152,6 @@ What is the capital of France?"
       </div>
 
       {mode === 'single' ? (
->
         /* Single Mode */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Configuration Panel */}
@@ -1333,7 +1313,6 @@ What is the capital of France?"
 
                 <div className="space-y-2">
                   <Label htmlFor="prompt">Prompt</Label>
->
                   <Textarea
                     id="prompt"
                     placeholder="Enter your prompt here..."
@@ -1406,7 +1385,6 @@ What is the capital of France?"
                     onChange={(e) => setConfigA({ ...configA, prompt: e.target.value })}
                     rows={6}
                   />
->
                 </div>
 
                 {renderAdvancedOptions(configA, setConfigA)}
@@ -1441,7 +1419,6 @@ What is the capital of France?"
                   <Play className="h-4 w-4 mr-2" />
                   {isLoadingA ? 'Generating...' : 'Generate'}
                 </Button>
->
 
                 {responseA && (
                   <Button
@@ -1465,7 +1442,6 @@ What is the capital of France?"
                     <History className="h-4 w-4" aria-hidden="true" />
 
                     <History className="h-4 w-4" />
->
                     Recent Sessions
                   </CardTitle>
                 </CardHeader>
@@ -1501,7 +1477,6 @@ What is the capital of France?"
                 {renderResponse(responseA, isLoadingA, inferenceMode === 'streaming' && isStreaming, streamingTokens)}
 
                 {renderResponse(responseA, isLoadingA)}
->
               </CardContent>
             </Card>
           </div>
@@ -1569,7 +1544,6 @@ What is the capital of France?"
                   <Play className="h-4 w-4 mr-2" />
                   Generate A
                 </Button>
->
                 {renderResponse(responseA, isLoadingA)}
               </CardContent>
             </Card>
@@ -1613,7 +1587,6 @@ What is the capital of France?"
                   <Play className="h-4 w-4 mr-2" />
                   Generate B
                 </Button>
->
                 {renderResponse(responseB, isLoadingB)}
               </CardContent>
             </Card>
@@ -1628,7 +1601,6 @@ What is the capital of France?"
                   <BarChart3 className="h-4 w-4" aria-hidden="true" />
 
                   <BarChart3 className="h-4 w-4" />
->
                   Comparison Summary
                 </CardTitle>
               </CardHeader>
@@ -1643,7 +1615,6 @@ What is the capital of France?"
 
                       <Badge variant="outline">A: {responseA.trace?.latency_ms || 0}ms</Badge>
                       <Badge variant="outline">B: {responseB.trace?.latency_ms || 0}ms</Badge>
->
                     </div>
                   </div>
                   <div>
@@ -1655,7 +1626,6 @@ What is the capital of France?"
 
                       <Badge variant="outline">A: {responseA.tokens?.length || 0}</Badge>
                       <Badge variant="outline">B: {responseB.tokens?.length || 0}</Badge>
->
                     </div>
                   </div>
                   <div>
@@ -1667,7 +1637,6 @@ What is the capital of France?"
 
                       <Badge variant="outline">{responseA.finish_reason}</Badge>
                       <Badge variant="outline">{responseB.finish_reason}</Badge>
->
                     </div>
                   </div>
                   <div>
@@ -1677,7 +1646,6 @@ What is the capital of France?"
                       {(responseA.latency_ms || 0) < (responseB.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
 
                       {(responseA.trace?.latency_ms || 0) < (responseB.trace?.latency_ms || 0) ? 'A (Faster)' : 'B (Faster)'}
->
                     </Badge>
                   </div>
                 </div>
@@ -1693,4 +1661,3 @@ What is the capital of France?"
 
 
 
->

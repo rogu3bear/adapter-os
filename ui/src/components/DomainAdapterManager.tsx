@@ -240,7 +240,6 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
       // API call - placeholder implementation
       // const result = await apiClient.testDomainAdapter(adapterId, inputData);
       toast.success('Domain adapter test completed');
->
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to test domain adapter';
       logger.error('Failed to test domain adapter', {

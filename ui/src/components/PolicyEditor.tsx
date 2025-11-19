@@ -24,7 +24,6 @@ import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
 import { PolicyPackConfig } from '../api/types';
->
 
 interface PolicyEditorProps {
   open: boolean;
@@ -60,7 +59,6 @@ export function PolicyEditor({
 
   useEffect(() => {
     if (open) {
->
       if (existingPolicy) {
         try {
           const parsed = JSON.parse(existingPolicy);
@@ -75,7 +73,6 @@ export function PolicyEditor({
           }, toError(err));
 
           console.error('Failed to parse existing policy:', err);
->
           const defaultConfig = getDefaultPolicyConfig();
           setPolicyConfig(defaultConfig);
           setJsonContent(JSON.stringify(defaultConfig, null, 2));
@@ -90,7 +87,6 @@ export function PolicyEditor({
   }, [open, existingPolicy, initialCpid]);
 
   }, [open, existingPolicy]);
->
 
   const updatePolicyField = (packId: string, fieldName: string, value: any) => {
     setPolicyConfig((prev) => ({
@@ -125,7 +121,6 @@ export function PolicyEditor({
 
       } catch (err) {
         toast.error('Invalid JSON. Please fix the JSON before switching to form mode.');
->
         return;
       }
     }
@@ -139,7 +134,6 @@ export function PolicyEditor({
     setEditorError(null);
     setStatusMessage(null);
 
->
 
     try {
       const content = mode === 'json' ? jsonContent : JSON.stringify(policyConfig);
@@ -161,7 +155,6 @@ export function PolicyEditor({
       } else {
         setValidationErrors(result.errors || []);
         toast.error(`Policy validation failed: ${result.errors?.length} errors found`);
->
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Validation failed';
@@ -171,7 +164,6 @@ export function PolicyEditor({
       setEditorError(error);
 
       toast.error(errorMessage);
->
     } finally {
       setIsValidating(false);
     }
@@ -189,7 +181,6 @@ export function PolicyEditor({
 
     if (!cpid.trim()) {
       toast.error('CPID is required');
->
       return;
     }
 
@@ -209,7 +200,6 @@ export function PolicyEditor({
         });
 
         toast.error('Policy validation failed. Please fix errors before saving.');
->
         setIsSaving(false);
         return;
       }
@@ -219,7 +209,6 @@ export function PolicyEditor({
 
 
       toast.success(`Policy ${cpid} saved successfully`);
->
       onSave();
       onOpenChange(false);
     } catch (err) {
@@ -230,7 +219,6 @@ export function PolicyEditor({
       setStatusMessage(null);
 
       toast.error(errorMessage);
->
     } finally {
       setIsSaving(false);
     }
@@ -403,7 +391,6 @@ export function PolicyEditor({
         </div>
 
 
->
         <div className="space-y-4">
           {/* CPID Input */}
           <div className="space-y-2">
@@ -526,4 +513,3 @@ export function PolicyEditor({
 
 
 
->

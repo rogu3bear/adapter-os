@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 import React, { useState, useEffect } from 'react';
->
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
@@ -19,7 +18,6 @@ import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Node, Plan, SpawnWorkerRequest } from '../api/types';
->
 
 interface SpawnWorkerModalProps {
   open: boolean;
@@ -56,7 +54,6 @@ export function SpawnWorkerModal({
   }, [open, selectedTenant]);
 
   const loadData = async () => {
->
     try {
       const [nodesData, plansData] = await Promise.all([
         apiClient.listNodes(),
@@ -121,7 +118,6 @@ export function SpawnWorkerModal({
   const handleSpawn = async () => {
     if (!selectedNode || !selectedPlan || !tenantId) {
       setError('Please select node, plan, and tenant');
->
       return;
     }
 
@@ -130,7 +126,6 @@ export function SpawnWorkerModal({
     setModalError(null);
 
     setError(null);
->
 
     try {
       const request: SpawnWorkerRequest = {
@@ -143,7 +138,6 @@ export function SpawnWorkerModal({
 
 
       toast.success(`Worker ${worker.id} spawned successfully`);
->
       onSuccess();
       onOpenChange(false);
       
@@ -166,7 +160,6 @@ export function SpawnWorkerModal({
 
       setError(errorMessage);
       toast.error(errorMessage);
->
     } finally {
       setIsLoading(false);
     }
@@ -207,7 +200,6 @@ export function SpawnWorkerModal({
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
->
             </Alert>
           )}
 
@@ -238,7 +230,6 @@ export function SpawnWorkerModal({
                 {nodes.filter(node => node.id && node.id !== '').map((node) => (
 
                 {nodes.map((node) => (
->
                   <SelectItem key={node.id} value={node.id}>
                     {node.hostname} - {node.metal_family} ({node.memory_gb}GB)
                   </SelectItem>
@@ -265,7 +256,6 @@ export function SpawnWorkerModal({
                 {plans.filter(plan => plan.id && plan.id !== '').map((plan) => (
 
                 {plans.map((plan) => (
->
                   <SelectItem key={plan.id} value={plan.id}>
                     {plan.cpid} - {plan.status}
                   </SelectItem>
@@ -309,4 +299,3 @@ export function SpawnWorkerModal({
 
 
 
->

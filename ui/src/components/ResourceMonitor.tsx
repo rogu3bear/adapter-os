@@ -194,7 +194,6 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
     if (isMonitoring) {
       // Fixed 1-second interval for instant updates
       intervalRef.current = window.setInterval(fetchData, 1000);
->
     }
   );
 
@@ -212,7 +211,6 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
       }
     };
   }, [jobId, nodeId, isMonitoring]);
->
 
   const getStatusColor = (usage: number) => {
     if (usage > 90) return 'text-red-600';

@@ -37,7 +37,6 @@ import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
 import { Repository, Commit, TrainingConfig } from '../api/types';
 import { logger } from '../utils/logger';
 import { toast } from 'sonner';
->
 
 interface CodeIntelligenceTrainingProps {
   tenantId: string;
@@ -170,7 +169,6 @@ export function CodeIntelligenceTraining({
         // Fallback to mock data for demonstration
         setRepositories(mockRepositories);
         setCommits(mockCommits);
->
       } finally {
         setLoading(false);
       }
@@ -188,7 +186,6 @@ export function CodeIntelligenceTraining({
     onConfigSelect(config);
   }, [config, onConfigSelect]);
 
->
   const handleRepoSelect = async (repoId: string) => {
     setSelectedRepo(repoId);
     setConfig((prev) => ({
@@ -203,7 +200,6 @@ export function CodeIntelligenceTraining({
     });
 
     // Fetch commits for selected repository
->
     try {
       logger.info('Fetching commits for repository', {
         component: 'CodeIntelligenceTraining',
@@ -232,7 +228,6 @@ export function CodeIntelligenceTraining({
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch commits';
->
       logger.error('Failed to fetch commits', {
         component: 'CodeIntelligenceTraining',
         operation: 'handleRepoSelect',
@@ -247,7 +242,6 @@ export function CodeIntelligenceTraining({
       });
       toast.error(`Failed to load commits: ${errorMessage}`);
       // Keep mock commits as fallback
->
     }
   };
 
@@ -688,7 +682,6 @@ export function CodeIntelligenceTraining({
                   <Button size="sm" onClick={handleStartTraining}>
                     Start Training
                   </Button>
->
                 </div>
               </div>
 

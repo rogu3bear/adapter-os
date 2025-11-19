@@ -8,30 +8,20 @@
 //! - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 
 import * as types from './types';
-
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
 import { retryWithBackoff, RetryConfig, createRetryWrapper } from '../utils/retry';
 
-import { logger } from '../utils/logger';
->
-
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 
 class ApiClient {
   private baseUrl: string;
-
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
   private retryConfig: RetryConfig;
 
-  private token: string | null = null;
-  private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
->
-
   constructor(baseUrl: string = API_BASE_URL, retryConfig?: Partial<RetryConfig>) {
     this.baseUrl = baseUrl;
-
     this.retryConfig = {
       maxAttempts: 3,
       baseDelay: 1000,
@@ -47,16 +37,6 @@ class ApiClient {
       baseUrl: this.baseUrl,
       retryEnabled: true
     });
-
-    // Replace: console.log('API Client initialized with base URL:', this.baseUrl);
-    logger.info('API Client initialized', { 
-      component: 'ApiClient',
-      operation: 'constructor',
-      baseUrl: this.baseUrl 
-    });
-    // Load token from localStorage
-    this.token = localStorage.getItem('aos_token');
->
   }
 
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
@@ -84,7 +64,6 @@ class ApiClient {
   public getRequestLog() {
     return this.requestLog;
   }
-
 
   public buildUrl(path: string): string {
     if (/^https?:\/\//i.test(path)) {
@@ -100,35 +79,6 @@ class ApiClient {
   }
 
   async request<T>(
-
-  private async computeRequestId(method: string, path: string, body: string): Promise<string> {
-    const canonical = `${method}:${path}:${body}`;
-    const encoder = new TextEncoder();
-    const data = encoder.encode(canonical);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
-  }
-
-  private logRequest(id: string, method: string, path: string) {
-    this.requestLog.push({
-      id,
-      method,
-      path,
-      timestamp: new Date().toISOString(),
-    });
-    // Keep last 1000 requests
-    if (this.requestLog.length > 1000) {
-      this.requestLog.shift();
-    }
-  }
-
-  public getRequestLog() {
-    return this.requestLog;
-  }
-
-  private async request<T>(
->
     path: string,
     options: RequestInit = {},
     skipRetry: boolean = false,
@@ -170,19 +120,11 @@ class ApiClient {
   private async executeRequest<T>(path: string, options: RequestInit = {}, cancelToken?: AbortSignal): Promise<T> {
     const url = `${this.baseUrl}${path}`;
 
-
-
-    
->
     // Compute deterministic request ID
     const method = options.method || 'GET';
     const body = options.body || '';
     const requestId = await this.computeRequestId(method, path, body.toString());
 
-
-
-    
->
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'X-Request-ID': requestId,
@@ -224,29 +166,6 @@ class ApiClient {
       });
     }
 
-
-
-    // Store in local audit buffer
-    this.logRequest(requestId, method, path);
-
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
-    
-    // Validate returned request ID matches
-    const returnedId = response.headers.get('X-Request-ID');
-    if (returnedId && returnedId !== requestId) {
-      // Replace: console.warn('Request ID mismatch:', { sent: requestId, received: returnedId });
-      logger.warn('Request ID mismatch', { 
-        component: 'ApiClient',
-        operation: 'request_validation',
-        sent: requestId, 
-        received: returnedId 
-      });
-    }
-
->
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       let errorCode: string | undefined;
@@ -728,7 +647,6 @@ class ApiClient {
     });
   }
 
-
   async upsertAdapterDirectory(data: {
     tenant_id: string;
     root: string;
@@ -742,19 +660,6 @@ class ApiClient {
   }
 
   // (duplicate methods removed; see definitions above returning types.Adapter)
-
-  async loadAdapter(adapterId: string): Promise<types.AdapterResponse> {
-    return this.request<types.AdapterResponse>(`/v1/adapters/${adapterId}/load`, {
-      method: 'POST',
-    });
-  }
-
-  async unloadAdapter(adapterId: string): Promise<void> {
-    return this.request<void>(`/v1/adapters/${adapterId}/unload`, {
-      method: 'POST',
-    });
-  }
->
 
   // Training endpoints
   async listTrainingJobs(): Promise<types.TrainingJob[]> {
@@ -847,30 +752,6 @@ class ApiClient {
     }, skipRetry, cancelToken);
   }
 
-  // PRD-07: Adapter Lifecycle Promotion/Demotion
-  async promoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
-    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/promote`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
-  }
-
-  async demoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
-    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/demote`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
-  }
-
-  // PRD-08: Adapter Lineage & Detail Views
-  async getAdapterLineage(adapterId: string): Promise<types.AdapterLineageResponse> {
-    return this.request<types.AdapterLineageResponse>(`/v1/adapters/${adapterId}/lineage`);
-  }
-
-  async getAdapterDetail(adapterId: string): Promise<types.AdapterDetailResponse> {
-    return this.request<types.AdapterDetailResponse>(`/v1/adapters/${adapterId}/detail`);
-  }
-
   async updateAdapterPolicy(adapterId: string, req: types.UpdateAdapterPolicyRequest): Promise<types.UpdateAdapterPolicyResponse> {
     return this.request<types.UpdateAdapterPolicyResponse>(`/v1/adapters/${adapterId}/policy`, {
       method: 'PUT',
@@ -959,16 +840,15 @@ class ApiClient {
     return this.request<types.BaseModelStatus>(`/v1/models/status${query}`);
   }
 
-
   // Get all loaded models status
   async getAllModelsStatus(tenantId?: string): Promise<types.AllModelsStatusResponse> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
     return this.request<types.AllModelsStatusResponse>(`/v1/models/status/all${query}`);
   }
 
-  // Models list for ModelSelector
-  async listModels(): Promise<types.CursorModelInfo[]> {
-    const resp = await this.request<types.CursorModelsListResponse>(`/v1/models`);
+  // OpenAI-compatible models list for ModelSelector
+  async listModels(): Promise<types.OpenAIModelInfo[]> {
+    const resp = await this.request<types.OpenAIModelsListResponse>(`/v1/models`);
     return resp.data;
   }
 
@@ -1009,8 +889,6 @@ class ApiClient {
     return this.request<types.ModelDownloadResponse>(`/v1/models/${modelId}/download`);
   }
 
-
->
   // Routing
   async debugRouting(data: types.RoutingDebugRequest): Promise<types.RoutingDebugResponse> {
     return this.request<types.RoutingDebugResponse>('/v1/routing/debug', {
@@ -1254,7 +1132,6 @@ class ApiClient {
     });
   }
 
-
   async updateMonitoringRule(ruleId: string, data: types.UpdateMonitoringRuleRequest): Promise<types.MonitoringRule> {
     return this.request<types.MonitoringRule>(`/v1/monitoring/rules/${ruleId}`, {
       method: 'PUT',
@@ -1269,8 +1146,6 @@ class ApiClient {
     });
   }
 
-
->
   async listHealthMetrics(tenantId?: string): Promise<types.HealthMetric[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
     return this.request<types.HealthMetric[]>(`/v1/monitoring/health-metrics${query}`);
@@ -1329,11 +1204,7 @@ class ApiClient {
     repository_path: string;
     adapter_name: string;
     description: string;
-
     training_config: Record<string, unknown>;
-
-    training_config: Record<string, string | number | boolean>;
->
     tenant_id: string;
   }): Promise<{ session_id: string; status: string; created_at: string }> {
     return this.request<{ session_id: string; status: string; created_at: string }>('/v1/training/sessions', {
@@ -1370,7 +1241,6 @@ class ApiClient {
     return this.request(`/v1/training/sessions${queryString ? `?${queryString}` : ''}`);
   }
 
-
   async pauseTrainingSession(sessionId: string): Promise<{
     session_id: string;
     status: 'paused';
@@ -1391,8 +1261,6 @@ class ApiClient {
     });
   }
 
-
->
   // Telemetry methods
   async getTelemetryEvents(filters?: {
     limit?: number;
@@ -1415,7 +1283,6 @@ class ApiClient {
     const queryString = params.toString();
     return this.request<types.TelemetryEvent[]>(`/v1/telemetry/events${queryString ? `?${queryString}` : ''}`);
   }
-
 
   // Logs API methods
   async queryLogs(filters?: {
@@ -1515,8 +1382,6 @@ class ApiClient {
     return this.request<types.ComplianceAuditResponse>('/v1/audit/compliance');
   }
 
-
->
   // Process debugging methods
   async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
     const params = new URLSearchParams();
@@ -1547,54 +1412,73 @@ class ApiClient {
   }
 
   // Routing methods
-  async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.RoutingDecisionsResponse> {
+  async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.RoutingDecision[]> {
     const params = new URLSearchParams();
-
-    // Backend requires 'tenant' parameter in query struct
+    // Backend requires 'tenant' parameter in query struct (even though handler uses claims.tenant_id)
+    // Always send tenant parameter - use provided value or 'default' as fallback
     const tenant = filters?.tenant || 'default';
     params.append('tenant', tenant);
-
-    if (filters?.limit !== undefined) {
+    
+    if (filters?.limit) {
       params.append('limit', filters.limit.toString());
     }
-    if (filters?.offset !== undefined) {
-      params.append('offset', filters.offset.toString());
-    }
+    // Note: adapter_id is not in the backend query struct, so we skip it
     if (filters?.start_time) {
       params.append('since', filters.start_time);
     }
-    if (filters?.end_time) {
-      params.append('until', filters.end_time);
-    }
-    if (filters?.stack_id) {
-      params.append('stack_id', filters.stack_id);
-    }
-    if (filters?.adapter_id) {
-      params.append('adapter_id', filters.adapter_id);
-    }
-    if (filters?.min_entropy !== undefined) {
-      params.append('min_entropy', filters.min_entropy.toString());
-    }
-    if (filters?.max_overhead_pct !== undefined) {
-      params.append('max_overhead_pct', filters.max_overhead_pct.toString());
-    }
-    if (filters?.anomalies_only) {
-      params.append('anomalies_only', 'true');
-    }
-
+    // Note: end_time is not supported by backend query struct
+    
     const query = `?${params.toString()}`;
-
+    
     logger.debug('Fetching routing decisions', {
       component: 'ApiClient',
       operation: 'getRoutingDecisions',
       query,
       tenant,
     });
-
-    // Backend returns RoutingDecisionsResponse with 'items' field containing full RoutingDecision objects
-    const response = await this.request<types.RoutingDecisionsResponse>(`/v1/routing/decisions${query}`);
-
-    return response;
+    
+    // Backend returns RoutingDecisionsResponse with 'items' field
+    interface BackendRoutingDecision {
+      ts: string;
+      tenant_id: string;
+      adapters_used: string[];
+      activations: number[];
+      reason: string;
+      trace_id: string;
+    }
+    
+    interface BackendRoutingDecisionsResponse {
+      items: BackendRoutingDecision[];
+    }
+    
+    const response = await this.request<BackendRoutingDecisionsResponse>(`/v1/routing/decisions${query}`);
+    
+    // Transform backend format to frontend format
+    return response.items.map((item, index) => ({
+      id: item.trace_id || `decision-${index}`,
+      timestamp: item.ts,
+      prompt_hash: item.trace_id || '',
+      input_hash: item.trace_id ? item.trace_id.slice(0, 16) : undefined,
+      adapters: item.adapters_used,
+      gates: item.activations,
+      total_score: item.activations.reduce((sum, val) => sum + val, 0) / item.activations.length,
+      k_value: item.adapters_used.length,
+      entropy: this.calculateEntropy(item.activations),
+      trace_id: item.trace_id,
+    }));
+  }
+  
+  private calculateEntropy(values: number[]): number {
+    if (values.length === 0) return 0;
+    // Normalize values to probabilities
+    const sum = values.reduce((a, b) => a + b, 0);
+    if (sum === 0) return 0;
+    const probs = values.map(v => v / sum);
+    // Calculate Shannon entropy
+    return -probs.reduce((entropy, p) => {
+      if (p === 0) return entropy;
+      return entropy + p * Math.log2(p);
+    }, 0);
   }
 
   // Workspace methods
@@ -2542,14 +2426,94 @@ class ApiClient {
     return this.request<types.ResetDashboardConfigResponse>('/v1/dashboard/config', {
       method: 'DELETE',
     });
+  }
 
-    if (filters?.limit) params.append('limit', filters.limit.toString());
-    if (filters?.adapter_id) params.append('adapter_id', filters.adapter_id);
-    if (filters?.start_time) params.append('start_time', filters.start_time);
-    if (filters?.end_time) params.append('end_time', filters.end_time);
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.RoutingDecision[]>(`/v1/routing/decisions${query}`);
->
+  /**
+   * Generic GET request method
+   *
+   * Provides a simple interface for GET requests without wrapping in request method.
+   * Useful for simple data fetching operations.
+   *
+   * @param path - API endpoint path
+   * @returns Parsed JSON response
+   * @throws Error if response is not ok
+   */
+  async get<T>(path: string): Promise<T> {
+    logger.info('GET request', {
+      component: 'ApiClient',
+      operation: 'get',
+      path,
+    });
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('GET request failed', {
+        component: 'ApiClient',
+        operation: 'get',
+        path,
+        status: response.status,
+        statusText: response.statusText,
+      });
+      throw new Error(errorText || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Wait for service to become healthy
+   *
+   * Polls the /healthz endpoint until the service reports a healthy status.
+   * Useful for initialization and startup verification.
+   *
+   * @param timeout - Maximum time to wait in milliseconds (default: 30000)
+   * @returns true if service became healthy, false if timeout reached
+   */
+  async waitForHealthy(timeout: number = 30000): Promise<boolean> {
+    logger.info('Waiting for service health', {
+      component: 'ApiClient',
+      operation: 'waitForHealthy',
+      timeout,
+    });
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      try {
+        const health = await this.get<types.HealthResponse>('/healthz');
+        if (health.status === 'healthy') {
+          logger.info('Service became healthy', {
+            component: 'ApiClient',
+            operation: 'waitForHealthy',
+            elapsedMs: Date.now() - startTime,
+          });
+          return true;
+        }
+      } catch (e) {
+        logger.debug('Service not yet healthy, retrying', {
+          component: 'ApiClient',
+          operation: 'waitForHealthy',
+          error: toError(e).message,
+        });
+        // Continue waiting
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    logger.warn('Service health check timed out', {
+      component: 'ApiClient',
+      operation: 'waitForHealthy',
+      timeout,
+    });
+
+    return false;
   }
 }
 

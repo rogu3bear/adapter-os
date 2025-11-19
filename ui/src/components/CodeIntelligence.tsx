@@ -39,7 +39,6 @@ import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
 
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
->
 
 interface CodeIntelligenceProps {
   user: User;
@@ -270,7 +269,6 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         userId: user.id
       }, err instanceof Error ? err : new Error(String(err)));
     }
->
   };
 
   if (loading) {

@@ -44,7 +44,6 @@ import { logger, toError } from '../utils/logger';
 
 import { toast } from 'sonner';
 import { WorkersTab } from './WorkersTab';
->
 
 interface NodesProps {
   user: User;
@@ -430,7 +429,6 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
             Manage compute nodes and worker processes
           </p>
         </div>
->
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -460,7 +458,6 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
             </Button>
             <Button onClick={() => setShowRegisterModal(true)}>
               <Server className="icon-standard mr-2" />
->
               Register Node
             </Button>
           </div>
@@ -469,7 +466,6 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
 
           <Card className="card-standard">
->
         <CardHeader>
           <CardTitle>Active Nodes</CardTitle>
         </CardHeader>
@@ -814,7 +810,6 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           <WorkersTab selectedTenant={selectedTenant} />
         </TabsContent>
       </Tabs>
->
     </div>
   );
 }
