@@ -22,6 +22,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-sbom = { path = "../adapteros-sbom" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-types = { path = "../adapteros-types" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-federation = { path = "../adapteros-federation" }
 adapteros-policy = { path = "../adapteros-policy" }

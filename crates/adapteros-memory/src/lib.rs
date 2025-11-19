@@ -21,29 +21,41 @@
 //! - Buffer relocations are detected and logged
 //! - Page migrations are tracked and recorded
 
+pub mod buffer_pool;
 pub mod buffer_relocation;
 pub mod heap_observer;
 pub mod memory_map;
 pub mod optimization;
 pub mod pointer_canonicalizer;
+pub mod pressure_manager;
 pub mod replay_integration;
+pub mod telemetry;
 pub mod unified_interface;
 pub mod unified_memory;
+pub mod unified_tracker;
 pub mod watchdog;
 
+pub use buffer_pool::{BufferPool, BufferPoolConfig, BufferPoolStats, TensorFormat};
 pub use buffer_relocation::BufferRelocationDetector;
 pub use heap_observer::MetalHeapObserver;
 pub use memory_map::MemoryMapHasher;
 pub use optimization::{MemoryOptimizationPlan, MemoryOptimizer, MemoryPressureReport};
 pub use pointer_canonicalizer::PointerCanonicalizer;
+pub use pressure_manager::{EvictedAdapter, MemoryPressureManager, MemoryStats};
 pub use replay_integration::ReplayMemoryLogger;
+pub use telemetry::{MemoryTelemetryWriter, TelemetryEventSink};
 pub use unified_interface::{
     AdapterCategory, AdapterMemoryInfo, AdapterState, CleanupOperation, MemoryCleanupReport,
     MemoryManager, MemoryPressureLevel, MemoryUsageStats,
     UnifiedMemoryManager as UnifiedMemoryManagerInterface,
 };
 pub use unified_memory::{
-    AllocationRequest, MemoryBlock, MemoryStats, MemoryType, UnifiedMemoryManager,
+    AllocationRequest, MemoryBlock, MemoryStats as UnifiedMemoryStats, MemoryType,
+    UnifiedMemoryManager,
+};
+pub use unified_tracker::{
+    BackendType, EvictionStrategy, GpuBufferFingerprint, MemoryLimits, MemoryPressure,
+    PressureLevel, UnifiedMemoryTracker,
 };
 pub use watchdog::MemoryWatchdog;
 
