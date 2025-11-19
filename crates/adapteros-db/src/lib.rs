@@ -640,6 +640,8 @@ pub use routing_decisions::{RoutingDecision, RoutingDecisionFilters, RouterCandi
 pub mod routing_telemetry_bridge;
 pub use routing_telemetry_bridge::{event_to_decision, persist_router_decisions};
 pub mod telemetry_bundles;
+pub mod users;
+pub use users::{Role, User};
 
 // Re-export unified access types
 pub use unified_access::{

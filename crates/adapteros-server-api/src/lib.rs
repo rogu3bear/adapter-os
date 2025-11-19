@@ -7,6 +7,7 @@ pub mod ip_extraction;
 pub mod middleware;
 pub mod permissions;
 pub mod routes;
+pub mod security;
 pub mod signing;
 pub mod state;
 pub mod telemetry;

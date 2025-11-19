@@ -97,6 +97,10 @@ pub struct AppState {
     pub telemetry_tx: Arc<crate::telemetry::TelemetrySender>,
     pub trace_buffer: Arc<crate::telemetry::TraceBuffer>,
     pub dataset_progress_tx: Option<Arc<broadcast::Sender<DatasetProgressEvent>>>,
+    // Enhanced security fields
+    pub use_ed25519: bool,
+    pub ed25519_keypair: Keypair,
+    pub ed25519_public_key: String,
 }
 
 impl AppState {
@@ -119,6 +123,10 @@ impl AppState {
         let (telemetry_tx, _telemetry_rx) = crate::telemetry::telemetry_channel();
         let telemetry_tx = Arc::new(telemetry_tx);
         let trace_buffer = Arc::new(crate::telemetry::TraceBuffer::default());
+
+        let crypto_state = CryptoState::new();
+        let ed25519_keypair = crypto_state.jwt_keypair.clone();
+        let ed25519_public_key = hex::encode(ed25519_keypair.public_key().to_bytes());
 
         Self {
             db,
@@ -143,6 +151,9 @@ impl AppState {
             telemetry_tx,
             trace_buffer,
             dataset_progress_tx: None,
+            use_ed25519: true,  // Default to Ed25519 for production
+            ed25519_keypair: ed25519_keypair.clone(),
+            ed25519_public_key,
         }
     }
 
