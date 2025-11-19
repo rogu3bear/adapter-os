@@ -77,6 +77,12 @@ pub struct AppState {
     pub plugin_registry: Arc<adapteros_server::PluginRegistry>,
     pub uma_monitor: Arc<UmaPressureMonitor>,
     pub response_validator: Arc<crate::validation::response_schemas::ResponseSchemaValidator>,
+    // Telemetry fields
+    pub metrics_collector: Arc<crate::telemetry::MetricsCollector>,
+    pub metrics_registry: Arc<crate::telemetry::MetricsRegistry>,
+    pub telemetry_buffer: Arc<crate::telemetry::TelemetryBuffer>,
+    pub telemetry_tx: Arc<crate::telemetry::TelemetrySender>,
+    pub trace_buffer: Arc<crate::telemetry::TraceBuffer>,
 }
 
 impl AppState {
@@ -88,6 +94,18 @@ impl AppState {
         uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
+
+        // Initialize telemetry components
+        let metrics_collector = Arc::new(
+            crate::telemetry::MetricsCollector::new()
+                .expect("Failed to initialize metrics collector")
+        );
+        let metrics_registry = Arc::new(crate::telemetry::MetricsRegistry::default());
+        let telemetry_buffer = Arc::new(crate::telemetry::TelemetryBuffer::default());
+        let (telemetry_tx, _telemetry_rx) = crate::telemetry::telemetry_channel();
+        let telemetry_tx = Arc::new(telemetry_tx);
+        let trace_buffer = Arc::new(crate::telemetry::TraceBuffer::default());
+
         Self {
             db,
             jwt_secret: Arc::new(jwt_secret),
@@ -105,6 +123,11 @@ impl AppState {
             plugin_registry: Arc::new(adapteros_server::PluginRegistry::new(db.clone())),
             uma_monitor,
             response_validator: Arc::new(crate::validation::response_schemas::ResponseSchemaValidator::new(None)),
+            metrics_collector,
+            metrics_registry,
+            telemetry_buffer,
+            telemetry_tx,
+            trace_buffer,
         }
     }
 
@@ -161,5 +184,24 @@ impl AppState {
         let stack = self.db.get_stack(tenant_id, &stack_id).await.ok()??;
 
         Some((stack.id, stack.version))
+    }
+
+    /// Start background telemetry persistence workers
+    ///
+    /// Spawns background tasks that:
+    /// - Periodically flush telemetry buffer to database (every 30 seconds)
+    /// - Flush when buffer is 80% full
+    /// - Retry failed events from the dead letter queue
+    /// - Monitor telemetry system health
+    ///
+    /// Returns a join handle that can be used to await worker shutdown.
+    pub fn spawn_telemetry_workers(&self) -> tokio::task::JoinHandle<()> {
+        use crate::telemetry::{spawn_telemetry_workers, TelemetryWorkerConfig};
+
+        spawn_telemetry_workers(
+            self.telemetry_buffer.clone(),
+            self.db.clone(),
+            TelemetryWorkerConfig::default(),
+        )
     }
 }

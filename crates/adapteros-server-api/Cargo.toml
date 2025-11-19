@@ -51,3 +51,7 @@ futures-util = "0.3"
 glob = "0.3"
 walkdir = "2.4"
 blake3 = { workspace = true }
+
+[[bin]]
+name = "export-openapi"
+path = "src/bin/export-openapi.rs"

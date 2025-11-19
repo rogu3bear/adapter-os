@@ -98,6 +98,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::routing_decisions::get_routing_decisions,
         handlers::routing_decisions::get_routing_decision_by_id,
         handlers::routing_decisions::ingest_router_decision,
+        // Trace handlers
+        handlers::telemetry::search_traces,
+        handlers::telemetry::get_trace,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -573,6 +576,9 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/routing/decisions", get(handlers::routing_decisions::get_routing_decisions))
         .route("/v1/routing/decisions/:id", get(handlers::routing_decisions::get_routing_decision_by_id))
         .route("/v1/telemetry/routing", post(handlers::routing_decisions::ingest_router_decision))
+        // Trace routes
+        .route("/v1/traces/search", get(handlers::telemetry::search_traces))
+        .route("/v1/traces/:trace_id", get(handlers::telemetry::get_trace))
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))

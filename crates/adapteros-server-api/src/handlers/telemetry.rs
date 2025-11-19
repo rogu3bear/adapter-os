@@ -3,13 +3,13 @@
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
+use crate::telemetry::{SpanStatus, TraceSearchQuery};
 use crate::types::{
     ActivityEventResponse, ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse,
     MetricsSnapshotResponse,
 };
 use adapteros_db::{activity_events::ActivityEvent, users::Role};
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
-use adapteros_trace::{Trace, TraceSearchQuery};
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::{sse::Event, sse::KeepAlive, Sse};
 use axum::{http::StatusCode, Json};
@@ -177,16 +177,32 @@ pub struct TracesSearchQuery {
     pub end_time_ns: Option<u64>,
 }
 
-/// GET /api/traces/search - Search traces
+#[utoipa::path(
+    get,
+    path = "/v1/traces/search",
+    params(
+        ("span_name" = Option<String>, Query, description = "Filter by span operation name"),
+        ("status" = Option<String>, Query, description = "Filter by span status (ok, error, unset)"),
+        ("start_time_ns" = Option<u64>, Query, description = "Start time in nanoseconds"),
+        ("end_time_ns" = Option<u64>, Query, description = "End time in nanoseconds"),
+    ),
+    responses(
+        (status = 200, description = "List of matching trace IDs", body = Vec<String>),
+        (status = 400, description = "Bad request"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "traces",
+    security(("bearer_token" = []))
+)]
 pub async fn search_traces(
     State(state): State<AppState>,
     Query(params): Query<TracesSearchQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
     // Parse status parameter
     let status = params.status.as_ref().and_then(|s| match s.as_str() {
-        "ok" | "OK" => Some(adapteros_trace::SpanStatus::Ok),
-        "error" | "ERROR" => Some(adapteros_trace::SpanStatus::Error),
-        "unset" | "UNSET" => Some(adapteros_trace::SpanStatus::Unset),
+        "ok" | "OK" => Some(SpanStatus::Ok),
+        "error" | "ERROR" => Some(SpanStatus::Error),
+        "unset" | "UNSET" => Some(SpanStatus::Unset),
         _ => None,
     });
 
@@ -203,11 +219,23 @@ pub async fn search_traces(
     Ok(Json(trace_ids))
 }
 
-/// GET /api/traces/:traceId - Get a specific trace
+#[utoipa::path(
+    get,
+    path = "/v1/traces/{trace_id}",
+    params(
+        ("trace_id" = String, Path, description = "Trace ID to retrieve"),
+    ),
+    responses(
+        (status = 200, description = "Trace event details or null if not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "traces",
+    security(("bearer_token" = []))
+)]
 pub async fn get_trace(
     State(state): State<AppState>,
     Path(trace_id): Path<String>,
-) -> Result<Json<Option<Trace>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
+) -> Result<Json<Option<crate::telemetry::TraceEvent>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
     // Get trace from the trace buffer
     let trace = state.trace_buffer.get_trace(&trace_id);
     Ok(Json(trace))

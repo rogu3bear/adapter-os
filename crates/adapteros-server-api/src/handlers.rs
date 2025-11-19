@@ -27,6 +27,7 @@ pub mod git;
 pub mod git_repository;
 pub mod replay;
 pub mod routing_decisions;
+pub mod telemetry;
 
 // Re-export adapter lifecycle and lineage handlers
 pub use adapters::*;

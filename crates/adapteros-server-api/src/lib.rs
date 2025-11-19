@@ -10,12 +10,14 @@ pub mod routes;
 pub mod signing;
 pub mod state;
 pub mod system_metrics_stubs;
+pub mod telemetry;
 pub mod telemetry_ext;
 pub mod types;
 pub mod uds_client;
 pub mod validation;
 
 pub use state::{AppState, CryptoState};
+pub use telemetry::{spawn_telemetry_workers, TelemetryWorkerConfig, SpanStatus, TraceSearchQuery, TraceEvent, TraceBuffer};
 pub use telemetry_ext::StackMetadataExt;
 pub use types::*;
 pub use uds_client::{UdsClient, UdsClientError};
