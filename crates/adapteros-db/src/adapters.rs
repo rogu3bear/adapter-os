@@ -354,7 +354,7 @@ pub struct Adapter {
     pub fork_type: Option<String>,
     pub fork_reason: Option<String>,
 
-    // Metadata normalization (from migration 0070)
+    // Metadata normalization (from migration 0068)
     pub version: String,           // Semantic version or monotonic
     pub lifecycle_state: String,   // draft/active/deprecated/retired
 

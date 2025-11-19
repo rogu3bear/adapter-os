@@ -169,10 +169,10 @@ pub enum WorkflowType {
 
 impl WorkflowType {
     pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "Parallel" => Some(Self::Parallel),
-            "UpstreamDownstream" => Some(Self::UpstreamDownstream),
-            "Sequential" => Some(Self::Sequential),
+        match s.to_lowercase().as_str() {
+            "parallel" => Some(Self::Parallel),
+            "upstreamdownstream" => Some(Self::UpstreamDownstream),
+            "sequential" => Some(Self::Sequential),
             _ => None,
         }
     }
