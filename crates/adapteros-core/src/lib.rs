@@ -39,6 +39,8 @@ pub mod policy;
 pub mod seed;
 pub mod stack;
 pub mod tenant_snapshot;
+pub mod training;
+pub mod version;
 
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, SharedCircuitBreaker, StandardCircuitBreaker,
@@ -56,8 +58,11 @@ pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
     derive_seed_typed, hash_adapter_dir, SeedLabel,
 };
+pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
+pub use version::VersionInfo;
 
 /// RNG module version for determinism tracking
+/// @deprecated Use `version::RNG_MODULE_VERSION` instead
 pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 
 /// Re-export commonly used types
@@ -65,6 +70,7 @@ pub mod prelude {
     pub use crate::{
         AdapterName, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
         DriftPolicy, ForkType, LifecycleState, LifecycleTransition, Result, ResultExt, SemanticVersion,
-        StackName, TransitionReason, CPID, SharedCircuitBreaker, StandardCircuitBreaker,
+        StackName, TransitionReason, CPID, SharedCircuitBreaker, StandardCircuitBreaker, TrainingConfig,
+        TrainingJob, TrainingJobStatus, TrainingTemplate, VersionInfo,
     };
 }

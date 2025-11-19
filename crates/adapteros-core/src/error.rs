@@ -97,6 +97,9 @@ pub enum AosError {
         got: String,
     },
 
+    #[error("CoreML error: {0}")]
+    CoreML(String),
+
     #[error("MLX error: {0}")]
     Mlx(String),
 
