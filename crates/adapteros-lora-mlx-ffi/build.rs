@@ -31,6 +31,7 @@ fn main() {
 
 fn should_use_stub(include_dir: &Path) -> bool {
     if env::var("MLX_FORCE_STUB").is_ok() {
+        println!("cargo:warning=MLX_FORCE_STUB is set, using stub implementation");
         return true;
     }
 
@@ -41,7 +42,19 @@ fn should_use_stub(include_dir: &Path) -> bool {
         include_dir.join("mlx/array.h"),
     ];
 
-    !candidates.iter().any(|path| path.exists())
+    let mlx_found = candidates.iter().any(|path| {
+        let exists = path.exists();
+        if exists {
+            println!("cargo:warning=Found MLX header: {}", path.display());
+        }
+        exists
+    });
+
+    if !mlx_found {
+        println!("cargo:warning=MLX headers not found in {}", include_dir.display());
+    }
+
+    !mlx_found
 }
 
 fn compile_stub_wrapper() {
@@ -73,16 +86,21 @@ fn compile_stub_wrapper() {
 }
 
 fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
-    let _include = include_dir.display().to_string();
+    let include = include_dir.display().to_string();
     let lib = lib_dir.display().to_string();
+
+    println!("cargo:warning=Compiling with real MLX support");
+    println!("cargo:warning=MLX include dir: {}", include);
+    println!("cargo:warning=MLX lib dir: {}", lib);
 
     let mut build = cc::Build::new();
     build
         .cpp(true)
         .std("c++17")
-        .file("src/mlx_cpp_wrapper.cpp")
+        .file("src/mlx_cpp_wrapper_real.cpp")  // Use real implementation
         .include(include_dir)
-        .include(".");
+        .include(".")
+        .define("MLX_USE_REAL", "1");  // Define macro for conditional compilation
 
     if cfg!(target_env = "msvc") {
         build.flag("/EHsc");
@@ -91,6 +109,9 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         build.flag_if_supported("-O3");
         build.flag_if_supported("-Wall");
         build.flag_if_supported("-Wextra");
+        // Don't use -march=native as it causes issues with bfloat16 on Apple clang
+        // build.flag_if_supported("-march=native");
+        build.flag_if_supported("-fno-rtti");  // MLX doesn't use RTTI
     }
 
     build.compile("mlx_wrapper");
@@ -100,10 +121,13 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
 
     if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-lib=c++");
+        // MLX requires these Apple frameworks
         println!("cargo:rustc-link-lib=framework=Accelerate");
         println!("cargo:rustc-link-lib=framework=Metal");
         println!("cargo:rustc-link-lib=framework=MetalKit");
         println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
+        println!("cargo:rustc-link-lib=framework=MetalPerformanceShadersGraph");
+        println!("cargo:rustc-link-lib=framework=Foundation");
     } else if cfg!(target_env = "msvc") {
         // MSVC automatically links the STL
     } else {
