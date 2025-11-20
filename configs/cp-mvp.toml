@@ -1,0 +1,28 @@
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[inference]
+backend = "metal"
+max_batch_size = 1
+inference_timeout_secs = 30
+
+[lifecycle]
+base_model_path = "var/models/qwen-2.5-7b-instruct.gguf"
+
+[adapters]
+enabled = ["code-assistant", "readme-writer", "creative-writer"]
+
+[security]
+jwt_mode = "none"
+zero_network_egress = true
+
+[metrics]
+enabled = true
+metrics_bearer_token = "mvp-token-for-testing-only"
+
+[memory]
+max_memory_per_request_mb = 50
+max_memory_growth_mb = 100
+min_available_memory_pct = 15
+

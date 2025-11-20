@@ -1,0 +1,66 @@
+{
+  "file_path": "/Users/star/Dev/aos/test_data/adapters/large_adapter.aos",
+  "file_size": 7809,
+  "header": {
+    "manifest_offset": 7440,
+    "manifest_len": 369
+  },
+  "weights": {
+    "format": "json",
+    "tensors": [
+      {
+        "name": "lora_a_q15",
+        "shape": [
+          4,
+          64
+        ],
+        "num_params": 256,
+        "dtype": "Q15"
+      },
+      {
+        "name": "lora_b_q15",
+        "shape": [
+          64,
+          4
+        ],
+        "num_params": 256,
+        "dtype": "Q15"
+      },
+      {
+        "name": "scale_a",
+        "shape": [
+          4
+        ],
+        "num_params": 4,
+        "dtype": "unknown"
+      },
+      {
+        "name": "scale_b",
+        "shape": [
+          64
+        ],
+        "num_params": 64,
+        "dtype": "unknown"
+      }
+    ],
+    "total_params": 580
+  },
+  "manifest": {
+    "version": "2.0",
+    "rank": 4,
+    "base_model": "qwen2.5-7b",
+    "training_config": {
+      "rank": 4,
+      "alpha": 8.0,
+      "learning_rate": 0.001,
+      "batch_size": 2,
+      "epochs": 1,
+      "hidden_dim": 64
+    },
+    "created_at": "2025-11-16T07:50:21.616344+00:00",
+    "weights_hash": "0be6f97a72ceda16a82b2b8de9826d49a4abed8b83d82891467b6a2f8b8fd338",
+    "metadata": {}
+  },
+  "errors": [],
+  "warnings": []
+}
