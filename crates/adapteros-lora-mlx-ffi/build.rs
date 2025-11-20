@@ -31,7 +31,6 @@ fn main() {
 
 fn should_use_stub(include_dir: &Path) -> bool {
     if env::var("MLX_FORCE_STUB").is_ok() {
-        println!("cargo:warning=MLX_FORCE_STUB is set, using stub implementation");
         return true;
     }
 
@@ -42,19 +41,7 @@ fn should_use_stub(include_dir: &Path) -> bool {
         include_dir.join("mlx/array.h"),
     ];
 
-    let mlx_found = candidates.iter().any(|path| {
-        let exists = path.exists();
-        if exists {
-            println!("cargo:warning=Found MLX header: {}", path.display());
-        }
-        exists
-    });
-
-    if !mlx_found {
-        println!("cargo:warning=MLX headers not found in {}", include_dir.display());
-    }
-
-    !mlx_found
+    !candidates.iter().any(|path| path.exists())
 }
 
 fn compile_stub_wrapper() {
@@ -86,21 +73,16 @@ fn compile_stub_wrapper() {
 }
 
 fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
-    let include = include_dir.display().to_string();
+    let _include = include_dir.display().to_string();
     let lib = lib_dir.display().to_string();
-
-    println!("cargo:warning=Compiling with real MLX support");
-    println!("cargo:warning=MLX include dir: {}", include);
-    println!("cargo:warning=MLX lib dir: {}", lib);
 
     let mut build = cc::Build::new();
     build
         .cpp(true)
         .std("c++17")
-        .file("src/mlx_cpp_wrapper_real.cpp")  // Use real implementation
+        .file("src/mlx_cpp_wrapper.cpp")
         .include(include_dir)
-        .include(".")
-        .define("MLX_USE_REAL", "1");  // Define macro for conditional compilation
+        .include(".");
 
     if cfg!(target_env = "msvc") {
         build.flag("/EHsc");
@@ -109,9 +91,6 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         build.flag_if_supported("-O3");
         build.flag_if_supported("-Wall");
         build.flag_if_supported("-Wextra");
-        // Don't use -march=native as it causes issues with bfloat16 on Apple clang
-        // build.flag_if_supported("-march=native");
-        build.flag_if_supported("-fno-rtti");  // MLX doesn't use RTTI
     }
 
     build.compile("mlx_wrapper");
@@ -121,13 +100,10 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
 
     if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-lib=c++");
-        // MLX requires these Apple frameworks
         println!("cargo:rustc-link-lib=framework=Accelerate");
         println!("cargo:rustc-link-lib=framework=Metal");
         println!("cargo:rustc-link-lib=framework=MetalKit");
         println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
-        println!("cargo:rustc-link-lib=framework=MetalPerformanceShadersGraph");
-        println!("cargo:rustc-link-lib=framework=Foundation");
     } else if cfg!(target_env = "msvc") {
         // MSVC automatically links the STL
     } else {
@@ -143,17 +119,15 @@ fn generate_real_bindings(include_dir: &Path) {
         .header("wrapper.h")
         .clang_arg(format!("-I{}", include))
         .clang_arg("-I.")
+        .allowlist_type("mlx_.*")
+        .allowlist_function("mlx_.*")
+        .allowlist_var("mlx_.*")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
 
-    let bindings_str = bindings.to_string();
-    let bindings_with_allow = format!(
-        "#[allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]\n{}",
-        bindings_str
-    );
-
-    std::fs::write(out_path.join("bindings.rs"), bindings_with_allow)
+    bindings
+        .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 }
 
@@ -161,7 +135,7 @@ fn generate_stub_bindings() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     let stub_bindings = r#"// Stub bindings for MLX FFI development
 // Generated when MLX is not installed
-#[allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
+#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
 use std::os::raw::{c_char, c_int, c_uint, c_float, c_void};
 

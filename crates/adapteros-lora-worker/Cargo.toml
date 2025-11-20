@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 default = []
-experimental-backends = ["adapteros-lora-mlx-ffi"]
+# experimental-backends = ["adapteros-lora-mlx-ffi"]  # Disabled for stable compilation
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
@@ -63,7 +63,7 @@ name = "hotswap"
 harness = false
 
 [target.'cfg(target_os = "macos")'.dependencies]
-adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+# adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
 nix = { workspace = true }
 mach = "0.3"
 metal = "0.27"

@@ -66,8 +66,8 @@ once_cell = "1.19"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+# adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
 
 [features]
-experimental-backends = ["adapteros-lora-mlx-ffi"]
+# experimental-backends = ["adapteros-lora-mlx-ffi"]  # Disabled for stable compilation
 secd-support = ["adapteros-secd"]

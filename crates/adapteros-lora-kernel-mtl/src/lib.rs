@@ -996,8 +996,8 @@ impl FusedKernels for MetalKernels {
             .iter()
             .zip(ring.active_gates().iter())
             .map(|(&id, &gate)| ActiveAdapter {
-                id: id as u32,
-                gate: gate as u16,
+                id: id as u16,
+                gate: gate as i16,
             })
             .collect();
 

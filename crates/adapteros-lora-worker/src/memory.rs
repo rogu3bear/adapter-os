@@ -8,56 +8,6 @@ use std::process::Command;
 use tokio::time::{interval, Duration};
 use tracing::{info, warn};
 
-#[derive(Debug, Clone)]
-pub struct UmaStats {
-    pub total_mb: u64,
-    pub used_mb: u64,
-    pub headroom_pct: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryPressureLevel {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-fn determine_pressure(stats: &UmaStats, min_headroom: f32) -> MemoryPressureLevel {
-    if stats.headroom_pct < min_headroom * 0.5 {
-        MemoryPressureLevel::Critical
-    } else if stats.headroom_pct < min_headroom * 0.75 {
-        MemoryPressureLevel::High
-    } else if stats.headroom_pct < min_headroom {
-        MemoryPressureLevel::Medium
-    } else {
-        MemoryPressureLevel::Low
-    }
-}
-
-async fn emit_telemetry(
-    telemetry: &Option<TelemetryWriter>,
-    stats: &UmaStats,
-    pressure: MemoryPressureLevel,
-) {
-    if let Some(t) = telemetry {
-        // Write memory pressure telemetry
-        // TODO: Implement write_memory_pressure method on TelemetryWriter
-        let _ = t; // Suppress unused warning for now
-        let _ = stats;
-        let _ = pressure;
-    }
-}
-
-async fn get_uma_stats() -> UmaStats {
-    // Stub implementation - returns default stats
-    UmaStats {
-        total_mb: 16384,
-        used_mb: 8192,
-        headroom_pct: 50.0,
-    }
-}
-
 /// Memory monitor for enforcing headroom policy
 pub struct UmaPressureMonitor {
     min_headroom_pct: u8,
@@ -81,7 +31,7 @@ impl UmaPressureMonitor {
             let mut interval = interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
-                let stats = get_uma_stats().await; // Call free function
+                let stats = get_uma_stats().await;
                 let pressure = determine_pressure(&stats, min_headroom as f32);
                 if pressure != MemoryPressureLevel::Low {
                     emit_telemetry(&telemetry_clone, &stats, pressure).await;
@@ -132,9 +82,42 @@ impl UmaPressureMonitor {
     // Existing headroom_pct_macos enhanced with vm_statistics64
     #[cfg(target_os = "macos")]
     fn headroom_pct_macos(&self) -> Option<f32> {
-        // Simplified fallback to vm_stat command instead of direct mach calls
-        // to avoid mach crate version/API compatibility issues
-        self.fallback_headroom()
+        use libc::{host_statistics64, HOST_VM_INFO64, KERN_SUCCESS};
+        use mach::host_info::host_info64;
+        use mach::mach_types::mach_port_t;
+        use mach::vm_statistics64::vm_statistics64_t;
+
+        let host: mach_port_t = mach::mach_host_self();
+        let mut stats: vm_statistics64_t = unsafe { std::mem::zeroed() };
+        let mut count = (std::mem::size_of::<vm_statistics64_t>() / std::mem::size_of::<u32>())
+            as mach_msg_type_number_t;
+
+        let result = unsafe {
+            host_info64(
+                host,
+                HOST_VM_INFO64,
+                &mut stats as *mut vm_statistics64_t as *mut i32,
+                &mut count,
+            )
+        };
+
+        if result != KERN_SUCCESS {
+            return self.fallback_headroom(); // Use existing vm_stat
+        }
+
+        let page_size = vm_kernel_page_size as u64;
+        let total_bytes = self.get_total_memory_bytes()?; // sysctl hw.memsize
+
+        let active = (stats.active_count as u64).saturating_mul(page_size);
+        let inactive = (stats.inactive_count as u64).saturating_mul(page_size);
+        let wired = (stats.wire_count as u64).saturating_mul(page_size);
+        let compressed = (stats.compressor_page_count as u64).saturating_mul(page_size);
+
+        let used_bytes = active + wired + compressed;
+        let available_bytes = total_bytes.saturating_sub(used_bytes);
+        let headroom_pct = (available_bytes as f32 / total_bytes as f32) * 100.0;
+
+        Some(headroom_pct)
     }
 
     fn get_total_memory_bytes(&self) -> Option<u64> {
@@ -188,6 +171,7 @@ impl UmaPressureMonitor {
         self.headroom_pct() < self.min_headroom_pct as f32
     }
 
+    /// Get UMA statistics
     pub async fn get_uma_stats(&self) -> UmaStats {
         let headroom_pct = self.headroom_pct();
         let total_mb = self
@@ -203,7 +187,15 @@ impl UmaPressureMonitor {
             total_mb,
         }
     }
+}
 
+// Add enum
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MemoryPressureLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
 }
 
 impl MemoryPressureLevel {
@@ -217,3 +209,69 @@ impl MemoryPressureLevel {
     }
 }
 
+// Unit test
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pressure_levels() {
+        let stats = UmaStats {
+            headroom_pct: 25.0,
+            used_mb: 12000,
+            total_mb: 16000,
+        };
+        let level = determine_pressure(&stats, 15.0);
+        assert_eq!(level, MemoryPressureLevel::Medium);
+
+        let critical = UmaStats {
+            headroom_pct: 10.0,
+            used_mb: 14400,
+            total_mb: 16000,
+        };
+        let level = determine_pressure(&critical, 15.0);
+        assert_eq!(level, MemoryPressureLevel::Critical);
+    }
+}
+
+fn determine_pressure(stats: &UmaStats, min_headroom: f32) -> MemoryPressureLevel {
+    let headroom = stats.headroom_pct;
+    if headroom < min_headroom {
+        MemoryPressureLevel::Critical
+    } else if headroom < 20.0 {
+        MemoryPressureLevel::High
+    } else if headroom < 30.0 {
+        MemoryPressureLevel::Medium
+    } else {
+        MemoryPressureLevel::Low
+    }
+}
+
+async fn emit_telemetry(
+    telemetry: &Option<TelemetryWriter>,
+    stats: &UmaStats,
+    level: MemoryPressureLevel,
+) {
+    if let Some(t) = telemetry {
+        let _ = t
+            .log(
+                "uma.pressure",
+                json!({
+                    "level": level.to_string(),
+                    "headroom_pct": stats.headroom_pct,
+                    "used_mb": stats.used_mb,
+                    "available_mb": stats.total_mb - stats.used_mb, // Calculate available_mb
+                    "total_mb": stats.total_mb,
+                    "timestamp": Utc::now().timestamp()
+                }),
+            )
+            .await;
+    }
+}
+
+#[derive(Clone)]
+pub struct UmaStats {
+    headroom_pct: f32,
+    used_mb: u64,
+    total_mb: u64,
+}

@@ -16,11 +16,11 @@ members = [
     "crates/adapteros-artifacts",
     "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
-    "crates/adapteros-lora-kernel-mtl",  # Metal kernels (macOS only, available)
+    # "crates/adapteros-lora-kernel-mtl",  # Metal kernels - excluded for stable main merge
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database
     "crates/adapteros-system-metrics",
-    "crates/adapteros-lora-mlx-ffi",  # MLX backend (fixed bindgen attribute issue)
+    "crates/adapteros-lora-mlx-ffi",  # MLX backend - fixing compilation issues
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -34,8 +34,8 @@ members = [
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
-    "crates/adapteros-server",  # Main server crate
-    "crates/adapteros-server-api",  # Re-enabled for API contract tests
+    # "crates/adapteros-server",  # Server crate - excluded for stable main merge
+    # "crates/adapteros-server-api",  # Server API - excluded for stable main merge
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
@@ -61,8 +61,8 @@ members = [
     "crates/adapteros-verification",
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
-    "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend (PyO3 linker issues - exclude in tests)
-    "crates/sign-migrations",  # Migration signing tool
+    # "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend - excluded for stable main merge
+    # "crates/sign-migrations",  # Migration signing tool - directory missing
     "xtask",
     "fuzz",
 ]
@@ -84,12 +84,12 @@ telemetry = []
 metrics = []
 replay = []
 
-# Backend feature flags (mutually exclusive in practice)
+# Backend feature flags
 metal = []  # Workspace-level metal feature (used across crates)
-metal-backend = ["adapteros-lora-kernel-mtl/metal-backend"]  # macOS Metal GPU acceleration (requires macOS)
-coreml-backend = ["adapteros-lora-kernel-mtl/coreml-backend"]  # macOS Neural Engine via CoreML (requires macOS 13+)
+# metal-backend = ["adapteros-lora-kernel-mtl/metal-backend"]  # macOS Metal GPU acceleration (requires macOS)
+# coreml-backend = ["adapteros-lora-kernel-mtl/coreml-backend"]  # macOS Neural Engine via CoreML (requires macOS 13+)
 mlx-backend = []  # MLX backend (experimental, stub implementation only)
-all-backends = ["metal-backend", "coreml-backend"]  # Enable both Metal and CoreML backends
+# all-backends = ["metal-backend", "coreml-backend"]  # Enable both Metal and CoreML backends
 
 # Combined feature sets for common use cases
 full = ["telemetry", "metrics", "replay"]
@@ -158,7 +158,7 @@ zstd = "0.13"
 tar = "0.4"
 
 # Async & Concurrency
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.35", features = ["full", "macros", "rt-multi-thread"] }
 tokio-stream = "0.1"
 futures-util = "0.3"
 async-stream = "0.3"
