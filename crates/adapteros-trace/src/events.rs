@@ -417,12 +417,32 @@ mod tests {
 
     #[test]
     fn test_router_decision_event() {
-        let event = router_decision_event(
-            1,
-            vec!["adapter1".to_string(), "adapter2".to_string()],
-            vec![0.8, 0.2],
-            0.5,
-        );
+        use adapteros_telemetry::events::{RouterDecisionEvent, RouterCandidate};
+
+        let decision = RouterDecisionEvent {
+            step: 0,
+            input_token_id: None,
+            candidate_adapters: vec![
+                RouterCandidate {
+                    adapter_idx: 0,
+                    raw_score: 0.8,
+                    gate_q15: 26214, // 0.8 * 32767
+                },
+                RouterCandidate {
+                    adapter_idx: 1,
+                    raw_score: 0.2,
+                    gate_q15: 6553, // 0.2 * 32767
+                },
+            ],
+            entropy: 0.5,
+            tau: 1.0,
+            entropy_floor: 0.1,
+            stack_hash: None,
+            stack_id: Some("test-stack".to_string()),
+            stack_version: Some(1),
+        };
+
+        let event = router_decision_event(1, decision);
 
         assert_eq!(event.tick_id, 1);
         assert_eq!(event.event_type, "router.decision");

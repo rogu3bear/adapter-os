@@ -155,7 +155,7 @@ mod tests {
 
         write_trace_bundle(&trace_path, bundle).unwrap();
 
-        let mut reader = TraceReader::new(&trace_path).unwrap();
+        let reader = TraceReader::new(&trace_path).unwrap();
         let events = reader.read_all_events().unwrap();
 
         assert_eq!(events.len(), 0); // Empty bundle
