@@ -90,13 +90,6 @@ pub struct AppState {
     pub plugin_registry: Arc<adapteros_server::PluginRegistry>,
     pub uma_monitor: Arc<UmaPressureMonitor>,
     pub response_validator: Arc<crate::validation::response_schemas::ResponseSchemaValidator>,
-    // Telemetry fields
-    pub metrics_collector: Arc<crate::telemetry::MetricsCollector>,
-    pub metrics_registry: Arc<crate::telemetry::MetricsRegistry>,
-    pub telemetry_buffer: Arc<crate::telemetry::TelemetryBuffer>,
-    pub telemetry_tx: Arc<crate::telemetry::TelemetrySender>,
-    pub trace_buffer: Arc<crate::telemetry::TraceBuffer>,
-    pub dataset_progress_tx: Option<Arc<broadcast::Sender<DatasetProgressEvent>>>,
     // Enhanced security fields
     pub use_ed25519: bool,
     pub ed25519_keypair: Keypair,
@@ -112,31 +105,19 @@ impl AppState {
         uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
-
-        // Initialize telemetry components
-        let metrics_collector = Arc::new(
-            crate::telemetry::MetricsCollector::new()
-                .expect("Failed to initialize metrics collector")
-        );
-        let metrics_registry = Arc::new(crate::telemetry::MetricsRegistry::default());
-        let telemetry_buffer = Arc::new(crate::telemetry::TelemetryBuffer::default());
-        let (telemetry_tx, _telemetry_rx) = crate::telemetry::telemetry_channel();
-        let telemetry_tx = Arc::new(telemetry_tx);
-        let trace_buffer = Arc::new(crate::telemetry::TraceBuffer::default());
-
         let crypto_state = CryptoState::new();
         let ed25519_keypair = crypto_state.jwt_keypair.clone();
         let ed25519_public_key = hex::encode(ed25519_keypair.public_key().to_bytes());
 
         Self {
-            db,
+            db: db.clone(),
             jwt_secret: Arc::new(jwt_secret),
             config,
             metrics_exporter,
             training_service: Arc::new(TrainingService::new()),
             git_subsystem: None,
             file_change_tx: None,
-            crypto: Arc::new(CryptoState::new()),
+            crypto: Arc::new(crypto_state),
             lifecycle_manager: None,
             code_job_manager: None,
             worker: None,
@@ -145,12 +126,6 @@ impl AppState {
             plugin_registry: Arc::new(adapteros_server::PluginRegistry::new(db.clone())),
             uma_monitor,
             response_validator: Arc::new(crate::validation::response_schemas::ResponseSchemaValidator::new(None)),
-            metrics_collector,
-            metrics_registry,
-            telemetry_buffer,
-            telemetry_tx,
-            trace_buffer,
-            dataset_progress_tx: None,
             use_ed25519: true,  // Default to Ed25519 for production
             ed25519_keypair: ed25519_keypair.clone(),
             ed25519_public_key,
