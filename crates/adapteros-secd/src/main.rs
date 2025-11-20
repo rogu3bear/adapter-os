@@ -62,7 +62,8 @@ async fn main() -> Result<(), AosError> {
         max_ticks_per_task: 10000,
         ..Default::default()
     };
-    init_global_executor(config).map_err(|e| AosError::Internal(format!("Failed to initialize executor: {}", e)))?;
+    init_global_executor(config)
+        .map_err(|e| AosError::Internal(format!("Failed to initialize executor: {}", e)))?;
     tracing::info!("Deterministic executor initialized");
 
     tracing::info!("AdapterOS Secure Enclave Daemon starting...");
@@ -120,7 +121,8 @@ async fn main() -> Result<(), AosError> {
         let heartbeat = heartbeat.clone();
         spawn_deterministic("Heartbeat updater".to_string(), async move {
             heartbeat.spawn_updater(Duration::from_secs(10)).await;
-        }).map_err(|e| AosError::Internal(format!("Failed to spawn heartbeat updater: {}", e)))?
+        })
+        .map_err(|e| AosError::Internal(format!("Failed to spawn heartbeat updater: {}", e)))?
     };
 
     // Create key lifecycle manager
@@ -141,7 +143,8 @@ async fn main() -> Result<(), AosError> {
             key_lifecycle
                 .spawn_age_checker(Duration::from_secs(86400))
                 .await;
-        }).map_err(|e| AosError::Internal(format!("Failed to spawn key lifecycle manager: {}", e)))?
+        })
+        .map_err(|e| AosError::Internal(format!("Failed to spawn key lifecycle manager: {}", e)))?
     };
 
     // Setup graceful shutdown

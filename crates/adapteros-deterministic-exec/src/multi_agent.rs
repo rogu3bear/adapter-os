@@ -680,7 +680,10 @@ mod tests {
                 .collect();
 
             for handle in handles {
-                handle.await.unwrap().expect("Agents should synchronize at each tick");
+                handle
+                    .await
+                    .unwrap()
+                    .expect("Agents should synchronize at each tick");
             }
 
             assert_eq!(
@@ -768,7 +771,10 @@ mod tests {
 
         // All should complete (both CAS winner and losers)
         for handle in handles {
-            handle.await.unwrap().expect("All agents should synchronize, including CAS losers");
+            handle
+                .await
+                .unwrap()
+                .expect("All agents should synchronize, including CAS losers");
         }
 
         // Generation should be exactly 1 (only winner advances it)

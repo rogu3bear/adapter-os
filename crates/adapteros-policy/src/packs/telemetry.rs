@@ -4,8 +4,8 @@
 //! to audit, not enough to melt disks.
 
 use crate::{Audit, Policy, PolicyContext, PolicyId, Severity};
-use adapteros_core::{AosError, Result};
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::{AosError, Result};
 use adapteros_telemetry::unified_events::TelemetryEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -23,6 +23,20 @@ infra-check: ## Run infrastructure health checks (prevents rectification issues)
 	./scripts/prevent_infrastructure_issues.sh
 	cd menu-bar-app && swift package clean || true
 
+security-audit: ## Run comprehensive security audit (vulnerabilities, licenses, SBOM)
+	bash scripts/security_audit.sh
+
+sbom: ## Generate Software Bill of Materials
+	@mkdir -p var/security
+	@echo "Generating SBOM..."
+	@cargo tree > var/security/sbom-$(shell date +%Y%m%d-%H%M%S).txt
+	@echo "✅ SBOM generated in var/security/"
+
+license-check: ## Check dependency license compliance
+	@cargo install cargo-license --quiet 2>/dev/null || true
+	@cargo license --json > var/security/licenses-$(shell date +%Y%m%d-%H%M%S).json
+	@echo "✅ License report generated in var/security/"
+
 fmt: ## Format code
 	cargo fmt --all
 
@@ -45,6 +59,45 @@ codegraph-viewer: ## Build CodeGraph Viewer (Tauri desktop app)
 codegraph-viewer-dev: ## Start CodeGraph Viewer in dev mode
 	cd crates/mplora-codegraph-viewer/frontend && pnpm install
 	cd crates/mplora-codegraph-viewer/src-tauri && cargo tauri dev
+
+# Docker commands
+docker-build: ## Build production Docker image
+	docker build -t adapteros:latest .
+
+docker-dev: ## Start development environment with docker-compose
+	docker-compose --profile dev up -d
+
+docker-test: ## Start test environment with docker-compose
+	docker-compose --profile postgres up -d
+
+docker-monitoring: ## Start monitoring stack with docker-compose
+	docker-compose --profile monitoring up -d
+
+docker-down: ## Stop all docker-compose services
+	docker-compose down -v
+
+docker-clean: ## Remove all Docker images and volumes
+	docker-compose down -v --rmi all
+	docker system prune -f
+
+# Deployment commands
+terraform-init: ## Initialize Terraform
+	cd terraform/aws && terraform init
+
+terraform-plan: ## Plan Terraform changes
+	cd terraform/aws && terraform plan
+
+terraform-apply: ## Apply Terraform changes
+	cd terraform/aws && terraform apply
+
+deploy-staging: ## Deploy to staging environment
+	@echo "Triggering staging deployment..."
+	@gh workflow run deploy.yml -f environment=staging
+
+deploy-prod: ## Deploy to production environment (requires manual approval)
+	@echo "⚠️  Production deployment requires manual approval"
+	@echo "Run: git commit --allow-empty -m '[deploy prod] Deploy to production'"
+	@echo "Then push to main branch"
 
 check: fmt clippy test determinism-check ## Run all checks
 

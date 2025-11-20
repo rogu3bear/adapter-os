@@ -33,7 +33,7 @@ fn emit_router_event(
         tau: router.temperature(),
         entropy_floor: router.entropy_floor(),
         stack_hash: router.stack_hash(),
-        stack_id: None, // TODO: Pass from AppState in production
+        stack_id: None,      // TODO: Pass from AppState in production
         stack_version: None, // TODO: Pass from AppState in production
     };
 

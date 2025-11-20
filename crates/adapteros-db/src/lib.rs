@@ -175,7 +175,10 @@ impl Db {
                     error!("Database has {} migrations applied", version);
 
                     if version < expected_version {
-                        error!("Database is BEHIND - {} migrations missing", expected_version - version);
+                        error!(
+                            "Database is BEHIND - {} migrations missing",
+                            expected_version - version
+                        );
                         error!("Run migrations: aosctl db migrate");
                     } else {
                         error!("Database is AHEAD - code expects older schema");
@@ -595,7 +598,9 @@ pub mod audits;
 pub mod lifecycle;
 pub use lifecycle::{LifecycleHistoryEvent, StackReference};
 pub mod metadata;
-pub use metadata::{AdapterMeta, AdapterStackMeta, LifecycleState, ForkType, WorkflowType, API_SCHEMA_VERSION};
+pub use metadata::{
+    AdapterMeta, AdapterStackMeta, ForkType, LifecycleState, WorkflowType, API_SCHEMA_VERSION,
+};
 pub mod migration_verify;
 pub mod unified_access;
 pub mod validation;
@@ -636,7 +641,7 @@ pub mod process_monitoring;
 pub mod replay_sessions;
 pub mod repositories;
 pub mod routing_decisions;
-pub use routing_decisions::{RoutingDecision, RoutingDecisionFilters, RouterCandidate};
+pub use routing_decisions::{RouterCandidate, RoutingDecision, RoutingDecisionFilters};
 pub mod routing_telemetry_bridge;
 pub use routing_telemetry_bridge::{event_to_decision, persist_router_decisions};
 pub mod telemetry_bundles;

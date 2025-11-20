@@ -148,7 +148,7 @@ impl ModelRuntimeImpl {
             #[cfg(feature = "mlx-ffi-backend")]
             active_operations: HashMap::new(),
             #[cfg(feature = "mlx-ffi-backend")]
-            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).unwrap()),
+            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).expect("Invalid cache size")),
             lazy_loading_enabled: false,
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
@@ -173,7 +173,7 @@ impl ModelRuntimeImpl {
             #[cfg(feature = "mlx-ffi-backend")]
             active_operations: HashMap::new(),
             #[cfg(feature = "mlx-ffi-backend")]
-            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).unwrap()),
+            model_cache: LruCache::new(std::num::NonZeroUsize::new(3).expect("Invalid cache size")),
             lazy_loading_enabled: false,
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
@@ -203,7 +203,7 @@ impl ModelRuntimeImpl {
         {
             self.model_cache.resize(
                 std::num::NonZeroUsize::new(max_cached)
-                    .unwrap_or(std::num::NonZeroUsize::new(1).unwrap()),
+                    .unwrap_or(std::num::NonZeroUsize::new(1).expect("Invalid default batch size")),
             );
         }
     }

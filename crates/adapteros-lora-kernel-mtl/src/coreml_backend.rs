@@ -70,22 +70,18 @@ extern "C" {
 pub fn init_coreml() -> Result<()> {
     let mut init_result = Ok(());
 
-    COREML_INIT.call_once(|| {
-        unsafe {
-            let result = coreml_bridge_init();
-            if result == 0 {
-                COREML_AVAILABLE = true;
-                let ane_available = coreml_neural_engine_available() != 0;
-                info!(
-                    ane_available = ane_available,
-                    "CoreML backend initialized successfully"
-                );
-            } else {
-                error!("Failed to initialize CoreML backend");
-                init_result = Err(AosError::Config(
-                    "CoreML initialization failed".to_string(),
-                ));
-            }
+    COREML_INIT.call_once(|| unsafe {
+        let result = coreml_bridge_init();
+        if result == 0 {
+            COREML_AVAILABLE = true;
+            let ane_available = coreml_neural_engine_available() != 0;
+            info!(
+                ane_available = ane_available,
+                "CoreML backend initialized successfully"
+            );
+        } else {
+            error!("Failed to initialize CoreML backend");
+            init_result = Err(AosError::Config("CoreML initialization failed".to_string()));
         }
     });
 
@@ -199,10 +195,16 @@ struct CoreMLMetrics {
 
 impl CoreMLBackend {
     /// Create a new CoreML backend instance
+    ///
+    /// ⚠️  COREML BACKEND STATUS: NOT IMPLEMENTED ⚠️
+    /// This backend has comprehensive Rust code but calls non-existent FFI functions.
+    /// The CoreML.framework integration is completely missing.
+    /// See BACKEND_STATUS.md for implementation roadmap.
     pub fn new() -> Result<Self> {
         info!("Initializing CoreML backend for ANE acceleration");
 
-        // Initialize CoreML bridge (once)
+        // ⚠️  FFI LAYER MISSING: coreml_bridge_init() not implemented
+        // This will always fail in current implementation
         init_coreml()?;
 
         // Detect ANE availability
@@ -351,9 +353,7 @@ impl CoreMLBackend {
 
     #[cfg(not(feature = "coreml-backend"))]
     fn load_model(&mut self, _plan_bytes: &[u8]) -> Result<()> {
-        Err(AosError::CoreML(
-            "CoreML backend not available".to_string(),
-        ))
+        Err(AosError::CoreML("CoreML backend not available".to_string()))
     }
 
     fn extract_metadata_from_plan(_plan_bytes: &[u8]) -> Result<ModelMetadata> {
@@ -430,8 +430,8 @@ impl FusedKernels for CoreMLBackend {
         let elapsed = start_time.elapsed();
         self.metrics.total_executions += 1;
         self.metrics.total_execution_time_us += elapsed.as_micros() as u64;
-        self.metrics.avg_execution_time_us = self.metrics.total_execution_time_us as f32
-            / self.metrics.total_executions as f32;
+        self.metrics.avg_execution_time_us =
+            self.metrics.total_execution_time_us as f32 / self.metrics.total_executions as f32;
 
         if self.ane_available {
             self.metrics.ane_executions += 1;
@@ -465,9 +465,7 @@ impl FusedKernels for CoreMLBackend {
 
     #[cfg(not(feature = "coreml-backend"))]
     fn run_step(&mut self, _ring: &RouterRing, _io: &mut IoBuffers) -> Result<()> {
-        Err(AosError::CoreML(
-            "CoreML backend not available".to_string(),
-        ))
+        Err(AosError::CoreML("CoreML backend not available".to_string()))
     }
 
     fn device_name(&self) -> &str {
@@ -535,7 +533,10 @@ mod tests {
     #[cfg(feature = "coreml-backend")]
     fn test_coreml_init() {
         let result = init_coreml();
-        assert!(result.is_ok(), "CoreML initialization should succeed on macOS");
+        assert!(
+            result.is_ok(),
+            "CoreML initialization should succeed on macOS"
+        );
     }
 
     #[test]

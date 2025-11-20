@@ -245,20 +245,17 @@ export function AdapterImportWizard({ onComplete, onCancel, tenantId }: AdapterI
 
   return (
     <div className="space-y-4">
-      {wizardError && ErrorRecoveryTemplates.genericError(
-        wizardError,
-        () => setWizardError(null)
+      {wizardError && (
+        <ErrorRecovery
+          error={wizardError.message}
+          onRetry={() => setWizardError(null)}
+        />
       )}
 
       {validationError && (
         <ErrorRecovery
-          title="Validation Required"
-          message={validationError}
-          variant="warning"
-          recoveryActions={[
-            { label: 'Fix Input', action: () => setValidationError(null), primary: true }
-          ]}
-          showHelp={false}
+          error={validationError}
+          onRetry={() => setValidationError(null)}
         />
       )}
 

@@ -8,9 +8,7 @@
 
 #[cfg(target_os = "macos")]
 mod metal_enhancement_tests {
-    use adapteros_memory::unified_memory::{
-        UnifiedMemoryManager, AllocationRequest, MemoryType,
-    };
+    use adapteros_memory::unified_memory::{AllocationRequest, MemoryType, UnifiedMemoryManager};
 
     #[test]
     fn test_unified_memory_allocation() {
@@ -96,10 +94,10 @@ mod metal_enhancement_tests {
 
         // Simulate large model (e.g., Qwen2.5-7B LoRA adapters)
         let large_sizes = vec![
-            128 * 1024 * 1024,  // 128MB - attention weights
-            256 * 1024 * 1024,  // 256MB - MLP weights
-            64 * 1024 * 1024,   // 64MB - LoRA adapters
-            32 * 1024 * 1024,   // 32MB - embeddings
+            128 * 1024 * 1024, // 128MB - attention weights
+            256 * 1024 * 1024, // 256MB - MLP weights
+            64 * 1024 * 1024,  // 64MB - LoRA adapters
+            32 * 1024 * 1024,  // 32MB - embeddings
         ];
 
         let mut blocks = Vec::new();
@@ -121,16 +119,21 @@ mod metal_enhancement_tests {
                     blocks.push(block);
                 }
                 Err(e) => {
-                    println!("Large block {} allocation failed (may be expected): {}", idx, e);
+                    println!(
+                        "Large block {} allocation failed (may be expected): {}",
+                        idx, e
+                    );
                 }
             }
         }
 
         // Verify memory stats
         let stats = manager.get_stats();
-        println!("Total allocated: {} MB / {} MB",
+        println!(
+            "Total allocated: {} MB / {} MB",
             stats.total_allocated / (1024 * 1024),
-            stats.memory_limit / (1024 * 1024));
+            stats.memory_limit / (1024 * 1024)
+        );
 
         // Cleanup
         for block in blocks {
@@ -187,8 +190,10 @@ mod metal_enhancement_tests {
             }
 
             let post_eviction_stats = manager.get_stats();
-            assert!(post_eviction_stats.total_allocated < stats.total_allocated,
-                "Memory should be freed after eviction");
+            assert!(
+                post_eviction_stats.total_allocated < stats.total_allocated,
+                "Memory should be freed after eviction"
+            );
         }
 
         // Cleanup remaining
@@ -259,7 +264,8 @@ mod metal_enhancement_tests {
         assert!(result.is_err(), "Should fail due to insufficient memory");
 
         // Evict lowest priority adapter (adapter_c)
-        let lowest_priority = adapters.iter_mut()
+        let lowest_priority = adapters
+            .iter_mut()
             .min_by_key(|a| (a.usage_count, a.last_used))
             .unwrap();
 
@@ -325,9 +331,11 @@ mod metal_enhancement_tests {
         });
 
         let stats = manager.get_stats();
-        println!("After fragmentation: {} blocks, {} MB allocated",
+        println!(
+            "After fragmentation: {} blocks, {} MB allocated",
             blocks.len(),
-            stats.total_allocated / (1024 * 1024));
+            stats.total_allocated / (1024 * 1024)
+        );
 
         // Cleanup
         for block in blocks {
@@ -352,13 +360,21 @@ mod metal_enhancement_tests {
             };
 
             let block = manager.allocate(request);
-            assert!(block.is_ok(), "Allocation with alignment {} should succeed", alignment);
+            assert!(
+                block.is_ok(),
+                "Allocation with alignment {} should succeed",
+                alignment
+            );
 
             if let Ok(block) = block {
                 // Verify alignment
                 let ptr_value = block.ptr as usize;
-                assert_eq!(ptr_value % alignment, 0,
-                    "Pointer should be aligned to {}", alignment);
+                assert_eq!(
+                    ptr_value % alignment,
+                    0,
+                    "Pointer should be aligned to {}",
+                    alignment
+                );
 
                 manager.deallocate(&block).unwrap();
             }
@@ -398,9 +414,9 @@ mod metal_enhancement_tests {
 
         // Allocate known amounts
         let sizes = vec![
-            1024 * 1024,       // 1MB
-            5 * 1024 * 1024,   // 5MB
-            10 * 1024 * 1024,  // 10MB
+            1024 * 1024,      // 1MB
+            5 * 1024 * 1024,  // 5MB
+            10 * 1024 * 1024, // 10MB
         ];
 
         let mut blocks = Vec::new();
@@ -422,15 +438,20 @@ mod metal_enhancement_tests {
         }
 
         let stats = manager.get_stats();
-        assert_eq!(stats.total_allocated, expected_total,
-            "Total allocated should match sum of block sizes");
+        assert_eq!(
+            stats.total_allocated, expected_total,
+            "Total allocated should match sum of block sizes"
+        );
 
         // Verify backend stats
         if let Some(metal_stats) = stats.backend_stats.get("metal") {
             assert_eq!(metal_stats.allocated, expected_total);
             assert_eq!(metal_stats.block_count, blocks.len());
             assert_eq!(metal_stats.total, 80 * 1024 * 1024);
-            assert_eq!(metal_stats.available, metal_stats.total - metal_stats.allocated);
+            assert_eq!(
+                metal_stats.available,
+                metal_stats.total - metal_stats.allocated
+            );
         } else {
             panic!("Metal backend stats not found");
         }
@@ -473,7 +494,10 @@ mod metal_enhancement_tests {
                     manager.deallocate(&block).unwrap();
                 }
                 Err(e) => {
-                    println!("Allocation failed with {}: {} (may be platform-specific)", name, e);
+                    println!(
+                        "Allocation failed with {}: {} (may be platform-specific)",
+                        name, e
+                    );
                 }
             }
         }

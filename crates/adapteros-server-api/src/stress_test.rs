@@ -85,7 +85,7 @@ impl StressTester {
             let config = self.config.clone();
 
             join_set.spawn(async move {
-                let _permit = semaphore.acquire().await.unwrap();
+                let _permit = semaphore.acquire().await.expect("Failed to acquire semaphore permit");
 
                 let operation_start = Instant::now();
                 let result = Self::execute_test_operation(&state, i, &config).await;

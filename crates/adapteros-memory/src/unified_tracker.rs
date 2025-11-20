@@ -571,11 +571,7 @@ impl UnifiedMemoryTracker {
         }
 
         // Sort by priority (lowest first), then by bytes (largest first)
-        candidates.sort_by(|a, b| {
-            a.3.partial_cmp(&b.3)
-                .unwrap()
-                .then_with(|| b.2.cmp(&a.2))
-        });
+        candidates.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap().then_with(|| b.2.cmp(&a.2)));
 
         candidates
     }

@@ -22,7 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Failed to create input array");
         return Err("Input array creation failed".into());
     }
-    println!("   Input shape: [seq_len={}, hidden_dim={}]", seq_len, hidden_dim);
+    println!(
+        "   Input shape: [seq_len={}, hidden_dim={}]",
+        seq_len, hidden_dim
+    );
 
     // Step 2: Create LoRA adapter matrices (A and B)
     println!("\n2. Creating LoRA adapter matrices...");
@@ -72,10 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     println!("   Gate weights (float): {:?}", gates_float);
-    println!(
-        "   Gate weights (Q15):   {:?}",
-        gates_q15
-    );
+    println!("   Gate weights (Q15):   {:?}", gates_q15);
 
     // Step 4: Run multi-adapter forward pass
     println!("\n4. Running multi-adapter LoRA forward pass...");
@@ -126,14 +126,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !output_ptr.is_null() {
         let output_slice = unsafe { std::slice::from_raw_parts(output_ptr, output_size as usize) };
         println!("   Output size: {}", output_size);
-        println!("   First 5 values: {:?}", &output_slice[..5.min(output_size as usize)]);
-        println!("   Last 5 values:  {:?}", &output_slice[(output_size as usize).saturating_sub(5)..]);
+        println!(
+            "   First 5 values: {:?}",
+            &output_slice[..5.min(output_size as usize)]
+        );
+        println!(
+            "   Last 5 values:  {:?}",
+            &output_slice[(output_size as usize).saturating_sub(5)..]
+        );
 
         // Calculate statistics
         let sum: f32 = output_slice.iter().sum();
         let mean = sum / output_size as f32;
         let min = output_slice.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-        let max = output_slice.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let max = output_slice
+            .iter()
+            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
 
         println!("\n   Statistics:");
         println!("     Mean: {:.6}", mean);

@@ -27,3 +27,4 @@
 - [ ] **Communication** - Explain changes and rationale
 - [ ] **Monitoring** - Watch for unexpected side effects
 - [ ] **Continuous learning** - Learn from mistakes and improve process
+

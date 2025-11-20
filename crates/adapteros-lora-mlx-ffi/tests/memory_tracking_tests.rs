@@ -71,7 +71,7 @@ mod memory_tracking_tests {
         memory::reset();
         assert_eq!(memory::memory_usage(), 0);
 
-        memory::reset();  // Reset again
+        memory::reset(); // Reset again
         assert_eq!(memory::memory_usage(), 0);
         assert_eq!(memory::allocation_count(), 0);
     }
@@ -191,9 +191,9 @@ mod memory_lifecycle_scenario_tests {
         memory::reset();
 
         // Define thresholds
-        let critical_threshold_mb = 4096.0;  // 4GB
-        let warning_threshold_mb = 2048.0;   // 2GB
-        let normal_threshold_mb = 1024.0;    // 1GB
+        let critical_threshold_mb = 4096.0; // 4GB
+        let warning_threshold_mb = 2048.0; // 2GB
+        let normal_threshold_mb = 1024.0; // 1GB
 
         // Check thresholds at current (empty) state
         let is_normal = !memory::exceeds_threshold(normal_threshold_mb);
@@ -242,16 +242,16 @@ mod memory_boundary_tests {
     #[test]
     fn test_large_memory_values() {
         // Test with realistically large values
-        let large_bytes = 8 * 1024 * 1024 * 1024u64 as usize;  // 8GB
+        let large_bytes = 8 * 1024 * 1024 * 1024u64 as usize; // 8GB
         let mb = memory::bytes_to_mb(large_bytes);
 
-        assert!((mb - 8192.0).abs() < 0.01);  // Should be close to 8192 MB
+        assert!((mb - 8192.0).abs() < 0.01); // Should be close to 8192 MB
     }
 
     #[test]
     fn test_small_memory_values() {
         // Test with small values
-        assert_eq!(memory::bytes_to_mb(1), 0.00000095367431640625);  // Exact 1 byte
+        assert_eq!(memory::bytes_to_mb(1), 0.00000095367431640625); // Exact 1 byte
 
         let one_kb = 1024;
         let mb = memory::bytes_to_mb(one_kb);
@@ -261,7 +261,7 @@ mod memory_boundary_tests {
     #[test]
     fn test_zero_memory() {
         assert_eq!(memory::bytes_to_mb(0), 0.0);
-        assert!(!memory::exceeds_threshold(-1.0));  // Negative threshold never exceeded
+        assert!(!memory::exceeds_threshold(-1.0)); // Negative threshold never exceeded
     }
 
     #[test]

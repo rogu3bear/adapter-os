@@ -266,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ip_denylist() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         // Add to denylist
         add_ip_rule(
@@ -280,24 +280,24 @@ mod tests {
             None,
         )
         .await
-        .unwrap();
+        .expect("IP access control operation failed");
 
         // Check denied
         let decision = check_ip_access(&db, "192.168.1.100", Some("tenant-a"))
             .await
-            .unwrap();
+            .expect("IP access control operation failed");
         assert_eq!(decision, AccessDecision::Deny);
 
         // Different IP allowed
         let decision = check_ip_access(&db, "192.168.1.101", Some("tenant-a"))
             .await
-            .unwrap();
+            .expect("IP access control operation failed");
         assert_eq!(decision, AccessDecision::Allow);
     }
 
     #[tokio::test]
     async fn test_ip_allowlist() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         // Add to allowlist
         add_ip_rule(
@@ -311,18 +311,18 @@ mod tests {
             None,
         )
         .await
-        .unwrap();
+        .expect("IP access control operation failed");
 
         // Allowlisted IP allowed
         let decision = check_ip_access(&db, "10.0.0.1", Some("tenant-b"))
             .await
-            .unwrap();
+            .expect("IP access control operation failed");
         assert_eq!(decision, AccessDecision::Allow);
 
         // Non-allowlisted IP denied when allowlist exists
         let decision = check_ip_access(&db, "10.0.0.2", Some("tenant-b"))
             .await
-            .unwrap();
+            .expect("IP access control operation failed");
         assert_eq!(decision, AccessDecision::Deny);
     }
 }

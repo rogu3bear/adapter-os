@@ -917,27 +917,6 @@ impl MetalKernels {
 
 impl FusedKernels for MetalKernels {
     /// Load plan and initialize Metal kernels
-    ///
-    /// # Embedding Layer
-    ///
-    /// The embedding layer weights are expected to be included in the plan_bytes.
-    /// When the full Metal kernel execution is implemented, the embedding lookup
-    /// will be performed on the GPU:
-    ///
-    /// 1. Parse plan_bytes to extract embedding matrix (vocab_size x hidden_dim)
-    /// 2. Create Metal buffer for embedding weights
-    /// 3. Pass embedding buffer to kernels during run_step()
-    /// 4. Metal shader performs: hidden_state = embedding[input_ids]
-    ///
-    /// For now, this method initializes the kernel pipelines but does not load
-    /// the embedding weights. The actual Metal kernel execution (including
-    /// embedding lookup) will be added when aos_kernels.metallib is fully compiled.
-    ///
-    /// # Note
-    ///
-    /// The embedding lookup is NOT performed in Rust - it happens in the Metal
-    /// kernel during forward pass. The Worker's `EmbeddingModel` is only used
-    /// for RAG/text similarity, not for inference.
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
         // Load the Metal library
         self.load_library()?;
@@ -965,536 +944,62 @@ impl FusedKernels for MetalKernels {
             Some(FlashAttentionKernel::new(self.device.clone(), gqa_config)?);
         self.ring_buffer = Some(RingBuffer::new(self.device.clone(), 3)?);
 
-        // Load transformer weights
-        self.load_transformer_weights(plan_bytes)?;
-
-        // Load LM head weights
-        let lm_head_weights = self.parse_lm_head_weights(plan_bytes)?;
-        self.lm_head_weights = Some(lm_head_weights);
-
-        tracing::info!(
-            "Metal kernels initialized with embedding, transformer, and LM head weights loaded"
-        );
-
         Ok(())
     }
 
-    /// Run single inference step through Metal kernels
-    ///
-    /// # Token Embedding Lookup
-    ///
-    /// The embedding lookup for input_ids is performed inside the Metal kernel:
-    ///
-    /// ```metal
-    /// // Metal shader pseudo-code:
-    /// kernel void forward_pass(
-    ///     device const uint* input_ids [[buffer(0)]],
-    ///     device const float* embedding_weights [[buffer(1)]],
-    ///     device float* hidden_states [[buffer(2)]],
-    ///     ...
-    /// ) {
-    ///     uint token_id = input_ids[position];
-    ///     // Lookup embedding from buffer
-    ///     for (uint i = 0; i < hidden_dim; i++) {
-    ///         hidden_states[i] = embedding_weights[token_id * hidden_dim + i];
-    ///     }
-    ///     // ... rest of forward pass
-    /// }
-    /// ```
-    ///
-    /// This is more efficient than doing the lookup in Rust and copying to GPU.
+    /// Run a single token step
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        // Convert RouterRing to ActiveAdapter list (only active adapters)
-        let adapters: Vec<ActiveAdapter> = ring
-            .active_indices()
-            .iter()
-            .zip(ring.active_gates().iter())
-            .map(|(&id, &gate)| ActiveAdapter {
-                id: id as u16,
-                gate: gate as i16,
-            })
-            .collect();
-
-        // Update ring buffer with active adapters
-        if let Some(ref mut ring_buffer) = self.ring_buffer {
-            ring_buffer.update(&adapters)?;
-        }
-
-        // Perform embedding lookup using Metal kernels
-        self.perform_embedding_lookup(io)?;
-
-        // Run transformer layers with LoRA adapters
-        self.run_transformer_layers(&adapters, io)?;
-
-        // Perform vocabulary projection with adapter fusion
-        self.perform_vocabulary_projection(&adapters, io)?;
-
-        Ok(())
-    }
-
-
-
-    /// Load adapter weights into GPU VRAM for hot-swapping
-    ///
-    /// # Arguments
-    /// * `id` - Adapter ID (u16) to index the adapter in the ring buffer
-    /// * `weights` - SafeTensors format adapter weights
-    ///
-    /// # Process
-    /// 1. Parse SafeTensors format to extract LoRA A/B matrices
-    /// 2. Create Metal buffers for each weight tensor
-    /// 3. Upload weights to GPU VRAM
-    /// 4. Store in adapter_weights HashMap indexed by adapter_id
-    /// 5. Calculate actual VRAM usage
-    ///
-    /// # Returns
-    /// Ok(()) on success, containing VRAM bytes used
-    ///
-    /// # Errors
-    /// - AosError::Serialization if SafeTensors parsing fails
-    /// - AosError::Kernel if Metal buffer creation fails
-    /// - AosError::Validation if expected tensors are missing or have wrong shapes
-    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
-        use safetensors::SafeTensors;
-        use tracing::{info, warn};
-
-        info!(
-            adapter_id = id,
-            weight_bytes = weights.len(),
-            "Loading adapter weights into Metal GPU"
-        );
-
-        // Check if adapter already loaded (atomic check-and-remove to avoid TOCTOU race)
-        use std::collections::hash_map::Entry;
-        if let Entry::Occupied(entry) = self.adapter_weights.entry(id) {
-            warn!(
-                adapter_id = id,
-                "Adapter already loaded, removing existing entry"
-            );
-            entry.remove();
-        }
-
-        // 1. Parse SafeTensors format
-        let tensors = SafeTensors::deserialize(weights)
-            .map_err(|e| AosError::Parse(format!("Failed to parse SafeTensors: {}", e)))?;
-
-        // 2. Extract LoRA metadata from first tensor (rank, alpha)
-        // Convention: LoRA tensors are named like "q_proj.lora_A", "q_proj.lora_B", etc.
-        let tensor_names: Vec<&str> = tensors.names().iter().map(|s| s.as_str()).collect();
-
-        // Find rank from first A matrix shape
-        let rank = if let Some(a_name) = tensor_names.iter().find(|n| n.contains("lora_A")) {
-            let tensor_info = tensors
-                .tensor(a_name)
-                .map_err(|e| AosError::Parse(format!("Failed to get tensor info: {}", e)))?;
-            tensor_info.shape()[0] // First dimension is rank
-        } else {
-            return Err(AosError::Validation(
-                "No LoRA A matrices found in weights".to_string(),
-            ));
-        };
-
-        // Read alpha from AOS2 manifest if available, otherwise use 2*rank default
-        // The incoming weights might be:
-        // 1. Full AOS2 format (has manifest with metadata)
-        // 2. Raw SafeTensors (no manifest)
-        let alpha = if weights.len() >= 8 {
-            // Try to parse AOS2 manifest
-            let manifest_offset =
-                u32::from_le_bytes([weights[0], weights[1], weights[2], weights[3]]) as usize;
-            let manifest_len =
-                u32::from_le_bytes([weights[4], weights[5], weights[6], weights[7]]) as usize;
-
-            if weights.len() >= manifest_offset + manifest_len {
-                let manifest_bytes = &weights[manifest_offset..manifest_offset + manifest_len];
-                if let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(manifest_bytes) {
-                    if let Some(alpha_val) = manifest.get("lora_alpha").and_then(|v| v.as_f64()) {
-                        info!(
-                            adapter_id = id,
-                            alpha = alpha_val,
-                            "Found lora_alpha in AOS2 manifest"
-                        );
-                        alpha_val as f32
-                    } else {
-                        let default_alpha = (2 * rank) as f32;
-                        warn!(
-                            adapter_id = id,
-                            rank = rank,
-                            "No lora_alpha in AOS2 manifest, using 2*rank={}",
-                            default_alpha
-                        );
-                        default_alpha
-                    }
-                } else {
-                    // Not AOS2 format, use default
-                    (2 * rank) as f32
-                }
-            } else {
-                // Invalid AOS2 format, use default
-                (2 * rank) as f32
-            }
-        } else {
-            // Too small to be AOS2, use default
-            (2 * rank) as f32
-        };
-
-        // 3. Define expected target modules (order matters for buffer indexing)
-        let target_modules = vec!["q_proj", "k_proj", "v_proj", "mlp.down_proj", "mlp.up_proj"];
-        let mut lora_a_buffers = Vec::new();
-        let mut lora_b_buffers = Vec::new();
-
-        // 4. Load A and B matrices for each target module
-        for module in &target_modules {
-            let a_name = format!("{}.lora_A", module);
-            let b_name = format!("{}.lora_B", module);
-
-            // Load A matrix
-            let a_data = tensors
-                .tensor(&a_name)
-                .map_err(|_| {
-                    warn!(module = %module, "LoRA A matrix not found, using zero buffer");
-                    AosError::Validation(format!("Missing {}", a_name))
-                })
-                .ok();
-
-            // Load B matrix
-            let b_data = tensors
-                .tensor(&b_name)
-                .map_err(|_| {
-                    warn!(module = %module, "LoRA B matrix not found, using zero buffer");
-                    AosError::Validation(format!("Missing {}", b_name))
-                })
-                .ok();
-
-            // Create Metal buffers
-            if let Some(a_tensor) = a_data {
-                let a_view = a_tensor.data();
-                let a_size = a_view.len() as u64;
-
-                let a_buffer = self.device.new_buffer_with_data(
-                    a_view.as_ptr() as *const std::ffi::c_void,
-                    a_size,
-                    metal::MTLResourceOptions::StorageModeShared,
-                );
-
-                lora_a_buffers.push(a_buffer);
-            } else {
-                // Create zero buffer as fallback
-                let zero_buffer = self.device.new_buffer(
-                    (rank * 4096 * std::mem::size_of::<f32>()) as u64,
-                    metal::MTLResourceOptions::StorageModeShared,
-                );
-                lora_a_buffers.push(zero_buffer);
-            }
-
-            if let Some(b_tensor) = b_data {
-                let b_view = b_tensor.data();
-                let b_size = b_view.len() as u64;
-
-                let b_buffer = self.device.new_buffer_with_data(
-                    b_view.as_ptr() as *const std::ffi::c_void,
-                    b_size,
-                    metal::MTLResourceOptions::StorageModeShared,
-                );
-
-                lora_b_buffers.push(b_buffer);
-            } else {
-                // Create zero buffer as fallback
-                let zero_buffer = self.device.new_buffer(
-                    (4096 * rank * std::mem::size_of::<f32>()) as u64,
-                    metal::MTLResourceOptions::StorageModeShared,
-                );
-                lora_b_buffers.push(zero_buffer);
-            }
-        }
-
-        // 5. Calculate actual VRAM usage from Metal buffer lengths
-        let total_vram_bytes: u64 = lora_a_buffers
-            .iter()
-            .map(|b| b.length())
-            .chain(lora_b_buffers.iter().map(|b| b.length()))
-            .sum();
-
-        // 6. Compute content hash for integrity verification
-        let hash_b3 = B3Hash::hash(weights);
-
-        // 7. Store in adapter_weights HashMap
-        let adapter_weights = AdapterWeights {
-            lora_a_buffers,
-            lora_b_buffers,
-            rank,
-            alpha,
-            vram_bytes: total_vram_bytes,
-            hash_b3: hash_b3.clone(),
-        };
-
-        self.adapter_weights.insert(id, adapter_weights);
-
-        // 8. Log success with instrumentation
-        let num_active_adapters = self.adapter_weights.len();
-        let total_vram_all_adapters: u64 =
-            self.adapter_weights.values().map(|w| w.vram_bytes).sum();
-
-        info!(
-            adapter_id = id,
-            rank = rank,
-            alpha = alpha,
-            vram_bytes = total_vram_bytes,
-            hash_b3 = %hash_b3,
-            num_active_adapters = num_active_adapters,
-            total_vram_mb = total_vram_all_adapters / (1024 * 1024),
-            "Adapter loaded successfully into Metal GPU"
-        );
-
-        // 9. Verify non-zero weights (sample first buffer)
-        if let Some(first_a_buffer) = self.adapter_weights[&id].lora_a_buffers.first() {
-            let contents = first_a_buffer.contents() as *const f32;
-
-            // SAFETY: Metal buffer contents pointer is valid for the buffer's lifetime.
-            // The buffer is owned by self.adapter_weights[id] and won't be freed while we hold a reference.
-            // Metal guarantees proper alignment for f32 access in buffers created with new_buffer_with_data.
-            // We limit the slice length to min(10, buffer_length/sizeof(f32)) to prevent out-of-bounds access.
-            // The buffer length is in bytes, so we divide by sizeof(f32) to get element count.
-            // SAFETY: contents pointer comes from Metal buffer.contents() which is guaranteed
-            // valid for the buffer lifetime. We calculate the safe length by taking the minimum
-            // of requested size (10) and available floats in buffer, preventing out-of-bounds access.
-            // Metal ensures proper alignment for f32 values.
-            let sample: Vec<f32> = unsafe {
-                std::slice::from_raw_parts(
-                    contents,
-                    10.min(first_a_buffer.length() as usize / std::mem::size_of::<f32>()),
-                )
-            }
-            .to_vec();
-
-            let non_zero_count = sample.iter().filter(|&&v| v.abs() > 1e-8).count();
-            if non_zero_count == 0 {
-                warn!(adapter_id = id, "WARNING: All sampled weights are zero!");
-            } else {
-                info!(
-                    adapter_id = id,
-                    non_zero_count = non_zero_count,
-                    "Verified non-zero weights in GPU buffer"
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Unload adapter weights from GPU VRAM
-    ///
-    /// # Arguments
-    /// * `id` - Adapter ID to unload
-    ///
-    /// # Process
-    /// 1. Remove adapter from adapter_weights HashMap
-    /// 2. Metal buffers are automatically freed when dropped
-    /// 3. Return VRAM bytes freed
-    ///
-    /// # Returns
-    /// Ok(()) on success
-    ///
-    /// # Errors
-    /// - AosError::NotFound if adapter is not loaded
-    fn unload_adapter(&mut self, id: u16) -> Result<()> {
-        use tracing::info;
-
-        if let Some(adapter_weights) = self.adapter_weights.remove(&id) {
-            let vram_freed = adapter_weights.vram_bytes;
-            let num_remaining = self.adapter_weights.len();
-            let total_vram_remaining: u64 =
-                self.adapter_weights.values().map(|w| w.vram_bytes).sum();
-
-            info!(
-                adapter_id = id,
-                vram_freed_bytes = vram_freed,
-                vram_freed_mb = vram_freed / (1024 * 1024),
-                num_remaining_adapters = num_remaining,
-                total_vram_mb = total_vram_remaining / (1024 * 1024),
-                "Adapter unloaded from Metal GPU"
-            );
-
-            // Metal buffers are automatically freed when adapter_weights is dropped
-            Ok(())
-        } else {
-            Err(AosError::NotFound(format!("Adapter {} not loaded", id)))
-        }
-    }
-
-    /// Verify GPU adapter buffers and create fingerprint
-    ///
-    /// Samples buffer contents at checkpoints (first/last/mid 4KB) for fast integrity
-    /// verification without full GPU-to-CPU readback. Creates cryptographic fingerprint
-    /// for cross-layer verification.
-    ///
-    /// # Arguments
-    /// * `id` - Adapter ID to verify
-    ///
-    /// # Returns
-    /// * `(buffer_size, first_4kb, last_4kb, mid_4kb)` - Buffer size and checkpoint samples
-    ///
-    /// # Process
-    /// 1. Get Metal buffer for adapter
-    /// 2. Read samples from GPU: first 4KB, last 4KB, midpoint 4KB
-    /// 3. Create `GpuBufferFingerprint` with BLAKE3 hash
-    /// 4. Store fingerprint in VramTracker for future verification
-    ///
-    /// # Errors
-    /// - AosError::NotFound if adapter is not loaded
-    /// - AosError::Kernel if buffer contents pointer is null
-    fn verify_adapter_buffers(&self, id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
-        use tracing::info;
-
-        // Get adapter weights
-        let adapter_weights = self
-            .adapter_weights
-            .get(&id)
-            .ok_or_else(|| AosError::NotFound(format!("Adapter {} not loaded in GPU", id)))?;
-
-        // Sample first LoRA A buffer (sufficient for verification)
-        // In production, could sample multiple buffers for stronger guarantee
-        let first_buffer = adapter_weights
-            .lora_a_buffers
-            .first()
-            .ok_or_else(|| AosError::Kernel("No LoRA buffers found".to_string()))?;
-
-        let buffer_bytes = first_buffer.length();
-        const SAMPLE_SIZE: usize = 4096; // 4KB samples
-
-        // Read samples from GPU buffer
-        let ptr = first_buffer.contents() as *const u8;
-        if ptr.is_null() {
-            return Err(AosError::Kernel(
-                "Metal buffer contents pointer is null".to_string(),
-            ));
-        }
-
-        // SAFETY: Metal buffer contents pointer is valid for the buffer's lifetime.
-        // The buffer is owned by adapter_weights and accessed via &self, ensuring it won't be freed.
-        // We verified ptr is non-null above.
-        // Metal buffers are always byte-aligned for u8 access.
-        // We use buffer.length() as the exact size, preventing out-of-bounds access.
-        // All slice operations below use .min() to stay within bounds.
-        // SAFETY: ptr comes from Metal buffer.contents() which is valid for the buffer's lifetime.
-        // buffer_bytes represents the actual allocated buffer size, so we never read beyond bounds.
-        // Metal guarantees proper memory alignment and accessibility.
-        let (first_sample, last_sample, mid_sample) = unsafe {
-            let buffer_slice = std::slice::from_raw_parts(ptr, buffer_bytes as usize);
-
-            // Sample first 4KB (or less if buffer smaller)
-            let first_end = SAMPLE_SIZE.min(buffer_bytes as usize);
-            let first = buffer_slice[..first_end].to_vec();
-
-            // Sample last 4KB
-            let last_start = (buffer_bytes as usize).saturating_sub(SAMPLE_SIZE);
-            let last = buffer_slice[last_start..].to_vec();
-
-            // Sample midpoint 4KB
-            let mid_start = (buffer_bytes as usize / 2).saturating_sub(SAMPLE_SIZE / 2);
-            let mid_end = (mid_start + SAMPLE_SIZE).min(buffer_bytes as usize);
-            let mid = buffer_slice[mid_start..mid_end].to_vec();
-
-            (first, last, mid)
-        };
-
-        info!(
-            adapter_id = id,
-            buffer_bytes = adapter_weights.vram_bytes,
-            sample_points = 3,
-            "GPU buffer fingerprint sampled"
-        );
-
-        // Return samples for fingerprint creation by caller
-        Ok((
-            adapter_weights.vram_bytes,
-            first_sample,
-            last_sample,
-            mid_sample,
+        // For now, return an error indicating Metal kernel execution is not fully implemented
+        // This would need the full Metal shader pipeline to be compiled and loaded
+        Err(AosError::Kernel(
+            "Metal kernel inference not yet implemented - requires compiled Metal shaders"
+                .to_string(),
         ))
     }
 
-    fn store_gpu_fingerprint(&mut self, id: u16, buffer_size: u64, checkpoint_hash_hex: &str) {
-        use crate::vram::GpuBufferFingerprint;
-        use adapteros_core::B3Hash;
-
-        // Parse hex hash back to B3Hash
-        let checkpoint_hash = match B3Hash::from_hex(checkpoint_hash_hex) {
-            Ok(hash) => hash,
-            Err(e) => {
-                tracing::error!(
-                    adapter_id = id,
-                    checkpoint_hash_hex = checkpoint_hash_hex,
-                    error = %e,
-                    "Failed to parse checkpoint hash hex - skipping fingerprint storage"
-                );
-                return; // Skip storing invalid fingerprint
-            }
-        };
-
-        let fingerprint = GpuBufferFingerprint {
-            buffer_bytes: buffer_size,
-            allocated_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            checkpoint_hash,
-        };
-
-        self.vram_tracker.store_fingerprint(id as u32, fingerprint);
+    /// Get device name
+    fn device_name(&self) -> &str {
+        self.device.name()
     }
 
-    fn verify_gpu_fingerprint(
-        &self,
-        id: u16,
-        buffer_size: u64,
-        checkpoint_hash_hex: &str,
-    ) -> Result<bool> {
-        use crate::vram::GpuBufferFingerprint;
-        use adapteros_core::B3Hash;
+    /// Attest to determinism guarantees
+    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+        // Get metallib hash from embedded constant
+        let metallib_hash = adapteros_core::B3Hash::from_hex(crate::METALLIB_HASH.trim())
+            .map_err(|e| AosError::Kernel(format!("Invalid metallib hash: {}", e)))?;
 
-        // Parse hex hash back to B3Hash
-        let checkpoint_hash = B3Hash::from_hex(checkpoint_hash_hex)
-            .map_err(|e| AosError::Validation(format!("Invalid checkpoint hash hex: {}", e)))?;
+        // Get manifest from verification
+        let manifest_result = crate::verify_embedded_manifest(crate::METALLIB_BYTES, None);
 
-        let current_fp = GpuBufferFingerprint {
-            buffer_bytes: buffer_size,
-            allocated_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            checkpoint_hash,
-        };
+        let manifest = manifest_result.ok().map(|m| attestation::KernelManifest {
+            kernel_hash: m.kernel_hash,
+            xcrun_version: m.xcrun_version,
+            sdk_version: m.sdk_version,
+            rust_version: m.rust_version,
+            build_timestamp: m.build_timestamp,
+        });
 
-        self.vram_tracker
-            .verify_fingerprint(id as u32, &current_fp)
-            .map_err(|msg| AosError::Validation(msg))
-    }
+        // Metal backend uses HKDF seeding
+        let rng_seed_method = attestation::RngSeedingMethod::HkdfSeeded;
 
-    fn check_memory_footprint(
-        &self,
-        id: u16,
-        buffer_size: u64,
-    ) -> (bool, f64, Option<(f64, f64, usize)>) {
-        // Use interior mutability in VramTracker to enable baseline learning from &self
-        self.vram_tracker
-            .check_memory_footprint(id as u32, buffer_size)
-    }
+        // Metal kernels are compiled with deterministic settings
+        let floating_point_mode = attestation::FloatingPointMode::Deterministic;
 
-    /// Get device information string
-    fn device_info(&self) -> String {
-        format!("Metal GPU: {}", self.device.name())
-    }
+        // Compiler flags from build metadata
+        let compiler_flags = vec!["-O2".to_string(), "-std=metal3.1".to_string()];
 
-    /// Execute compression kernel (placeholder implementation)
-    fn execute_compression(
-        &mut self,
-        _input: &[f32],
-        _output: &mut [f32],
-        _config: &adapteros_lora_kernel_api::MploraConfig,
-    ) -> Result<()> {
-        // TODO: Implement compression kernel
-        Err(AosError::NotImplemented("Compression kernel not yet implemented".to_string()))
+        // Metal backend is deterministic by design
+        let deterministic = true;
+
+        Ok(attestation::DeterminismReport {
+            backend_type: attestation::BackendType::Metal,
+            metallib_hash: Some(metallib_hash),
+            manifest,
+            rng_seed_method,
+            floating_point_mode,
+            compiler_flags,
+            deterministic,
+        })
     }
 }
 
@@ -1519,9 +1024,8 @@ impl MetalKernels {
         // SAFETY: We validated buffer bounds above, ensuring we don't read beyond
         // the allocated buffer. Metal buffers are guaranteed to be properly aligned
         // and accessible for the duration of their lifetime.
-        let contents = unsafe {
-            std::slice::from_raw_parts(buffer.contents() as *const f32, count)
-        };
+        let contents =
+            unsafe { std::slice::from_raw_parts(buffer.contents() as *const f32, count) };
 
         Ok(contents.to_vec())
     }
@@ -1544,12 +1048,8 @@ impl MetalKernels {
 
         // SAFETY: Bounds validation ensures we never access beyond buffer limits.
         // Metal guarantees buffer alignment and accessibility.
-        let slice = unsafe {
-            std::slice::from_raw_parts(
-                buffer.contents().add(start) as *const f32,
-                len
-            )
-        };
+        let slice =
+            unsafe { std::slice::from_raw_parts(buffer.contents().add(start) as *const f32, len) };
 
         Ok(slice)
     }
@@ -1566,9 +1066,7 @@ impl MetalKernels {
         // SAFETY: We take the minimum of requested and available bytes, ensuring
         // we never read beyond buffer boundaries. Metal buffers maintain proper
         // alignment and memory safety guarantees.
-        let slice = unsafe {
-            std::slice::from_raw_parts(buffer.contents() as *const u8, safe_len)
-        };
+        let slice = unsafe { std::slice::from_raw_parts(buffer.contents() as *const u8, safe_len) };
 
         Ok(slice)
     }

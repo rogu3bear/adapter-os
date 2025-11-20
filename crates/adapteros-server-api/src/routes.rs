@@ -1,6 +1,7 @@
 use crate::handlers;
 use crate::handlers::domain_adapters;
 use crate::middleware::{auth_middleware, dual_auth_middleware};
+use crate::middleware_security::{cors_layer, rate_limiting_middleware, request_size_limit_middleware, security_headers_middleware};
 use crate::state::AppState;
 use axum::{
     middleware,
@@ -709,8 +710,13 @@ pub fn build(state: AppState) -> Router {
             auth_middleware,
         ));
 
-    // Configure CORS for development
-    let cors = CorsLayer::permissive(); // Allow all origins in dev mode
+    // Apply security middleware layers (order matters: security first)
+    let security_layers = tower::ServiceBuilder::new()
+        .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers to all responses
+        .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limiting_middleware)) // Rate limiting
+        .layer(cors_layer()) // CORS configuration
+        .layer(TraceLayer::new_for_http()); // Request tracing
 
     // Combine routes
     Router::new()
@@ -718,7 +724,6 @@ pub fn build(state: AppState) -> Router {
         .merge(metrics_route)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        .layer(security_layers)
         .with_state(state)
 }

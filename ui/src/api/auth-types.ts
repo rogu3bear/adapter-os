@@ -96,3 +96,50 @@ export interface RotateTokenResponse {
 export interface LogoutRequest {
   token?: string;
 }
+
+export interface SessionInfo {
+  id: string;
+  device?: string;
+  ip_address?: string;
+  user_agent?: string;
+  location?: string;
+  created_at: string;
+  last_seen_at: string;
+  is_current: boolean;
+}
+
+export interface TokenMetadata {
+  token_id: string;
+  user_id: string;
+  issued_at: string;
+  expires_at: string;
+  last_used_at?: string;
+  device_info?: string;
+  ip_address?: string;
+}
+
+export interface UpdateProfileRequest {
+  display_name?: string;
+  email?: string;
+}
+
+export interface ProfileResponse {
+  user_id: string;
+  email: string;
+  display_name?: string;
+  role: UserRole;
+  tenant_id?: string;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string;
+}
+
+export interface AuthConfigResponse {
+  allow_registration: boolean;
+  require_email_verification: boolean;
+  session_timeout_minutes: number;
+  max_login_attempts: number;
+  password_min_length: number;
+  mfa_required: boolean;
+  allowed_domains?: string[];
+}

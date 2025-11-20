@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from './ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 import { Alert, AlertDescription } from './ui/alert';
 import {
   Settings,
@@ -417,10 +417,10 @@ export function AdapterLifecycleManager({
       });
       setStatusMessage({ message: `Failed to update policy: ${errorMessage}`, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handlePolicyUpdate(category, policy)
-        )
+        <ErrorRecovery
+          error={errorMessage}
+          onRetry={() => handlePolicyUpdate(category, policy)}
+        />
       );
       toast.error(`Failed to update policy: ${errorMessage}`);
     } finally {

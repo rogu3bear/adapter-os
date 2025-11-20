@@ -8,9 +8,9 @@
 
 #[cfg(target_os = "macos")]
 mod multi_backend_integration {
-    use adapteros_lora_kernel_api::{FusedKernels, MockKernels, RouterRing, IoBuffers};
-    use adapteros_lora_kernel_api::attestation::{BackendType, DeterminismReport};
     use adapteros_core::Result;
+    use adapteros_lora_kernel_api::attestation::{BackendType, DeterminismReport};
+    use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MockKernels, RouterRing};
 
     /// Mock backend selector for testing
     struct BackendSelector {
@@ -112,11 +112,15 @@ mod multi_backend_integration {
 
         println!("Available backends: {:?}", selector.available_backends);
 
-        assert!(!selector.available_backends.is_empty(),
-            "At least Mock backend should be available");
+        assert!(
+            !selector.available_backends.is_empty(),
+            "At least Mock backend should be available"
+        );
 
-        assert!(selector.available_backends.contains(&BackendType::Mock),
-            "Mock backend should always be available");
+        assert!(
+            selector.available_backends.contains(&BackendType::Mock),
+            "Mock backend should always be available"
+        );
     }
 
     #[test]
@@ -132,8 +136,11 @@ mod multi_backend_integration {
 
             // Verify it's the highest priority available
             let fallback_chain = selector.get_fallback_chain();
-            assert_eq!(Some(&backend), fallback_chain.first(),
-                "Selected backend should be highest priority");
+            assert_eq!(
+                Some(&backend),
+                fallback_chain.first(),
+                "Selected backend should be highest priority"
+            );
         }
     }
 
@@ -150,12 +157,16 @@ mod multi_backend_integration {
         // Verify ordering follows preference
         let mut prev_idx = 0;
         for backend in &chain {
-            let idx = selector.preferred_order.iter()
+            let idx = selector
+                .preferred_order
+                .iter()
                 .position(|b| b == backend)
                 .unwrap();
 
-            assert!(idx >= prev_idx,
-                "Fallback chain should follow preferred order");
+            assert!(
+                idx >= prev_idx,
+                "Fallback chain should follow preferred order"
+            );
             prev_idx = idx;
         }
     }
@@ -177,8 +188,11 @@ mod multi_backend_integration {
         }
 
         // Verify Mock is last resort
-        assert_eq!(chain.last(), Some(&BackendType::Mock),
-            "Mock should be last in fallback chain");
+        assert_eq!(
+            chain.last(),
+            Some(&BackendType::Mock),
+            "Mock should be last in fallback chain"
+        );
     }
 
     #[test]
@@ -203,8 +217,10 @@ mod multi_backend_integration {
 
         // Verify deterministic output
         assert_eq!(io.output_logits.len(), 1000);
-        assert!(io.output_logits.iter().all(|&x| x >= 0.0 && x < 1.0),
-            "Mock logits should be in valid range");
+        assert!(
+            io.output_logits.iter().all(|&x| x >= 0.0 && x < 1.0),
+            "Mock logits should be in valid range"
+        );
     }
 
     #[test]
@@ -242,8 +258,14 @@ mod multi_backend_integration {
 
         if let Ok(report) = attestation {
             assert_eq!(report.backend_type, BackendType::Mock);
-            assert!(report.deterministic, "Mock backend should attest as deterministic");
-            assert!(report.metallib_hash.is_none(), "Mock backend has no metallib");
+            assert!(
+                report.deterministic,
+                "Mock backend should attest as deterministic"
+            );
+            assert!(
+                report.metallib_hash.is_none(),
+                "Mock backend has no metallib"
+            );
         }
     }
 
@@ -447,8 +469,12 @@ mod multi_backend_integration {
             let elapsed = start.elapsed();
             switching_times.push(elapsed.as_micros());
 
-            println!("Switch {:?} -> {:?}: {}μs",
-                backends[i], backends[i + 1], elapsed.as_micros());
+            println!(
+                "Switch {:?} -> {:?}: {}μs",
+                backends[i],
+                backends[i + 1],
+                elapsed.as_micros()
+            );
         }
 
         let avg_switch_time = switching_times.iter().sum::<u128>() / switching_times.len() as u128;
@@ -472,19 +498,27 @@ mod multi_backend_integration {
                 }
             }
 
-            fn try_backend(&mut self, backend: BackendType, should_succeed: bool) -> Result<String> {
+            fn try_backend(
+                &mut self,
+                backend: BackendType,
+                should_succeed: bool,
+            ) -> Result<String> {
                 self.attempts.push((backend.clone(), should_succeed));
 
                 if should_succeed {
                     Ok(format!("Success on {:?}", backend))
                 } else {
-                    Err(adapteros_core::AosError::Kernel(
-                        format!("Failed on {:?}", backend)
-                    ))
+                    Err(adapteros_core::AosError::Kernel(format!(
+                        "Failed on {:?}",
+                        backend
+                    )))
                 }
             }
 
-            fn execute_with_fallback(&mut self, backends: Vec<(BackendType, bool)>) -> Result<String> {
+            fn execute_with_fallback(
+                &mut self,
+                backends: Vec<(BackendType, bool)>,
+            ) -> Result<String> {
                 for (backend, should_succeed) in backends {
                     match self.try_backend(backend.clone(), should_succeed) {
                         Ok(result) => return Ok(result),
@@ -495,7 +529,9 @@ mod multi_backend_integration {
                     }
                 }
 
-                Err(adapteros_core::AosError::Kernel("All backends failed".to_string()))
+                Err(adapteros_core::AosError::Kernel(
+                    "All backends failed".to_string(),
+                ))
             }
         }
 

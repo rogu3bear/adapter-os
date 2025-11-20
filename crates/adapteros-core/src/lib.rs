@@ -27,7 +27,6 @@
 
 pub mod circuit_breaker;
 pub mod error;
-pub mod timeout;
 pub mod hash;
 pub mod id;
 pub mod identity;
@@ -39,13 +38,14 @@ pub mod policy;
 pub mod seed;
 pub mod stack;
 pub mod tenant_snapshot;
+pub mod timeout;
 pub mod training;
 pub mod version;
 
 pub use circuit_breaker::{
-    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, SharedCircuitBreaker, StandardCircuitBreaker,
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
+    SharedCircuitBreaker, StandardCircuitBreaker,
 };
-pub use timeout::TimeoutExt;
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
@@ -53,11 +53,12 @@ pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, Transi
 pub use naming::{AdapterName, ForkType, StackName};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
-pub use stack::compute_stack_hash;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
     derive_seed_typed, hash_adapter_dir, SeedLabel,
 };
+pub use stack::compute_stack_hash;
+pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 pub use version::VersionInfo;
 
@@ -68,9 +69,10 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        AdapterName, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
-        DriftPolicy, ForkType, LifecycleState, LifecycleTransition, Result, ResultExt, SemanticVersion,
-        StackName, TransitionReason, CPID, SharedCircuitBreaker, StandardCircuitBreaker, TrainingConfig,
-        TrainingJob, TrainingJobStatus, TrainingTemplate, VersionInfo,
+        AdapterName, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics,
+        CircuitState, DriftPolicy, ForkType, LifecycleState, LifecycleTransition, Result,
+        ResultExt, SemanticVersion, SharedCircuitBreaker, StackName, StandardCircuitBreaker,
+        TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate, TransitionReason,
+        VersionInfo, CPID,
     };
 }

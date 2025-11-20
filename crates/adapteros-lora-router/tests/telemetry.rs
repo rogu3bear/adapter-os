@@ -69,10 +69,7 @@ fn test_router_increments_step_counter() {
         let event = receiver
             .try_recv()
             .expect("Should have emitted telemetry event");
-        assert_eq!(
-            event.step, expected_step,
-            "Step counter should increment"
-        );
+        assert_eq!(event.step, expected_step, "Step counter should increment");
     }
 }
 
@@ -99,10 +96,7 @@ fn test_router_propagates_stack_hash() {
     let event = receiver
         .try_recv()
         .expect("Should have emitted telemetry event");
-    assert!(
-        event.stack_hash.is_some(),
-        "Stack hash should be present"
-    );
+    assert!(event.stack_hash.is_some(), "Stack hash should be present");
     assert_eq!(
         event.stack_hash.unwrap(),
         stack_hash.to_short_hex(),
@@ -154,11 +148,7 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
     );
 
     // Verify drop counter
-    assert_eq!(
-        writer.dropped_count(),
-        2,
-        "Should have dropped 2 events"
-    );
+    assert_eq!(writer.dropped_count(), 2, "Should have dropped 2 events");
     assert_eq!(writer.total_count(), 4, "Should have attempted 4 events");
     assert!(
         (writer.drop_rate() - 0.5).abs() < 0.01,

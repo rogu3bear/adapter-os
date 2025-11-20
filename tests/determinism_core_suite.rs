@@ -89,7 +89,10 @@ fn test_stack_hash_with_many_adapters() {
 
     let hash2 = compute_stack_hash(adapters);
 
-    assert_eq!(hash1, hash2, "Stack hash must be order-independent with 100 adapters");
+    assert_eq!(
+        hash1, hash2,
+        "Stack hash must be order-independent with 100 adapters"
+    );
 
     println!("Stack hash (100 adapters): {}", hash1.to_hex());
 }
@@ -298,7 +301,10 @@ fn test_generate_golden_hashes() {
 
     // Test 1: Simple BLAKE3
     let hash = B3Hash::hash(b"AdapterOS Determinism Test");
-    println!("Test1 - BLAKE3('AdapterOS Determinism Test'): {}", hash.to_hex());
+    println!(
+        "Test1 - BLAKE3('AdapterOS Determinism Test'): {}",
+        hash.to_hex()
+    );
 
     // Test 2: Stack with 3 adapters
     let adapters = vec![
@@ -316,7 +322,10 @@ fn test_generate_golden_hashes() {
         ("adapter_b".to_string(), B3Hash::hash(b"hash_b")),
     ];
     let stack_hash_reversed = compute_stack_hash(adapters_reversed);
-    println!("Test3 - Stack hash (c,a,b): {}", stack_hash_reversed.to_hex());
+    println!(
+        "Test3 - Stack hash (c,a,b): {}",
+        stack_hash_reversed.to_hex()
+    );
     assert_eq!(stack_hash, stack_hash_reversed);
 
     // Test 4: IdentityEnvelope serialization

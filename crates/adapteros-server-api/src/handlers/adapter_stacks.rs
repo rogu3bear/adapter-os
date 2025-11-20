@@ -398,7 +398,16 @@ pub async fn activate_stack(
                     .get_stack(&tenant_id, old_id)
                     .await
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-                    .unwrap();
+                    .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, format!("Previous stack {} not found", old_id)))?;
+                serde_json::from_str::<Vec<String>>(&old_stack.adapter_ids_json).map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Parse old: {}", e),
+                    )
+                })?
+            } else {
+                vec![]
+            };
                 serde_json::from_str::<Vec<String>>(&old_stack.adapter_ids_json).map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -484,7 +493,9 @@ pub async fn deactivate_stack(
     let tenant_id = claims.tenant_id;
 
     let previous_stack = {
-        let mut active = state.active_stack.write().unwrap();
+        let mut active = state.active_stack.write().map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock poisoned: {}", e))
+        })?;
         let prev = active.get(&tenant_id).cloned();
         active.insert(tenant_id, None);
         prev

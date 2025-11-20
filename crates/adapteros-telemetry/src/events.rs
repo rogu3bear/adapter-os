@@ -142,7 +142,11 @@ impl InferenceEvent {
     }
 
     /// Attach stack metadata for telemetry correlation (PRD-03)
-    pub fn with_stack_metadata(mut self, stack_id: Option<String>, stack_version: Option<i64>) -> Self {
+    pub fn with_stack_metadata(
+        mut self,
+        stack_id: Option<String>,
+        stack_version: Option<i64>,
+    ) -> Self {
         self.stack_id = stack_id;
         self.stack_version = stack_version;
         self

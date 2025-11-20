@@ -171,8 +171,7 @@ rotate_size_mb = 10
 
 /// Find an available port for testing
 fn find_available_port() -> Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .context("Failed to bind to ephemeral port")?;
+    let listener = TcpListener::bind("127.0.0.1:0").context("Failed to bind to ephemeral port")?;
     let port = listener.local_addr()?.port();
     drop(listener); // Release the port
     Ok(port)
@@ -192,7 +191,8 @@ fn start_server(config: &TestServerConfig, extra_args: &[&str]) -> Result<Child>
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = cmd.spawn()
+    let child = cmd
+        .spawn()
         .with_context(|| format!("Failed to start server binary: {}", server_binary))?;
 
     Ok(child)
@@ -305,7 +305,10 @@ async fn test_server_startup_success() -> Result<()> {
     );
 
     let health_data: Value = response.json().await?;
-    eprintln!("Health response: {}", serde_json::to_string_pretty(&health_data)?);
+    eprintln!(
+        "Health response: {}",
+        serde_json::to_string_pretty(&health_data)?
+    );
 
     // Verify overall status is present
     assert!(
@@ -435,7 +438,10 @@ async fn test_server_port_conflict() -> Result<()> {
     // Check if second server has exited
     match second_server.try_wait()? {
         Some(status) => {
-            eprintln!("✓ Second server exited as expected with status: {:?}", status);
+            eprintln!(
+                "✓ Second server exited as expected with status: {:?}",
+                status
+            );
             assert!(
                 !status.success(),
                 "Second server should exit with error due to PID conflict"
@@ -547,8 +553,10 @@ async fn test_config_reload_sighup() -> Result<()> {
     eprintln!("✓ Server started");
 
     // Modify config file (change metrics bearer token)
-    let new_config_content = fs::read_to_string(&config.config_path)?
-        .replace("test_metrics_token_for_tests", "updated_metrics_token_after_reload");
+    let new_config_content = fs::read_to_string(&config.config_path)?.replace(
+        "test_metrics_token_for_tests",
+        "updated_metrics_token_after_reload",
+    );
 
     fs::write(&config.config_path, new_config_content)?;
     eprintln!("✓ Config file modified");
@@ -618,7 +626,14 @@ async fn test_health_check_degradation() -> Result<()> {
     eprintln!("{}", serde_json::to_string_pretty(&health_data)?);
 
     // Check individual component health endpoints
-    let component_names = vec!["db", "router", "loader", "kernel", "telemetry", "system-metrics"];
+    let component_names = vec![
+        "db",
+        "router",
+        "loader",
+        "kernel",
+        "telemetry",
+        "system-metrics",
+    ];
 
     for component in component_names {
         let component_url = format!("{}/api/healthz/{}", config.base_url(), component);
@@ -629,7 +644,8 @@ async fn test_health_check_degradation() -> Result<()> {
             eprintln!(
                 "✓ Component '{}' health: {}",
                 component,
-                component_health.get("status")
+                component_health
+                    .get("status")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
             );
@@ -671,22 +687,37 @@ fn test_config_generation() -> Result<()> {
     let config = TestServerConfig::new()?;
 
     // Verify config file was created
-    assert!(
-        config.config_path.exists(),
-        "Config file should be created"
-    );
+    assert!(config.config_path.exists(), "Config file should be created");
 
     // Verify config is valid TOML
     let config_content = fs::read_to_string(&config.config_path)?;
     let parsed: toml::Value = toml::from_str(&config_content)?;
 
     // Verify required sections
-    assert!(parsed.get("server").is_some(), "Config should have [server] section");
-    assert!(parsed.get("db").is_some(), "Config should have [db] section");
-    assert!(parsed.get("security").is_some(), "Config should have [security] section");
-    assert!(parsed.get("paths").is_some(), "Config should have [paths] section");
-    assert!(parsed.get("rate_limits").is_some(), "Config should have [rate_limits] section");
-    assert!(parsed.get("metrics").is_some(), "Config should have [metrics] section");
+    assert!(
+        parsed.get("server").is_some(),
+        "Config should have [server] section"
+    );
+    assert!(
+        parsed.get("db").is_some(),
+        "Config should have [db] section"
+    );
+    assert!(
+        parsed.get("security").is_some(),
+        "Config should have [security] section"
+    );
+    assert!(
+        parsed.get("paths").is_some(),
+        "Config should have [paths] section"
+    );
+    assert!(
+        parsed.get("rate_limits").is_some(),
+        "Config should have [rate_limits] section"
+    );
+    assert!(
+        parsed.get("metrics").is_some(),
+        "Config should have [metrics] section"
+    );
 
     eprintln!("✓ Config generation working correctly");
     Ok(())

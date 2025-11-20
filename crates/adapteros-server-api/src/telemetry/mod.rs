@@ -1230,7 +1230,7 @@ mod tests {
         let series = registry.get_series_async("test_metric").await;
         assert!(series.is_some());
 
-        let series = series.unwrap();
+        let series = series.expect("Failed to get metric series");
         assert_eq!(series.points.len(), 2);
         assert_eq!(series.points[0].value, 42.0);
         assert_eq!(series.points[1].value, 43.0);
@@ -1264,7 +1264,7 @@ mod tests {
         registry.record_metric_at("test_metric".to_string(), 4.0, 4000).await;
 
         // Retrieve series and filter by time range
-        let series = registry.get_series_async("test_metric").await.unwrap();
+        let series = registry.get_series_async("test_metric").await.expect("Failed to get test metric series");
 
         // Filter for points between 1500 and 3500
         let filtered = series.get_points(Some(1500), Some(3500));
@@ -1313,7 +1313,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_registry_collect_snapshot() {
         let registry = MetricsRegistry::new();
-        let collector = MetricsCollector::new().unwrap();
+        let collector = MetricsCollector::new().expect("Failed to create metrics collector");
 
         // Get a snapshot and collect it
         let snapshot = collector.get_metrics_snapshot().await;

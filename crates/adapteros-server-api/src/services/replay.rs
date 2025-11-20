@@ -11,12 +11,16 @@ pub async fn fetch_bundle_metadata(db: &Db, bundle_id: &str) -> Result<(String, 
         .bind(bundle_id)
         .fetch_optional(db.pool())
         .await?;
-    let metadata: serde_json::Value = row.map(|r| serde_json::from_str(r.get("metadata_json")).unwrap()).unwrap_or(serde_json::from_str(r#"{"cpid": "default", "plan_id": "default"}"#)?;
+    let metadata: serde_json::Value = if let Some(r) = row {
+        serde_json::from_str(r.get("metadata_json")).map_err(|e| AosError::Serialization(format!("Invalid metadata JSON: {}", e)))?
+    } else {
+        serde_json::from_str(r#"{"cpid": "default", "plan_id": "default"}"#).map_err(|e| AosError::Serialization(format!("Invalid default metadata: {}", e)))?
+    };
     let cpid = metadata["cpid"].as_str().unwrap_or("default").to_string();
     let plan_id = metadata["plan_id"].as_str().unwrap_or("default").to_string();
     let seed = GlobalSeed::get_or_init(b"replay_seed");
     let mut rng = seed.rng();
-    let session_id = Uuid::from_bytes([rng.next_u64() as u8; 16].try_into().unwrap()).to_string(); // Seeded Uuid
+    let session_id = Uuid::from_bytes([rng.next_u64() as u8; 16].try_into().expect("Failed to create UUID bytes")).to_string(); // Seeded Uuid
     Ok((cpid, plan_id))
 }
 

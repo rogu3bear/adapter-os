@@ -15,12 +15,11 @@ macro_rules! test_round_trip {
             let original: $type_name = $value;
 
             // Serialize to JSON
-            let json = serde_json::to_value(&original)
-                .expect("Failed to serialize to JSON");
+            let json = serde_json::to_value(&original).expect("Failed to serialize to JSON");
 
             // Deserialize back to Rust
-            let deserialized: $type_name = serde_json::from_value(json.clone())
-                .expect("Failed to deserialize from JSON");
+            let deserialized: $type_name =
+                serde_json::from_value(json.clone()).expect("Failed to deserialize from JSON");
 
             // Test function to validate round-trip correctness
             $test_fn(&original, &deserialized, &json);
@@ -42,8 +41,7 @@ async fn test_infer_response_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: InferResponse = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: InferResponse = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.text, deserialized.text);
     assert_eq!(original.token_count, deserialized.token_count);
@@ -61,8 +59,7 @@ async fn test_inference_trace_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: InferenceTrace = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: InferenceTrace = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.cpid, deserialized.cpid);
     assert_eq!(original.input_tokens, deserialized.input_tokens);
@@ -79,8 +76,7 @@ async fn test_router_decision_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: RouterDecision = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: RouterDecision = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.step, deserialized.step);
     assert_eq!(original.selected_adapter, deserialized.selected_adapter);
@@ -111,12 +107,14 @@ async fn test_batch_infer_request_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: BatchInferRequest = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: BatchInferRequest = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.requests.len(), deserialized.requests.len());
     assert_eq!(original.requests[0].id, deserialized.requests[0].id);
-    assert_eq!(original.requests[1].request.max_tokens, deserialized.requests[1].request.max_tokens);
+    assert_eq!(
+        original.requests[1].request.max_tokens,
+        deserialized.requests[1].request.max_tokens
+    );
 }
 
 #[tokio::test]
@@ -147,8 +145,8 @@ async fn test_batch_infer_response_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: BatchInferResponse = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: BatchInferResponse =
+        serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.responses.len(), deserialized.responses.len());
     assert!(deserialized.responses[0].response.is_some());
@@ -171,8 +169,7 @@ async fn test_adapter_response_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: AdapterResponse = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: AdapterResponse = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.id, deserialized.id);
     assert_eq!(original.name, deserialized.name);
@@ -192,8 +189,7 @@ async fn test_adapter_manifest_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: AdapterManifest = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: AdapterManifest = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.id, deserialized.id);
     assert_eq!(original.description, deserialized.description);
@@ -214,8 +210,7 @@ async fn test_error_response_round_trip_minimal() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: ErrorResponse = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: ErrorResponse = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.error, deserialized.error);
     assert_eq!(original.code, deserialized.code);
@@ -235,8 +230,7 @@ async fn test_error_response_round_trip_with_details() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: ErrorResponse = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: ErrorResponse = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.details, deserialized.details);
 }
@@ -260,13 +254,14 @@ async fn test_health_response_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: HealthResponse = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: HealthResponse = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.status, deserialized.status);
     assert!(deserialized.models.is_some());
-    assert_eq!(original.models.unwrap().total_models,
-               deserialized.models.unwrap().total_models);
+    assert_eq!(
+        original.models.unwrap().total_models,
+        deserialized.models.unwrap().total_models
+    );
 }
 
 #[tokio::test]
@@ -279,8 +274,8 @@ async fn test_model_runtime_health_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: ModelRuntimeHealth = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: ModelRuntimeHealth =
+        serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.total_models, deserialized.total_models);
     assert_eq!(original.loaded_count, deserialized.loaded_count);
@@ -318,8 +313,7 @@ async fn test_routing_decision_round_trip() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: RoutingDecision = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: RoutingDecision = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.id, deserialized.id);
     assert_eq!(original.tenant_id, deserialized.tenant_id);
@@ -338,8 +332,14 @@ async fn test_paginated_response_round_trip() {
     let original = PaginatedResponse {
         schema_version: "1.0".to_string(),
         data: vec![
-            TestItem { id: "1".to_string(), name: "Item 1".to_string() },
-            TestItem { id: "2".to_string(), name: "Item 2".to_string() },
+            TestItem {
+                id: "1".to_string(),
+                name: "Item 1".to_string(),
+            },
+            TestItem {
+                id: "2".to_string(),
+                name: "Item 2".to_string(),
+            },
         ],
         total: 42,
         page: 1,
@@ -376,7 +376,8 @@ async fn test_field_names_use_snake_case() {
         for key in obj.keys() {
             // token_count, latency_ms are valid snake_case
             assert!(
-                key.chars().all(|c| c.is_lowercase() || c == '_' || c.is_numeric()),
+                key.chars()
+                    .all(|c| c.is_lowercase() || c == '_' || c.is_numeric()),
                 "Field '{}' is not in snake_case",
                 key
             );
@@ -400,7 +401,8 @@ async fn test_nested_field_names_snake_case() {
         for key in obj.keys() {
             // input_tokens, generated_tokens, router_decisions are valid
             assert!(
-                key.chars().all(|c| c.is_lowercase() || c == '_' || c.is_numeric()),
+                key.chars()
+                    .all(|c| c.is_lowercase() || c == '_' || c.is_numeric()),
                 "Nested field '{}' violates snake_case convention",
                 key
             );
@@ -425,8 +427,10 @@ async fn test_optional_fields_omitted_when_none() {
 
     // `details` field should be omitted when None
     if let Some(obj) = json.as_object() {
-        assert!(!obj.contains_key("details"),
-                "None fields should be omitted from JSON");
+        assert!(
+            !obj.contains_key("details"),
+            "None fields should be omitted from JSON"
+        );
     }
 }
 
@@ -443,8 +447,10 @@ async fn test_optional_fields_included_when_some() {
 
     // `details` field should be present when Some
     if let Some(obj) = json.as_object() {
-        assert!(obj.contains_key("details"),
-                "Some fields should be included in JSON");
+        assert!(
+            obj.contains_key("details"),
+            "Some fields should be included in JSON"
+        );
     }
 }
 
@@ -464,7 +470,7 @@ async fn test_f64_precision_preserved() {
         stack_id: None,
         stack_name: None,
         stack_hash: None,
-        entropy: 3.14159265359,  // High precision value
+        entropy: 3.14159265359, // High precision value
         tau: 1.0,
         entropy_floor: 0.001,
         k_value: None,
@@ -479,8 +485,7 @@ async fn test_f64_precision_preserved() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: RoutingDecision = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: RoutingDecision = serde_json::from_value(json).expect("deserialize failed");
 
     // Check precision is maintained within acceptable bounds
     assert!((original.entropy - deserialized.entropy).abs() < 1e-10);
@@ -497,8 +502,7 @@ async fn test_integer_type_preservation() {
     };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: InferenceTrace = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: InferenceTrace = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.input_tokens, deserialized.input_tokens);
 }
@@ -523,8 +527,7 @@ async fn test_large_batch_request_round_trip() {
     let original = BatchInferRequest { requests };
 
     let json = serde_json::to_value(&original).expect("serialize failed");
-    let deserialized: BatchInferRequest = serde_json::from_value(json)
-        .expect("deserialize failed");
+    let deserialized: BatchInferRequest = serde_json::from_value(json).expect("deserialize failed");
 
     assert_eq!(original.requests.len(), 100);
     assert_eq!(deserialized.requests.len(), 100);

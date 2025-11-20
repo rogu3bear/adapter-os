@@ -626,12 +626,12 @@ class ApiClient {
     return this.request<types.Adapter>(`/v1/adapters/${adapterId}`);
   }
 
-  async getAdapterDetail(adapterId: string): Promise<types.Adapter> {
-    return this.request<types.Adapter>(`/v1/adapters/${adapterId}/detail`);
+  async getAdapterDetail(adapterId: string): Promise<types.AdapterDetailResponse> {
+    return this.request<types.AdapterDetailResponse>(`/v1/adapters/${adapterId}/detail`);
   }
 
-  async getAdapterLineage(adapterId: string): Promise<types.AdapterLineage> {
-    return this.request<types.AdapterLineage>(`/v1/adapters/${adapterId}/lineage`);
+  async getAdapterLineage(adapterId: string): Promise<types.AdapterLineageResponse> {
+    return this.request<types.AdapterLineageResponse>(`/v1/adapters/${adapterId}/lineage`);
   }
 
   async promoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {

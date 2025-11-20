@@ -365,7 +365,7 @@ impl SupervisorClient {
                             attempt + 1,
                             self.max_retries + 1,
                             backoff,
-                            last_error.as_ref().unwrap()
+                            last_error.as_ref().expect("Error should be set after failed attempt")
                         );
                         tokio::time::sleep(backoff).await;
                     }
@@ -376,7 +376,7 @@ impl SupervisorClient {
         Err(AosError::Network(format!(
             "Request failed after {} attempts: {}",
             self.max_retries + 1,
-            last_error.unwrap()
+            last_error.expect("Error should be set after all retry attempts")
         )))
     }
 

@@ -40,15 +40,14 @@ fn main() {
 
     // Create telemetry sink
     let telemetry_sink = Arc::new(NoOpTelemetrySink::new());
-    let telemetry = MemoryTelemetryWriter::new(Some(
-        telemetry_sink.clone() as Arc<dyn TelemetryEventSink>
-    ));
+    let telemetry =
+        MemoryTelemetryWriter::new(Some(telemetry_sink.clone() as Arc<dyn TelemetryEventSink>));
 
     // Define memory limits
     let limits = MemoryLimits::new(
         1 * 1024 * 1024 * 1024, // 1 GB VRAM
         2 * 1024 * 1024 * 1024, // 2 GB system RAM
-        0.15,                    // 15% headroom
+        0.15,                   // 15% headroom
     );
 
     println!("Memory Limits:");
@@ -106,18 +105,9 @@ fn main() {
     telemetry.emit_stats(&stats);
 
     println!("\nMemory Statistics:");
-    println!(
-        "  Total: {} MB",
-        stats.total_memory_used / (1024 * 1024)
-    );
-    println!(
-        "  Metal: {} MB",
-        stats.metal_memory_used / (1024 * 1024)
-    );
-    println!(
-        "  CoreML: {} MB",
-        stats.coreml_memory_used / (1024 * 1024)
-    );
+    println!("  Total: {} MB", stats.total_memory_used / (1024 * 1024));
+    println!("  Metal: {} MB", stats.metal_memory_used / (1024 * 1024));
+    println!("  CoreML: {} MB", stats.coreml_memory_used / (1024 * 1024));
     println!("  MLX: {} MB", stats.mlx_memory_used / (1024 * 1024));
     println!("  Headroom: {:.2}%", stats.headroom_pct);
     println!("  Pressure: {:?}\n", stats.pressure_level);
@@ -158,7 +148,12 @@ fn main() {
 
     println!("Converting Metal → CoreML...");
     let coreml_data = pool
-        .convert_tensor_format(&metal_data, TensorFormat::Metal, TensorFormat::CoreML, shape)
+        .convert_tensor_format(
+            &metal_data,
+            TensorFormat::Metal,
+            TensorFormat::CoreML,
+            shape,
+        )
         .unwrap();
     println!(
         "  Converted {} bytes → {} bytes",
@@ -209,10 +204,7 @@ fn main() {
     println!("  Level: {:?}", report.pressure_level);
     println!("  Action: {:?}", report.action_taken);
     println!("  Adapters evicted: {}", report.adapters_evicted.len());
-    println!(
-        "  Bytes freed: {} MB",
-        report.bytes_freed / (1024 * 1024)
-    );
+    println!("  Bytes freed: {} MB", report.bytes_freed / (1024 * 1024));
     println!(
         "  Headroom: {:.2}% → {:.2}%",
         report.headroom_before, report.headroom_after

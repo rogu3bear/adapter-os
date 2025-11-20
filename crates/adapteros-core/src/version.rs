@@ -175,7 +175,11 @@ impl VersionInfo {
         if self.git_commit == "unknown" {
             self.release.clone()
         } else {
-            format!("{} ({})", self.release, &self.git_commit[..7.min(self.git_commit.len())])
+            format!(
+                "{} ({})",
+                self.release,
+                &self.git_commit[..7.min(self.git_commit.len())]
+            )
         }
     }
 
@@ -220,7 +224,11 @@ impl fmt::Display for VersionInfo {
         writeln!(f, "Git Commit:      {}", self.git_commit)?;
         writeln!(f, "Build Time:      {}", self.build_timestamp)?;
         writeln!(f, "Build Profile:   {}", self.build_profile)?;
-        writeln!(f, "Target:          {}-{}", self.target_os, self.target_arch)?;
+        writeln!(
+            f,
+            "Target:          {}-{}",
+            self.target_os, self.target_arch
+        )?;
         Ok(())
     }
 }
@@ -233,9 +241,18 @@ mod tests {
     fn test_version_constants() {
         // Ensure version constants are populated
         assert!(!VERSION.is_empty(), "VERSION must not be empty");
-        assert!(!API_SCHEMA_VERSION.is_empty(), "API_SCHEMA_VERSION must not be empty");
-        assert!(DATABASE_SCHEMA_VERSION > 0, "DATABASE_SCHEMA_VERSION must be > 0");
-        assert!(!RNG_MODULE_VERSION.is_empty(), "RNG_MODULE_VERSION must not be empty");
+        assert!(
+            !API_SCHEMA_VERSION.is_empty(),
+            "API_SCHEMA_VERSION must not be empty"
+        );
+        assert!(
+            DATABASE_SCHEMA_VERSION > 0,
+            "DATABASE_SCHEMA_VERSION must be > 0"
+        );
+        assert!(
+            !RNG_MODULE_VERSION.is_empty(),
+            "RNG_MODULE_VERSION must not be empty"
+        );
     }
 
     #[test]
@@ -290,7 +307,9 @@ mod tests {
         let info = VersionInfo::current();
 
         // Matching version should succeed
-        assert!(info.verify_database_version(DATABASE_SCHEMA_VERSION).is_ok());
+        assert!(info
+            .verify_database_version(DATABASE_SCHEMA_VERSION)
+            .is_ok());
 
         // Behind version should error with helpful message
         let behind_result = info.verify_database_version(DATABASE_SCHEMA_VERSION - 1);

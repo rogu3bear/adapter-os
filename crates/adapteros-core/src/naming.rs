@@ -474,7 +474,7 @@ impl ForkType {
         }
     }
 
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse_from_str(s: &str) -> Result<Self> {
         match s {
             "independent" => Ok(ForkType::Independent),
             "extension" => Ok(ForkType::Extension),
@@ -705,14 +705,14 @@ mod tests {
     #[test]
     fn test_fork_type() {
         assert_eq!(
-            ForkType::from_str("independent").unwrap(),
+            ForkType::parse_from_str("independent").unwrap(),
             ForkType::Independent
         );
         assert_eq!(
-            ForkType::from_str("extension").unwrap(),
+            ForkType::parse_from_str("extension").unwrap(),
             ForkType::Extension
         );
-        assert!(ForkType::from_str("invalid").is_err());
+        assert!(ForkType::parse_from_str("invalid").is_err());
     }
 
     #[test]

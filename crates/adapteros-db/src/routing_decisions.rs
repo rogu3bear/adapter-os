@@ -55,8 +55,8 @@ pub struct RoutingDecisionFilters {
     pub stack_id: Option<String>,
     pub adapter_id: Option<String>,
     pub request_id: Option<String>,
-    pub since: Option<String>,  // ISO-8601 timestamp
-    pub until: Option<String>,  // ISO-8601 timestamp
+    pub since: Option<String>, // ISO-8601 timestamp
+    pub until: Option<String>, // ISO-8601 timestamp
     pub min_entropy: Option<f64>,
     pub max_overhead_pct: Option<f64>,
     pub limit: Option<usize>,
@@ -77,7 +77,7 @@ impl Db {
                 candidate_adapters, selected_adapter_ids, router_latency_us,
                 total_inference_latency_us, overhead_pct, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            "#
+            "#,
         )
         .bind(&decision.id)
         .bind(&decision.tenant_id)
@@ -98,7 +98,9 @@ impl Db {
         .bind(decision.overhead_pct)
         .execute(self.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to insert routing decision: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to insert routing decision: {}", e))
+        })?;
 
         Ok(decision.id.clone())
     }
@@ -107,13 +109,16 @@ impl Db {
     ///
     /// Args: `filters` - Query filters for filtering results
     /// Errors: `AosError::Database` if query fails
-    pub async fn query_routing_decisions(&self, filters: &RoutingDecisionFilters) -> Result<Vec<RoutingDecision>> {
+    pub async fn query_routing_decisions(
+        &self,
+        filters: &RoutingDecisionFilters,
+    ) -> Result<Vec<RoutingDecision>> {
         let mut query = String::from(
             "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
              stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
              candidate_adapters, selected_adapter_ids, router_latency_us, \
              total_inference_latency_us, overhead_pct, created_at \
-             FROM routing_decisions WHERE 1=1"
+             FROM routing_decisions WHERE 1=1",
         );
         let mut params: Vec<String> = Vec::new();
 
@@ -156,7 +161,7 @@ impl Db {
         if let Some(limit) = filters.limit {
             query.push_str(&format!(" LIMIT {}", limit));
         } else {
-            query.push_str(" LIMIT 50");  // Default limit
+            query.push_str(" LIMIT 50"); // Default limit
         }
         if let Some(offset) = filters.offset {
             query.push_str(&format!(" OFFSET {}", offset));
@@ -168,10 +173,9 @@ impl Db {
             sql_query = sql_query.bind(param);
         }
 
-        let decisions = sql_query
-            .fetch_all(self.pool())
-            .await
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to query routing decisions: {}", e)))?;
+        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to query routing decisions: {}", e))
+        })?;
 
         Ok(decisions)
     }
@@ -186,13 +190,17 @@ impl Db {
              stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
              candidate_adapters, selected_adapter_ids, router_latency_us, \
              total_inference_latency_us, overhead_pct, created_at \
-             FROM routing_decisions WHERE id = ?"
+             FROM routing_decisions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get routing decision: {}", e)))?
-        .ok_or_else(|| adapteros_core::AosError::NotFound(format!("Routing decision not found: {}", id)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to get routing decision: {}", e))
+        })?
+        .ok_or_else(|| {
+            adapteros_core::AosError::NotFound(format!("Routing decision not found: {}", id))
+        })?;
 
         Ok(decision)
     }
@@ -201,7 +209,11 @@ impl Db {
     ///
     /// Args: `stack_id` - The adapter stack ID, `limit` - Maximum number of results
     /// Errors: `AosError::Database` if query fails
-    pub async fn get_stack_routing_decisions(&self, stack_id: &str, limit: usize) -> Result<Vec<RoutingDecision>> {
+    pub async fn get_stack_routing_decisions(
+        &self,
+        stack_id: &str,
+        limit: usize,
+    ) -> Result<Vec<RoutingDecision>> {
         let filters = RoutingDecisionFilters {
             stack_id: Some(stack_id.to_string()),
             limit: Some(limit),
@@ -214,7 +226,11 @@ impl Db {
     ///
     /// Args: `tenant_id` - Optional tenant filter, `limit` - Maximum number of results
     /// Errors: `AosError::Database` if query fails
-    pub async fn get_high_overhead_decisions(&self, tenant_id: Option<String>, limit: usize) -> Result<Vec<RoutingDecision>> {
+    pub async fn get_high_overhead_decisions(
+        &self,
+        tenant_id: Option<String>,
+        limit: usize,
+    ) -> Result<Vec<RoutingDecision>> {
         // Use view instead for performance
         let query = if tenant_id.is_some() {
             format!(
@@ -241,10 +257,12 @@ impl Db {
             sql_query = sql_query.bind(tid);
         }
 
-        let decisions = sql_query
-            .fetch_all(self.pool())
-            .await
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to query high overhead decisions: {}", e)))?;
+        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+            adapteros_core::AosError::Database(format!(
+                "Failed to query high overhead decisions: {}",
+                e
+            ))
+        })?;
 
         Ok(decisions)
     }
@@ -253,7 +271,11 @@ impl Db {
     ///
     /// Args: `tenant_id` - Optional tenant filter, `limit` - Maximum number of results
     /// Errors: `AosError::Database` if query fails
-    pub async fn get_low_entropy_decisions(&self, tenant_id: Option<String>, limit: usize) -> Result<Vec<RoutingDecision>> {
+    pub async fn get_low_entropy_decisions(
+        &self,
+        tenant_id: Option<String>,
+        limit: usize,
+    ) -> Result<Vec<RoutingDecision>> {
         let query = if tenant_id.is_some() {
             format!(
                 "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
@@ -279,10 +301,12 @@ impl Db {
             sql_query = sql_query.bind(tid);
         }
 
-        let decisions = sql_query
-            .fetch_all(self.pool())
-            .await
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to query low entropy decisions: {}", e)))?;
+        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+            adapteros_core::AosError::Database(format!(
+                "Failed to query low entropy decisions: {}",
+                e
+            ))
+        })?;
 
         Ok(decisions)
     }
@@ -296,7 +320,12 @@ impl Db {
             .bind(older_than)
             .execute(self.pool())
             .await
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to delete old routing decisions: {}", e)))?;
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!(
+                    "Failed to delete old routing decisions: {}",
+                    e
+                ))
+            })?;
 
         Ok(result.rows_affected())
     }
@@ -308,7 +337,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_routing_decision_crud() {
-        let db = Db::new_in_memory().await.expect("Failed to create in-memory database");
+        let db = Db::new_in_memory()
+            .await
+            .expect("Failed to create in-memory database");
 
         let decision = RoutingDecision {
             id: "test-decision-1".to_string(),
@@ -323,7 +354,8 @@ mod tests {
             tau: 0.1,
             entropy_floor: 0.01,
             k_value: Some(3),
-            candidate_adapters: r#"[{"adapter_idx":0,"raw_score":0.5,"gate_q15":16384}]"#.to_string(),
+            candidate_adapters: r#"[{"adapter_idx":0,"raw_score":0.5,"gate_q15":16384}]"#
+                .to_string(),
             selected_adapter_ids: Some("adapter-1,adapter-2".to_string()),
             router_latency_us: Some(1500),
             total_inference_latency_us: Some(50000),
@@ -332,11 +364,17 @@ mod tests {
         };
 
         // Insert
-        let id = db.insert_routing_decision(&decision).await.expect("Failed to insert decision");
+        let id = db
+            .insert_routing_decision(&decision)
+            .await
+            .expect("Failed to insert decision");
         assert_eq!(id, "test-decision-1");
 
         // Get by ID
-        let retrieved = db.get_routing_decision(&id).await.expect("Failed to get decision");
+        let retrieved = db
+            .get_routing_decision(&id)
+            .await
+            .expect("Failed to get decision");
         assert_eq!(retrieved.id, decision.id);
         assert_eq!(retrieved.entropy, decision.entropy);
 
@@ -346,7 +384,10 @@ mod tests {
             limit: Some(10),
             ..Default::default()
         };
-        let results = db.query_routing_decisions(&filters).await.expect("Failed to query decisions");
+        let results = db
+            .query_routing_decisions(&filters)
+            .await
+            .expect("Failed to query decisions");
         assert_eq!(results.len(), 1);
     }
 }

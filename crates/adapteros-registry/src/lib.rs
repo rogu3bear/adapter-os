@@ -270,7 +270,7 @@ impl Registry {
                         parent_id: row.get(8)?,
                         fork_type: row
                             .get::<_, Option<String>>(9)?
-                            .and_then(|s| ForkType::from_str(&s).ok()),
+                            .and_then(|s| ForkType::parse_from_str(&s).ok()),
                         fork_reason: row.get(10)?,
                     })
                 },
@@ -310,7 +310,7 @@ impl Registry {
                         parent_id: row.get(8)?,
                         fork_type: row
                             .get::<_, Option<String>>(9)?
-                            .and_then(|s| ForkType::from_str(&s).ok()),
+                            .and_then(|s| ForkType::parse_from_str(&s).ok()),
                         fork_reason: row.get(10)?,
                     })
                 },

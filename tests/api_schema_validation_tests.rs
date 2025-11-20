@@ -1,6 +1,8 @@
 //! Integration tests for API response schema validation
 
-use adapteros_server_api::validation::response_schemas::{ResponseSchemaValidator, ResponseValidationMiddleware, SharedResponseValidator};
+use adapteros_server_api::validation::response_schemas::{
+    ResponseSchemaValidator, ResponseValidationMiddleware, SharedResponseValidator,
+};
 use adapteros_telemetry::TelemetryWriter;
 use serde_json::json;
 use std::sync::Arc;
@@ -32,8 +34,13 @@ async fn test_inference_response_validation_success() {
         }
     });
 
-    let result = middleware.validate_and_handle(&valid_response, "inference_response").await;
-    assert!(result.is_ok(), "Valid inference response should pass validation");
+    let result = middleware
+        .validate_and_handle(&valid_response, "inference_response")
+        .await;
+    assert!(
+        result.is_ok(),
+        "Valid inference response should pass validation"
+    );
 }
 
 #[tokio::test]
@@ -46,8 +53,13 @@ async fn test_inference_response_validation_failure_missing_required() {
         // Missing token_count, latency_ms
     });
 
-    let result = middleware.validate_and_handle(&invalid_response, "inference_response").await;
-    assert!(result.is_err(), "Response missing required fields should fail validation");
+    let result = middleware
+        .validate_and_handle(&invalid_response, "inference_response")
+        .await;
+    assert!(
+        result.is_err(),
+        "Response missing required fields should fail validation"
+    );
 
     let error = result.unwrap_err();
     match error {
@@ -70,8 +82,13 @@ async fn test_inference_response_validation_failure_wrong_types() {
         "latency_ms": true  // Should be integer
     });
 
-    let result = middleware.validate_and_handle(&invalid_response, "inference_response").await;
-    assert!(result.is_err(), "Response with wrong field types should fail validation");
+    let result = middleware
+        .validate_and_handle(&invalid_response, "inference_response")
+        .await;
+    assert!(
+        result.is_err(),
+        "Response with wrong field types should fail validation"
+    );
 }
 
 #[tokio::test]
@@ -96,8 +113,13 @@ async fn test_model_list_response_validation() {
         ]
     });
 
-    let result = middleware.validate_and_handle(&valid_response, "model_list_response").await;
-    assert!(result.is_ok(), "Valid model list response should pass validation");
+    let result = middleware
+        .validate_and_handle(&valid_response, "model_list_response")
+        .await;
+    assert!(
+        result.is_ok(),
+        "Valid model list response should pass validation"
+    );
 }
 
 #[tokio::test]
@@ -116,8 +138,13 @@ async fn test_error_response_validation() {
         }
     });
 
-    let result = middleware.validate_and_handle(&valid_error_response, "error_response").await;
-    assert!(result.is_ok(), "Valid error response should pass validation");
+    let result = middleware
+        .validate_and_handle(&valid_error_response, "error_response")
+        .await;
+    assert!(
+        result.is_ok(),
+        "Valid error response should pass validation"
+    );
 }
 
 #[tokio::test]
@@ -129,9 +156,14 @@ async fn test_monitor_only_mode() {
         "text": "Missing fields"
     });
 
-    let result = middleware.validate_monitor_only(&invalid_response, "inference_response").await;
+    let result = middleware
+        .validate_monitor_only(&invalid_response, "inference_response")
+        .await;
 
-    assert!(!result.valid, "Invalid response should be detected in monitor mode");
+    assert!(
+        !result.valid,
+        "Invalid response should be detected in monitor mode"
+    );
     assert!(!result.errors.is_empty(), "Should have validation errors");
     assert_eq!(result.schema_name, "inference_response");
 }
@@ -143,8 +175,13 @@ async fn test_unknown_schema_handling() {
 
     let response = json!({"test": "data"});
 
-    let result = middleware.validate_and_handle(&response, "nonexistent_schema").await;
-    assert!(result.is_err(), "Unknown schema should cause validation error");
+    let result = middleware
+        .validate_and_handle(&response, "nonexistent_schema")
+        .await;
+    assert!(
+        result.is_err(),
+        "Unknown schema should cause validation error"
+    );
 }
 
 #[tokio::test]
@@ -181,8 +218,13 @@ async fn test_schema_registration_and_usage() {
         }
     });
 
-    let result = middleware.validate_and_handle(&valid_response, "custom_response").await;
-    assert!(result.is_ok(), "Valid custom response should pass validation");
+    let result = middleware
+        .validate_and_handle(&valid_response, "custom_response")
+        .await;
+    assert!(
+        result.is_ok(),
+        "Valid custom response should pass validation"
+    );
 
     // Test invalid custom response
     let invalid_response = json!({
@@ -190,8 +232,13 @@ async fn test_schema_registration_and_usage() {
         // Missing required "status" field
     });
 
-    let result = middleware.validate_and_handle(&invalid_response, "custom_response").await;
-    assert!(result.is_err(), "Invalid custom response should fail validation");
+    let result = middleware
+        .validate_and_handle(&invalid_response, "custom_response")
+        .await;
+    assert!(
+        result.is_err(),
+        "Invalid custom response should fail validation"
+    );
 }
 
 #[tokio::test]
@@ -221,15 +268,24 @@ async fn test_validation_performance() {
     let start_time = std::time::Instant::now();
 
     for _ in 0..100 {
-        let result = middleware.validate_monitor_only(&complex_response, "inference_response").await;
+        let result = middleware
+            .validate_monitor_only(&complex_response, "inference_response")
+            .await;
         assert!(result.valid, "Complex response should be valid");
-        assert!(result.validation_time_us < 10000, "Validation should be fast (< 10ms)");
+        assert!(
+            result.validation_time_us < 10000,
+            "Validation should be fast (< 10ms)"
+        );
     }
 
     let total_time = start_time.elapsed();
     let avg_time_per_validation = total_time.as_micros() as f64 / 100.0;
 
-    assert!(avg_time_per_validation < 5000.0, "Average validation time should be reasonable (< 5ms): {:.2}μs", avg_time_per_validation);
+    assert!(
+        avg_time_per_validation < 5000.0,
+        "Average validation time should be reasonable (< 5ms): {:.2}μs",
+        avg_time_per_validation
+    );
 }
 
 #[tokio::test]
@@ -244,15 +300,25 @@ async fn test_validation_error_details() {
         "extra_field": "should be ignored"
     });
 
-    let result = middleware.validate_monitor_only(&invalid_response, "inference_response").await;
+    let result = middleware
+        .validate_monitor_only(&invalid_response, "inference_response")
+        .await;
 
     assert!(!result.valid);
-    assert!(result.errors.len() >= 2, "Should have multiple validation errors");
+    assert!(
+        result.errors.len() >= 2,
+        "Should have multiple validation errors"
+    );
 
     // Check that error messages are descriptive
     let error_text = result.errors.join(" ");
-    assert!(error_text.contains("text") || error_text.contains("token_count") || error_text.contains("latency_ms"),
-            "Error messages should mention the problematic fields: {}", error_text);
+    assert!(
+        error_text.contains("text")
+            || error_text.contains("token_count")
+            || error_text.contains("latency_ms"),
+        "Error messages should mention the problematic fields: {}",
+        error_text
+    );
 }
 
 #[tokio::test]
@@ -274,7 +340,9 @@ async fn test_concurrent_validation() {
         let middleware_clone = ResponseValidationMiddleware::new(Arc::clone(&validator));
 
         let handle = tokio::spawn(async move {
-            let result = middleware_clone.validate_and_handle(&response, "inference_response").await;
+            let result = middleware_clone
+                .validate_and_handle(&response, "inference_response")
+                .await;
             (i, result)
         });
 
@@ -284,6 +352,10 @@ async fn test_concurrent_validation() {
     // Wait for all validations to complete
     for handle in handles {
         let (index, result) = handle.await.unwrap();
-        assert!(result.is_ok(), "Concurrent validation {} should succeed", index);
+        assert!(
+            result.is_ok(),
+            "Concurrent validation {} should succeed",
+            index
+        );
     }
 }

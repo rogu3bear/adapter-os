@@ -11,9 +11,8 @@ use tempfile::TempDir;
 
 /// Helper to create a test Git repository with commits
 async fn create_test_repo() -> Result<(TempDir, String)> {
-    let temp_dir = TempDir::new().map_err(|e| {
-        adapteros_core::AosError::Io(format!("Failed to create temp dir: {}", e))
-    })?;
+    let temp_dir = TempDir::new()
+        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to create temp dir: {}", e)))?;
     let repo_path = temp_dir.path();
 
     // Initialize git repo
@@ -37,9 +36,8 @@ async fn create_test_repo() -> Result<(TempDir, String)> {
         .map_err(|e| adapteros_core::AosError::Git(format!("Failed to config email: {}", e)))?;
 
     // Create first commit
-    std::fs::write(repo_path.join("README.md"), "# Test Repository\n").map_err(|e| {
-        adapteros_core::AosError::Io(format!("Failed to write README: {}", e))
-    })?;
+    std::fs::write(repo_path.join("README.md"), "# Test Repository\n")
+        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to write README: {}", e)))?;
 
     Command::new("git")
         .args(["add", "README.md"])
@@ -54,9 +52,8 @@ async fn create_test_repo() -> Result<(TempDir, String)> {
         .map_err(|e| adapteros_core::AosError::Git(format!("Failed to commit: {}", e)))?;
 
     // Create second commit
-    std::fs::write(repo_path.join("src.rs"), "fn main() {}\n").map_err(|e| {
-        adapteros_core::AosError::Io(format!("Failed to write src: {}", e))
-    })?;
+    std::fs::write(repo_path.join("src.rs"), "fn main() {}\n")
+        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to write src: {}", e)))?;
 
     Command::new("git")
         .args(["add", "src.rs"])
@@ -77,9 +74,7 @@ async fn create_test_repo() -> Result<(TempDir, String)> {
         .output()
         .map_err(|e| adapteros_core::AosError::Git(format!("Failed to get HEAD: {}", e)))?;
 
-    let commit_sha = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .to_string();
+    let commit_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     Ok((temp_dir, commit_sha))
 }
@@ -115,9 +110,7 @@ async fn test_list_commits() -> Result<()> {
     let subsystem = GitSubsystem::new(config, db).await?;
 
     // List commits with default limit
-    let commits = subsystem
-        .list_commits(Some("test-repo"), None, 10)
-        .await?;
+    let commits = subsystem.list_commits(Some("test-repo"), None, 10).await?;
 
     // Should have 2 commits
     assert_eq!(commits.len(), 2, "Should have 2 commits");
@@ -145,9 +138,7 @@ async fn test_get_commit() -> Result<()> {
     let subsystem = GitSubsystem::new(config, db).await?;
 
     // Get specific commit
-    let commit = subsystem
-        .get_commit(Some("test-repo"), &commit_sha)
-        .await?;
+    let commit = subsystem.get_commit(Some("test-repo"), &commit_sha).await?;
 
     // Verify commit details
     assert_eq!(commit.sha, commit_sha);
@@ -171,9 +162,7 @@ async fn test_get_commit_not_found() -> Result<()> {
 
     // Try to get non-existent commit
     let invalid_sha = "0000000000000000000000000000000000000000";
-    let result = subsystem
-        .get_commit(Some("test-repo"), invalid_sha)
-        .await;
+    let result = subsystem.get_commit(Some("test-repo"), invalid_sha).await;
 
     assert!(result.is_err(), "Should fail for invalid commit");
     let err_msg = result.unwrap_err().to_string();
@@ -207,10 +196,7 @@ async fn test_get_commit_diff() -> Result<()> {
     assert_eq!(diff.deletions, 0, "Should have no deletions");
 
     // Check diff content
-    assert!(
-        diff.diff.contains("src.rs"),
-        "Diff should mention src.rs"
-    );
+    assert!(diff.diff.contains("src.rs"), "Diff should mention src.rs");
     assert!(diff.diff.contains("+"), "Diff should contain additions");
 
     Ok(())
@@ -230,10 +216,7 @@ async fn test_get_status() -> Result<()> {
 
     // Verify status
     assert!(status.enabled, "Git subsystem should be enabled");
-    assert_eq!(
-        status.repositories_tracked, 1,
-        "Should track 1 repository"
-    );
+    assert_eq!(status.repositories_tracked, 1, "Should track 1 repository");
     assert_eq!(status.active_sessions, 0, "Should have no active sessions");
 
     Ok(())
@@ -249,9 +232,7 @@ async fn test_list_commits_with_limit() -> Result<()> {
     let subsystem = GitSubsystem::new(config, db).await?;
 
     // List commits with limit of 1
-    let commits = subsystem
-        .list_commits(Some("test-repo"), None, 1)
-        .await?;
+    let commits = subsystem.list_commits(Some("test-repo"), None, 1).await?;
 
     // Should only have 1 commit
     assert_eq!(commits.len(), 1, "Should have only 1 commit");

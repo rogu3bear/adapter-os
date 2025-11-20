@@ -75,11 +75,7 @@ pub struct GitBranchInfo {
 pub struct GitWatcher;
 
 impl GitWatcher {
-    pub async fn new(
-        _config: WatcherConfig,
-        _db: Db,
-        _tx: mpsc::Sender<()>,
-    ) -> Result<Self> {
+    pub async fn new(_config: WatcherConfig, _db: Db, _tx: mpsc::Sender<()>) -> Result<Self> {
         Ok(Self)
     }
 

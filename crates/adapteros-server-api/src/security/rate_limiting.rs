@@ -233,30 +233,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_basic() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         // First request should succeed
-        let result = check_rate_limit(&db, "tenant-a").await.unwrap();
+        let result = check_rate_limit(&db, "tenant-a").await.expect("Failed to check rate limit");
         assert!(result.allowed);
         assert_eq!(result.current_count, 1);
     }
 
     #[tokio::test]
     async fn test_rate_limit_exceeded() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         // Set low limit
-        update_rate_limit(&db, "tenant-b", 2).await.unwrap();
+        update_rate_limit(&db, "tenant-b", 2).await.expect("Failed to update rate limit");
 
         // First two requests succeed
-        let r1 = check_rate_limit(&db, "tenant-b").await.unwrap();
+        let r1 = check_rate_limit(&db, "tenant-b").await.expect("Failed to check rate limit r1");
         assert!(r1.allowed);
 
-        let r2 = check_rate_limit(&db, "tenant-b").await.unwrap();
+        let r2 = check_rate_limit(&db, "tenant-b").await.expect("Failed to check rate limit r2");
         assert!(r2.allowed);
 
         // Third request should be denied
-        let r3 = check_rate_limit(&db, "tenant-b").await.unwrap();
+        let r3 = check_rate_limit(&db, "tenant-b").await.expect("Failed to check rate limit r3");
         assert!(!r3.allowed);
         assert_eq!(r3.current_count, 3);
         assert_eq!(r3.limit, 2);
@@ -264,19 +264,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_reset() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
-        update_rate_limit(&db, "tenant-c", 5).await.unwrap();
+        update_rate_limit(&db, "tenant-c", 5).await.expect("Failed to update rate limit for tenant-c");
 
         // Make some requests
-        check_rate_limit(&db, "tenant-c").await.unwrap();
-        check_rate_limit(&db, "tenant-c").await.unwrap();
+        check_rate_limit(&db, "tenant-c").await.expect("Failed to check rate limit for tenant-c");
+        check_rate_limit(&db, "tenant-c").await.expect("Failed to check rate limit for tenant-c");
 
         // Reset
-        reset_rate_limit(&db, "tenant-c").await.unwrap();
+        reset_rate_limit(&db, "tenant-c").await.expect("Failed to reset rate limit");
 
         // Count should be reset
-        let status = get_rate_limit_status(&db, "tenant-c").await.unwrap().unwrap();
+        let status = get_rate_limit_status(&db, "tenant-c").await.expect("Failed to get rate limit status").expect("Rate limit status should exist");
         assert_eq!(status.current_count, 0);
     }
 }

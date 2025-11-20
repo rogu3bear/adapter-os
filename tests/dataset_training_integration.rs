@@ -5,7 +5,7 @@
 #![cfg(test)]
 
 use adapteros_db::Db;
-use adapteros_orchestrator::{TrainingDatasetManager, TrainingConfig};
+use adapteros_orchestrator::{TrainingConfig, TrainingDatasetManager};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -60,8 +60,14 @@ async fn test_dataset_loading_flow_jsonl_format() -> Result<(), Box<dyn std::err
 
     // Verify we got the examples
     assert_eq!(examples.len(), 3, "Should load 3 examples");
-    assert!(!examples[0].input.is_empty(), "First example should have input");
-    assert!(!examples[0].target.is_empty(), "First example should have target");
+    assert!(
+        !examples[0].input.is_empty(),
+        "First example should have input"
+    );
+    assert!(
+        !examples[0].target.is_empty(),
+        "First example should have target"
+    );
 
     // Verify examples preserve source metadata
     assert_eq!(
@@ -160,7 +166,10 @@ async fn test_file_format_detection() -> Result<(), Box<dyn std::error::Error>> 
 
     // Should detect JSON by mime type, not extension
     let examples = manager
-        .load_examples_from_file(json_file.to_str().unwrap(), &Some("application/json".to_string()))
+        .load_examples_from_file(
+            json_file.to_str().unwrap(),
+            &Some("application/json".to_string()),
+        )
         .await?;
 
     assert_eq!(examples.len(), 1);
@@ -205,14 +214,8 @@ async fn test_invalid_dataset_status() -> Result<(), Box<dyn std::error::Error>>
     let result = manager.load_dataset_examples(&dataset_id).await;
 
     // Should fail because dataset is not validated
-    assert!(
-        result.is_err(),
-        "Should fail when dataset is not validated"
-    );
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("not validated"));
+    assert!(result.is_err(), "Should fail when dataset is not validated");
+    assert!(result.unwrap_err().to_string().contains("not validated"));
 
     Ok(())
 }
@@ -275,10 +278,7 @@ async fn test_hash_verification() -> Result<(), Box<dyn std::error::Error>> {
     // Should fail due to hash mismatch
     let result = manager.load_dataset_examples(&dataset_id2).await;
     assert!(result.is_err(), "Should fail on hash mismatch");
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("hash mismatch"));
+    assert!(result.unwrap_err().to_string().contains("hash mismatch"));
 
     Ok(())
 }

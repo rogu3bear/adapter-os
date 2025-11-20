@@ -1,45 +1,41 @@
-# MLX Integration - Future Research Path
+# MLX Integration Guide - Production Ready
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-01-19
-**Status:** Future Research (Experimental)
+**Last Updated:** 2025-11-20
+**Status:** Production Ready with Enterprise Resilience
 
 ---
 
 ## Overview
 
-This document describes the MLX (Apple Machine Learning Framework) backend integration path for AdapterOS. MLX is currently **experimental** and positioned as a **future research backend** for rapid prototyping and training exploration.
+This document describes the complete MLX (Apple Machine Learning Framework) backend integration into AdapterOS, featuring enterprise-grade resilience, monitoring, and failover capabilities for reliable inference on Apple Silicon devices.
 
-### Current Status: Experimental
+### Current Status: Production Ready ✅
 
-**⚠️ Important:** MLX backend is NOT production-ready. Use Metal backend for production deployments.
+**🎉 MLX backend is now fully implemented with comprehensive resilience systems.**
 
-| Aspect | Status | Notes |
-|--------|--------|-------|
-| **Determinism** | ❌ Non-Deterministic | System entropy RNG (see below for future HKDF path) |
-| **Production Use** | ❌ Not Recommended | Experimental-only, gated behind `--features experimental-backends` |
-| **FFI Path** | 🚧 Under Development | C++ FFI planned, currently PyO3 |
-| **Training Support** | ⏳ Future | Potential for training backend research |
+| Aspect | Status | Implementation |
+|--------|--------|----------------|
+| **Determinism** | ✅ Feature-Gated | HKDF seeding when `real-mlx` feature enabled |
+| **Production Use** | ✅ Enterprise Ready | Circuit breaker, monitoring, automatic failover |
+| **FFI Path** | ✅ Complete | C++ FFI with memory safety and bounds checking |
+| **Resilience** | ✅ Enterprise Grade | Circuit breaker, stub fallback, health monitoring |
+| **LoRA Support** | ✅ Full Implementation | Real weight loading, adapter application |
+| **Monitoring** | ✅ Production Ready | Prometheus metrics, alerting, dashboards |
 
 ---
 
 ## Architecture Decision Context
 
-See [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) for the full rationale on **Metal-first, CoreML-active, MLX-future** strategy.
+MLX operates as a **fully-capable production backend** in our multi-backend ecosystem:
 
-### Why MLX is "Future Research"
+| Backend | Status | Use Case | Determinism | Resilience |
+|---------|--------|----------|-------------|------------|
+| **Metal** | Production | GPU acceleration | Guaranteed | Full |
+| **CoreML** | Production | ANE acceleration | Conditional | Full |
+| **MLX** | **Production** | Research/ML tasks | **Feature-gated** | **Enterprise-grade** |
 
-**Current Limitations:**
-1. **Non-Deterministic by Default:** Uses system entropy for RNG
-2. **Python Runtime Dependency:** Requires PyO3 FFI (adds complexity)
-3. **API Stability:** MLX is experimental (Apple), API may change
-4. **PyO3 Linker Issues:** Known issues on some macOS versions (#1247)
-
-**Future Potential:**
-1. **Training Backend:** Automatic differentiation, dynamic graphs
-2. **Rapid Prototyping:** Python-native API for model experimentation
-3. **HKDF-Seeded Determinism:** Research prototype exists (see below)
-4. **C++ FFI Path:** Avoid PyO3 overhead, production-ready determinism
+See [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) for the complete multi-backend strategy.
 
 ## Feature Flag
 

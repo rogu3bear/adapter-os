@@ -13,9 +13,9 @@
 //! - `openapi_compat.rs` - OpenAPI schema compatibility
 //! - `frontend_compat.rs` - Frontend type compatibility
 
-pub mod round_trip;
-pub mod openapi_compat;
 pub mod frontend_compat;
+pub mod openapi_compat;
+pub mod round_trip;
 
 // Test utilities
 mod test_utils {
@@ -28,10 +28,7 @@ mod test_utils {
         if let Some(obj) = json_obj.as_object() {
             for key in obj.keys() {
                 if !is_valid_snake_case(key) {
-                    violations.push(format!(
-                        "Field '{}' is not in snake_case",
-                        key
-                    ));
+                    violations.push(format!("Field '{}' is not in snake_case", key));
                 }
             }
         }
@@ -53,14 +50,12 @@ mod test_utils {
         }
 
         // Can only contain lowercase, digits, underscores
-        s.chars().all(|c| c.is_lowercase() || c.is_numeric() || c == '_')
+        s.chars()
+            .all(|c| c.is_lowercase() || c.is_numeric() || c == '_')
     }
 
     /// Helper to validate field type consistency
-    pub fn validate_field_type(
-        json_val: &Value,
-        expected_type: &str,
-    ) -> Result<(), String> {
+    pub fn validate_field_type(json_val: &Value, expected_type: &str) -> Result<(), String> {
         let actual_type = match json_val {
             Value::Null => "null",
             Value::Bool(_) => "boolean",
@@ -81,10 +76,7 @@ mod test_utils {
     }
 
     /// Recursively validate required fields are present
-    pub fn validate_required_fields(
-        json_obj: &Value,
-        required_fields: &[&str],
-    ) -> Vec<String> {
+    pub fn validate_required_fields(json_obj: &Value, required_fields: &[&str]) -> Vec<String> {
         let mut missing = Vec::new();
 
         if let Some(obj) = json_obj.as_object() {
@@ -124,7 +116,10 @@ mod test_utils {
             });
 
             let violations = validate_snake_case_fields(&valid_json);
-            assert!(violations.is_empty(), "Valid JSON should have no violations");
+            assert!(
+                violations.is_empty(),
+                "Valid JSON should have no violations"
+            );
 
             let invalid_json = json!({
                 "userId": "123",
@@ -132,12 +127,14 @@ mod test_utils {
             });
 
             let violations = validate_snake_case_fields(&invalid_json);
-            assert!(!violations.is_empty(), "Invalid JSON should have violations");
+            assert!(
+                !violations.is_empty(),
+                "Invalid JSON should have violations"
+            );
         }
     }
 }
 
 pub use test_utils::{
-    is_valid_snake_case, validate_field_type, validate_required_fields,
-    validate_snake_case_fields,
+    is_valid_snake_case, validate_field_type, validate_required_fields, validate_snake_case_fields,
 };

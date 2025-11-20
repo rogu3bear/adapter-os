@@ -738,7 +738,7 @@ mod tests {
                 OperationType::Model(ModelOperationType::Load),
             )
             .await
-            .unwrap();
+            .expect("Operation should succeed");
 
         // Try to start unload operation - should conflict
         let conflict = tracker
@@ -778,7 +778,7 @@ mod tests {
                 OperationType::Model(ModelOperationType::Unload),
             )
             .await
-            .unwrap();
+            .expect("Operation should succeed");
     }
 
     #[tokio::test]
@@ -793,7 +793,7 @@ mod tests {
                 OperationType::Model(ModelOperationType::Load),
             )
             .await
-            .unwrap();
+            .expect("Operation should succeed");
 
         // Wait for timeout
         sleep(Duration::from_millis(100)).await;
@@ -806,6 +806,6 @@ mod tests {
                 OperationType::Model(ModelOperationType::Unload),
             )
             .await
-            .unwrap();
+            .expect("Operation should succeed");
     }
 }

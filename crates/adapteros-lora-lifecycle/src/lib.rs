@@ -96,8 +96,8 @@ pub use policy::{EvictionOrder, LifecyclePolicy};
 pub use state::{AdapterState, AdapterStateRecord, AllocationTier, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
 pub use workflow_executor::{
-    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats,
-    MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
+    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, MockAdapterBackend,
+    WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
 };
 
 /// Enhanced lifecycle manager for adapters with category-aware state management

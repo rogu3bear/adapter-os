@@ -9,8 +9,8 @@
 #[cfg(target_os = "macos")]
 mod coreml_tests {
     use adapteros_lora_kernel_mtl::ane_acceleration::{
-        ANEAccelerator, ANEDataType, ANELoRAConfig, ANEModelConfig, ANEQuantization,
-        ANECalibrationMethod, ANESessionState,
+        ANEAccelerator, ANECalibrationMethod, ANEDataType, ANELoRAConfig, ANEModelConfig,
+        ANEQuantization, ANESessionState,
     };
 
     #[test]
@@ -21,20 +21,30 @@ mod coreml_tests {
         match result {
             Ok(accelerator) => {
                 let caps = accelerator.capabilities();
-                println!("ANE detected: available={}, cores={}",
-                    caps.available, caps.core_count);
+                println!(
+                    "ANE detected: available={}, cores={}",
+                    caps.available, caps.core_count
+                );
 
                 // If ANE is available, verify capabilities
                 if caps.available {
                     assert!(caps.core_count > 0, "ANE should have at least 1 core");
                     assert!(caps.max_model_size > 0, "ANE should have max model size");
-                    assert!(!caps.supported_data_types.is_empty(), "ANE should support data types");
-                    assert!(caps.performance.peak_throughput_tops > 0.0,
-                        "ANE should have non-zero throughput");
+                    assert!(
+                        !caps.supported_data_types.is_empty(),
+                        "ANE should support data types"
+                    );
+                    assert!(
+                        caps.performance.peak_throughput_tops > 0.0,
+                        "ANE should have non-zero throughput"
+                    );
                 }
             }
             Err(e) => {
-                println!("ANE detection failed (expected on non-Apple Silicon): {}", e);
+                println!(
+                    "ANE detection failed (expected on non-Apple Silicon): {}",
+                    e
+                );
             }
         }
     }
@@ -58,12 +68,18 @@ mod coreml_tests {
 
             // Verify performance characteristics
             let perf = &caps.performance;
-            assert!(perf.latency.min_latency_us <= perf.latency.max_latency_us,
-                "Min latency should be <= max latency");
-            assert!(perf.latency.avg_latency_us >= perf.latency.min_latency_us,
-                "Avg latency should be >= min latency");
-            assert!(perf.latency.avg_latency_us <= perf.latency.max_latency_us,
-                "Avg latency should be <= max latency");
+            assert!(
+                perf.latency.min_latency_us <= perf.latency.max_latency_us,
+                "Min latency should be <= max latency"
+            );
+            assert!(
+                perf.latency.avg_latency_us >= perf.latency.min_latency_us,
+                "Avg latency should be >= min latency"
+            );
+            assert!(
+                perf.latency.avg_latency_us <= perf.latency.max_latency_us,
+                "Avg latency should be <= max latency"
+            );
         }
     }
 
@@ -99,8 +115,10 @@ mod coreml_tests {
 
             if let Ok(session_id) = session_result {
                 assert!(!session_id.is_empty(), "Session ID should not be empty");
-                assert!(session_id.starts_with("ane_session_"),
-                    "Session ID should have correct prefix");
+                assert!(
+                    session_id.starts_with("ane_session_"),
+                    "Session ID should have correct prefix"
+                );
             }
         }
     }
@@ -217,7 +235,11 @@ mod coreml_tests {
 
             // Note: execute requires session to be initialized
             // This test validates the API structure
-            println!("Session created: {}, input size: {}", session_id, input_data.len());
+            println!(
+                "Session created: {}, input size: {}",
+                session_id,
+                input_data.len()
+            );
         }
     }
 
@@ -252,7 +274,11 @@ mod coreml_tests {
                 };
 
                 let session_result = accelerator.create_session(model_config);
-                assert!(session_result.is_ok(), "Session creation failed for size {}", size);
+                assert!(
+                    session_result.is_ok(),
+                    "Session creation failed for size {}",
+                    size
+                );
             }
 
             assert_eq!(accelerator.active_session_count(), sizes.len());
@@ -309,8 +335,10 @@ mod coreml_tests {
 
             // This may succeed or fail depending on actual memory
             let session_result = accelerator.create_session(model_config);
-            println!("Oversized model creation result: {:?}",
-                session_result.as_ref().map(|_| "OK").unwrap_or("Error"));
+            println!(
+                "Oversized model creation result: {:?}",
+                session_result.as_ref().map(|_| "OK").unwrap_or("Error")
+            );
         }
     }
 
@@ -387,8 +415,12 @@ mod coreml_tests {
                 };
 
                 let session_result = accelerator.create_session(model_config);
-                assert!(session_result.is_ok(),
-                    "Quantization config failed: {} bits, {:?}", bits, calibration);
+                assert!(
+                    session_result.is_ok(),
+                    "Quantization config failed: {} bits, {:?}",
+                    bits,
+                    calibration
+                );
             }
         }
     }
@@ -438,11 +470,7 @@ mod coreml_tests {
     #[test]
     fn test_ane_data_type_support() {
         // Test different data types
-        let data_types = vec![
-            ANEDataType::Float16,
-            ANEDataType::Int8,
-            ANEDataType::Int4,
-        ];
+        let data_types = vec![ANEDataType::Float16, ANEDataType::Int8, ANEDataType::Int4];
 
         let result = ANEAccelerator::new();
 
@@ -470,8 +498,11 @@ mod coreml_tests {
                 };
 
                 let session_result = accelerator.create_session(model_config);
-                assert!(session_result.is_ok(),
-                    "Data type {:?} should be supported", data_type);
+                assert!(
+                    session_result.is_ok(),
+                    "Data type {:?} should be supported",
+                    data_type
+                );
             }
         }
     }

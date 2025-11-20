@@ -35,10 +35,7 @@ async fn test_all_migrations_apply_cleanly() -> Result<()> {
         .unwrap_or(0);
 
     // We should have 74 migrations (0001-0074) after PRD-01 completion
-    println!(
-        "✓ All {} migrations applied successfully",
-        migration_count
-    );
+    println!("✓ All {} migrations applied successfully", migration_count);
     assert!(
         migration_count >= 71,
         "Expected at least 71 migrations (74 after PRD-01), found {}",
@@ -47,7 +44,7 @@ async fn test_all_migrations_apply_cleanly() -> Result<()> {
 
     // Verify no migration failures
     let failed_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 0 OR success IS NULL"
+        "SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 0 OR success IS NULL",
     )
     .fetch_one(db.pool())
     .await
@@ -249,11 +246,9 @@ async fn test_cascade_delete_behavior() -> Result<()> {
 
     // Verify CASCADE constraints are defined in schema
     // by checking the foreign key definitions
-    let rows = sqlx::query(
-        "PRAGMA foreign_key_list(adapters)"
-    )
-    .fetch_all(db.pool())
-    .await?;
+    let rows = sqlx::query("PRAGMA foreign_key_list(adapters)")
+        .fetch_all(db.pool())
+        .await?;
 
     let mut found_cascade = false;
     for row in rows {
@@ -272,11 +267,10 @@ async fn test_cascade_delete_behavior() -> Result<()> {
 
     // If no cascades found in adapters, check another table
     if !found_cascade {
-        let rows = sqlx::query(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'"
-        )
-        .fetch_all(db.pool())
-        .await?;
+        let rows =
+            sqlx::query("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+                .fetch_all(db.pool())
+                .await?;
 
         for row in rows {
             let sql: String = row.get(0);
@@ -531,7 +525,7 @@ async fn test_critical_indexes_exist() -> Result<()> {
 
     for (index_name, _table_name) in &critical_indexes {
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)"
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)",
         )
         .bind(index_name)
         .fetch_one(db.pool())
@@ -543,10 +537,7 @@ async fn test_critical_indexes_exist() -> Result<()> {
     }
 
     if !missing_indexes.is_empty() {
-        println!(
-            "Warning: Some indexes not found: {:?}",
-            missing_indexes
-        );
+        println!("Warning: Some indexes not found: {:?}", missing_indexes);
     }
 
     println!(
@@ -598,7 +589,10 @@ async fn test_data_type_compatibility() -> Result<()> {
         }
     }
 
-    println!("✓ Data type compatibility verified ({} columns)", column_types.len());
+    println!(
+        "✓ Data type compatibility verified ({} columns)",
+        column_types.len()
+    );
     Ok(())
 }
 
@@ -625,7 +619,7 @@ async fn test_unique_constraints() -> Result<()> {
     let hash_b3 = "b3:uniquetest001";
     sqlx::query(
         "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind("adapter-unique-001")
     .bind(test_tenant_id)
@@ -641,7 +635,7 @@ async fn test_unique_constraints() -> Result<()> {
     // Try to insert second adapter with same hash (should fail due to UNIQUE constraint)
     let result = sqlx::query(
         "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind("adapter-unique-002")
     .bind(test_tenant_id)
@@ -680,7 +674,7 @@ async fn test_check_constraints() -> Result<()> {
     // Try to insert adapter with invalid tier (should fail CHECK constraint)
     let result = sqlx::query(
         "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind("adapter-check-001")
     .bind(test_tenant_id)
@@ -716,14 +710,16 @@ async fn test_workspace_relationships() -> Result<()> {
     let test_tenant_id = "test-workspace-tenant-001";
 
     // Insert test user
-    sqlx::query("INSERT INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)")
-        .bind(test_user_id)
-        .bind("workspace@example.com")
-        .bind("Workspace User")
-        .bind("hashed_password")
-        .bind("operator")
-        .execute(db.pool())
-        .await?;
+    sqlx::query(
+        "INSERT INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(test_user_id)
+    .bind("workspace@example.com")
+    .bind("Workspace User")
+    .bind("hashed_password")
+    .bind("operator")
+    .execute(db.pool())
+    .await?;
 
     // Insert test tenant
     sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
@@ -736,7 +732,7 @@ async fn test_workspace_relationships() -> Result<()> {
     let workspace_id = "workspace-test-001";
     sqlx::query(
         "INSERT INTO workspaces (id, name, description, created_by) \
-         VALUES (?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?)",
     )
     .bind(workspace_id)
     .bind("Test Workspace")
@@ -763,7 +759,7 @@ async fn test_system_metrics_schema() -> Result<()> {
 
     // Check if system_metrics table exists
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='system_metrics')"
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='system_metrics')",
     )
     .fetch_one(db.pool())
     .await?;
@@ -794,9 +790,10 @@ async fn test_migration_history_recorded() -> Result<()> {
     let db = create_test_db().await?;
 
     // Query migration history
-    let rows = sqlx::query("SELECT version, description, success FROM _sqlx_migrations ORDER BY version")
-        .fetch_all(db.pool())
-        .await?;
+    let rows =
+        sqlx::query("SELECT version, description, success FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(db.pool())
+            .await?;
 
     assert!(!rows.is_empty(), "Migration history should not be empty");
 
@@ -811,7 +808,10 @@ async fn test_migration_history_recorded() -> Result<()> {
         assert!(success, "Migration {} should have succeeded", version);
     }
 
-    println!("✓ Migration history verified ({} migrations)", migration_list.len());
+    println!(
+        "✓ Migration history verified ({} migrations)",
+        migration_list.len()
+    );
     for migration in migration_list.iter().take(5) {
         println!("  - {}", migration);
     }
@@ -887,13 +887,13 @@ async fn test_schema_validation_summary() -> Result<()> {
     // Get schema statistics
     let table_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' \
-         AND name NOT LIKE '_sqlx_%'"
+         AND name NOT LIKE '_sqlx_%'",
     )
     .fetch_one(db.pool())
     .await?;
 
     let index_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'",
     )
     .fetch_one(db.pool())
     .await?;
@@ -905,9 +905,18 @@ async fn test_schema_validation_summary() -> Result<()> {
     println!("\n╔════════════════════════════════════════════════════════╗");
     println!("║        DATABASE SCHEMA VALIDATION SUMMARY              ║");
     println!("╠════════════════════════════════════════════════════════╣");
-    println!("║ Migrations Applied:     {:>35} ║", format!("{}", migration_count));
-    println!("║ Tables Created:         {:>35} ║", format!("{}", table_count));
-    println!("║ Indexes Created:        {:>35} ║", format!("{}", index_count));
+    println!(
+        "║ Migrations Applied:     {:>35} ║",
+        format!("{}", migration_count)
+    );
+    println!(
+        "║ Tables Created:         {:>35} ║",
+        format!("{}", table_count)
+    );
+    println!(
+        "║ Indexes Created:        {:>35} ║",
+        format!("{}", index_count)
+    );
     println!("║ Database Type:          {:>35} ║", "SQLite (in-memory)");
     println!("║ Foreign Keys:           {:>35} ║", "Enabled");
     println!("║ Schema Status:          {:>35} ║", "✓ VALIDATED");

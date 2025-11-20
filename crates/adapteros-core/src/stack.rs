@@ -84,17 +84,16 @@ mod tests {
 
     #[test]
     fn test_stack_hash_unique() {
-        let adapters1 = vec![
-            ("adapter_a".to_string(), B3Hash::hash(b"hash_a")),
-        ];
+        let adapters1 = vec![("adapter_a".to_string(), B3Hash::hash(b"hash_a"))];
 
-        let adapters2 = vec![
-            ("adapter_a".to_string(), B3Hash::hash(b"hash_b")),
-        ];
+        let adapters2 = vec![("adapter_a".to_string(), B3Hash::hash(b"hash_b"))];
 
         let hash1 = compute_stack_hash(adapters1);
         let hash2 = compute_stack_hash(adapters2);
 
-        assert_ne!(hash1, hash2, "Different adapter content must produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different adapter content must produce different hashes"
+        );
     }
 }

@@ -56,13 +56,11 @@ impl Db {
         let mut tx = self.pool().begin().await?;
 
         // Get current state and version
-        let row = sqlx::query(
-            "SELECT lifecycle_state, version FROM adapters WHERE adapter_id = ?"
-        )
-        .bind(adapter_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Adapter not found: {}", adapter_id))?;
+        let row = sqlx::query("SELECT lifecycle_state, version FROM adapters WHERE adapter_id = ?")
+            .bind(adapter_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Adapter not found: {}", adapter_id))?;
 
         let current_state: String = row.get(0);
         let current_version: String = row.get(1);
@@ -96,7 +94,7 @@ impl Db {
         sqlx::query(
             "UPDATE adapters
              SET lifecycle_state = ?, version = ?, updated_at = datetime('now')
-             WHERE adapter_id = ?"
+             WHERE adapter_id = ?",
         )
         .bind(new_state)
         .bind(&new_version)
@@ -108,7 +106,7 @@ impl Db {
         sqlx::query(
             "INSERT INTO adapter_version_history
              (adapter_id, version, lifecycle_state, previous_lifecycle_state, reason, initiated_by)
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(adapter_id)
         .bind(&new_version)
@@ -137,7 +135,7 @@ impl Db {
 
         // Get current state, version, and adapter composition
         let row = sqlx::query(
-            "SELECT lifecycle_state, version, adapter_ids_json FROM adapter_stacks WHERE id = ?"
+            "SELECT lifecycle_state, version, adapter_ids_json FROM adapter_stacks WHERE id = ?",
         )
         .bind(stack_id)
         .fetch_optional(&mut *tx)
@@ -176,7 +174,7 @@ impl Db {
         sqlx::query(
             "UPDATE adapter_stacks
              SET lifecycle_state = ?, version = ?, updated_at = datetime('now')
-             WHERE id = ?"
+             WHERE id = ?",
         )
         .bind(new_state)
         .bind(&new_version)
@@ -224,7 +222,7 @@ impl Db {
                 created_at
              FROM adapter_version_history
              WHERE adapter_id = ?
-             ORDER BY created_at DESC"
+             ORDER BY created_at DESC",
         )
         .bind(adapter_id)
         .fetch_all(self.pool())
@@ -253,7 +251,7 @@ impl Db {
                 created_at
              FROM stack_version_history
              WHERE stack_id = ?
-             ORDER BY created_at DESC"
+             ORDER BY created_at DESC",
         )
         .bind(stack_id)
         .fetch_all(self.pool())
@@ -274,7 +272,7 @@ impl Db {
             "SELECT id, name, lifecycle_state
              FROM adapter_stacks
              WHERE lifecycle_state IN ('active', 'draft')
-               AND adapter_ids_json LIKE ?"
+               AND adapter_ids_json LIKE ?",
         )
         .bind(format!("%{}%", adapter_id))
         .fetch_all(self.pool())
@@ -314,7 +312,7 @@ impl Db {
         lifecycle_state: &str,
     ) -> Result<Vec<crate::adapters::Adapter>> {
         let adapters = sqlx::query_as::<_, crate::adapters::Adapter>(
-            "SELECT * FROM adapters WHERE lifecycle_state = ? ORDER BY created_at DESC"
+            "SELECT * FROM adapters WHERE lifecycle_state = ? ORDER BY created_at DESC",
         )
         .bind(lifecycle_state)
         .fetch_all(self.pool())
@@ -329,7 +327,7 @@ impl Db {
         lifecycle_state: &str,
     ) -> Result<Vec<sqlx::sqlite::SqliteRow>> {
         let stacks = sqlx::query(
-            "SELECT * FROM adapter_stacks WHERE lifecycle_state = ? ORDER BY created_at DESC"
+            "SELECT * FROM adapter_stacks WHERE lifecycle_state = ? ORDER BY created_at DESC",
         )
         .bind(lifecycle_state)
         .fetch_all(self.pool())
@@ -399,7 +397,10 @@ mod tests {
 
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].lifecycle_state, "deprecated");
-        assert_eq!(history[0].previous_lifecycle_state, Some("active".to_string()));
+        assert_eq!(
+            history[0].previous_lifecycle_state,
+            Some("active".to_string())
+        );
     }
 
     #[tokio::test]
@@ -419,12 +420,7 @@ mod tests {
 
         // Transition to same state (no-op)
         let version = db
-            .transition_adapter_lifecycle(
-                "test-adapter",
-                "active",
-                "No change",
-                "system",
-            )
+            .transition_adapter_lifecycle("test-adapter", "active", "No change", "system")
             .await
             .unwrap();
 
@@ -457,10 +453,7 @@ mod tests {
         .unwrap();
 
         // Check references
-        let refs = db
-            .check_active_stack_references("adapter-1")
-            .await
-            .unwrap();
+        let refs = db.check_active_stack_references("adapter-1").await.unwrap();
 
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].stack_id, "stack-1");

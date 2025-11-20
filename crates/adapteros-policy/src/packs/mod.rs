@@ -90,9 +90,9 @@ pub use router::{
 };
 pub use secrets::{KeyRotationStatus, SecretMetadata, SecretsConfig, SecretsPolicy};
 pub use telemetry::{
-    BundleConfig, CompressionAlgorithm, CompressionConfig,
+    BundleConfig, CompressionAlgorithm, CompressionConfig, PolicyTelemetryView,
     RetentionConfig as TelemetryRetentionConfig, SamplingConfig, TelemetryBundle, TelemetryConfig,
-    PolicyTelemetryView, TelemetryPolicy,
+    TelemetryPolicy,
 };
 
 /// Policy pack factory for creating policy instances

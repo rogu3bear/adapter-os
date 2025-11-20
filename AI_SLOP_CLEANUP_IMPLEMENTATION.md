@@ -269,3 +269,4 @@ fn test_no_plain_text_password_checking() {
 **Files Modified:** `crates/adapteros-server-api/src/handlers.rs`
 **Lines Added:** ~50 lines of error handling utilities and refactoring
 **AI Slop Reduced:** Significant improvement in auth flow quality and security
+

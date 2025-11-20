@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 
 pub mod attestation;
 
+/// Type alias for buffer verification result to reduce type complexity
+pub type BufferVerificationResult = (u64, Vec<u8>, Vec<u8>, Vec<u8>);
+
 /// Canonical ring buffer for router decisions (K≤8, Q15 gates)
 ///
 /// **CRITICAL INVARIANTS** (enforced at construction):
@@ -15,6 +18,9 @@ pub mod attestation;
 /// **Violation policy:**
 /// - Debug builds: `panic!` on invariant violation
 /// - Release builds: `error!` log + zero-fill offending entries
+///
+/// [source: crates/adapteros-lora-kernel-api/src/lib.rs L22-68]
+/// [source: docs/ARCHITECTURE_INDEX.md#router-kernel-unification]
 #[derive(Debug, Clone)]
 pub struct RouterRing {
     /// Adapter indices (fixed K=8, unused entries zero-filled)
@@ -169,6 +175,9 @@ impl RouterRing {
 }
 
 /// IO buffers for kernel execution
+///
+/// [source: crates/adapteros-lora-kernel-api/src/lib.rs L178-182]
+/// [source: crates/adapteros-lora-worker/src/inference_pipeline.rs L45-67]
 pub struct IoBuffers {
     pub input_ids: Vec<u32>,
     pub output_logits: Vec<f32>,
@@ -186,11 +195,92 @@ impl IoBuffers {
 }
 
 /// Trait for fused kernel implementations
+///
+/// This trait defines the interface that all ML inference backends must implement
+/// to provide deterministic, fused kernel execution for LoRA routing.
+///
+/// ## Implementation Requirements
+///
+/// Implementations must be:
+/// - **Thread-safe**: `Send + Sync` for concurrent access
+/// - **Deterministic**: Same inputs produce identical outputs
+/// - **Resource-aware**: Proper memory management and cleanup
+///
+/// ## Error Handling
+///
+/// All methods return `Result<()>` and should provide detailed error context:
+/// - `AosError::Kernel`: Backend-specific kernel errors
+/// - `AosError::Io`: I/O and buffer management errors
+/// - `AosError::ResourceExhaustion`: Memory or resource limits
+///
+/// ## Usage Example
+/// ```rust
+/// use adapteros_lora_kernel_api::{FusedKernels, RouterRing, IoBuffers};
+///
+/// # async fn example(backend: &mut impl FusedKernels) -> Result<()> {
+/// // Load model plan and weights
+/// let plan_bytes = load_plan_from_file("model.aos")?;
+/// backend.load(&plan_bytes)?;
+///
+/// // Prepare router decision
+/// let mut ring = RouterRing::new(4);
+/// ring.set(&[0, 2, 5, 7], &[1000, 2000, 1500, 800])?;
+///
+/// // Prepare IO buffers
+/// let mut io = IoBuffers::new(1); // batch size 1
+/// io.input_ids = vec![15043, 995, 1234]; // "Hello world" tokens
+///
+/// // Run inference step
+/// backend.run_step(&ring, &mut io)?;
+///
+/// // Results available in io.output_logits
+/// assert!(!io.output_logits.is_empty());
+/// # Ok(())
+/// # }
+/// ```
+///
+/// [source: crates/adapteros-lora-kernel-api/src/lib.rs L198-244]
+/// [source: crates/adapteros-lora-worker/src/backend_factory.rs L30-45]
+/// [source: docs/ARCHITECTURE_INDEX.md#multi-backend-architecture]
 pub trait FusedKernels: Send + Sync {
-    /// Load plan and weights
+    /// Load model plan and adapter weights
+    ///
+    /// This method initializes the backend with a compiled model plan and
+    /// any associated LoRA adapter weights. The plan format is backend-specific
+    /// but typically contains compiled computation graphs and weight matrices.
+    ///
+    /// ## Parameters
+    /// * `plan_bytes`: Compiled model plan in backend-specific format
+    ///
+    /// ## Errors
+    /// * `AosError::Kernel`: Invalid plan format or corrupted data
+    /// * `AosError::Io`: Failed to read plan data
+    /// * `AosError::ResourceExhaustion`: Insufficient memory for model loading
+    ///
+    /// ## Performance
+    /// Model loading is typically expensive (seconds) and should be done once
+    /// per model lifetime, not per inference request.
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()>;
 
-    /// Run a single token step
+    /// Execute a single token generation step with LoRA routing
+    ///
+    /// Runs one step of autoregressive text generation using the provided
+    /// router decision to select and combine LoRA adapters. Input tokens
+    /// are processed through the base model with adapter modifications,
+    /// producing output logits for the next token prediction.
+    ///
+    /// ## Parameters
+    /// * `ring`: Router decision specifying which adapters to use and their weights
+    /// * `io`: Input/output buffers containing tokens and logits
+    ///
+    /// ## Errors
+    /// * `AosError::Kernel`: GPU/kernel execution failed
+    /// * `AosError::InvalidInput`: Malformed input data or router decision
+    /// * `AosError::ResourceExhaustion`: Insufficient compute resources
+    ///
+    /// ## Performance
+    /// Typical latency: 10-100ms depending on model size and hardware.
+    /// Memory usage scales with batch size and model parameters.
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()>;
 
     /// Get device name
@@ -237,7 +327,7 @@ pub trait FusedKernels: Send + Sync {
     /// * Checkpoint samples (first 4KB, last 4KB, mid 4KB)
     ///
     /// Default implementation returns error for backends without GPU verification
-    fn verify_adapter_buffers(&self, _id: u16) -> Result<(u64, Vec<u8>, Vec<u8>, Vec<u8>)> {
+    fn verify_adapter_buffers(&self, _id: u16) -> Result<BufferVerificationResult> {
         Err(adapteros_core::AosError::Kernel(
             "GPU buffer verification not supported by this backend".to_string(),
         ))

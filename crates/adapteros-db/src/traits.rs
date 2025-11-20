@@ -209,8 +209,9 @@ pub async fn create_database_backend(config: &DatabaseConfig) -> Result<Box<dyn 
             Ok(Box::new(backend))
         }
         #[cfg(not(feature = "postgres"))]
-        DatabaseBackendType::Postgres => {
-            Err(anyhow::anyhow!("PostgreSQL support not enabled. Recompile with 'postgres' feature.").into())
-        }
+        DatabaseBackendType::Postgres => Err(anyhow::anyhow!(
+            "PostgreSQL support not enabled. Recompile with 'postgres' feature."
+        )
+        .into()),
     }
 }

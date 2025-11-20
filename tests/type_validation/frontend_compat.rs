@@ -89,16 +89,14 @@ async fn test_infer_response_field_names_match_typescript() {
 async fn test_batch_infer_request_field_names() {
     // TypeScript expects: id, request (flattened with inline request fields)
     let batch = BatchInferRequest {
-        requests: vec![
-            BatchInferItemRequest {
-                id: "req-1".to_string(),
-                request: InferRequest {
-                    prompt: "test".to_string(),
-                    max_tokens: Some(100),
-                    temperature: None,
-                },
+        requests: vec![BatchInferItemRequest {
+            id: "req-1".to_string(),
+            request: InferRequest {
+                prompt: "test".to_string(),
+                max_tokens: Some(100),
+                temperature: None,
             },
-        ],
+        }],
     };
 
     let json = serde_json::to_value(&batch).expect("serialize failed");
@@ -144,26 +142,38 @@ async fn test_routing_decision_complex_field_names() {
 async fn test_all_api_response_types_use_snake_case() {
     // Test multiple response types to ensure consistency
     let responses = vec![
-        ("HealthResponse", serde_json::to_value(&HealthResponse {
-            schema_version: "1.0".to_string(),
-            status: "healthy".to_string(),
-            version: "1.0.0".to_string(),
-            models: None,
-        }).unwrap()),
-        ("ErrorResponse", serde_json::to_value(&ErrorResponse {
-            schema_version: "1.0".to_string(),
-            error: "Test error".to_string(),
-            code: "TEST_ERROR".to_string(),
-            details: None,
-        }).unwrap()),
-        ("AdapterResponse", serde_json::to_value(&AdapterResponse {
-            id: "adapter-1".to_string(),
-            name: "test".to_string(),
-            version: "1.0.0".to_string(),
-            status: "loaded".to_string(),
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-02T00:00:00Z".to_string(),
-        }).unwrap()),
+        (
+            "HealthResponse",
+            serde_json::to_value(&HealthResponse {
+                schema_version: "1.0".to_string(),
+                status: "healthy".to_string(),
+                version: "1.0.0".to_string(),
+                models: None,
+            })
+            .unwrap(),
+        ),
+        (
+            "ErrorResponse",
+            serde_json::to_value(&ErrorResponse {
+                schema_version: "1.0".to_string(),
+                error: "Test error".to_string(),
+                code: "TEST_ERROR".to_string(),
+                details: None,
+            })
+            .unwrap(),
+        ),
+        (
+            "AdapterResponse",
+            serde_json::to_value(&AdapterResponse {
+                id: "adapter-1".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                status: "loaded".to_string(),
+                created_at: "2024-01-01T00:00:00Z".to_string(),
+                updated_at: "2024-01-02T00:00:00Z".to_string(),
+            })
+            .unwrap(),
+        ),
     ];
 
     for (type_name, json) in responses {
@@ -196,12 +206,18 @@ async fn test_string_fields_are_strings() {
 
     // Verify string fields are actually strings
     assert!(json.get("id").unwrap().is_string(), "id should be string");
-    assert!(json.get("name").unwrap().is_string(), "name should be string");
+    assert!(
+        json.get("name").unwrap().is_string(),
+        "name should be string"
+    );
     assert!(
         json.get("version").unwrap().is_string(),
         "version should be string"
     );
-    assert!(json.get("status").unwrap().is_string(), "status should be string");
+    assert!(
+        json.get("status").unwrap().is_string(),
+        "status should be string"
+    );
 }
 
 #[tokio::test]
@@ -297,7 +313,7 @@ async fn test_boolean_field_serialization() {
         models: Some(ModelRuntimeHealth {
             total_models: 5,
             loaded_count: 3,
-            healthy: true,  // Boolean field
+            healthy: true, // Boolean field
             inconsistencies_count: 0,
         }),
     };
@@ -442,10 +458,7 @@ async fn test_optional_fields_consistency() {
 #[tokio::test]
 async fn test_pagination_params_frontend_compatibility() {
     // Frontend expects page and limit as numbers
-    let params = PaginationParams {
-        page: 2,
-        limit: 25,
-    };
+    let params = PaginationParams { page: 2, limit: 25 };
 
     let json = serde_json::to_value(&params).expect("serialize failed");
 
@@ -479,7 +492,10 @@ async fn test_health_response_frontend_structure() {
 
     // Nested models structure
     let models = json.get("models").unwrap();
-    assert_eq!(models.get("total_models").and_then(|v| v.as_i64()), Some(10));
+    assert_eq!(
+        models.get("total_models").and_then(|v| v.as_i64()),
+        Some(10)
+    );
     assert_eq!(models.get("loaded_count").and_then(|v| v.as_i64()), Some(8));
     assert_eq!(models.get("healthy").and_then(|v| v.as_bool()), Some(true));
 }

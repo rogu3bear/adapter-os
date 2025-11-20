@@ -10,10 +10,10 @@
 //! Priority: CRITICAL - Prevents schema drift and duplicate migrations
 
 use anyhow::Result;
-use std::collections::{HashSet, HashMap};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde_json::Value;
 
 /// Get all migration files from a directory
 fn get_migration_files(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -41,12 +41,10 @@ fn get_migration_files(dir: &Path) -> Result<Vec<PathBuf>> {
 
 /// Extract migration number from filename (e.g., "0055_description.sql" -> 55)
 fn extract_migration_number(path: &Path) -> Option<u32> {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .and_then(|s| {
-            let num_part = s.split('_').next()?;
-            num_part.parse::<u32>().ok()
-        })
+    path.file_name().and_then(|n| n.to_str()).and_then(|s| {
+        let num_part = s.split('_').next()?;
+        num_part.parse::<u32>().ok()
+    })
 }
 
 /// Test 1: No duplicate migration numbers in root directory
@@ -72,7 +70,10 @@ fn test_no_duplicate_migration_numbers_in_root() -> Result<()> {
         duplicates
     );
 
-    println!("✓ No duplicate migration numbers in root directory ({} migrations)", migrations.len());
+    println!(
+        "✓ No duplicate migration numbers in root directory ({} migrations)",
+        migrations.len()
+    );
     Ok(())
 }
 
@@ -117,7 +118,10 @@ fn test_no_conflicts_between_root_and_crate() -> Result<()> {
         eprintln!("These should be renumbered or archived.");
     }
 
-    println!("✓ No unresolved conflicts between root and crate migrations ({}conflicts)", if conflicts.is_empty() { "0 " } else { "some " });
+    println!(
+        "✓ No unresolved conflicts between root and crate migrations ({}conflicts)",
+        if conflicts.is_empty() { "0 " } else { "some " }
+    );
     Ok(())
 }
 
@@ -149,7 +153,10 @@ fn test_all_root_migrations_have_signatures() -> Result<()> {
     }
 
     if !unsigned_migrations.is_empty() {
-        eprintln!("WARNING: Unsigned migrations found: {:?}", unsigned_migrations);
+        eprintln!(
+            "WARNING: Unsigned migrations found: {:?}",
+            unsigned_migrations
+        );
         eprintln!("Run: ./scripts/sign_migrations.sh");
     }
 
@@ -159,7 +166,10 @@ fn test_all_root_migrations_have_signatures() -> Result<()> {
         unsigned_migrations
     );
 
-    println!("✓ All {} root migrations have Ed25519 signatures", migrations.len());
+    println!(
+        "✓ All {} root migrations have Ed25519 signatures",
+        migrations.len()
+    );
     Ok(())
 }
 
@@ -199,7 +209,11 @@ fn test_migration_sequence_valid() -> Result<()> {
         numbers.len()
     );
 
-    println!("✓ Migration sequence validated ({} migrations, {} gaps)", numbers.len(), gaps.len());
+    println!(
+        "✓ Migration sequence validated ({} migrations, {} gaps)",
+        numbers.len(),
+        gaps.len()
+    );
     Ok(())
 }
 
@@ -224,7 +238,10 @@ fn test_migration_numbering_range() -> Result<()> {
         max_number
     );
 
-    println!("✓ Migration numbering range valid (min={}, max={})", min_number, max_number);
+    println!(
+        "✓ Migration numbering range valid (min={}, max={})",
+        min_number, max_number
+    );
     Ok(())
 }
 
@@ -264,7 +281,10 @@ fn test_crate_migrations_properly_managed() -> Result<()> {
         println!("These should be archived or renumbered.");
     }
 
-    println!("✓ Crate migrations properly managed ({} migrations)", crate_migrations.len());
+    println!(
+        "✓ Crate migrations properly managed ({} migrations)",
+        crate_migrations.len()
+    );
     Ok(())
 }
 
@@ -344,8 +364,14 @@ fn test_migration_conflict_summary() -> Result<()> {
     println!("\n╔════════════════════════════════════════════════════════╗");
     println!("║      MIGRATION CONFLICT PREVENTION SUMMARY            ║");
     println!("╠════════════════════════════════════════════════════════╣");
-    println!("║ Root Migrations:        {:>35} ║", format!("{}", root_migrations.len()));
-    println!("║ Crate Migrations:       {:>35} ║", format!("{}", crate_migrations.len()));
+    println!(
+        "║ Root Migrations:        {:>35} ║",
+        format!("{}", root_migrations.len())
+    );
+    println!(
+        "║ Crate Migrations:       {:>35} ║",
+        format!("{}", crate_migrations.len())
+    );
     println!("║ PRD-01 Migrations:      {:>35} ║", "0072-0074 (3 new)");
     println!("║ Conflict Status:        {:>35} ║", "✓ NO CONFLICTS");
     println!("╚════════════════════════════════════════════════════════╝");

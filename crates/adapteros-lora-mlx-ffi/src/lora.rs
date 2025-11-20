@@ -117,9 +117,20 @@ impl LoRAAdapter {
     /// Get total parameter count
     pub fn parameter_count(&self) -> usize {
         let mut total = 0;
-        for (_module_name, (rows, cols)) in &self.shapes {
-            total += rows * cols;
+
+        // Count parameters from both lora_a and lora_b matrices
+        for (_module_name, matrix) in &self.lora_a {
+            for row in matrix {
+                total += row.len();
+            }
         }
+
+        for (_module_name, matrix) in &self.lora_b {
+            for row in matrix {
+                total += row.len();
+            }
+        }
+
         total
     }
 
@@ -149,26 +160,29 @@ impl LoRAAdapter {
             let lora_a_key = format!("{}.lora_A", module_name);
             let lora_b_key = format!("{}.lora_B", module_name);
 
-            if let (Some(lora_a_tensor), Some(lora_b_tensor)) =
-                (tensors.tensor(&lora_a_key), tensors.tensor(&lora_b_key)) {
+            match (tensors.tensor(&lora_a_key), tensors.tensor(&lora_b_key)) {
+                (Ok(lora_a_tensor), Ok(lora_b_tensor)) => {
+                    // Convert tensors to Vec<Vec<f32>>
+                    let lora_a = tensor_to_nested_vec(&lora_a_tensor)?;
+                    let lora_b = tensor_to_nested_vec(&lora_b_tensor)?;
 
-                // Convert tensors to Vec<Vec<f32>>
-                let lora_a = tensor_to_nested_vec(lora_a_tensor)?;
-                let lora_b = tensor_to_nested_vec(lora_b_tensor)?;
+                    adapter.add_module_weights(module_name, lora_a, lora_b);
 
-                adapter.add_module_weights(module_name, lora_a, lora_b);
-
-                tracing::debug!(
-                    "Loaded LoRA weights for {}: A shape {:?}, B shape {:?}",
-                    module_name,
-                    lora_a_tensor.shape(),
-                    lora_b_tensor.shape()
-                );
-            } else {
-                tracing::warn!(
-                    "LoRA weights not found for module {}: expected keys {}.lora_A, {}.lora_B",
-                    module_name, module_name, module_name
-                );
+                    tracing::debug!(
+                        "Loaded LoRA weights for {}: A shape {:?}, B shape {:?}",
+                        module_name,
+                        lora_a_tensor.shape(),
+                        lora_b_tensor.shape()
+                    );
+                }
+                _ => {
+                    tracing::warn!(
+                        "LoRA weights not found for module {}: expected keys {}.lora_A, {}.lora_B",
+                        module_name,
+                        module_name,
+                        module_name
+                    );
+                }
             }
         }
 
@@ -177,7 +191,9 @@ impl LoRAAdapter {
 }
 
 /// Convert safetensors tensor view to nested Vec<Vec<f32>>
-fn tensor_to_nested_vec(tensor: &safetensors::tensor::TensorView) -> Result<Vec<Vec<f32>>> {
+fn tensor_to_nested_vec(
+    tensor: &safetensors::tensor::TensorView,
+) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error>> {
     let shape = tensor.shape();
     let data = tensor.data();
 
@@ -192,15 +208,17 @@ fn tensor_to_nested_vec(tensor: &safetensors::tensor::TensorView) -> Result<Vec<
     let float_data: &[f32] = unsafe {
         std::slice::from_raw_parts(
             data.as_ptr() as *const f32,
-            data.len() / std::mem::size_of::<f32>()
+            data.len() / std::mem::size_of::<f32>(),
         )
     };
 
     if float_data.len() != rows * cols {
         return Err(format!(
             "Data size mismatch: expected {} elements, got {}",
-            rows * cols, float_data.len()
-        ).into());
+            rows * cols,
+            float_data.len()
+        )
+        .into());
     }
 
     // Convert to nested vec

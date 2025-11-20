@@ -196,7 +196,6 @@ impl AdapterRegistrationBuilder {
         self
     }
 
-
     /// Set the semantic adapter name (optional)
     /// Format: {tenant_namespace}/{domain}/{purpose}/{revision}
     pub fn adapter_name(mut self, adapter_name: Option<impl Into<String>>) -> Self {
@@ -355,8 +354,8 @@ pub struct Adapter {
     pub fork_reason: Option<String>,
 
     // Metadata normalization (from migration 0068)
-    pub version: String,           // Semantic version or monotonic
-    pub lifecycle_state: String,   // draft/active/deprecated/retired
+    pub version: String,         // Semantic version or monotonic
+    pub lifecycle_state: String, // draft/active/deprecated/retired
 
     pub created_at: String,
     pub updated_at: String,
@@ -1126,7 +1125,7 @@ impl Db {
             "SELECT revision FROM adapters
              WHERE tenant_namespace = ? AND domain = ? AND purpose = ? AND active = 1
              ORDER BY revision DESC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(tenant_namespace)
         .bind(domain)
@@ -1162,7 +1161,7 @@ impl Db {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT revision FROM adapters
              WHERE tenant_namespace = ? AND domain = ? AND purpose = ? AND active = 1
-             ORDER BY revision ASC"
+             ORDER BY revision ASC",
         )
         .bind(tenant_namespace)
         .bind(domain)

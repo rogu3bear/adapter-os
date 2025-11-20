@@ -93,42 +93,42 @@ mod tests {
 
     #[test]
     fn test_infer_repo_url_with_remote() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let repo_path = temp_dir.path();
 
         // Initialize git repo
-        git2::Repository::init(repo_path).unwrap();
+        git2::Repository::init(repo_path).expect("Failed to init git repository");
 
         // Add origin remote
-        let repo = git2::Repository::open(repo_path).unwrap();
+        let repo = git2::Repository::open(repo_path).expect("Failed to open git repository");
         repo.remote("origin", "https://github.com/user/repo.git")
-            .unwrap();
+            .expect("Failed to create git commit");
 
-        let url = infer_repo_url(repo_path.to_str().unwrap());
+        let url = infer_repo_url(repo_path.to_str().expect("Invalid UTF-8 in path"));
         assert_eq!(url, Some("https://github.com/user/repo.git".to_string()));
     }
 
     #[test]
     fn test_infer_repo_url_no_remote() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let repo_path = temp_dir.path();
 
         // Initialize git repo without remote
-        git2::Repository::init(repo_path).unwrap();
+        git2::Repository::init(repo_path).expect("Failed to init git repository");
 
-        let url = infer_repo_url(repo_path.to_str().unwrap());
+        let url = infer_repo_url(repo_path.to_str().expect("Invalid UTF-8 in path"));
         assert_eq!(url, None);
     }
 
     #[test]
     fn test_infer_repo_url_not_git_repo() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let repo_path = temp_dir.path();
 
         // Create directory but don't initialize git
-        fs::create_dir_all(repo_path).unwrap();
+        fs::create_dir_all(repo_path).expect("Failed to create directories");
 
-        let url = infer_repo_url(repo_path.to_str().unwrap());
+        let url = infer_repo_url(repo_path.to_str().expect("Invalid UTF-8 in path"));
         assert_eq!(url, None);
     }
 

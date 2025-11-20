@@ -988,6 +988,35 @@ Examples:
   # Create diagnostic bundle
   aosctl diag --full --bundle ./diag_bundle.zip
 ")]
+    /// Show backend status and capabilities
+    #[command(after_help = "\
+Examples:
+  # Show backend summary
+  aosctl backend-status
+
+  # Show detailed backend information
+  aosctl backend-status --detailed
+
+  # Output in JSON format
+  aosctl backend-status --json
+")]
+    BackendStatus(commands::backend_status::BackendStatusArgs),
+
+    /// Run diagnostics and health checks
+    #[command(after_help = "\
+Examples:
+  # Full system diagnostics
+  aosctl diag
+
+  # System checks only
+  aosctl diag --system
+
+  # Tenant-specific checks
+  aosctl diag --tenant dev
+
+  # Create diagnostic bundle
+  aosctl diag --full --bundle ./diag_bundle.zip
+")]
     Diag {
         /// Diagnostic profile: system, tenant, or full
         #[arg(long, default_value = "full")]
@@ -1460,7 +1489,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             event_type,
             limit,
         } => {
-            telemetry_list::list_telemetry_events(&database, by_stack.as_deref(), event_type.as_deref(), *limit, &output).await?;
+            telemetry_list::list_telemetry_events(
+                &database,
+                by_stack.as_deref(),
+                event_type.as_deref(),
+                *limit,
+                &output,
+            )
+            .await?;
         }
 
         Commands::TelemetryVerify { bundle_dir } => {
@@ -1626,6 +1662,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             completions::generate_completions(*shell, &mut cmd)?;
+        }
+
+        // Backend Status
+        Commands::BackendStatus(args) => {
+            commands::backend_status::run(args).await?;
         }
 
         // Documentation & Help

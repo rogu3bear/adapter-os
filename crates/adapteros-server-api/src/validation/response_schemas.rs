@@ -406,7 +406,7 @@ mod tests {
 
         let result = validator.validate_response(&response, "inference_response").await;
         assert!(result.is_ok());
-        assert!(result.unwrap().valid);
+        assert!(result.expect("Validation failed").valid);
     }
 
     #[tokio::test]
@@ -420,7 +420,7 @@ mod tests {
 
         let result = validator.validate_response(&response, "inference_response").await;
         assert!(result.is_ok());
-        let validation = result.unwrap();
+        let validation = result.expect("Validation failed");
         assert!(!validation.valid);
         assert!(validation.errors.len() >= 2); // Should have errors for missing fields
     }
@@ -437,7 +437,7 @@ mod tests {
 
         let result = validator.validate_response(&response, "inference_response").await;
         assert!(result.is_ok());
-        let validation = result.unwrap();
+        let validation = result.expect("Validation failed");
         assert!(!validation.valid);
         assert!(validation.errors.iter().any(|e| e.contains("token_count")));
     }

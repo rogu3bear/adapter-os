@@ -5,6 +5,7 @@ pub mod adapter_info;
 pub mod adapter_swap;
 pub mod audit;
 pub mod audit_determinism;
+pub mod backend_status;
 pub mod bootstrap;
 pub mod build_plan;
 pub mod cdp_list;

@@ -207,7 +207,7 @@ fn golden_decision_low_entropy() {
     let decision = Decision {
         indices: SmallVec::from_slice(&[0, 1, 2]),
         gates_q15: SmallVec::from_slice(&[29491, 1638, 1638]), // 0.9, 0.05, 0.05
-        entropy: 0.325, // Low entropy, one dominant gate
+        entropy: 0.325,                                        // Low entropy, one dominant gate
         candidates: vec![],
     };
 
@@ -246,7 +246,8 @@ fn test_router_produces_valid_decisions() {
         "Indices and gates must match"
     );
     assert_eq!(
-        decision.indices.len(), 3,
+        decision.indices.len(),
+        3,
         "Router configured for K=3 should produce 3 adapters"
     );
 
@@ -291,11 +292,7 @@ fn golden_q15_conversion_formula() {
 
     for (float_val, expected_q15) in test_cases {
         let q15 = (float_val * 32767.0) as i16;
-        assert_eq!(
-            q15, expected_q15,
-            "Q15 conversion failed for {}",
-            float_val
-        );
+        assert_eq!(q15, expected_q15, "Q15 conversion failed for {}", float_val);
 
         // Verify round-trip (allowing for quantization error)
         let float_back = q15 as f32 / 32767.0;
@@ -320,7 +317,10 @@ fn test_smallvec_capacity_matches_router_ring() {
     assert_eq!(gates.len(), 8);
 
     // Verify SmallVec inline capacity (no heap allocation for K ≤ 8)
-    assert!(indices.spilled() == false, "SmallVec should be inline for K=8");
+    assert!(
+        indices.spilled() == false,
+        "SmallVec should be inline for K=8"
+    );
     assert!(gates.spilled() == false);
 }
 

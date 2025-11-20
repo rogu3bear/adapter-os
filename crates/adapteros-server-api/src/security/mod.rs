@@ -302,32 +302,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_attempt_tracking() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         track_auth_attempt(&db, "user@example.com", "192.168.1.1", false, Some("invalid password"))
             .await
-            .unwrap();
+            .expect("Security operation failed");
 
         let is_locked = is_account_locked(&db, "user@example.com", 15)
             .await
-            .unwrap();
+            .expect("Security operation failed");
         assert!(!is_locked); // Only 1 attempt, threshold is 5
     }
 
     #[tokio::test]
     async fn test_account_lockout() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         // Simulate 5 failed attempts
         for _ in 0..5 {
             track_auth_attempt(&db, "user@example.com", "192.168.1.1", false, Some("invalid password"))
                 .await
-                .unwrap();
+                .expect("Security operation failed");
         }
 
         let is_locked = is_account_locked(&db, "user@example.com", 15)
             .await
-            .unwrap();
+            .expect("Security operation failed");
         assert!(is_locked);
     }
 }

@@ -1,13 +1,19 @@
 //! Unit tests for lifecycle management functionality
 
-use adapteros_core::lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
+use adapteros_core::lifecycle::{
+    LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason,
+};
 
 #[test]
 fn test_valid_transitions() {
     // Test valid transitions using is_valid()
     assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_valid());
-    assert!(LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_valid());
-    assert!(LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired).is_valid());
+    assert!(
+        LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_valid()
+    );
+    assert!(
+        LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired).is_valid()
+    );
 
     // Test invalid transitions
     assert!(!LifecycleTransition::new(LifecycleState::Active, LifecycleState::Retired).is_valid());

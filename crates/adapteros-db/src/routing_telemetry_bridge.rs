@@ -32,11 +32,17 @@ pub fn event_to_decision(
         })
         .collect();
 
-    let candidates_json = serde_json::to_string(&candidates)
-        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to serialize candidates: {}", e)))?;
+    let candidates_json = serde_json::to_string(&candidates).map_err(|e| {
+        adapteros_core::AosError::Io(format!("Failed to serialize candidates: {}", e))
+    })?;
 
     // Generate unique ID
-    let id = format!("{}-{}-{}", tenant_id, request_id.unwrap_or("unknown"), event.step);
+    let id = format!(
+        "{}-{}-{}",
+        tenant_id,
+        request_id.unwrap_or("unknown"),
+        event.step
+    );
 
     // Get current timestamp
     let timestamp = chrono::Utc::now().to_rfc3339();
@@ -61,7 +67,7 @@ pub fn event_to_decision(
         request_id: request_id.map(|s| s.to_string()),
         step: event.step as i64,
         input_token_id: event.input_token_id.map(|t| t as i64),
-        stack_id: None,  // Will be filled from context if available
+        stack_id: None, // Will be filled from context if available
         stack_hash: event.stack_hash.clone(),
         entropy: event.entropy as f64,
         tau: event.tau as f64,
@@ -69,7 +75,7 @@ pub fn event_to_decision(
         k_value: Some(selected_ids.len() as i64),
         candidate_adapters: candidates_json,
         selected_adapter_ids,
-        router_latency_us: None,  // Will be filled from timing context if available
+        router_latency_us: None, // Will be filled from timing context if available
         total_inference_latency_us: None,
         overhead_pct: None,
         created_at: timestamp,
@@ -163,13 +169,15 @@ mod tests {
         assert_eq!(decision.step, 5);
         assert_eq!(decision.input_token_id, Some(42));
         assert_eq!(decision.entropy, 0.75);
-        assert_eq!(decision.k_value, Some(2));  // Both candidates have non-zero gates
+        assert_eq!(decision.k_value, Some(2)); // Both candidates have non-zero gates
         assert!(decision.selected_adapter_ids.is_some());
     }
 
     #[tokio::test]
     async fn test_persist_router_decisions() {
-        let db = Db::new_in_memory().await.expect("Failed to create in-memory database");
+        let db = Db::new_in_memory()
+            .await
+            .expect("Failed to create in-memory database");
 
         let events = vec![RouterDecisionEvent {
             step: 1,

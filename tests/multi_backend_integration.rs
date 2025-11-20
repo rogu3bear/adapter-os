@@ -6,16 +6,16 @@
 //! - Error recovery and fallback mechanisms
 //! - Performance validation across backends
 
-use adapteros_lora_kernel_api::{FusedKernels, MockKernels, RouterRing, IoBuffers};
 use adapteros_core::Result;
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MockKernels, RouterRing};
 use std::time::Instant;
 
 #[cfg(target_os = "macos")]
 mod macos_tests {
     use super::*;
     use adapteros_lora_kernel_mtl::ane_acceleration::{
-        ANEAccelerator, ANEModelConfig, ANEDataType, ANELoRAConfig,
-        ANEQuantization, ANECalibrationMethod,
+        ANEAccelerator, ANECalibrationMethod, ANEDataType, ANELoRAConfig, ANEModelConfig,
+        ANEQuantization,
     };
 
     /// Backend execution context
@@ -101,11 +101,19 @@ mod macos_tests {
 
         // Verify exact match
         assert_eq!(io1.output_logits.len(), io2.output_logits.len());
-        for (i, (a, b)) in io1.output_logits.iter().zip(io2.output_logits.iter()).enumerate() {
+        for (i, (a, b)) in io1
+            .output_logits
+            .iter()
+            .zip(io2.output_logits.iter())
+            .enumerate()
+        {
             assert_eq!(a, b, "Mismatch at index {}: {} != {}", i, a, b);
         }
 
-        println!("Determinism verified across {} logits", io1.output_logits.len());
+        println!(
+            "Determinism verified across {} logits",
+            io1.output_logits.len()
+        );
     }
 
     #[test]
@@ -117,9 +125,10 @@ mod macos_tests {
                 let caps = accelerator.capabilities();
 
                 if caps.available {
-                    println!("ANE available: {} cores, {} TOPS",
-                        caps.core_count,
-                        caps.performance.peak_throughput_tops);
+                    println!(
+                        "ANE available: {} cores, {} TOPS",
+                        caps.core_count, caps.performance.peak_throughput_tops
+                    );
 
                     assert!(caps.core_count > 0);
                     assert!(!caps.supported_data_types.is_empty());
@@ -216,8 +225,12 @@ mod macos_tests {
             let exec_result = executor.execute("test_workload");
             assert!(exec_result.is_ok());
 
-            println!("Switch to {}: {}μs, result: {}",
-                backend, switch_time, exec_result.unwrap());
+            println!(
+                "Switch to {}: {}μs, result: {}",
+                backend,
+                switch_time,
+                exec_result.unwrap()
+            );
         }
 
         assert_eq!(executor.switch_count, backends.len() as u32);
@@ -301,7 +314,9 @@ mod macos_tests {
 
     #[test]
     fn test_e2e_memory_pressure_handling() {
-        use adapteros_memory::unified_memory::{UnifiedMemoryManager, AllocationRequest, MemoryType};
+        use adapteros_memory::unified_memory::{
+            AllocationRequest, MemoryType, UnifiedMemoryManager,
+        };
 
         let mut manager = UnifiedMemoryManager::new(50 * 1024 * 1024); // 50MB limit
         manager.init_pool("test", 40 * 1024 * 1024).unwrap();
@@ -333,7 +348,10 @@ mod macos_tests {
         }
 
         println!("Successful allocations: {} / 20", successful_allocations);
-        assert!(successful_allocations > 0, "Should allocate at least some blocks");
+        assert!(
+            successful_allocations > 0,
+            "Should allocate at least some blocks"
+        );
         assert!(successful_allocations < 20, "Should hit memory pressure");
 
         // Cleanup
@@ -391,7 +409,10 @@ mod macos_tests {
         let report = kernels.attest_determinism().unwrap();
 
         // Verify attestation structure
-        assert!(report.deterministic, "Backend should attest as deterministic");
+        assert!(
+            report.deterministic,
+            "Backend should attest as deterministic"
+        );
 
         println!("Backend attestation:");
         println!("  Type: {:?}", report.backend_type);

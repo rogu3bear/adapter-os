@@ -369,7 +369,7 @@ pub fn detect_frameworks(root: &Path) -> Result<Vec<DetectedFramework>> {
                 }
                 Indicator::Config(files) => {
                     for file in *files {
-                        if metadata.config_files.contains(&file.to_string()) {
+                        if metadata.config_files.contains(&file) {
                             evidence.push(format!("config:{}", file));
                             score += 0.15;
                         }

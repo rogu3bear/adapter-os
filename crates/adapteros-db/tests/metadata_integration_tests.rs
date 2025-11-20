@@ -6,7 +6,7 @@
 // are correctly stored and retrieved from database to API responses
 
 use adapteros_core::LifecycleState;
-use adapteros_db::{Db, adapters::AdapterRegistrationBuilder, metadata::AdapterMeta};
+use adapteros_db::{adapters::AdapterRegistrationBuilder, metadata::AdapterMeta, Db};
 
 /// Helper to initialize database with schema
 async fn init_test_db() -> anyhow::Result<Db> {
@@ -36,11 +36,21 @@ async fn test_database_schema_has_metadata_columns() -> anyhow::Result<()> {
     .fetch_all(db.pool())
     .await?;
 
-    assert_eq!(schema.len(), 2, "Should have both version and lifecycle_state columns");
+    assert_eq!(
+        schema.len(),
+        2,
+        "Should have both version and lifecycle_state columns"
+    );
 
     let column_names: Vec<String> = schema.iter().map(|(name, _)| name.clone()).collect();
-    assert!(column_names.contains(&"version".to_string()), "Should have version column");
-    assert!(column_names.contains(&"lifecycle_state".to_string()), "Should have lifecycle_state column");
+    assert!(
+        column_names.contains(&"version".to_string()),
+        "Should have version column"
+    );
+    assert!(
+        column_names.contains(&"lifecycle_state".to_string()),
+        "Should have lifecycle_state column"
+    );
 
     Ok(())
 }
@@ -78,7 +88,10 @@ async fn test_adapter_default_version_and_lifecycle() -> anyhow::Result<()> {
 
     // Verify default values (from migration 0068)
     assert_eq!(adapter.version, "1.0.0", "Default version should be 1.0.0");
-    assert_eq!(adapter.lifecycle_state, "active", "Default lifecycle_state should be active");
+    assert_eq!(
+        adapter.lifecycle_state, "active",
+        "Default lifecycle_state should be active"
+    );
 
     Ok(())
 }
@@ -163,8 +176,16 @@ async fn test_multiple_adapters_metadata_consistency() -> anyhow::Result<()> {
 
     // Verify all have version and lifecycle_state
     for adapter in adapters {
-        assert!(!adapter.version.is_empty(), "Adapter {} should have version", adapter.id);
-        assert!(!adapter.lifecycle_state.is_empty(), "Adapter {} should have lifecycle_state", adapter.id);
+        assert!(
+            !adapter.version.is_empty(),
+            "Adapter {} should have version",
+            adapter.id
+        );
+        assert!(
+            !adapter.lifecycle_state.is_empty(),
+            "Adapter {} should have lifecycle_state",
+            adapter.id
+        );
 
         // Convert to AdapterMeta
         let meta: AdapterMeta = adapter.into();
@@ -172,7 +193,10 @@ async fn test_multiple_adapters_metadata_consistency() -> anyhow::Result<()> {
         // Lifecycle state should parse to enum
         assert!(matches!(
             meta.lifecycle_state,
-            LifecycleState::Draft | LifecycleState::Active | LifecycleState::Deprecated | LifecycleState::Retired
+            LifecycleState::Draft
+                | LifecycleState::Active
+                | LifecycleState::Deprecated
+                | LifecycleState::Retired
         ));
     }
 
@@ -252,12 +276,11 @@ async fn test_explicit_field_query() -> anyhow::Result<()> {
     db.register_adapter(params).await?;
 
     // Explicit query for version and lifecycle_state
-    let result: (String, String) = sqlx::query_as(
-        "SELECT version, lifecycle_state FROM adapters WHERE id = ?"
-    )
-    .bind(adapter_id)
-    .fetch_one(db.pool())
-    .await?;
+    let result: (String, String) =
+        sqlx::query_as("SELECT version, lifecycle_state FROM adapters WHERE id = ?")
+            .bind(adapter_id)
+            .fetch_one(db.pool())
+            .await?;
 
     let (version, lifecycle_state) = result;
     assert_eq!(version, "1.0.0");

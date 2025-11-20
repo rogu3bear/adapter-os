@@ -104,10 +104,7 @@ pub async fn run(cmd: DoctorCommand, output: &OutputWriter) -> Result<()> {
 }
 
 /// Display health summary in a formatted table
-fn display_health_summary(
-    health: &SystemHealthResponse,
-    output: &OutputWriter,
-) -> Result<()> {
+fn display_health_summary(health: &SystemHealthResponse, output: &OutputWriter) -> Result<()> {
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
     table.set_header(vec!["Component", "Status", "Message"]);
@@ -148,10 +145,7 @@ fn display_health_summary(
     // Display details if any component has them
     for component in &health.components {
         if let Some(details) = &component.details {
-            output.info(&format!(
-                "\n{} Details:",
-                component.component
-            ));
+            output.info(&format!("\n{} Details:", component.component));
             println!("{}", serde_json::to_string_pretty(details)?);
         }
     }
@@ -165,7 +159,8 @@ mod tests {
 
     #[test]
     fn test_component_status_deserialization() {
-        let json = r#"{"component":"test","status":"healthy","message":"ok","timestamp":1234567890}"#;
+        let json =
+            r#"{"component":"test","status":"healthy","message":"ok","timestamp":1234567890}"#;
         let health: ComponentHealth = serde_json::from_str(json).unwrap();
         assert_eq!(health.component, "test");
         assert_eq!(health.status, ComponentStatus::Healthy);

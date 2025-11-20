@@ -45,6 +45,52 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --exclude adapteros-lora-mlx-ffi
 
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Run security audit
+        run: cargo audit --ignore RUSTSEC-2021-0139
+      - name: Generate SBOM
+        run: |
+          # Install cargo-sbom if available, or use basic dependency listing
+          cargo tree > sbom.txt || echo "cargo tree fallback used"
+          echo "Software Bill of Materials generated" >> sbom.txt
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.txt
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-license
+        run: cargo install cargo-license
+      - name: Check licenses
+        run: |
+          cargo license --json > licenses.json
+          # Check for unacceptable licenses
+          if jq -r '.[] | select(.license | test("^(GPL|LGPL|CDDL|CECILL|MPL)")) | .name' licenses.json | grep -q .; then
+            echo "::error::Unacceptable license found in dependencies"
+            jq -r '.[] | select(.license | test("^(GPL|LGPL|CDDL|CECILL|MPL)")) | "\(.name): \(.license)"' licenses.json
+            exit 1
+          else
+            echo "✅ All dependency licenses are acceptable"
+          fi
+      - name: Upload license report
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-report
+          path: licenses.json
+
   build:
     name: Release Build
     runs-on: ubuntu-latest

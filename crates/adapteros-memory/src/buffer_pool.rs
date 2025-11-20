@@ -204,7 +204,11 @@ impl BufferPool {
         let mut total_pooled = self.total_pooled_bytes.lock().unwrap();
         *total_pooled += capacity;
 
-        debug!(bucket = bucket, capacity = capacity, "Released buffer to pool");
+        debug!(
+            bucket = bucket,
+            capacity = capacity,
+            "Released buffer to pool"
+        );
     }
 
     /// Get or convert tensor format (with caching)
@@ -286,24 +290,12 @@ impl BufferPool {
         shape: (usize, usize, usize),
     ) -> Result<Vec<u8>> {
         match (from, to) {
-            (TensorFormat::Metal, TensorFormat::CoreML) => {
-                self.metal_to_coreml(data, shape)
-            }
-            (TensorFormat::CoreML, TensorFormat::Metal) => {
-                self.coreml_to_metal(data, shape)
-            }
-            (TensorFormat::Metal, TensorFormat::Mlx) => {
-                self.metal_to_mlx(data, shape)
-            }
-            (TensorFormat::Mlx, TensorFormat::Metal) => {
-                self.mlx_to_metal(data, shape)
-            }
-            (TensorFormat::CoreML, TensorFormat::Mlx) => {
-                self.coreml_to_mlx(data, shape)
-            }
-            (TensorFormat::Mlx, TensorFormat::CoreML) => {
-                self.mlx_to_coreml(data, shape)
-            }
+            (TensorFormat::Metal, TensorFormat::CoreML) => self.metal_to_coreml(data, shape),
+            (TensorFormat::CoreML, TensorFormat::Metal) => self.coreml_to_metal(data, shape),
+            (TensorFormat::Metal, TensorFormat::Mlx) => self.metal_to_mlx(data, shape),
+            (TensorFormat::Mlx, TensorFormat::Metal) => self.mlx_to_metal(data, shape),
+            (TensorFormat::CoreML, TensorFormat::Mlx) => self.coreml_to_mlx(data, shape),
+            (TensorFormat::Mlx, TensorFormat::CoreML) => self.mlx_to_coreml(data, shape),
             _ => Err(AosError::Memory(format!(
                 "Unsupported conversion: {:?} -> {:?}",
                 from, to
@@ -375,10 +367,7 @@ impl BufferPool {
     }
 
     /// Evict oldest conversion from cache
-    fn evict_oldest_conversion(
-        &self,
-        cache: &mut HashMap<ConversionKey, CachedConversion>,
-    ) {
+    fn evict_oldest_conversion(&self, cache: &mut HashMap<ConversionKey, CachedConversion>) {
         if let Some((oldest_key, oldest_size)) = cache
             .iter()
             .min_by_key(|(_, v)| v.last_accessed)

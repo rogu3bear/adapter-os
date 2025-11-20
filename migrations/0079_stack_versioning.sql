@@ -1,4 +1,5 @@
 -- Stack versioning for telemetry correlation (PRD-03)
+-- Migration: 0079
 -- Enables tracking which stack version handled each inference request
 --
 -- Version increments are handled at application level in update_stack()

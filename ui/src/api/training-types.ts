@@ -124,3 +124,4 @@ export interface UploadProgress {
   status: 'uploading' | 'processing' | 'completed' | 'failed';
   error_message?: string;
 }
+

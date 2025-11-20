@@ -199,31 +199,31 @@ impl ProgressService {
             Opts::new("progress_operations_started_total", "Total number of operations started")
                 .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let operations_completed_total = CounterVec::new(
             Opts::new("progress_operations_completed_total", "Total number of operations completed")
                 .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let operations_failed_total = CounterVec::new(
             Opts::new("progress_operations_failed_total", "Total number of operations failed")
                 .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let operations_cancelled_total = CounterVec::new(
             Opts::new("progress_operations_cancelled_total", "Total number of operations cancelled")
                 .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let active_operations = GaugeVec::new(
             Opts::new("progress_active_operations", "Number of currently active operations")
                 .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let operation_duration_seconds = HistogramVec::new(
             prometheus::HistogramOpts::new(
@@ -233,7 +233,7 @@ impl ProgressService {
             .namespace("adapteros")
             .buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0]),
             &["event_type", "status"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let db_operation_duration_seconds = HistogramVec::new(
             prometheus::HistogramOpts::new(
@@ -243,7 +243,7 @@ impl ProgressService {
             .namespace("adapteros")
             .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]),
             &["operation"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let query_duration_seconds = HistogramVec::new(
             prometheus::HistogramOpts::new(
@@ -253,18 +253,18 @@ impl ProgressService {
             .namespace("adapteros")
             .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
             &[],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let events_emitted_total = CounterVec::new(
             Opts::new("progress_events_emitted_total", "Total number of progress events emitted")
                 .namespace("adapteros"),
             &["event_type"],
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         let sse_subscribers = prometheus::Gauge::new(
             "progress_sse_subscribers",
             "Number of active SSE subscribers"
-        ).unwrap();
+        ).expect("Failed to create Prometheus metric");
 
         ProgressMetrics {
             operations_started_total,
@@ -977,7 +977,7 @@ mod tests {
                 ProgressEventType::Operation("load".to_string()),
             )
             .await
-            .unwrap();
+            .expect("Failed to start operation");
 
         service
             .start_operation(
@@ -986,7 +986,7 @@ mod tests {
                 ProgressEventType::Training("train".to_string()),
             )
             .await
-            .unwrap();
+            .expect("Failed to start operation");
 
         // Test filtering by tenant
         let filter = ProgressFilter {

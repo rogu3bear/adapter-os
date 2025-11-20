@@ -30,7 +30,7 @@ impl<F: Future> Future for Timeout<F> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Poll the sleep future first
-        if let Poll::Ready(_) = Pin::new(&mut self.sleep).poll(cx) {
+        if Pin::new(&mut self.sleep).poll(cx).is_ready() {
             return Poll::Ready(Err(AosError::Timeout {
                 duration: Duration::from_secs(30), // Default 30s
             }));

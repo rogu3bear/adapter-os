@@ -104,16 +104,14 @@ async fn test_error_response_openapi_compatible() {
 async fn test_batch_infer_request_openapi_compatible() {
     // Verify requests field is present and is array
     let batch = BatchInferRequest {
-        requests: vec![
-            BatchInferItemRequest {
-                id: "req-1".to_string(),
-                request: InferRequest {
-                    prompt: "test".to_string(),
-                    max_tokens: Some(100),
-                    temperature: None,
-                },
+        requests: vec![BatchInferItemRequest {
+            id: "req-1".to_string(),
+            request: InferRequest {
+                prompt: "test".to_string(),
+                max_tokens: Some(100),
+                temperature: None,
             },
-        ],
+        }],
     };
 
     let json = serde_json::to_value(&batch).expect("serialize failed");
@@ -149,10 +147,7 @@ async fn test_batch_infer_item_response_structure() {
 
 #[tokio::test]
 async fn test_pagination_params_schema_compatibility() {
-    let params = PaginationParams {
-        page: 2,
-        limit: 50,
-    };
+    let params = PaginationParams { page: 2, limit: 50 };
 
     let json = serde_json::to_value(&params).expect("serialize failed");
 
@@ -177,17 +172,19 @@ async fn test_health_response_schema_completeness() {
     let json = serde_json::to_value(&health).expect("serialize failed");
 
     // Verify required fields
-    assert_has_required_fields(
-        &json,
-        &["schema_version", "status", "version"],
-    );
+    assert_has_required_fields(&json, &["schema_version", "status", "version"]);
 
     // Verify nested object structure
     if let Some(models) = json.get("models") {
         assert!(models.is_object(), "'models' should be object type");
         assert_has_required_fields(
             models,
-            &["total_models", "loaded_count", "healthy", "inconsistencies_count"],
+            &[
+                "total_models",
+                "loaded_count",
+                "healthy",
+                "inconsistencies_count",
+            ],
         );
     }
 }
@@ -207,7 +204,14 @@ async fn test_adapter_response_openapi_compatible() {
 
     assert_has_required_fields(
         &json,
-        &["id", "name", "version", "status", "created_at", "updated_at"],
+        &[
+            "id",
+            "name",
+            "version",
+            "status",
+            "created_at",
+            "updated_at",
+        ],
     );
 }
 
@@ -242,8 +246,18 @@ async fn test_routing_decision_openapi_compatible() {
     // Required fields for routing decision
     assert_has_required_fields(
         &json,
-        &["id", "tenant_id", "timestamp", "step", "entropy", "tau",
-          "entropy_floor", "adapters_used", "reason", "trace_id"],
+        &[
+            "id",
+            "tenant_id",
+            "timestamp",
+            "step",
+            "entropy",
+            "tau",
+            "entropy_floor",
+            "adapters_used",
+            "reason",
+            "trace_id",
+        ],
     );
 
     // Verify array types
@@ -384,11 +398,7 @@ fn validate_nested_snake_case(value: &Value) {
                 .chars()
                 .all(|c| c.is_lowercase() || c.is_numeric() || c == '_');
 
-            assert!(
-                is_snake_case,
-                "Field '{}' is not in snake_case",
-                key
-            );
+            assert!(is_snake_case, "Field '{}' is not in snake_case", key);
 
             // Recursively validate nested objects
             if val.is_object() {
@@ -451,7 +461,7 @@ async fn test_numeric_precision_in_openapi() {
         stack_id: None,
         stack_name: None,
         stack_hash: None,
-        entropy: 2.71828,     // Should preserve decimal precision
+        entropy: 2.71828, // Should preserve decimal precision
         tau: 1.0,
         entropy_floor: 0.001,
         k_value: None,
@@ -472,10 +482,7 @@ async fn test_numeric_precision_in_openapi() {
         json.get("entropy").unwrap().is_f64(),
         "entropy should be numeric"
     );
-    assert!(
-        json.get("tau").unwrap().is_f64(),
-        "tau should be numeric"
-    );
+    assert!(json.get("tau").unwrap().is_f64(), "tau should be numeric");
 }
 
 // ============================================================================
@@ -526,5 +533,8 @@ async fn test_empty_arrays_preserved() {
 
     // Empty arrays should be present, not omitted
     assert!(json.get("input_tokens").is_some());
-    assert_eq!(json.get("input_tokens").unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(
+        json.get("input_tokens").unwrap().as_array().unwrap().len(),
+        0
+    );
 }

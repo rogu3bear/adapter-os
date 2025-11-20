@@ -404,10 +404,12 @@ mod tests {
             .await
             .expect("Failed to apply migration 0001");
 
-        sqlx::query(include_str!("../migrations/0002_add_missing_metrics_columns.sql"))
-            .execute(&pool)
-            .await
-            .expect("Failed to apply migration 0002");
+        sqlx::query(include_str!(
+            "../migrations/0002_add_missing_metrics_columns.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("Failed to apply migration 0002");
 
         pool
     }

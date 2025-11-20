@@ -1,8 +1,8 @@
 //! Comprehensive tests for configuration validation rules
 //! Tests: ip_address, url, range, enum validation rules
 
-use adapteros_config::types::{ConfigSchema, FieldDefinition, ConfigValidationError};
-use adapteros_config::precedence::{DeterministicConfig, ConfigBuilder};
+use adapteros_config::precedence::{ConfigBuilder, DeterministicConfig};
+use adapteros_config::types::{ConfigSchema, ConfigValidationError, FieldDefinition};
 use std::collections::HashMap;
 
 #[test]
@@ -198,7 +198,10 @@ fn test_url_validation_postgres_valid() {
         )
         .build();
 
-    assert!(config.is_ok(), "Valid PostgreSQL URL should pass validation");
+    assert!(
+        config.is_ok(),
+        "Valid PostgreSQL URL should pass validation"
+    );
 }
 
 #[test]
@@ -550,10 +553,7 @@ fn test_enum_validation_string_case_sensitive() {
         )
         .build();
 
-    assert!(
-        result.is_err(),
-        "Enum validation should be case-sensitive"
-    );
+    assert!(result.is_err(), "Enum validation should be case-sensitive");
 }
 
 #[test]

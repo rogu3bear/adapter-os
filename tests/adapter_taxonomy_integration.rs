@@ -500,13 +500,13 @@ fn test_fork_type_serialization() {
     assert_eq!(ForkType::Extension.as_str(), "extension");
 
     assert_eq!(
-        ForkType::from_str("independent").unwrap(),
+        ForkType::parse_from_str("independent").unwrap(),
         ForkType::Independent
     );
     assert_eq!(
-        ForkType::from_str("extension").unwrap(),
+        ForkType::parse_from_str("extension").unwrap(),
         ForkType::Extension
     );
 
-    assert!(ForkType::from_str("invalid").is_err());
+    assert!(ForkType::parse_from_str("invalid").is_err());
 }

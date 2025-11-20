@@ -374,12 +374,24 @@ pub async fn get_promotion_status(
 
             Ok(Json(PromotionStatusResponse {
                 request_id,
-                golden_run_id: row.try_get("golden_run_id").unwrap(),
-                target_stage: row.try_get("target_stage").unwrap(),
-                status: row.try_get("status").unwrap(),
-                requester_email: row.try_get("requester_email").unwrap(),
-                created_at: row.try_get("created_at").unwrap(),
-                updated_at: row.try_get("updated_at").unwrap(),
+                golden_run_id: row.try_get("golden_run_id").map_err(|e| {
+                    aos_error_to_response(AosError::Database(format!("Failed to get golden_run_id: {}", e)))
+                })?,
+                target_stage: row.try_get("target_stage").map_err(|e| {
+                    aos_error_to_response(AosError::Database(format!("Failed to get target_stage: {}", e)))
+                })?,
+                status: row.try_get("status").map_err(|e| {
+                    aos_error_to_response(AosError::Database(format!("Failed to get status: {}", e)))
+                })?,
+                requester_email: row.try_get("requester_email").map_err(|e| {
+                    aos_error_to_response(AosError::Database(format!("Failed to get requester_email: {}", e)))
+                })?,
+                created_at: row.try_get("created_at").map_err(|e| {
+                    aos_error_to_response(AosError::Database(format!("Failed to get created_at: {}", e)))
+                })?,
+                updated_at: row.try_get("updated_at").map_err(|e| {
+                    aos_error_to_response(AosError::Database(format!("Failed to get updated_at: {}", e)))
+                })?,
                 notes: row.try_get("notes").ok(),
                 gates,
                 approvals,

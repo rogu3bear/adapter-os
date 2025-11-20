@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use std::collections::HashSet;
 
 // Telemetry imports
-use adapteros_telemetry::events::{RouterDecisionEvent, RouterCandidate as TelemetryCandidate};
+use adapteros_telemetry::events::{RouterCandidate as TelemetryCandidate, RouterDecisionEvent};
 use adapteros_telemetry::writer::RouterDecisionWriter;
 
 pub use calibration::{
@@ -368,7 +368,6 @@ impl Router {
     pub fn stack_hash(&self) -> Option<String> {
         self.active_stack_hash.map(|hash| hash.to_short_hex())
     }
-
 
     /// Filter adapter indices based on the active stack
     fn filter_by_stack(&self, adapter_info: &[AdapterInfo]) -> Vec<usize> {

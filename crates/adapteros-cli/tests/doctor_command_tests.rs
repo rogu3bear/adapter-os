@@ -22,9 +22,15 @@ fn test_doctor_command_help_output() {
 fn test_doctor_command_with_invalid_server() {
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "aosctl", "--", "doctor",
-            "--server-url", "http://127.0.0.1:99999",
-            "--timeout", "1"
+            "run",
+            "--bin",
+            "aosctl",
+            "--",
+            "doctor",
+            "--server-url",
+            "http://127.0.0.1:99999",
+            "--timeout",
+            "1",
         ])
         .output()
         .expect("Failed to run aosctl doctor with invalid server");
@@ -42,8 +48,13 @@ fn test_doctor_command_argument_validation() {
     // Test invalid timeout value
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "aosctl", "--", "doctor",
-            "--timeout", "invalid"
+            "run",
+            "--bin",
+            "aosctl",
+            "--",
+            "doctor",
+            "--timeout",
+            "invalid",
         ])
         .output()
         .expect("Failed to run aosctl doctor with invalid timeout");

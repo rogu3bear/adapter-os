@@ -17,8 +17,8 @@
 use adapteros_core::{identity::IdentityEnvelope, stack::compute_stack_hash, B3Hash};
 use adapteros_lora_router::Router;
 use adapteros_telemetry::{
-    bundle::BundleWriter, events::RouterDecisionEvent, unified_events::TelemetryEvent,
-    unified_events::LogLevel, unified_events::EventType,
+    bundle::BundleWriter, events::RouterDecisionEvent, unified_events::EventType,
+    unified_events::LogLevel, unified_events::TelemetryEvent,
 };
 use blake3::Hasher;
 use proptest::prelude::*;

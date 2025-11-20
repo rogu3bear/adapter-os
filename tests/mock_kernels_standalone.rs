@@ -75,7 +75,10 @@ fn test_mock_kernels_determinism() {
     kernels2.run_step(&ring2, &mut io2).unwrap();
 
     // Verify identical outputs
-    assert_eq!(io1.output_logits, io2.output_logits, "Mock kernels should produce deterministic outputs");
+    assert_eq!(
+        io1.output_logits, io2.output_logits,
+        "Mock kernels should produce deterministic outputs"
+    );
     assert_eq!(io1.position, io2.position);
 }
 
@@ -88,14 +91,20 @@ fn test_mock_kernels_attestation() {
     assert!(report.is_ok(), "Attestation should succeed");
 
     let report = report.unwrap();
-    assert!(report.deterministic, "Mock kernels should be marked as deterministic");
+    assert!(
+        report.deterministic,
+        "Mock kernels should be marked as deterministic"
+    );
 
     // Verify backend type
     use adapteros_lora_kernel_api::attestation::BackendType;
     assert_eq!(report.backend_type, BackendType::Mock);
 
     // Verify no metallib hash (mock backend)
-    assert!(report.metallib_hash.is_none(), "Mock backend should not have metallib hash");
+    assert!(
+        report.metallib_hash.is_none(),
+        "Mock backend should not have metallib hash"
+    );
 }
 
 #[test]
@@ -110,7 +119,11 @@ fn test_mock_kernels_multiple_steps() {
     for expected_pos in 0..10 {
         io.input_ids.push(expected_pos as u32);
         kernels.run_step(&ring, &mut io).unwrap();
-        assert_eq!(io.position, expected_pos + 1, "Position should increment on each step");
+        assert_eq!(
+            io.position,
+            expected_pos + 1,
+            "Position should increment on each step"
+        );
     }
 }
 
@@ -123,10 +136,16 @@ fn test_mock_kernels_hot_swap_not_supported() {
     let weights = vec![0u8; 100];
 
     let load_result = kernels.load_adapter(adapter_id, &weights);
-    assert!(load_result.is_err(), "Default load_adapter should return error");
+    assert!(
+        load_result.is_err(),
+        "Default load_adapter should return error"
+    );
 
     let unload_result = kernels.unload_adapter(adapter_id);
-    assert!(unload_result.is_err(), "Default unload_adapter should return error");
+    assert!(
+        unload_result.is_err(),
+        "Default unload_adapter should return error"
+    );
 }
 
 #[test]
@@ -136,7 +155,10 @@ fn test_mock_kernels_gpu_verification_not_supported() {
     // Test that GPU buffer verification returns error (default impl)
     let adapter_id = 1;
     let verify_result = kernels.verify_adapter_buffers(adapter_id);
-    assert!(verify_result.is_err(), "Default verify_adapter_buffers should return error");
+    assert!(
+        verify_result.is_err(),
+        "Default verify_adapter_buffers should return error"
+    );
 }
 
 #[test]
@@ -147,11 +169,18 @@ fn test_mock_kernels_memory_footprint_no_op() {
     let adapter_id = 1;
     let buffer_size = 1024 * 1024; // 1 MB
 
-    let (within_tolerance, z_score, baseline_stats) = kernels.check_memory_footprint(adapter_id, buffer_size);
+    let (within_tolerance, z_score, baseline_stats) =
+        kernels.check_memory_footprint(adapter_id, buffer_size);
 
-    assert!(within_tolerance, "Mock backend should always return within tolerance");
+    assert!(
+        within_tolerance,
+        "Mock backend should always return within tolerance"
+    );
     assert_eq!(z_score, 0.0, "Z-score should be 0.0 for mock backend");
-    assert!(baseline_stats.is_none(), "Baseline stats should be None for mock backend");
+    assert!(
+        baseline_stats.is_none(),
+        "Baseline stats should be None for mock backend"
+    );
 }
 
 #[test]
@@ -167,7 +196,12 @@ fn test_router_ring_with_mock_kernels() {
         let gates: Vec<i16> = (0..k).map(|i| 32767 - (i as i16 * 4096)).collect();
 
         ring.set(&indices, &gates);
-        assert_eq!(ring.len(), k, "RouterRing should have K={} active adapters", k);
+        assert_eq!(
+            ring.len(),
+            k,
+            "RouterRing should have K={} active adapters",
+            k
+        );
 
         io.input_ids.clear();
         io.input_ids.push(1);

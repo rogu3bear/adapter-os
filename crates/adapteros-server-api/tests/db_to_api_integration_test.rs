@@ -5,9 +5,9 @@
 // Purpose: Verify database layer correctly feeds Server API with normalized metadata
 // Tests validate schema_version, version, and lifecycle_state propagation from DB to API
 
+use adapteros_api_types::{schema_version, AdapterResponse};
 use adapteros_core::LifecycleState;
-use adapteros_db::{Db, adapters::Adapter};
-use adapteros_api_types::{AdapterResponse, schema_version};
+use adapteros_db::{adapters::Adapter, Db};
 use adapteros_server_api::state::AppState;
 use adapteros_server_api::tests::common::{setup_state, test_admin_claims};
 use chrono::Utc;
@@ -34,7 +34,7 @@ async fn create_test_adapter_in_db(
             targets_json, acl_json, category, scope, current_state, load_state,
             pinned, memory_bytes, activation_count, version, lifecycle_state,
             created_at, updated_at, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(adapter_id)
     .bind("tenant-1")
@@ -91,7 +91,7 @@ async fn update_lifecycle_state_in_db(
     sqlx::query(
         "UPDATE adapters
          SET lifecycle_state = ?, updated_at = ?
-         WHERE id = ?"
+         WHERE id = ?",
     )
     .bind(new_state)
     .bind(Utc::now().to_rfc3339())
@@ -348,7 +348,9 @@ async fn test_lifecycle_state_transition_invalid_from_retired() -> anyhow::Resul
     if let Err(e) = result {
         let error_msg = e.to_string().to_lowercase();
         assert!(
-            error_msg.contains("lifecycle") || error_msg.contains("transition") || error_msg.contains("retired"),
+            error_msg.contains("lifecycle")
+                || error_msg.contains("transition")
+                || error_msg.contains("retired"),
             "Error should mention lifecycle transition violation from retired state"
         );
     } else {
@@ -377,7 +379,7 @@ async fn test_ephemeral_tier_cannot_be_deprecated() -> anyhow::Result<()> {
             targets_json, category, scope, current_state, load_state,
             pinned, memory_bytes, activation_count, version, lifecycle_state,
             created_at, updated_at, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
     )
     .bind(adapter_id)
     .bind("tenant-1")
@@ -386,7 +388,7 @@ async fn test_ephemeral_tier_cannot_be_deprecated() -> anyhow::Result<()> {
     .bind("blake3:0000000000000000000000000000000000000000000000000000000000000000")
     .bind(8_i32)
     .bind(16.0_f64)
-    .bind("ephemeral")  // ephemeral tier
+    .bind("ephemeral") // ephemeral tier
     .bind("[\"q_proj\"]")
     .bind("temporary")
     .bind("local")
@@ -407,7 +409,9 @@ async fn test_ephemeral_tier_cannot_be_deprecated() -> anyhow::Result<()> {
     if let Err(e) = result {
         let error_msg = e.to_string().to_lowercase();
         assert!(
-            error_msg.contains("lifecycle") || error_msg.contains("ephemeral") || error_msg.contains("deprecated"),
+            error_msg.contains("lifecycle")
+                || error_msg.contains("ephemeral")
+                || error_msg.contains("deprecated"),
             "Error should mention ephemeral tier cannot be deprecated"
         );
     } else {

@@ -72,7 +72,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
-import { User } from '../api/types';
+import { User, Adapter } from '../api/types';
 import { useSSE } from '../hooks/useSSE';
 import { TrainingMonitor } from './TrainingMonitor';
 import { useNavigate } from 'react-router-dom';
@@ -98,46 +98,6 @@ interface AdaptersProps {
   selectedTenant: string;
 }
 
-interface Adapter {
-  id: string;
-  adapter_id: string;
-  name: string;
-  hash_b3: string;
-  rank: number;
-  tier: number;
-  languages_json?: string;
-  framework?: string;
-
-  // Semantic naming fields
-  adapter_name?: string;           // Full semantic name: tenant/domain/purpose/r001
-  tenant_namespace?: string;       // e.g., "shop-floor"
-  domain?: string;                 // e.g., "hydraulics"
-  purpose?: string;                // e.g., "troubleshooting"
-  revision?: string;               // e.g., "r042"
-  parent_id?: string;              // Parent adapter for lineage tracking
-  fork_type?: 'independent' | 'extension';
-  fork_reason?: string;
-
-  // Code intelligence fields
-  category: 'code' | 'framework' | 'codebase' | 'ephemeral';
-  scope: 'global' | 'tenant' | 'repo' | 'commit';
-  framework_id?: string;
-  framework_version?: string;
-  repo_id?: string;
-  commit_sha?: string;
-  intent?: string;
-
-  // Lifecycle state management
-  current_state: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-  pinned: boolean;
-  memory_bytes: number;
-  last_activated?: string;
-  activation_count: number;
-
-  created_at: string;
-  updated_at: string;
-  active: boolean;
-}
 
 interface TrainingJob {
   id: string;
@@ -441,10 +401,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to delete adapter');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handleDeleteAdapter(adapterId)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handleDeleteAdapter(adapterId)}
+        />
       );
     }
   };
@@ -492,10 +452,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const adapterName = adapters.find(a => a.adapter_id === adapterId)?.name || 'Adapter';
       setErrorRecovery(
-        ErrorRecoveryTemplates.adapterLoadError(
-          adapterName,
-          () => handleLoadAdapter(adapterId)
-        )
+        <ErrorRecovery
+          error={`Failed to load adapter ${adapterName}`}
+          onRetry={() => handleLoadAdapter(adapterId)}
+        />
       );
       setStatusMessage(null);
     }
@@ -535,10 +495,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to unload adapter');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handleUnloadAdapter(adapterId)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handleUnloadAdapter(adapterId)}
+        />
       );
       setStatusMessage(null);
     }
@@ -584,10 +544,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to toggle pin');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handlePinToggle(adapter)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handlePinToggle(adapter)}
+        />
       );
     }
   };
@@ -602,10 +562,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to promote adapter state');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handlePromoteState(adapterId)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handlePromoteState(adapterId)}
+        />
       );
     }
   };
@@ -657,10 +617,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         );
 
         setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to load ${failedIds.length} adapter(s).`),
-            () => handleBulkLoad(failedIds)
-          )
+          <ErrorRecovery
+            error={`Failed to load ${failedIds.length} adapter(s).`}
+            onRetry={() => handleBulkLoad(failedIds)}
+          />
         );
       }
 
@@ -752,10 +712,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         );
 
         setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to unload ${failedIds.length} adapter(s).`),
-            () => handleBulkUnload(failedIds)
-          )
+          <ErrorRecovery
+            error={`Failed to unload ${failedIds.length} adapter(s).`}
+            onRetry={() => handleBulkUnload(failedIds)}
+          />
         );
       }
 
@@ -837,10 +797,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       if (failedAdapters.length > 0) {
         setAdapters(prev => [...prev, ...failedAdapters]);
         setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to delete ${failedAdapters.length} adapter(s).`),
-            () => handleBulkDelete(failedAdapters.map(adapter => adapter.adapter_id))
-          )
+          <ErrorRecovery
+            error={`Failed to delete ${failedAdapters.length} adapter(s).`}
+            onRetry={() => handleBulkDelete(failedAdapters.map(adapter => adapter.adapter_id))}
+          />
         );
       }
 
@@ -929,10 +889,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to download manifest');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handleDownloadManifest(adapterId)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handleDownloadManifest(adapterId)}
+        />
       );
     }
   };
@@ -1042,10 +1002,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to export adapters');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handleExport(options)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handleExport(options)}
+        />
       );
     }
   };
@@ -1188,10 +1148,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to fetch adapter health');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error,
-          () => handleViewHealth(adapterId)
-        )
+        <ErrorRecovery
+          error={error.message}
+          onRetry={() => handleViewHealth(adapterId)}
+        />
       );
     }
   };
@@ -1704,12 +1664,12 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                     await loadAdapters();
                   } catch (err) {
                     setErrorRecovery(
-                      ErrorRecoveryTemplates.genericError(
-                        err instanceof Error ? err : new Error('Upsert failed'),
-                        () => {
+                      <ErrorRecovery
+                        error={err instanceof Error ? err.message : 'Upsert failed'}
+                        onRetry={() => {
                           setErrorRecovery(null);
-                        }
-                      )
+                        }}
+                      />
                     );
                   }
                 }}>Create</Button>
@@ -1762,12 +1722,12 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                 setAdapters(adaptersData);
               } catch (err) {
                 setErrorRecovery(
-                  ErrorRecoveryTemplates.genericError(
-                    err instanceof Error ? err : new Error('Upsert failed'),
-                    () => {
+                  <ErrorRecovery
+                    error={err instanceof Error ? err.message : 'Upsert failed'}
+                    onRetry={() => {
                       setErrorRecovery(null);
-                    }
-                  )
+                    }}
+                  />
                 );
               }
             }}>Submit</Button>
@@ -1939,10 +1899,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               } catch (err) {
                 const error = err instanceof Error ? err : new Error('Failed to upsert adapter');
                 setErrorRecovery(
-                  ErrorRecoveryTemplates.genericError(
-                    error,
-                    () => {}
-                  )
+                  <ErrorRecovery
+                    error={error.message}
+                    onRetry={() => {}}
+                  />
                 );
               }
             }}>

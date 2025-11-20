@@ -4,8 +4,7 @@
 /// enforcing the rules defined in PRD-02 and documented in VERSION_GUARANTEES.md
 ///
 /// Citation: PRD-02 (2025-11-17)
-
-use crate::metadata::{LifecycleState, validate_state_transition, validate_version};
+use crate::metadata::{validate_state_transition, validate_version, LifecycleState};
 use crate::Db;
 use anyhow::Result;
 use std::str::FromStr;
@@ -43,13 +42,12 @@ impl Db {
             .await?
             .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
-        let current_state = LifecycleState::from_str(&adapter.lifecycle_state)
-            .map_err(|_| {
-                AosError::Validation(format!(
-                    "Invalid current lifecycle state: {}",
-                    adapter.lifecycle_state
-                ))
-            })?;
+        let current_state = LifecycleState::from_str(&adapter.lifecycle_state).map_err(|_| {
+            AosError::Validation(format!(
+                "Invalid current lifecycle state: {}",
+                adapter.lifecycle_state
+            ))
+        })?;
 
         // Validate transition
         validate_state_transition(current_state, new_state, &adapter.tier).map_err(|e| {
@@ -99,11 +97,7 @@ impl Db {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn update_adapter_version(
-        &self,
-        adapter_id: &str,
-        new_version: &str,
-    ) -> Result<()> {
+    pub async fn update_adapter_version(&self, adapter_id: &str, new_version: &str) -> Result<()> {
         use adapteros_core::AosError;
         use tracing::debug;
 
@@ -152,13 +146,12 @@ impl Db {
             .await?
             .ok_or_else(|| AosError::NotFound(format!("Stack not found: {}", stack_id)))?;
 
-        let current_state = LifecycleState::from_str(&stack.lifecycle_state)
-            .map_err(|_| {
-                AosError::Validation(format!(
-                    "Invalid current lifecycle state: {}",
-                    stack.lifecycle_state
-                ))
-            })?;
+        let current_state = LifecycleState::from_str(&stack.lifecycle_state).map_err(|_| {
+            AosError::Validation(format!(
+                "Invalid current lifecycle state: {}",
+                stack.lifecycle_state
+            ))
+        })?;
 
         // Validate transition (stacks don't have tier restrictions)
         if !current_state.can_transition_to(new_state) {
@@ -288,7 +281,10 @@ mod tests {
         // ephemeral + deprecated is invalid
         let result = Db::validate_adapter_metadata("ephemeral", "deprecated", "1.0.0");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not valid for tier"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not valid for tier"));
     }
 
     #[test]
@@ -304,6 +300,9 @@ mod tests {
         // Invalid lifecycle state
         let result = Db::validate_adapter_metadata("persistent", "unknown_state", "1.0.0");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid lifecycle state"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid lifecycle state"));
     }
 }

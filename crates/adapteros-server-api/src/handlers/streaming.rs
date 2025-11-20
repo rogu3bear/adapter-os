@@ -54,3 +54,4 @@ pub async fn adapter_state_stream(
         message: "Adapter state streaming endpoint initialized".to_string(),
     }))
 }
+

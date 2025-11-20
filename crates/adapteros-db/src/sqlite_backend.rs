@@ -162,7 +162,8 @@ impl DatabaseBackend for SqliteBackend {
         let should_increment_version = if let Some(current_stack) = current {
             // Increment version if adapter_ids or workflow_type changed
             let adapter_ids_changed = current_stack.adapter_ids_json != adapter_ids_json;
-            let workflow_type_changed = current_stack.workflow_type.as_deref() != Some(workflow_type);
+            let workflow_type_changed =
+                current_stack.workflow_type.as_deref() != Some(workflow_type);
             adapter_ids_changed || workflow_type_changed
         } else {
             false // Stack doesn't exist, won't update
@@ -173,7 +174,7 @@ impl DatabaseBackend for SqliteBackend {
                 "UPDATE adapter_stacks
                  SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?,
                      version = version + 1, updated_at = datetime('now')
-                 WHERE tenant_id = ? AND id = ?"
+                 WHERE tenant_id = ? AND id = ?",
             )
             .bind(&stack.name)
             .bind(description)
@@ -189,7 +190,7 @@ impl DatabaseBackend for SqliteBackend {
                 "UPDATE adapter_stacks
                  SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?,
                      updated_at = datetime('now')
-                 WHERE tenant_id = ? AND id = ?"
+                 WHERE tenant_id = ? AND id = ?",
             )
             .bind(&stack.name)
             .bind(description)

@@ -24,7 +24,14 @@ fn main() -> anyhow::Result<()> {
 
     println!("✓ OpenAPI spec written to {}", output_path);
     println!("  Paths: {}", openapi.paths.paths.len());
-    println!("  Components: {}", openapi.components.as_ref().map(|c| c.schemas.len()).unwrap_or(0));
+    println!(
+        "  Components: {}",
+        openapi
+            .components
+            .as_ref()
+            .map(|c| c.schemas.len())
+            .unwrap_or(0)
+    );
 
     Ok(())
 }

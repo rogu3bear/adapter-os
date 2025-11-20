@@ -59,12 +59,8 @@ impl MemoryPressureManager {
                 headroom_before: pressure.headroom_pct,
                 headroom_after: pressure.headroom_pct,
             }),
-            EvictionStrategy::EvictLowPriority => {
-                self.evict_low_priority(pressure.bytes_to_free)
-            }
-            EvictionStrategy::EvictCrossBackend => {
-                self.evict_cross_backend(pressure.bytes_to_free)
-            }
+            EvictionStrategy::EvictLowPriority => self.evict_low_priority(pressure.bytes_to_free),
+            EvictionStrategy::EvictCrossBackend => self.evict_cross_backend(pressure.bytes_to_free),
             EvictionStrategy::ReduceK => {
                 // K reduction is handled by lifecycle manager
                 Ok(MemoryPressureReport {

@@ -4,7 +4,7 @@ use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, Tenant
 use adapteros_core::AosError;
 use adapteros_core::B3Hash;
 use anyhow::Result;
-use chrono::{Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;

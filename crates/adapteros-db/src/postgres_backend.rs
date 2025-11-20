@@ -167,7 +167,8 @@ impl DatabaseBackend for PostgresBackend {
         let should_increment_version = if let Some(current_stack) = current {
             // Increment version if adapter_ids or workflow_type changed
             let adapter_ids_changed = current_stack.adapter_ids_json != adapter_ids_json;
-            let workflow_type_changed = current_stack.workflow_type.as_deref() != Some(workflow_type);
+            let workflow_type_changed =
+                current_stack.workflow_type.as_deref() != Some(workflow_type);
             adapter_ids_changed || workflow_type_changed
         } else {
             false // Stack doesn't exist, won't update
@@ -178,7 +179,7 @@ impl DatabaseBackend for PostgresBackend {
                 "UPDATE adapter_stacks
                  SET name = $3, description = $4, adapter_ids_json = $5, workflow_type = $6,
                      version = version + 1, updated_at = NOW()
-                 WHERE tenant_id = $1 AND id = $2"
+                 WHERE tenant_id = $1 AND id = $2",
             )
             .bind(tenant_id)
             .bind(id)
@@ -194,7 +195,7 @@ impl DatabaseBackend for PostgresBackend {
                 "UPDATE adapter_stacks
                  SET name = $3, description = $4, adapter_ids_json = $5, workflow_type = $6,
                      updated_at = NOW()
-                 WHERE tenant_id = $1 AND id = $2"
+                 WHERE tenant_id = $1 AND id = $2",
             )
             .bind(tenant_id)
             .bind(id)

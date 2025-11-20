@@ -314,3 +314,4 @@ pub fn validate_email(email: &str) -> Result<(), Box<dyn std::error::Error>> {
 ---
 
 **Conclusion:** Complexity can justify temporary sloppiness, but never permanent acceptance of low quality. Use this framework to make conscious, documented decisions with clear remediation plans.
+

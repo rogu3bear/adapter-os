@@ -276,7 +276,7 @@ mod tests {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
         };
 
-        let json = serde_json::to_string(&response).unwrap();
+        let json = serde_json::to_string(&response).expect("Failed to serialize federation response");
         assert!(json.contains("operational"));
         assert!(json.contains("quarantined"));
     }
@@ -293,7 +293,7 @@ mod tests {
             }),
         };
 
-        let json = serde_json::to_string(&response).unwrap();
+        let json = serde_json::to_string(&response).expect("Failed to serialize federation response");
         assert!(json.contains("quarantined"));
         assert!(json.contains("Test reason"));
     }

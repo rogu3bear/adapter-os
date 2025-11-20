@@ -51,7 +51,7 @@ impl ComponentHealth {
             details: None,
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| format!("System time error: {}", e))?
                 .as_secs(),
         }
     }
@@ -471,7 +471,7 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
         components: health_checks,
         timestamp: SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| format!("System time error: {}", e))?
             .as_secs(),
     };
 
@@ -562,20 +562,24 @@ mod tests {
 
     #[test]
     fn test_component_status_serialization() {
-        let json = serde_json::to_string(&ComponentStatus::Healthy).unwrap();
+        let json = serde_json::to_string(&ComponentStatus::Healthy)
+            .expect("Failed to serialize ComponentStatus::Healthy");
         assert_eq!(json, "\"healthy\"");
 
-        let json = serde_json::to_string(&ComponentStatus::Degraded).unwrap();
+        let json = serde_json::to_string(&ComponentStatus::Degraded)
+            .expect("Failed to serialize ComponentStatus::Degraded");
         assert_eq!(json, "\"degraded\"");
 
-        let json = serde_json::to_string(&ComponentStatus::Unhealthy).unwrap();
+        let json = serde_json::to_string(&ComponentStatus::Unhealthy)
+            .expect("Failed to serialize ComponentStatus::Unhealthy");
         assert_eq!(json, "\"unhealthy\"");
     }
 
     #[test]
     fn test_component_health_serialization() {
         let health = ComponentHealth::new("router", ComponentStatus::Healthy, "All systems operational");
-        let json = serde_json::to_string(&health).unwrap();
+        let json = serde_json::to_string(&health)
+            .expect("Failed to serialize ComponentHealth");
 
         // Verify it contains expected fields
         assert!(json.contains("\"component\":\"router\""));

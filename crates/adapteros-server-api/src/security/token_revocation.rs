@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_token_revocation() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         let jti = "test-jti-123";
         let user_id = "user-1";
@@ -160,20 +160,20 @@ mod tests {
         let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
 
         // Initially not revoked
-        assert!(!is_token_revoked(&db, jti).await.unwrap());
+        assert!(!is_token_revoked(&db, jti).await.expect("Failed to check token revocation"));
 
         // Revoke token
         revoke_token(&db, jti, user_id, tenant_id, &expires_at, Some("admin"), Some("logout"))
             .await
-            .unwrap();
+            .expect("Failed to revoke token");
 
         // Now revoked
-        assert!(is_token_revoked(&db, jti).await.unwrap());
+        assert!(is_token_revoked(&db, jti).await.expect("Failed to check token revocation"));
     }
 
     #[tokio::test]
     async fn test_cleanup_expired() {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
 
         let past_expiry = (Utc::now() - Duration::hours(1)).to_rfc3339();
 
@@ -188,13 +188,13 @@ mod tests {
             Some("test"),
         )
         .await
-        .unwrap();
+        .expect("Failed to add revocation");
 
         // Cleanup
-        let count = cleanup_expired_revocations(&db).await.unwrap();
+        let count = cleanup_expired_revocations(&db).await.expect("Failed to cleanup expired revocations");
         assert_eq!(count, 1);
 
         // Verify cleaned up
-        assert!(!is_token_revoked(&db, "expired-jti").await.unwrap());
+        assert!(!is_token_revoked(&db, "expired-jti").await.expect("Failed to check expired token revocation"));
     }
 }

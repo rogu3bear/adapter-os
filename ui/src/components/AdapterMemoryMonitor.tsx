@@ -34,7 +34,7 @@ import {
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
 
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
 
 import { toast } from 'sonner';
 
@@ -219,10 +219,10 @@ export function AdapterMemoryMonitor({
 
       setStatusMessage({ message: `Failed to evict adapter: ${errorMessage}`, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handleEvictAdapter(adapterId)
-        )
+        <ErrorRecovery
+          error={errorMessage}
+          onRetry={() => handleEvictAdapter(adapterId)}
+        />
       );
 
       toast.error(`Failed to evict adapter: ${errorMessage}`);
@@ -268,10 +268,10 @@ export function AdapterMemoryMonitor({
 
       setStatusMessage({ message: `Failed to ${pinned ? 'pin' : 'unpin'} adapter: ${errorMessage}`, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handlePinToggle(adapterId, pinned)
-        )
+        <ErrorRecovery
+          error={errorMessage}
+          onRetry={() => handlePinToggle(adapterId, pinned)}
+        />
       );
     }
   };
@@ -323,10 +323,10 @@ export function AdapterMemoryMonitor({
       const errorMessage = error instanceof Error ? error.message : 'Failed to bulk pin/unpin';
       showStatus(`Failed to ${pinned ? 'pin' : 'unpin'} adapters: ${errorMessage}`, 'warning');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handleBulkPin(pinned)
-        )
+        <ErrorRecovery
+          error={errorMessage}
+          onRetry={() => handleBulkPin(pinned)}
+        />
       );
     } finally {
       setIsLoading(false);
@@ -387,10 +387,10 @@ export function AdapterMemoryMonitor({
       const errorMessage = error instanceof Error ? error.message : 'Failed to evict adapters';
       showStatus(`Failed to evict adapters: ${errorMessage}`, 'warning');
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error(errorMessage),
-          () => handleBulkEvict()
-        )
+        <ErrorRecovery
+          error={errorMessage}
+          onRetry={() => handleBulkEvict()}
+        />
       );
     } finally {
       setIsLoading(false);

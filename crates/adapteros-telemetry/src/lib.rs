@@ -46,7 +46,7 @@ pub use bundle_store::{
     GarbageCollectionReport, RetentionPolicy, StorageStats,
 };
 pub use compression::{
-    CompressionAlgorithm, CompressionLevel, CompressedBundleMetadata, TelemetryCompressor,
+    CompressedBundleMetadata, CompressionAlgorithm, CompressionLevel, TelemetryCompressor,
 };
 pub use event::Event;
 pub use events::{
@@ -70,11 +70,11 @@ pub use replay::{
     find_divergence, format_divergence, load_replay_bundle, ReplayBundle, ReplayDivergence,
 };
 pub use report::generate_html_report;
-pub use ring_buffer::{TelemetryRingBuffer, RingBufferStats};
-pub use sampling::{EventSampler, SamplingStrategy, SamplingStats};
+pub use ring_buffer::{RingBufferStats, TelemetryRingBuffer};
+pub use sampling::{EventSampler, SamplingStats, SamplingStrategy};
 pub use tracing::{
-    Span, SpanEvent, SpanKind, SpanStatus, Trace, TraceBuffer, TraceBufferStats,
-    TraceContext, TraceSearchQuery,
+    Span, SpanEvent, SpanKind, SpanStatus, Trace, TraceBuffer, TraceBufferStats, TraceContext,
+    TraceSearchQuery,
 };
 pub use uds_exporter::{MetricMetadata, MetricValue, UdsMetricsExporter};
 pub use unified_events::{
@@ -331,14 +331,18 @@ fn run_writer(
         // Add counter for sampled checks, every 100th event check.
 
         // Use event hash if available, otherwise compute it
-        let event_hash = event.hash.as_ref().map(|h| {
-            // Assume hash is b3: prefixed string, extract bytes or rehash
-            B3Hash::hash(h.as_bytes())
-        }).unwrap_or_else(|| {
-            let event_json = serde_json::to_string(&event).unwrap_or_default();
-            let hash_bytes = blake3::hash(event_json.as_bytes());
-            B3Hash::from_bytes(hash_bytes.into())
-        });
+        let event_hash = event
+            .hash
+            .as_ref()
+            .map(|h| {
+                // Assume hash is b3: prefixed string, extract bytes or rehash
+                B3Hash::hash(h.as_bytes())
+            })
+            .unwrap_or_else(|| {
+                let event_json = serde_json::to_string(&event).unwrap_or_default();
+                let hash_bytes = blake3::hash(event_json.as_bytes());
+                B3Hash::from_bytes(hash_bytes.into())
+            });
         event_hashes.push(event_hash);
 
         // Write as NDJSON
@@ -521,8 +525,8 @@ pub struct NodeSyncEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_core::identity::IdentityEnvelope;
     use crate::unified_events::{EventType, LogLevel};
+    use adapteros_core::identity::IdentityEnvelope;
 
     #[test]
     fn test_log_with_identity() {

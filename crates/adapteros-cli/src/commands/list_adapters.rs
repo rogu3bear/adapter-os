@@ -89,7 +89,14 @@ pub async fn run(tier: Option<&str>, include_meta: bool, output: &OutputWriter) 
     // Prepare table
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
-    table.set_header(vec!["Name", "Version", "Lifecycle", "Tier", "Rank", "State"]);
+    table.set_header(vec![
+        "Name",
+        "Version",
+        "Lifecycle",
+        "Tier",
+        "Rank",
+        "State",
+    ]);
 
     for adapter in &filtered {
         table.add_row(vec![

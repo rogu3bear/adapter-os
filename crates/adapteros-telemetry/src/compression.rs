@@ -212,11 +212,7 @@ pub struct CompressedBundleMetadata {
 
 impl CompressedBundleMetadata {
     /// Create metadata for a compressed bundle
-    pub fn new(
-        algorithm: CompressionAlgorithm,
-        original: &[u8],
-        compressed: &[u8],
-    ) -> Self {
+    pub fn new(algorithm: CompressionAlgorithm, original: &[u8], compressed: &[u8]) -> Self {
         let original_size = original.len();
         let compressed_size = compressed.len();
         let compression_ratio = compressed_size as f64 / original_size as f64;
@@ -250,7 +246,8 @@ mod tests {
 
     fn generate_test_data(size: usize) -> Vec<u8> {
         // Generate compressible data (repeated patterns)
-        let pattern = b"AdapterOS telemetry event data with repeated patterns for compression testing. ";
+        let pattern =
+            b"AdapterOS telemetry event data with repeated patterns for compression testing. ";
         let mut data = Vec::with_capacity(size);
 
         while data.len() < size {
@@ -322,13 +319,12 @@ mod tests {
     fn test_compression_levels() {
         let data = generate_test_data(10000);
 
-        let fastest = TelemetryCompressor::with_config(
-            CompressionAlgorithm::Zstd,
-            CompressionLevel::FASTEST,
-        );
+        let fastest =
+            TelemetryCompressor::with_config(CompressionAlgorithm::Zstd, CompressionLevel::FASTEST);
         let default =
             TelemetryCompressor::with_config(CompressionAlgorithm::Zstd, CompressionLevel::DEFAULT);
-        let best = TelemetryCompressor::with_config(CompressionAlgorithm::Zstd, CompressionLevel::BEST);
+        let best =
+            TelemetryCompressor::with_config(CompressionAlgorithm::Zstd, CompressionLevel::BEST);
 
         let fastest_compressed = fastest.compress(&data).unwrap();
         let default_compressed = default.compress(&data).unwrap();
@@ -350,11 +346,8 @@ mod tests {
 
         let compressed = compressor.compress(&data).unwrap();
 
-        let metadata = CompressedBundleMetadata::new(
-            CompressionAlgorithm::Zstd,
-            &data,
-            &compressed,
-        );
+        let metadata =
+            CompressedBundleMetadata::new(CompressionAlgorithm::Zstd, &data, &compressed);
 
         assert_eq!(metadata.original_size, data.len());
         assert_eq!(metadata.compressed_size, compressed.len());

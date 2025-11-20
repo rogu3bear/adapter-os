@@ -94,3 +94,4 @@
 2. **Search for existing implementations** - `grep -r "function"`
 3. **One change, one test** - Incremental development
 4. **Immediate validation** - Test after each logical change
+

@@ -581,10 +581,9 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
                 .await
                 .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
         }
-        AdapterCommand::UpdateLifecycle {
-            adapter_id,
-            state,
-        } => update_lifecycle(&adapter_id, &state, output).await,
+        AdapterCommand::UpdateLifecycle { adapter_id, state } => {
+            update_lifecycle(&adapter_id, &state, output).await
+        }
     }
 }
 
@@ -1297,7 +1296,10 @@ async fn lineage_adapter(
 
     // Call lineage API endpoint
     let client = Client::new();
-    let url = format!("http://127.0.0.1:8080/api/v1/adapters/{}/lineage", adapter_id);
+    let url = format!(
+        "http://127.0.0.1:8080/api/v1/adapters/{}/lineage",
+        adapter_id
+    );
 
     let response = client
         .get(&url)
@@ -1370,8 +1372,13 @@ async fn lineage_adapter(
                 let revision = descendant["revision"].as_str().unwrap_or("r???");
                 let fork_type = descendant["fork_type"].as_str();
 
-                let fork_indicator = fork_type.map(|ft| format!(" [fork: {}]", ft)).unwrap_or_default();
-                println!("{}└── {} ({}) [{}]{}", indent, name, revision, state, fork_indicator);
+                let fork_indicator = fork_type
+                    .map(|ft| format!(" [fork: {}]", ft))
+                    .unwrap_or_default();
+                println!(
+                    "{}└── {} ({}) [{}]{}",
+                    indent, name, revision, state, fork_indicator
+                );
             }
         }
     } else {
@@ -1510,11 +1517,7 @@ async fn evict_adapter(
 }
 
 /// Update adapter lifecycle state
-async fn update_lifecycle(
-    adapter_id: &str,
-    state_str: &str,
-    output: &OutputWriter,
-) -> Result<()> {
+async fn update_lifecycle(adapter_id: &str, state_str: &str, output: &OutputWriter) -> Result<()> {
     use adapteros_core::lifecycle::LifecycleState;
     use std::str::FromStr;
 
@@ -1533,7 +1536,10 @@ async fn update_lifecycle(
     // Connect to database and update lifecycle state
     let db = adapteros_db::Db::connect_env().await?;
 
-    match db.update_adapter_lifecycle_state(adapter_id, new_state).await {
+    match db
+        .update_adapter_lifecycle_state(adapter_id, new_state)
+        .await
+    {
         Ok(_) => {
             if output.mode().is_json() {
                 let response = serde_json::json!({

@@ -36,7 +36,7 @@ members = [
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
     # "crates/adapteros-server",  # Server crate - excluded for stable main merge
-    # "crates/adapteros-server-api",  # Server API - excluded for stable main merge
+    "crates/adapteros-server-api",
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
@@ -85,12 +85,28 @@ telemetry = []
 metrics = []
 replay = []
 
-# Backend feature flags
-metal = []  # Workspace-level metal feature (used across crates)
-# metal-backend = ["adapteros-lora-kernel-mtl/metal-backend"]  # macOS Metal GPU acceleration (requires macOS)
-# coreml-backend = ["adapteros-lora-kernel-mtl/coreml-backend"]  # macOS Neural Engine via CoreML (requires macOS 13+)
-mlx-backend = []  # MLX backend (experimental, stub implementation only)
-# all-backends = ["metal-backend", "coreml-backend"]  # Enable both Metal and CoreML backends
+# Backend feature flags - CLEARLY DISTINGUISH REAL VS STUB IMPLEMENTATIONS
+#
+# REAL BACKENDS (require external libraries/frameworks):
+# coreml-backend = []     # macOS CoreML + Neural Engine (requires macOS 13+, CoreML.framework)
+# metal-backend = []      # macOS Metal GPU acceleration (requires macOS, Metal.framework)
+#
+# STUB BACKENDS (placeholder implementations for development/testing):
+# mlx-backend = []        # MLX FFI stubs (no real MLX library required)
+# stub-backends = []      # Enable all stub implementations
+#
+# IMPORTANT: Most backends are currently STUBS. See BACKEND_STATUS.md for details.
+
+# Workspace-level flags
+metal = []  # Enable Metal-related code paths
+
+# Stub implementations (safe for all platforms)
+mlx-backend = []  # MLX stubs (no MLX library needed)
+stub-backends = ["mlx-backend"]  # All stub backends
+
+# Real backends (platform + library dependent - currently DISABLED)
+# coreml-backend = []    # DISABLED: Requires CoreML.framework
+# metal-backend = []     # DISABLED: Requires Metal.framework
 
 # Combined feature sets for common use cases
 full = ["telemetry", "metrics", "replay"]

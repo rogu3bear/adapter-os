@@ -36,6 +36,10 @@ cc = "1.0"
 tempfile.workspace = true
 tokio.workspace = true
 
+[features]
+default = []
+real-mlx = []
+
 [lints.rust]
 non_camel_case_types = "allow"
 non_snake_case = "allow"

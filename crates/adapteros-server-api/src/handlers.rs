@@ -475,178 +475,10 @@ pub async fn upsert_directory_adapter(
         (status = 401, description = "Invalid credentials", body = ErrorResponse)
     )
 )]
-pub async fn auth_login(
-    State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
-    tracing::debug!("Login attempt for email: {}", req.email);
-
-    // Get user by email
-    let user = state
-        .db
-        .get_user_by_email(&req.email)
-        .await
-        .map_err(|e| {
-            let aos_error = AosError::Database(format!("Failed to lookup user {}: {}", req.email, e));
-            tracing::error!("Database error during user lookup: {}", aos_error);
-            aos_error_to_response(aos_error)
-        })?
-        .ok_or_else(|| {
-            let aos_error = AosError::Authentication(format!("Invalid credentials for user: {}", req.email));
-            tracing::warn!("User not found: {}", aos_error);
-            aos_error_to_response(aos_error)
-        })?;
-
-    tracing::debug!(
-        "User found: {} (role: {}, disabled: {})",
-        user.id,
-        user.role,
-        user.disabled
-    );
-
-    // Check if user is disabled
-    if user.disabled {
-        let aos_error = AosError::Authorization(format!("User account disabled: {}", user.id));
-        tracing::warn!("Login attempt for disabled user: {}", aos_error);
-        return Err(aos_error_to_response(aos_error));
-    }
-
-    // Verify password using proper cryptographic verification
-    tracing::debug!("Verifying password for user: {}", user.id);
-    let valid = verify_password(&req.password, &user.pw_hash)
-        .map_err(|e| {
-            let aos_error = AosError::Authentication(format!("Password verification failed for user {}: {}", user.id, e));
-            tracing::error!("Password verification error: {}", aos_error);
-            aos_error_to_response(aos_error)
-        })?;
-
-    if !valid {
-        let aos_error = AosError::Authentication(format!("Invalid password for user: {}", user.id));
-        tracing::warn!("Password verification failed: {}", aos_error);
-        return Err(aos_error_to_response(aos_error));
-    }
-
-    tracing::debug!("Password verification successful for user: {}", user.id);
-
-    // Generate JWT
-    tracing::debug!("Generating JWT token for user: {}", user.id);
-    let token = generate_token(
-        &user.id,
-        &user.email,
-        &user.role,
-        "default",
-        &state.jwt_secret,
-    )
-    .map_err(|e| {
-        tracing::error!("JWT token generation failed: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("token generation failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    tracing::debug!("JWT token generated successfully for user: {}", user.id);
-
-    Ok(Json(LoginResponse {
-        token,
-        user_id: user.id,
-        role: user.role,
-    }))
-}
 
 /// List tenants (all roles can view)
-pub async fn list_tenants(
-    State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-) -> Result<Json<Vec<TenantResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    let tenants = state.db.list_tenants().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let response: Vec<TenantResponse> = tenants
-        .into_iter()
-        .map(|t| TenantResponse {
-            id: t.id,
-            name: t.name,
-            itar_flag: t.itar_flag,
-            created_at: t.created_at,
-            status: "active".to_string(),
-        })
-        .collect();
-
-    Ok(Json(response))
-}
 
 /// Create tenant (admin only)
-pub async fn create_tenant(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<CreateTenantRequest>,
-) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_role(&claims, Role::Admin)?;
-
-    let id = state
-        .db
-        .create_tenant(&req.name, req.itar_flag)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to create tenant")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    let tenant = state.db.get_tenant(&id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let tenant = tenant.ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("tenant not found after creation").with_code("NOT_FOUND")),
-        )
-    })?;
-
-    // Audit log: tenant created
-    let _ = crate::audit_helper::log_success(
-        &state.db,
-        &claims,
-        crate::audit_helper::actions::TENANT_CREATE,
-        crate::audit_helper::resources::TENANT,
-        Some(&tenant.id),
-    )
-    .await;
-
-    Ok(Json(TenantResponse {
-        id: tenant.id,
-        name: tenant.name,
-        itar_flag: tenant.itar_flag,
-        created_at: tenant.created_at,
-        status: "active".to_string(),
-    }))
-}
 
 /// Update tenant metadata
 pub async fn update_tenant(
@@ -1009,7 +841,9 @@ pub async fn hydrate_tenant_from_bundle(
             req.tenant_id,
             sim_hash
         );
-        let tenant = state.db.get_tenant(&req.tenant_id).await.unwrap().unwrap();
+        let tenant = state.db.get_tenant(&req.tenant_id).await
+            .map_err(|e| aos_error_to_response(AosError::Database(format!("Failed to get tenant: {}", e))))?
+            .ok_or_else(|| aos_error_to_response(AosError::NotFound(format!("Tenant {} not found", req.tenant_id))))?;
         return Ok(Json(TenantHydrationResponse {
             tenant_id: req.tenant_id.clone(),
             state_hash: sim_hash.to_hex(),
@@ -1019,7 +853,11 @@ pub async fn hydrate_tenant_from_bundle(
     }
 
     // New tenant or mismatch (but mismatch already errored), create and apply
-    if state.db.get_tenant(&req.tenant_id).await.unwrap().is_none() {
+    let tenant_exists = state.db.get_tenant(&req.tenant_id).await
+        .map_err(|e| aos_error_to_response(AosError::Database(format!("Failed to check tenant existence: {}", e))))?
+        .is_some();
+
+    if !tenant_exists {
         state
             .db
             .create_tenant(&req.tenant_id, false)
@@ -1107,7 +945,9 @@ pub async fn hydrate_tenant_from_bundle(
             )
         })?;
 
-    let tenant = state.db.get_tenant(&req.tenant_id).await.unwrap().unwrap();
+    let tenant = state.db.get_tenant(&req.tenant_id).await
+        .map_err(|e| aos_error_to_response(AosError::Database(format!("Failed to get tenant: {}", e))))?
+        .ok_or_else(|| aos_error_to_response(AosError::NotFound(format!("Tenant {} not found", req.tenant_id))))?;
 
     Ok(Json(TenantHydrationResponse {
         tenant_id: req.tenant_id.clone(),
@@ -5027,7 +4867,7 @@ pub async fn verify_gpu_integrity(
             total_checked: 0,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| aos_error_to_response(AosError::Internal(format!("System time error: {}", e))))?
                 .as_secs(),
         };
 
@@ -6820,161 +6660,6 @@ pub async fn get_contact_interactions(
         (status = 200, description = "Training jobs retrieved successfully", body = Vec<TrainingJobResponse>)
     )
 )]
-pub async fn list_training_jobs(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<Vec<TrainingJobResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: All roles can view training jobs
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingView)?;
-
-    let jobs = state.training_service.list_jobs().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to list training jobs")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    Ok(Json(jobs.into_iter().map(|j| j.into()).collect()))
-}
-
-/// Get a specific training job
-#[utoipa::path(
-    get,
-    path = "/v1/training/jobs/{job_id}",
-    params(
-        ("job_id" = String, Path, description = "Training job ID")
-    ),
-    responses(
-        (status = 200, description = "Training job retrieved successfully", body = TrainingJobResponse)
-    )
-)]
-pub async fn get_training_job(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(job_id): Path<String>,
-) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: All roles can view training jobs
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingView)?;
-
-    let job = state.training_service.get_job(&job_id).await.map_err(|e| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("training job not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    Ok(Json(job.into()))
-}
-
-/// Start a new training job
-#[utoipa::path(
-    post,
-    path = "/v1/training/start",
-    request_body = StartTrainingRequest,
-    responses(
-        (status = 200, description = "Training started successfully", body = TrainingJobResponse)
-    )
-)]
-pub async fn start_training(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<StartTrainingRequest>,
-) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: Operator and Admin can start training
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingStart)?;
-
-    let config = req.config.into();
-
-    let job = state
-        .training_service
-        .start_training(
-            req.adapter_name.clone(),
-            config,
-            req.template_id,
-            req.repo_id,
-        )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to start training")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // Audit log: training started
-    let _ = crate::audit_helper::log_success(
-        &state.db,
-        &claims,
-        crate::audit_helper::actions::TRAINING_START,
-        crate::audit_helper::resources::TRAINING_JOB,
-        Some(&job.id),
-    )
-    .await;
-
-    Ok(Json(job.into()))
-}
-
-/// Cancel a training job
-#[utoipa::path(
-    post,
-    path = "/v1/training/jobs/{job_id}/cancel",
-    params(
-        ("job_id" = String, Path, description = "Training job ID")
-    ),
-    responses(
-        (status = 200, description = "Training cancelled successfully")
-    )
-)]
-pub async fn cancel_training(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(job_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: Operator and Admin can cancel training
-    crate::permissions::require_permission(
-        &claims,
-        crate::permissions::Permission::TrainingCancel,
-    )?;
-
-    state
-        .training_service
-        .cancel_job(&job_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to cancel training")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // Audit log: training cancelled
-    let _ = crate::audit_helper::log_success(
-        &state.db,
-        &claims,
-        crate::audit_helper::actions::TRAINING_CANCEL,
-        crate::audit_helper::resources::TRAINING_JOB,
-        Some(&job_id),
-    )
-    .await;
-
-    Ok(StatusCode::OK)
-}
 
 /// Start adapter training session
 #[utoipa::path(

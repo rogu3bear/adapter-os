@@ -7,8 +7,8 @@
 
 mod type_validation;
 
-use type_validation::{validate_snake_case_fields, is_valid_snake_case};
 use serde_json::json;
+use type_validation::{is_valid_snake_case, validate_snake_case_fields};
 
 #[tokio::test]
 async fn test_type_validation_suite_integration() {
@@ -22,7 +22,10 @@ async fn test_type_validation_suite_integration() {
     });
 
     let violations = validate_snake_case_fields(&valid_json);
-    assert!(violations.is_empty(), "Valid JSON should have no snake_case violations");
+    assert!(
+        violations.is_empty(),
+        "Valid JSON should have no snake_case violations"
+    );
 
     // Test 2: Validate individual field names
     assert!(is_valid_snake_case("input_tokens"));
@@ -31,8 +34,8 @@ async fn test_type_validation_suite_integration() {
     assert!(is_valid_snake_case("value123"));
 
     // Invalid cases
-    assert!(!is_valid_snake_case("inputTokens"));  // camelCase not allowed
-    assert!(!is_valid_snake_case("InputTokens"));  // PascalCase not allowed
+    assert!(!is_valid_snake_case("inputTokens")); // camelCase not allowed
+    assert!(!is_valid_snake_case("InputTokens")); // PascalCase not allowed
     assert!(!is_valid_snake_case("input-tokens")); // kebab-case not allowed
 }
 

@@ -92,7 +92,10 @@ impl TraceContext {
 
     /// Convert to W3C traceparent header
     pub fn to_traceparent(&self) -> String {
-        format!("00-{}-{}-{:02x}", self.trace_id, self.span_id, self.trace_flags)
+        format!(
+            "00-{}-{}-{:02x}",
+            self.trace_id, self.span_id, self.trace_flags
+        )
     }
 
     /// Check if this trace is sampled
@@ -454,7 +457,10 @@ mod tests {
         };
 
         let header = ctx.to_traceparent();
-        assert_eq!(header, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        assert_eq!(
+            header,
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        );
     }
 
     #[tokio::test]

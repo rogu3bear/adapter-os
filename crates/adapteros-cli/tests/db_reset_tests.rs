@@ -24,8 +24,14 @@ fn test_db_reset_requires_confirmation() {
     // For now, we'll test the command structure
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "aosctl", "--", "db", "reset",
-            "--db-path", "/tmp/test-reset.db"
+            "run",
+            "--bin",
+            "aosctl",
+            "--",
+            "db",
+            "reset",
+            "--db-path",
+            "/tmp/test-reset.db",
         ])
         .output()
         .expect("Failed to run aosctl db reset without confirmation");
@@ -40,9 +46,15 @@ fn test_db_reset_with_yes_flag() {
     // Test with --yes flag (would normally destroy data)
     let output = Command::new("cargo")
         .args([
-            "run", "--bin", "aosctl", "--", "db", "reset",
-            "--db-path", "/tmp/test-reset-yes.db",
-            "--yes"
+            "run",
+            "--bin",
+            "aosctl",
+            "--",
+            "db",
+            "reset",
+            "--db-path",
+            "/tmp/test-reset-yes.db",
+            "--yes",
         ])
         .output()
         .expect("Failed to run aosctl db reset with --yes flag");

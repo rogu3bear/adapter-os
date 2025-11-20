@@ -1,7 +1,7 @@
 //! Integration tests for stack versioning (PRD-03)
 
-use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};
 use adapteros_db::sqlite_backend::SqliteBackend;
+use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};
 
 #[tokio::test]
 async fn test_stack_version_starts_at_one() {
@@ -17,7 +17,11 @@ async fn test_stack_version_starts_at_one() {
     };
 
     let stack_id = backend.insert_stack(&req).await.unwrap();
-    let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+    let stack = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(stack.version, 1, "New stack should start at version 1");
 }
@@ -39,7 +43,11 @@ async fn test_stack_version_increments_on_adapter_change() {
     let stack_id = backend.insert_stack(&req).await.unwrap();
 
     // Verify initial version
-    let stack_v1 = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+    let stack_v1 = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(stack_v1.version, 1);
 
     // Update with different adapter_ids
@@ -51,11 +59,21 @@ async fn test_stack_version_increments_on_adapter_change() {
         workflow_type: Some("Parallel".to_string()),
     };
 
-    backend.update_stack("test-tenant", &stack_id, &update_req).await.unwrap();
+    backend
+        .update_stack("test-tenant", &stack_id, &update_req)
+        .await
+        .unwrap();
 
     // Verify version incremented
-    let stack_v2 = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
-    assert_eq!(stack_v2.version, 2, "Version should increment when adapter_ids change");
+    let stack_v2 = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stack_v2.version, 2,
+        "Version should increment when adapter_ids change"
+    );
 }
 
 #[tokio::test]
@@ -82,10 +100,20 @@ async fn test_stack_version_increments_on_workflow_change() {
         workflow_type: Some("Sequential".to_string()), // Changed!
     };
 
-    backend.update_stack("test-tenant", &stack_id, &update_req).await.unwrap();
+    backend
+        .update_stack("test-tenant", &stack_id, &update_req)
+        .await
+        .unwrap();
 
-    let stack_v2 = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
-    assert_eq!(stack_v2.version, 2, "Version should increment when workflow_type changes");
+    let stack_v2 = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stack_v2.version, 2,
+        "Version should increment when workflow_type changes"
+    );
 }
 
 #[tokio::test]
@@ -112,12 +140,26 @@ async fn test_stack_version_no_increment_on_metadata_change() {
         workflow_type: Some("Parallel".to_string()), // Same
     };
 
-    backend.update_stack("test-tenant", &stack_id, &update_req).await.unwrap();
+    backend
+        .update_stack("test-tenant", &stack_id, &update_req)
+        .await
+        .unwrap();
 
-    let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
-    assert_eq!(stack.version, 1, "Version should NOT increment for metadata-only changes");
+    let stack = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stack.version, 1,
+        "Version should NOT increment for metadata-only changes"
+    );
     assert_eq!(stack.name, "stack.test-renamed", "Name should be updated");
-    assert_eq!(stack.description.as_deref(), Some("New description"), "Description should be updated");
+    assert_eq!(
+        stack.description.as_deref(),
+        Some("New description"),
+        "Description should be updated"
+    );
 }
 
 #[tokio::test]
@@ -145,13 +187,30 @@ async fn test_stack_version_multiple_increments() {
             workflow_type: Some("Parallel".to_string()),
         };
 
-        backend.update_stack("test-tenant", &stack_id, &update_req).await.unwrap();
+        backend
+            .update_stack("test-tenant", &stack_id, &update_req)
+            .await
+            .unwrap();
 
-        let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
-        assert_eq!(stack.version, i, "Version should be {} after {} updates", i, i-1);
+        let stack = backend
+            .get_stack("test-tenant", &stack_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stack.version,
+            i,
+            "Version should be {} after {} updates",
+            i,
+            i - 1
+        );
     }
 
-    let final_stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+    let final_stack = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(final_stack.version, 6, "Final version should be 6");
 }
 

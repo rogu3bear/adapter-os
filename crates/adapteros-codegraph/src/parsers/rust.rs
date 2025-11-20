@@ -18,7 +18,7 @@ fn language_from_ptr(ptr: *const c_void) -> TSLanguage {
 
 fn rust_language() -> TSLanguage {
     let lang = tree_sitter_rust::language();
-    let raw = unsafe { mem::transmute::<_, *const c_void>(lang) };
+    let raw = unsafe { mem::transmute::<tree_sitter::Language, *const c_void>(lang) };
     language_from_ptr(raw)
 }
 

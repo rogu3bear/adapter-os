@@ -5,6 +5,7 @@ pub mod handlers;
 pub mod health;
 pub mod ip_extraction;
 pub mod middleware;
+pub mod middleware_security;
 pub mod permissions;
 pub mod routes;
 pub mod security;

@@ -29,5 +29,3 @@ fn bench_hotswap(c: &mut Criterion) {
 
 criterion_group!(benches, bench_hotswap);
 criterion_main!(benches);
-
-

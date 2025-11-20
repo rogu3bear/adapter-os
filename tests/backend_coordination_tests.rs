@@ -43,16 +43,27 @@ fn test_metal_backend_creation() {
     assert!(backend.device_name().contains("Metal") || backend.device_name().contains("Apple"));
 
     // Verify attestation
-    let report = backend.attest_determinism().expect("Attestation should succeed");
-    assert!(report.deterministic, "Metal backend should be deterministic");
-    assert!(report.metallib_hash.is_some(), "Metal should provide metallib hash");
+    let report = backend
+        .attest_determinism()
+        .expect("Attestation should succeed");
+    assert!(
+        report.deterministic,
+        "Metal backend should be deterministic"
+    );
+    assert!(
+        report.metallib_hash.is_some(),
+        "Metal should provide metallib hash"
+    );
 }
 
 #[test]
 #[cfg(not(target_os = "macos"))]
 fn test_metal_backend_unavailable() {
     let result = create_backend(BackendChoice::Metal);
-    assert!(result.is_err(), "Metal should not be available on non-macOS");
+    assert!(
+        result.is_err(),
+        "Metal should not be available on non-macOS"
+    );
 }
 
 #[test]
@@ -82,7 +93,9 @@ fn test_coreml_backend_creation() {
         let backend = result.unwrap();
         assert!(backend.device_name().contains("CoreML"));
 
-        let report = backend.attest_determinism().expect("Attestation should succeed");
+        let report = backend
+            .attest_determinism()
+            .expect("Attestation should succeed");
         assert_eq!(
             report.backend_type,
             adapteros_lora_kernel_api::attestation::BackendType::CoreML
@@ -102,7 +115,10 @@ fn test_mlx_backend_deterministic() {
         model_path: PathBuf::from("./tests/fixtures/mock-mlx"),
     });
 
-    assert!(result.is_ok(), "MLX backend should be available with feature flag");
+    assert!(
+        result.is_ok(),
+        "MLX backend should be available with feature flag"
+    );
 
     let mut backend = result.unwrap();
     backend.load(b"test-plan").expect("Load should succeed");
@@ -113,7 +129,9 @@ fn test_mlx_backend_deterministic() {
 
     let mut io1 = IoBuffers::new(100);
     io1.input_ids = vec![1, 2, 3];
-    backend.run_step(&ring, &mut io1).expect("First run should succeed");
+    backend
+        .run_step(&ring, &mut io1)
+        .expect("First run should succeed");
 
     // Recreate backend for determinism test
     let mut backend2 = create_backend(BackendChoice::Mlx {
@@ -124,10 +142,15 @@ fn test_mlx_backend_deterministic() {
 
     let mut io2 = IoBuffers::new(100);
     io2.input_ids = vec![1, 2, 3];
-    backend2.run_step(&ring, &mut io2).expect("Second run should succeed");
+    backend2
+        .run_step(&ring, &mut io2)
+        .expect("Second run should succeed");
 
     // Verify deterministic outputs
-    assert_eq!(io1.output_logits, io2.output_logits, "Outputs should be identical");
+    assert_eq!(
+        io1.output_logits, io2.output_logits,
+        "Outputs should be identical"
+    );
     assert_eq!(io1.position, io2.position);
 }
 
@@ -291,10 +314,7 @@ fn test_backend_capabilities_display() {
         "VRAM Capacity: {} GB",
         caps.vram_capacity / (1024 * 1024 * 1024)
     );
-    println!(
-        "System RAM: {} GB",
-        caps.system_ram / (1024 * 1024 * 1024)
-    );
+    println!("System RAM: {} GB", caps.system_ram / (1024 * 1024 * 1024));
     println!("Metal Device: {:?}", caps.metal_device_name);
     println!("ANE Cores: {}", caps.ane_core_count);
 }

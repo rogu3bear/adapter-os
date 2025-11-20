@@ -212,7 +212,10 @@ mod tests {
 
         // Push 5 events
         for i in 0..5 {
-            buffer.push(create_test_event(&i.to_string())).await.unwrap();
+            buffer
+                .push(create_test_event(&i.to_string()))
+                .await
+                .unwrap();
         }
 
         assert_eq!(buffer.total_written(), 5);
@@ -228,7 +231,10 @@ mod tests {
 
         // Push 10 events (2x capacity)
         for i in 0..10 {
-            buffer.push(create_test_event(&i.to_string())).await.unwrap();
+            buffer
+                .push(create_test_event(&i.to_string()))
+                .await
+                .unwrap();
         }
 
         assert_eq!(buffer.total_written(), 10);
@@ -244,7 +250,10 @@ mod tests {
 
         // Push 50 events
         for i in 0..50 {
-            buffer.push(create_test_event(&i.to_string())).await.unwrap();
+            buffer
+                .push(create_test_event(&i.to_string()))
+                .await
+                .unwrap();
         }
 
         let recent = buffer.read_recent(10).await;
@@ -256,7 +265,10 @@ mod tests {
         let buffer = TelemetryRingBuffer::new(10);
 
         for i in 0..5 {
-            buffer.push(create_test_event(&i.to_string())).await.unwrap();
+            buffer
+                .push(create_test_event(&i.to_string()))
+                .await
+                .unwrap();
         }
 
         buffer.clear().await;
@@ -273,13 +285,19 @@ mod tests {
         assert_eq!(buffer.utilization(), 0.0);
 
         for i in 0..5 {
-            buffer.push(create_test_event(&i.to_string())).await.unwrap();
+            buffer
+                .push(create_test_event(&i.to_string()))
+                .await
+                .unwrap();
         }
 
         assert_eq!(buffer.utilization(), 0.5);
 
         for i in 5..10 {
-            buffer.push(create_test_event(&i.to_string())).await.unwrap();
+            buffer
+                .push(create_test_event(&i.to_string()))
+                .await
+                .unwrap();
         }
 
         assert_eq!(buffer.utilization(), 1.0);

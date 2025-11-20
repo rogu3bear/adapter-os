@@ -36,7 +36,11 @@ mod mlx_seed_tests {
         for (i, seed_i) in seeds.iter().enumerate() {
             for (j, seed_j) in seeds.iter().enumerate() {
                 if i != j {
-                    assert_ne!(seed_i, seed_j, "Seeds at position {} and {} are identical", i, j);
+                    assert_ne!(
+                        seed_i, seed_j,
+                        "Seeds at position {} and {} are identical",
+                        i, j
+                    );
                 }
             }
         }
@@ -68,7 +72,10 @@ mod mlx_seed_tests {
         // Simulate the actual workflow in MlxBackend::load()
         let model_path = "/models/test-model";
         let model_hash = B3Hash::hash(model_path.as_bytes());
-        let base_seed = derive_seed(&B3Hash::hash(b"adapteros-mlx-backend"), &format!("mlx-backend:{}", model_hash.to_short_hex()));
+        let base_seed = derive_seed(
+            &B3Hash::hash(b"adapteros-mlx-backend"),
+            &format!("mlx-backend:{}", model_hash.to_short_hex()),
+        );
 
         // Simulate plan load
         let plan_bytes = b"test-plan-data";
@@ -108,7 +115,10 @@ mod mlx_seed_tests {
         let model_path = "/models/qwen-7b-mlx";
         let model_hash = B3Hash::hash(model_path.as_bytes());
         let global_seed = B3Hash::hash(b"adapteros-mlx-backend");
-        let base_seed = derive_seed(&global_seed, &format!("mlx-backend:{}", model_hash.to_short_hex()));
+        let base_seed = derive_seed(
+            &global_seed,
+            &format!("mlx-backend:{}", model_hash.to_short_hex()),
+        );
 
         // 2. Plan load (like MlxBackend::load)
         let plan_bytes = b"inference-plan-v1";

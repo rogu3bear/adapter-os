@@ -7,7 +7,7 @@
 //! https://openreview.net/pdf?id=jqz6Msm3AF
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MploraConfig, RouterRing};
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MploraConfig, MploraKernels, RouterRing};
 use metal::*;
 use std::sync::Arc;
 
@@ -91,28 +91,31 @@ impl MploraKernel {
 }
 
 impl FusedKernels for MploraKernel {
-    /// Load plan and weights
+    /// Load plan and initialize MPLORA kernels
     fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
-        // Metal kernels are precompiled, no runtime loading needed
+        // TODO: Implement plan loading for MPLORA
         Ok(())
     }
 
-    /// Run a single token step
-    fn run_step(&mut self, _ring: &RouterRing, _io: &mut IoBuffers) -> Result<()> {
-        // Default implementation - specific kernels override this
-        Ok(())
+    /// Run a single token step with MPLORA
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // For now, return an error indicating MPLORA kernel execution is not fully implemented
+        // This would need the MPLORA Metal shader pipeline
+        Err(adapteros_core::AosError::Kernel(
+            "MPLORA kernel execution not yet implemented".to_string(),
+        ))
     }
 
     /// Get device name
     fn device_name(&self) -> &str {
-        "Metal GPU"
+        "Metal GPU (MPLoRA)"
     }
 
     /// Attest to determinism guarantees
     fn attest_determinism(
         &self,
     ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
-        // MploraKernel is built on top of MetalKernels, so it inherits determinism
+        // MploraKernel inherits determinism from MetalKernels
         use adapteros_core::B3Hash;
         use adapteros_lora_kernel_api::attestation;
 
@@ -141,33 +144,6 @@ impl FusedKernels for MploraKernel {
             compiler_flags: vec!["-O2".to_string(), "-std=metal3.1".to_string()],
             deterministic: true,
         })
-    }
-
-    /// Load adapter at runtime (hot-swap)
-    fn load_adapter(&mut self, _adapter_id: u16, _weights: &[u8]) -> Result<()> {
-        // Metal adapters are loaded via shared memory
-        Ok(())
-    }
-
-    /// Unload adapter
-    fn unload_adapter(&mut self, _adapter_id: u16) -> Result<()> {
-        // Metal adapters are managed via shared memory
-        Ok(())
-    }
-
-    /// Get device information string
-    fn device_info(&self) -> String {
-        "Metal GPU (MPLoRA)".to_string()
-    }
-
-    /// Execute compression kernel
-    fn execute_compression(
-        &mut self,
-        input: &[f32],
-        output: &mut [f32],
-        config: &MploraConfig,
-    ) -> Result<()> {
-        self.execute_compression(input, output, config)
     }
 }
 

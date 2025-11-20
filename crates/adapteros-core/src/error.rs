@@ -34,6 +34,14 @@ use zip::result::ZipError;
 
 pub type Result<T> = std::result::Result<T, AosError>;
 
+/// Core error type for AdapterOS operations
+///
+/// All errors in AdapterOS should use this enum to ensure consistent
+/// error handling, logging, and user experience.
+///
+/// [source: crates/adapteros-core/src/error.rs L38-388]
+/// [source: CLAUDE.md#error-handling]
+/// [source: docs/ARCHITECTURE_INDEX.md#error-handling]
 #[derive(Error, Debug)]
 pub enum AosError {
     #[error("Invalid hash: {0}")]

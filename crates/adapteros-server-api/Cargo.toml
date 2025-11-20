@@ -22,7 +22,7 @@ adapteros-federation = { path = "../adapteros-federation" }
 adapteros-verify = { path = "../adapteros-verify" }
 anyhow = "1.0"
 argon2 = "0.5"
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 base64 = "0.21"
 chrono = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
@@ -42,9 +42,9 @@ thiserror = "1.0"
 tracing = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-tower = "0.5"
+tower = "0.4"
 tower-http = { version = "0.5", features = ["trace", "cors"] }
-utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
 utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.0", features = ["v7"] }
 futures-util = "0.3"

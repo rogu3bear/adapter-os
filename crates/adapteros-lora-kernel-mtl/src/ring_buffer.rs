@@ -214,8 +214,8 @@ mod tests {
     fn test_q15_conversion() {
         // Signed Q15 format: i16 range -32767 to +32767, denominator 32767.0
         assert_eq!(RingBuffer::float_to_q15(0.0), 0);
-        assert_eq!(RingBuffer::float_to_q15(0.5), 16383);  // 0.5 * 32767 = 16383
-        assert_eq!(RingBuffer::float_to_q15(1.0), 32767);  // 1.0 * 32767 = 32767
+        assert_eq!(RingBuffer::float_to_q15(0.5), 16383); // 0.5 * 32767 = 16383
+        assert_eq!(RingBuffer::float_to_q15(1.0), 32767); // 1.0 * 32767 = 32767
         assert_eq!(RingBuffer::float_to_q15(-1.0), -32767); // Negative gates supported
 
         assert_eq!(RingBuffer::q15_to_float(0), 0.0);

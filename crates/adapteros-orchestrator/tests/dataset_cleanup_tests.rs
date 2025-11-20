@@ -98,7 +98,7 @@ fn test_quota_status_over_quota() {
 fn test_storage_quota_status_display() {
     let status = StorageQuotaStatus {
         tenant_id: "production".to_string(),
-        used_bytes: 5_368_709_120, // 5 GB
+        used_bytes: 5_368_709_120,   // 5 GB
         quota_bytes: 10_737_418_240, // 10 GB
         percent_used: 50.0,
         datasets_count: 42,

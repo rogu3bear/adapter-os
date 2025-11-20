@@ -23,3 +23,19 @@ export interface UpdateMonitoringRuleRequest {
   actions?: any;
   severity?: 'low' | 'medium' | 'high' | 'critical';
 }
+
+export interface ErrorResponse {
+  error: string;
+  code?: string;
+  details?: string;
+  timestamp?: string;
+}
+
+export interface SystemMetrics {
+  cpu_usage?: number;
+  memory_usage?: number;
+  disk_usage?: number;
+  network_rx?: number;
+  network_tx?: number;
+  timestamp?: string;
+}

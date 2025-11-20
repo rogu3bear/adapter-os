@@ -687,7 +687,9 @@ impl TestingFramework for UnifiedTestingFramework {
 
             // Handle different resource types
             match resource_value {
-                serde_json::Value::String(path) if resource_key.contains("file") || resource_key.contains("dir") => {
+                serde_json::Value::String(path)
+                    if resource_key.contains("file") || resource_key.contains("dir") =>
+                {
                     // Clean up temporary files/directories
                     if let Ok(path) = std::path::PathBuf::from(path).canonicalize() {
                         if path.exists() {
@@ -920,7 +922,15 @@ impl TestingFramework for UnifiedTestingFramework {
         for coverage_file in coverage_sources {
             if let Ok(content) = tokio::fs::read_to_string(coverage_file).await {
                 debug!("Reading coverage data from {}", coverage_file);
-                self.parse_lcov_coverage(&content, &mut file_coverage, &mut total_lines, &mut covered_lines, &mut total_functions, &mut covered_functions).await?;
+                self.parse_lcov_coverage(
+                    &content,
+                    &mut file_coverage,
+                    &mut total_lines,
+                    &mut covered_lines,
+                    &mut total_functions,
+                    &mut covered_functions,
+                )
+                .await?;
                 break; // Use first successful source
             }
         }
@@ -928,7 +938,14 @@ impl TestingFramework for UnifiedTestingFramework {
         // If no coverage data found, generate basic estimates from test execution
         if file_coverage.is_empty() {
             debug!("No coverage data found, generating basic estimates");
-            self.generate_basic_coverage_estimates(&mut file_coverage, &mut total_lines, &mut covered_lines, &mut total_functions, &mut covered_functions).await?;
+            self.generate_basic_coverage_estimates(
+                &mut file_coverage,
+                &mut total_lines,
+                &mut covered_lines,
+                &mut total_functions,
+                &mut covered_functions,
+            )
+            .await?;
         }
 
         // Calculate percentages
@@ -996,8 +1013,8 @@ impl TestingFramework for UnifiedTestingFramework {
             } else if line.starts_with("DA:") {
                 // Line coverage data: DA:<line>,<hits>
                 if let Some(comma_pos) = line[3..].find(',') {
-                    if let Ok(line_num) = line[3..3+comma_pos].parse::<u32>() {
-                        if let Ok(hits) = line[4+comma_pos..].parse::<u32>() {
+                    if let Ok(line_num) = line[3..3 + comma_pos].parse::<u32>() {
+                        if let Ok(hits) = line[4 + comma_pos..].parse::<u32>() {
                             file_lines += 1;
                             *total_lines += 1;
                             if hits > 0 {
@@ -1015,7 +1032,7 @@ impl TestingFramework for UnifiedTestingFramework {
             } else if line.starts_with("FNDA:") {
                 // Function coverage: FNDA:<hits>,<name>
                 if let Some(comma_pos) = line[5..].find(',') {
-                    if let Ok(hits) = line[5..5+comma_pos].parse::<u32>() {
+                    if let Ok(hits) = line[5..5 + comma_pos].parse::<u32>() {
                         if hits > 0 {
                             file_covered_functions += 1;
                             *covered_functions += 1;
@@ -1110,14 +1127,18 @@ impl TestingFramework for UnifiedTestingFramework {
                             let function_count = content.matches("fn ").count() as u64;
 
                             // Estimate coverage based on test file presence
-                            let test_file = file_path.with_extension("").to_string_lossy()
+                            let test_file = file_path
+                                .with_extension("")
+                                .to_string_lossy()
                                 .replace("/src/", "/tests/")
                                 + "_test.rs";
                             let has_tests = std::path::Path::new(&test_file).exists();
 
                             let estimated_coverage = if has_tests { 0.75 } else { 0.3 };
-                            let covered_line_count = (line_count as f64 * estimated_coverage) as u64;
-                            let covered_function_count = (function_count as f64 * estimated_coverage) as u64;
+                            let covered_line_count =
+                                (line_count as f64 * estimated_coverage) as u64;
+                            let covered_function_count =
+                                (function_count as f64 * estimated_coverage) as u64;
 
                             *total_lines += line_count;
                             *covered_lines += covered_line_count;
@@ -1225,7 +1246,14 @@ impl TestingFramework for UnifiedTestingFramework {
                     result.output = Some(format!("HTTP {} - Success", response.status()));
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some(format!("HTTP {} - {}", response.status(), response.status().canonical_reason().unwrap_or("Unknown error")));
+                    result.error = Some(format!(
+                        "HTTP {} - {}",
+                        response.status(),
+                        response
+                            .status()
+                            .canonical_reason()
+                            .unwrap_or("Unknown error")
+                    ));
                 }
             }
             Err(e) => {
@@ -1256,7 +1284,10 @@ impl TestingFramework for UnifiedTestingFramework {
         match operation.to_lowercase().as_str() {
             "select" | "insert" | "update" | "delete" => {
                 result.status = TestStatus::Passed;
-                result.output = Some(format!("Database operation '{}' executed successfully", operation));
+                result.output = Some(format!(
+                    "Database operation '{}' executed successfully",
+                    operation
+                ));
             }
             _ => {
                 result.status = TestStatus::Error;
@@ -1300,30 +1331,26 @@ impl TestingFramework for UnifiedTestingFramework {
                     result.error = Some("File create operation requires content".to_string());
                 }
             }
-            "read" => {
-                match tokio::fs::read_to_string(path).await {
-                    Ok(content) => {
-                        result.status = TestStatus::Passed;
-                        result.output = Some(content);
-                    }
-                    Err(e) => {
-                        result.status = TestStatus::Error;
-                        result.error = Some(format!("Failed to read file: {}", e));
-                    }
+            "read" => match tokio::fs::read_to_string(path).await {
+                Ok(content) => {
+                    result.status = TestStatus::Passed;
+                    result.output = Some(content);
                 }
-            }
-            "delete" => {
-                match tokio::fs::remove_file(path).await {
-                    Ok(_) => {
-                        result.status = TestStatus::Passed;
-                        result.output = Some(format!("File deleted: {}", path));
-                    }
-                    Err(e) => {
-                        result.status = TestStatus::Error;
-                        result.error = Some(format!("Failed to delete file: {}", e));
-                    }
+                Err(e) => {
+                    result.status = TestStatus::Error;
+                    result.error = Some(format!("Failed to read file: {}", e));
                 }
-            }
+            },
+            "delete" => match tokio::fs::remove_file(path).await {
+                Ok(_) => {
+                    result.status = TestStatus::Passed;
+                    result.output = Some(format!("File deleted: {}", path));
+                }
+                Err(e) => {
+                    result.status = TestStatus::Error;
+                    result.error = Some(format!("Failed to delete file: {}", e));
+                }
+            },
             _ => {
                 result.status = TestStatus::Error;
                 result.error = Some(format!("Unsupported file operation: {}", operation));
@@ -1406,10 +1433,12 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let expected = assertion.parameters.get("expected")
-            .ok_or_else(|| AosError::Config("Missing 'expected' parameter for equals assertion".to_string()))?;
-        let actual = assertion.parameters.get("actual")
-            .ok_or_else(|| AosError::Config("Missing 'actual' parameter for equals assertion".to_string()))?;
+        let expected = assertion.parameters.get("expected").ok_or_else(|| {
+            AosError::Config("Missing 'expected' parameter for equals assertion".to_string())
+        })?;
+        let actual = assertion.parameters.get("actual").ok_or_else(|| {
+            AosError::Config("Missing 'actual' parameter for equals assertion".to_string())
+        })?;
 
         if expected == actual {
             result.status = TestStatus::Passed;
@@ -1427,10 +1456,12 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let expected = assertion.parameters.get("expected")
-            .ok_or_else(|| AosError::Config("Missing 'expected' parameter for not_equals assertion".to_string()))?;
-        let actual = assertion.parameters.get("actual")
-            .ok_or_else(|| AosError::Config("Missing 'actual' parameter for not_equals assertion".to_string()))?;
+        let expected = assertion.parameters.get("expected").ok_or_else(|| {
+            AosError::Config("Missing 'expected' parameter for not_equals assertion".to_string())
+        })?;
+        let actual = assertion.parameters.get("actual").ok_or_else(|| {
+            AosError::Config("Missing 'actual' parameter for not_equals assertion".to_string())
+        })?;
 
         if expected != actual {
             result.status = TestStatus::Passed;
@@ -1448,12 +1479,25 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let value = assertion.parameters.get("value")
+        let value = assertion
+            .parameters
+            .get("value")
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'value' parameter for greater_than assertion".to_string()))?;
-        let threshold = assertion.parameters.get("threshold")
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'value' parameter for greater_than assertion".to_string(),
+                )
+            })?;
+        let threshold = assertion
+            .parameters
+            .get("threshold")
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'threshold' parameter for greater_than assertion".to_string()))?;
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'threshold' parameter for greater_than assertion"
+                        .to_string(),
+                )
+            })?;
 
         if value > threshold {
             result.status = TestStatus::Passed;
@@ -1471,12 +1515,24 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let value = assertion.parameters.get("value")
+        let value = assertion
+            .parameters
+            .get("value")
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'value' parameter for less_than assertion".to_string()))?;
-        let threshold = assertion.parameters.get("threshold")
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'value' parameter for less_than assertion".to_string(),
+                )
+            })?;
+        let threshold = assertion
+            .parameters
+            .get("threshold")
             .and_then(|v| v.as_f64())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'threshold' parameter for less_than assertion".to_string()))?;
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'threshold' parameter for less_than assertion".to_string(),
+                )
+            })?;
 
         if value < threshold {
             result.status = TestStatus::Passed;
@@ -1494,12 +1550,24 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let haystack = assertion.parameters.get("haystack")
+        let haystack = assertion
+            .parameters
+            .get("haystack")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'haystack' parameter for contains assertion".to_string()))?;
-        let needle = assertion.parameters.get("needle")
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'haystack' parameter for contains assertion".to_string(),
+                )
+            })?;
+        let needle = assertion
+            .parameters
+            .get("needle")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'needle' parameter for contains assertion".to_string()))?;
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'needle' parameter for contains assertion".to_string(),
+                )
+            })?;
 
         if haystack.contains(needle) {
             result.status = TestStatus::Passed;
@@ -1517,12 +1585,25 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let haystack = assertion.parameters.get("haystack")
+        let haystack = assertion
+            .parameters
+            .get("haystack")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'haystack' parameter for not_contains assertion".to_string()))?;
-        let needle = assertion.parameters.get("needle")
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'haystack' parameter for not_contains assertion"
+                        .to_string(),
+                )
+            })?;
+        let needle = assertion
+            .parameters
+            .get("needle")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'needle' parameter for not_contains assertion".to_string()))?;
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'needle' parameter for not_contains assertion".to_string(),
+                )
+            })?;
 
         if !haystack.contains(needle) {
             result.status = TestStatus::Passed;
@@ -1540,12 +1621,24 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let pattern = assertion.parameters.get("pattern")
+        let pattern = assertion
+            .parameters
+            .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'pattern' parameter for regex assertion".to_string()))?;
-        let text = assertion.parameters.get("text")
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'pattern' parameter for regex assertion".to_string(),
+                )
+            })?;
+        let text = assertion
+            .parameters
+            .get("text")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'text' parameter for regex assertion".to_string()))?;
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'text' parameter for regex assertion".to_string(),
+                )
+            })?;
 
         match regex::Regex::new(pattern) {
             Ok(re) => {
@@ -1554,7 +1647,8 @@ impl TestingFramework for UnifiedTestingFramework {
                     result.message = Some(format!("Text matches regex pattern: {}", pattern));
                 } else {
                     result.status = TestStatus::Failed;
-                    result.message = Some(format!("Text does not match regex pattern: {}", pattern));
+                    result.message =
+                        Some(format!("Text does not match regex pattern: {}", pattern));
                 }
             }
             Err(e) => {
@@ -1571,9 +1665,15 @@ impl TestingFramework for UnifiedTestingFramework {
         assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        let path = assertion.parameters.get("path")
+        let path = assertion
+            .parameters
+            .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AosError::Config("Missing or invalid 'path' parameter for file_exists assertion".to_string()))?;
+            .ok_or_else(|| {
+                AosError::Config(
+                    "Missing or invalid 'path' parameter for file_exists assertion".to_string(),
+                )
+            })?;
 
         if std::path::Path::new(path).exists() {
             result.status = TestStatus::Passed;
@@ -1621,25 +1721,46 @@ impl UnifiedTestingFramework {
         // Execute the step based on action type
         match &step.action {
             TestAction::ExecuteCommand { command, args } => {
-                self.execute_command_step(step, command, args, &mut step_result).await?;
+                self.execute_command_step(step, command, args, &mut step_result)
+                    .await?;
             }
             TestAction::ApiCall { method, url, body } => {
-                self.execute_api_call_step(step, method, url, body.as_ref(), &mut step_result).await?;
+                self.execute_api_call_step(step, method, url, body.as_ref(), &mut step_result)
+                    .await?;
             }
-            TestAction::DatabaseOperation { operation, query, params } => {
-                self.execute_database_step(step, operation, query, params, &mut step_result).await?;
+            TestAction::DatabaseOperation {
+                operation,
+                query,
+                params,
+            } => {
+                self.execute_database_step(step, operation, query, params, &mut step_result)
+                    .await?;
             }
-            TestAction::FileOperation { operation, path, content } => {
-                self.execute_file_step(step, operation, path, content.as_ref(), &mut step_result).await?;
+            TestAction::FileOperation {
+                operation,
+                path,
+                content,
+            } => {
+                self.execute_file_step(step, operation, path, content.as_ref(), &mut step_result)
+                    .await?;
             }
             TestAction::Wait { duration_ms } => {
-                self.execute_wait_step(step, *duration_ms, &mut step_result).await?;
+                self.execute_wait_step(step, *duration_ms, &mut step_result)
+                    .await?;
             }
-            TestAction::Assert { condition, expected } => {
-                self.execute_assertion_step(step, condition, expected, &mut step_result).await?;
+            TestAction::Assert {
+                condition,
+                expected,
+            } => {
+                self.execute_assertion_step(step, condition, expected, &mut step_result)
+                    .await?;
             }
-            TestAction::Custom { action_type, parameters } => {
-                self.execute_custom_step(step, action_type, parameters, &mut step_result).await?;
+            TestAction::Custom {
+                action_type,
+                parameters,
+            } => {
+                self.execute_custom_step(step, action_type, parameters, &mut step_result)
+                    .await?;
             }
         }
 
@@ -1674,31 +1795,40 @@ impl UnifiedTestingFramework {
         // Execute assertion based on type
         match assertion.assertion_type {
             AssertionType::Equals => {
-                self.execute_equals_assertion(assertion, &mut assertion_result).await?;
+                self.execute_equals_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::NotEquals => {
-                self.execute_not_equals_assertion(assertion, &mut assertion_result).await?;
+                self.execute_not_equals_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::GreaterThan => {
-                self.execute_greater_than_assertion(assertion, &mut assertion_result).await?;
+                self.execute_greater_than_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::LessThan => {
-                self.execute_less_than_assertion(assertion, &mut assertion_result).await?;
+                self.execute_less_than_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::Contains => {
-                self.execute_contains_assertion(assertion, &mut assertion_result).await?;
+                self.execute_contains_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::NotContains => {
-                self.execute_not_contains_assertion(assertion, &mut assertion_result).await?;
+                self.execute_not_contains_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::RegexMatch => {
-                self.execute_regex_assertion(assertion, &mut assertion_result).await?;
+                self.execute_regex_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::FileExists => {
-                self.execute_file_exists_assertion(assertion, &mut assertion_result).await?;
+                self.execute_file_exists_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
             AssertionType::JsonPath => {
-                self.execute_json_path_assertion(assertion, &mut assertion_result).await?;
+                self.execute_json_path_assertion(assertion, &mut assertion_result)
+                    .await?;
             }
         }
 

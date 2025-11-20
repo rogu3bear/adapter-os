@@ -1,3 +1,7 @@
+use adapteros_core::hash::Hasher;
+use adapteros_db::Db;
+use adapteros_server_api::auth::Claims;
+use adapteros_server_api::handlers::aos_upload::AosUploadResponse;
 /// PRD-02: .aos Upload Integration Tests
 ///
 /// This module tests the .aos file upload functionality including:
@@ -5,22 +9,19 @@
 /// - Permission checking via HTTP endpoint
 /// - File validation and disk persistence
 /// - Database persistence and audit logging
-
 use axum::{
     body::{to_bytes, Body},
-    http::{header, StatusCode, Request},
+    http::{header, Request, StatusCode},
     Router,
 };
-use adapteros_db::Db;
-use adapteros_core::hash::Hasher;
-use adapteros_server_api::handlers::aos_upload::AosUploadResponse;
-use adapteros_server_api::auth::Claims;
 use std::path::Path;
 use tokio::fs;
 use tower::ServiceExt;
 
 mod common;
-use common::{setup_state, test_admin_claims, create_test_app, test_viewer_claims, create_test_jwt};
+use common::{
+    create_test_app, create_test_jwt, setup_state, test_admin_claims, test_viewer_claims,
+};
 
 /// Helper function to verify audit log entries
 async fn verify_audit_log_exists(
@@ -177,7 +178,9 @@ fn build_multipart_body(
     // Add text fields
     for (name, value) in fields {
         body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-        body.extend_from_slice(format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes());
+        body.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes(),
+        );
         body.extend_from_slice(value.as_bytes());
         body.extend_from_slice(b"\r\n");
     }
@@ -185,7 +188,11 @@ fn build_multipart_body(
     // Add file field
     body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
     body.extend_from_slice(
-        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n", file_name).as_bytes()
+        format!(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n",
+            file_name
+        )
+        .as_bytes(),
     );
     body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
     body.extend_from_slice(file_data);
@@ -269,22 +276,43 @@ async fn test_aos_upload_success() -> anyhow::Result<()> {
     let upload_response: AosUploadResponse = serde_json::from_slice(&body_bytes)?;
 
     // Verify response contains required fields
-    assert!(!upload_response.adapter_id.is_empty(), "Adapter ID should be set");
-    assert_eq!(upload_response.tenant_id, "tenant-1", "Tenant ID should match request");
-    assert!(!upload_response.hash_b3.is_empty(), "BLAKE3 hash should be computed");
-    assert!(!upload_response.file_path.is_empty(), "File path should be set");
-    assert!(upload_response.file_size > 0, "File size should be positive");
-    assert_eq!(upload_response.lifecycle_state, "draft", "Initial state should be draft");
+    assert!(
+        !upload_response.adapter_id.is_empty(),
+        "Adapter ID should be set"
+    );
+    assert_eq!(
+        upload_response.tenant_id, "tenant-1",
+        "Tenant ID should match request"
+    );
+    assert!(
+        !upload_response.hash_b3.is_empty(),
+        "BLAKE3 hash should be computed"
+    );
+    assert!(
+        !upload_response.file_path.is_empty(),
+        "File path should be set"
+    );
+    assert!(
+        upload_response.file_size > 0,
+        "File size should be positive"
+    );
+    assert_eq!(
+        upload_response.lifecycle_state, "draft",
+        "Initial state should be draft"
+    );
 
     // Verify file was written to disk
     let file_exists = Path::new(&upload_response.file_path).exists();
-    assert!(file_exists, "Uploaded file should exist on disk at: {}", upload_response.file_path);
+    assert!(
+        file_exists,
+        "Uploaded file should exist on disk at: {}",
+        upload_response.file_path
+    );
 
     // Verify file content matches
     let written_data = tokio::fs::read(&upload_response.file_path).await?;
     assert_eq!(
-        written_data,
-        aos_content,
+        written_data, aos_content,
         "Written file should match uploaded content"
     );
 
@@ -293,14 +321,16 @@ async fn test_aos_upload_success() -> anyhow::Result<()> {
     hasher.update(&written_data);
     let written_hash = hasher.finalize().to_hex().to_string();
     assert_eq!(
-        written_hash,
-        upload_response.hash_b3,
+        written_hash, upload_response.hash_b3,
         "File on disk should have matching hash"
     );
 
     // Verify database registration
     let adapter = state.db.get_adapter(&upload_response.adapter_id).await?;
-    assert!(adapter.is_some(), "Adapter should be registered in database");
+    assert!(
+        adapter.is_some(),
+        "Adapter should be registered in database"
+    );
 
     let adapter = adapter.unwrap();
     assert_eq!(adapter.name, "Test Adapter", "Adapter name should match");
@@ -408,7 +438,10 @@ async fn test_aos_upload_file_too_large() -> anyhow::Result<()> {
 
     // Simulate oversized file check
     let simulated_size = MAX_AOS_FILE_SIZE + 1;
-    assert!(simulated_size > MAX_AOS_FILE_SIZE, "Size check should fail for oversized files");
+    assert!(
+        simulated_size > MAX_AOS_FILE_SIZE,
+        "Size check should fail for oversized files"
+    );
 
     Ok(())
 }
@@ -456,7 +489,8 @@ async fn test_aos_upload_with_metadata() -> anyhow::Result<()> {
         ("alpha", "16.0"),
     ];
 
-    let multipart_body = build_multipart_body(&boundary, &aos_content, "metadata_test.aos", &fields);
+    let multipart_body =
+        build_multipart_body(&boundary, &aos_content, "metadata_test.aos", &fields);
     let content_type = format!("multipart/form-data; boundary={}", boundary);
 
     // Create JWT token for admin user
@@ -485,7 +519,10 @@ async fn test_aos_upload_with_metadata() -> anyhow::Result<()> {
     assert!(adapter.is_some(), "Adapter should be registered");
 
     let adapter = adapter.unwrap();
-    assert_eq!(adapter.name, "Full Metadata Adapter", "Adapter name should match");
+    assert_eq!(
+        adapter.name, "Full Metadata Adapter",
+        "Adapter name should match"
+    );
     assert_eq!(adapter.tier, "persistent", "Tier should match");
     assert_eq!(adapter.rank, 8, "Rank should match");
     assert_eq!(adapter.alpha, 16.0, "Alpha should match");
@@ -511,20 +548,25 @@ async fn test_aos_upload_invalid_tier_values() -> anyhow::Result<()> {
 
     // Verify valid tiers are recognized
     for valid_tier in &valid_tiers {
-        assert!(valid_tiers.contains(valid_tier), "Valid tier should be recognized: {}", valid_tier);
+        assert!(
+            valid_tiers.contains(valid_tier),
+            "Valid tier should be recognized: {}",
+            valid_tier
+        );
     }
 
     // Verify invalid tiers are rejected
     for invalid_tier in &invalid_tiers {
-        assert!(!valid_tiers.contains(invalid_tier), "Invalid tier should be rejected: {}", invalid_tier);
+        assert!(
+            !valid_tiers.contains(invalid_tier),
+            "Invalid tier should be rejected: {}",
+            invalid_tier
+        );
 
         // Test via HTTP endpoint
         let aos_content = create_test_aos_file();
         let boundary = create_multipart_boundary();
-        let fields = vec![
-            ("name", "Test Adapter"),
-            ("tier", invalid_tier),
-        ];
+        let fields = vec![("name", "Test Adapter"), ("tier", invalid_tier)];
         let multipart_body = build_multipart_body(&boundary, &aos_content, "test.aos", &fields);
         let content_type = format!("multipart/form-data; boundary={}", boundary);
 
@@ -593,8 +635,8 @@ async fn test_aos_upload_audit_log_verification() -> anyhow::Result<()> {
     use adapteros_server_api::audit_helper::{actions, resources};
 
     // Step 1: Get initial count of audit logs
-    let initial_count = get_audit_log_count(&state.db, actions::ADAPTER_UPLOAD, Some(resources::ADAPTER))
-        .await?;
+    let initial_count =
+        get_audit_log_count(&state.db, actions::ADAPTER_UPLOAD, Some(resources::ADAPTER)).await?;
     assert_eq!(initial_count, 0, "Initial count should be zero");
 
     // Step 2: Perform successful upload
@@ -621,20 +663,35 @@ async fn test_aos_upload_audit_log_verification() -> anyhow::Result<()> {
     let upload_response: AosUploadResponse = serde_json::from_slice(&body_bytes)?;
 
     // Step 3: Verify audit log was created
-    let count_after_upload = get_audit_log_count(&state.db, actions::ADAPTER_UPLOAD, Some(resources::ADAPTER))
-        .await?;
+    let count_after_upload =
+        get_audit_log_count(&state.db, actions::ADAPTER_UPLOAD, Some(resources::ADAPTER)).await?;
     assert_eq!(count_after_upload, 1, "Count should increase after upload");
 
     // Step 4: Verify audit log details
-    let audit_log = get_audit_log_record(&state.db, actions::ADAPTER_UPLOAD, Some(&upload_response.adapter_id))
-        .await?;
+    let audit_log = get_audit_log_record(
+        &state.db,
+        actions::ADAPTER_UPLOAD,
+        Some(&upload_response.adapter_id),
+    )
+    .await?;
     assert!(audit_log.is_some(), "Audit log record should exist");
 
     let log_record = audit_log.unwrap();
-    assert_eq!(log_record.action, actions::ADAPTER_UPLOAD, "Action should match");
-    assert_eq!(log_record.resource_type, resources::ADAPTER, "Resource type should match");
+    assert_eq!(
+        log_record.action,
+        actions::ADAPTER_UPLOAD,
+        "Action should match"
+    );
+    assert_eq!(
+        log_record.resource_type,
+        resources::ADAPTER,
+        "Resource type should match"
+    );
     assert_eq!(log_record.status, "success", "Status should be 'success'");
-    assert!(log_record.error_message.is_none(), "Error message should be None for success");
+    assert!(
+        log_record.error_message.is_none(),
+        "Error message should be None for success"
+    );
 
     // Clean up
     tokio::fs::remove_file(&upload_response.file_path).await?;
@@ -658,10 +715,7 @@ async fn test_aos_upload_file_persists_to_disk() -> anyhow::Result<()> {
     let aos_content = create_test_aos_file();
     let boundary = create_multipart_boundary();
 
-    let fields = vec![
-        ("name", "Persistence Test Adapter"),
-        ("tier", "warm"),
-    ];
+    let fields = vec![("name", "Persistence Test Adapter"), ("tier", "warm")];
 
     let multipart_body = build_multipart_body(&boundary, &aos_content, "persist_test.aos", &fields);
     let content_type = format!("multipart/form-data; boundary={}", boundary);
@@ -692,31 +746,50 @@ async fn test_aos_upload_file_persists_to_disk() -> anyhow::Result<()> {
 
     // Step 2: Read file content and verify it matches original
     let written_data = tokio::fs::read(&file_path).await?;
-    assert_eq!(written_data.len(), aos_content.len(), "File size should match");
-    assert_eq!(written_data, aos_content, "File content should match original");
+    assert_eq!(
+        written_data.len(),
+        aos_content.len(),
+        "File size should match"
+    );
+    assert_eq!(
+        written_data, aos_content,
+        "File content should match original"
+    );
 
     // Step 3: Verify through database that path is persisted
     let adapter_from_db = state.db.get_adapter(&adapter_id).await?;
-    assert!(adapter_from_db.is_some(), "Adapter should exist in database");
+    assert!(
+        adapter_from_db.is_some(),
+        "Adapter should exist in database"
+    );
 
     let adapter = adapter_from_db.unwrap();
-    assert_eq!(adapter.aos_file_path, Some(file_path.clone()), "Database should store file path");
+    assert_eq!(
+        adapter.aos_file_path,
+        Some(file_path.clone()),
+        "Database should store file path"
+    );
 
     // Step 4: Verify file still exists after database queries
     let still_exists = Path::new(&file_path).exists();
-    assert!(still_exists, "File should still exist after database queries");
+    assert!(
+        still_exists,
+        "File should still exist after database queries"
+    );
 
     // Step 5: Re-read file and verify content is unchanged
     let re_read_data = tokio::fs::read(&file_path).await?;
-    assert_eq!(re_read_data, aos_content, "File content should remain unchanged");
+    assert_eq!(
+        re_read_data, aos_content,
+        "File content should remain unchanged"
+    );
 
     // Step 6: Verify hash computation matches
     let mut hasher = Hasher::new();
     hasher.update(&re_read_data);
     let recomputed_hash = hasher.finalize().to_hex().to_string();
     assert_eq!(
-        recomputed_hash,
-        upload_response.hash_b3,
+        recomputed_hash, upload_response.hash_b3,
         "Recomputed hash should match initial hash"
     );
 

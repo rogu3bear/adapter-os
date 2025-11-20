@@ -52,7 +52,7 @@ impl PythonParser {
             .set_language(python_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Python language: {}", e)))?;
         let function_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (function_definition
                 name: (identifier) @name
@@ -64,7 +64,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let async_function_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (async_function_definition
                 name: (identifier) @name
@@ -76,7 +76,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create async function query: {}", e)))?;
 
         let class_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (class_definition
                 name: (identifier) @name
@@ -87,7 +87,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let import_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (import_statement
                 (dotted_name) @module_name
@@ -97,7 +97,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let import_from_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (import_from_statement
                 module_name: (dotted_name)? @module_name
@@ -108,7 +108,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import from query: {}", e)))?;
 
         let assignment_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (assignment
                 left: (identifier) @name
@@ -119,7 +119,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create assignment query: {}", e)))?;
 
         let method_query = Query::new(
-            python_lang.clone(),
+            python_lang,
             r#"
             (class_definition
                 name: (identifier) @class_name

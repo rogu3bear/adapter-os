@@ -99,7 +99,10 @@ mod seeding_domain_separation_tests {
         let plan_data = b"inference-plan";
         let plan_hash = B3Hash::hash(plan_data);
 
-        let seed = derive_seed(&base_hash, &format!("mlx-plan:{}", plan_hash.to_short_hex()));
+        let seed = derive_seed(
+            &base_hash,
+            &format!("mlx-plan:{}", plan_hash.to_short_hex()),
+        );
 
         assert!(mlx_set_seed_from_bytes(&seed).is_ok());
     }
@@ -118,14 +121,20 @@ mod seeding_workflow_tests {
 
         // Step 2: Backend initialization seed
         let global_seed = B3Hash::hash(b"adapteros-mlx-backend");
-        let backend_seed = derive_seed(&global_seed, &format!("mlx-backend:{}", model_hash.to_short_hex()));
+        let backend_seed = derive_seed(
+            &global_seed,
+            &format!("mlx-backend:{}", model_hash.to_short_hex()),
+        );
 
         assert!(mlx_set_seed_from_bytes(&backend_seed).is_ok());
 
         // Step 3: Plan loading seed
         let plan_bytes = b"test-inference-plan";
         let plan_hash = B3Hash::hash(plan_bytes);
-        let plan_seed = derive_seed(&backend_seed, &format!("mlx-plan:{}", plan_hash.to_short_hex()));
+        let plan_seed = derive_seed(
+            &backend_seed,
+            &format!("mlx-plan:{}", plan_hash.to_short_hex()),
+        );
 
         assert!(mlx_set_seed_from_bytes(&plan_seed).is_ok());
 
@@ -326,7 +335,10 @@ mod seeding_integration_tests {
 
         // Level 3: Model-specific seed
         let model_hash = B3Hash::hash(b"/models/qwen-7b");
-        let model_seed = derive_seed(&backend_seed, &format!("model:{}", model_hash.to_short_hex()));
+        let model_seed = derive_seed(
+            &backend_seed,
+            &format!("model:{}", model_hash.to_short_hex()),
+        );
 
         // Level 4: Inference-specific seed
         let inference_seed = derive_seed(&model_seed, "inference:batch-0");

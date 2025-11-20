@@ -3,10 +3,11 @@
 //! Provides comprehensive monitoring, alerting, and observability for the MLX
 //! backend resilience system.
 
-use crate::backend::{BackendHealth, MLXResilienceConfig, MLXFFIBackend};
+use crate::backend::{BackendHealth, MLXFFIBackend};
+use adapteros_lora_kernel_api::FusedKernels;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Monitoring configuration
 #[derive(Debug, Clone)]
@@ -62,10 +63,15 @@ pub struct HealthMetrics {
     pub current_failure_streak: u32,
     pub average_response_time_ms: f32,
     pub circuit_breaker_state: String,
+    // MLX-specific metrics
+    pub average_inference_time_ms: f32,
+    pub peak_memory_usage_mb: f32,
+    pub active_adapters: usize,
+    pub cache_hit_rate: f32,
 }
 
 /// Alert types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AlertType {
     CircuitBreakerOpened,
     BackendDown,
@@ -75,7 +81,7 @@ pub enum AlertType {
 }
 
 /// Alert structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Alert {
     pub alert_type: AlertType,
     pub severity: AlertSeverity,
@@ -120,7 +126,7 @@ impl MLXMonitor {
 
         // Get current health status
         let health = self.backend.health_status();
-        let device_info = self.backend.device_info();
+        let _device_info = self.backend.device_name();
 
         // Calculate metrics
         let total_requests = health.total_requests;
@@ -140,14 +146,34 @@ impl MLXMonitor {
         // Calculate health score (0-100)
         let health_score = self.calculate_health_score(&health, success_rate);
 
+        // Get MLX-specific metrics if available
+        let mlx_metrics = if let Some(ref monitor) = &self.backend.monitor {
+            if let Ok(mlx_monitor) = monitor.lock() {
+                Some(mlx_monitor.performance_metrics())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let metrics = HealthMetrics {
             total_requests,
             successful_requests,
             failed_requests,
             success_rate,
             current_failure_streak: health.current_failure_streak,
-            average_response_time_ms: 0.0, // Would be measured in real implementation
-            circuit_breaker_state: format!("{:?}", health.circuit_breaker),
+            average_response_time_ms: mlx_metrics.as_ref().map(|m| m.average_latency_ms).unwrap_or(0.0),
+            circuit_breaker_state: if health.operational {
+                "Operational"
+            } else {
+                "Non-operational"
+            }
+            .to_string(),
+            average_inference_time_ms: mlx_metrics.as_ref().map(|m| m.average_latency_ms).unwrap_or(0.0),
+            peak_memory_usage_mb: mlx_metrics.as_ref().map(|m| m.peak_memory_usage_mb).unwrap_or(0.0),
+            active_adapters: self.backend.adapters.read().len(),
+            cache_hit_rate: mlx_metrics.as_ref().map(|m| m.cache_hit_rate).unwrap_or(0.0),
         };
 
         let result = HealthCheckResult {
@@ -178,21 +204,29 @@ impl MLXMonitor {
             return HealthStatus::Down;
         }
 
-        if health.current_failure_streak >= self.config.alert_thresholds.critical_failure_threshold {
-            issues.push(format!("{} consecutive failures", health.current_failure_streak));
+        if health.current_failure_streak >= self.config.alert_thresholds.critical_failure_threshold
+        {
+            issues.push(format!(
+                "{} consecutive failures",
+                health.current_failure_streak
+            ));
             return HealthStatus::Critical;
         }
 
         if success_rate < self.config.alert_thresholds.min_success_rate_percent {
-            issues.push(format!("Success rate {:.1}% below threshold {:.1}%",
-                success_rate, self.config.alert_thresholds.min_success_rate_percent));
+            issues.push(format!(
+                "Success rate {:.1}% below threshold {:.1}%",
+                success_rate, self.config.alert_thresholds.min_success_rate_percent
+            ));
             return HealthStatus::Critical;
         }
 
         // Check for warnings
         if health.current_failure_streak >= self.config.alert_thresholds.warning_failure_threshold {
-            issues.push(format!("{} consecutive failures (warning threshold)",
-                health.current_failure_streak));
+            issues.push(format!(
+                "{} consecutive failures (warning threshold)",
+                health.current_failure_streak
+            ));
             return HealthStatus::Warning;
         }
 
@@ -243,9 +277,16 @@ impl MLXMonitor {
                     message: "MLX backend circuit breaker opened".to_string(),
                     timestamp: Instant::now(),
                     context: [
-                        ("failure_streak".to_string(), result.metrics.current_failure_streak.to_string()),
-                        ("success_rate".to_string(), format!("{:.1}", result.metrics.success_rate)),
-                    ].into(),
+                        (
+                            "failure_streak".to_string(),
+                            result.metrics.current_failure_streak.to_string(),
+                        ),
+                        (
+                            "success_rate".to_string(),
+                            format!("{:.1}", result.metrics.success_rate),
+                        ),
+                    ]
+                    .into(),
                 });
             }
         }
@@ -260,9 +301,16 @@ impl MLXMonitor {
                     message: "MLX backend is down".to_string(),
                     timestamp: Instant::now(),
                     context: [
-                        ("total_requests".to_string(), result.metrics.total_requests.to_string()),
-                        ("failed_requests".to_string(), result.metrics.failed_requests.to_string()),
-                    ].into(),
+                        (
+                            "total_requests".to_string(),
+                            result.metrics.total_requests.to_string(),
+                        ),
+                        (
+                            "failed_requests".to_string(),
+                            result.metrics.failed_requests.to_string(),
+                        ),
+                    ]
+                    .into(),
                 });
             }
         }
@@ -274,22 +322,36 @@ impl MLXMonitor {
                     alert_type: AlertType::SuccessRateLow,
                     severity: AlertSeverity::Warning,
                     backend_name: result.backend_name.clone(),
-                    message: format!("MLX backend success rate {:.1}% below threshold",
-                        result.metrics.success_rate),
+                    message: format!(
+                        "MLX backend success rate {:.1}% below threshold",
+                        result.metrics.success_rate
+                    ),
                     timestamp: Instant::now(),
                     context: [
-                        ("success_rate".to_string(), format!("{:.1}", result.metrics.success_rate)),
-                        ("threshold".to_string(), self.config.alert_thresholds.min_success_rate_percent.to_string()),
-                    ].into(),
+                        (
+                            "success_rate".to_string(),
+                            format!("{:.1}", result.metrics.success_rate),
+                        ),
+                        (
+                            "threshold".to_string(),
+                            self.config
+                                .alert_thresholds
+                                .min_success_rate_percent
+                                .to_string(),
+                        ),
+                    ]
+                    .into(),
                 });
             }
         }
 
         // Recovery alerts
         if let Some(last_check) = &self.last_health_check {
-            if matches!(last_check.status, HealthStatus::Critical | HealthStatus::Down)
-                && matches!(result.status, HealthStatus::Healthy | HealthStatus::Warning) {
-
+            if matches!(
+                last_check.status,
+                HealthStatus::Critical | HealthStatus::Down
+            ) && matches!(result.status, HealthStatus::Healthy | HealthStatus::Warning)
+            {
                 new_alerts.push(Alert {
                     alert_type: AlertType::RecoveryFailed, // Actually recovered
                     severity: AlertSeverity::Info,
@@ -297,10 +359,20 @@ impl MLXMonitor {
                     message: "MLX backend recovered".to_string(),
                     timestamp: Instant::now(),
                     context: [
-                        ("recovery_time_ms".to_string(),
-                         result.timestamp.duration_since(last_check.timestamp).as_millis().to_string()),
-                        ("health_score".to_string(), format!("{:.1}", result.health_score)),
-                    ].into(),
+                        (
+                            "recovery_time_ms".to_string(),
+                            result
+                                .timestamp
+                                .duration_since(last_check.timestamp)
+                                .as_millis()
+                                .to_string(),
+                        ),
+                        (
+                            "health_score".to_string(),
+                            format!("{:.1}", result.health_score),
+                        ),
+                    ]
+                    .into(),
                 });
             }
         }
@@ -312,12 +384,21 @@ impl MLXMonitor {
         }
 
         // Clean up resolved alerts
-        self.active_alerts.retain(|alert| !self.is_alert_resolved(alert, result));
+        let resolved_alerts: Vec<_> = self
+            .active_alerts
+            .iter()
+            .filter(|alert| self.is_alert_resolved(alert, result))
+            .cloned()
+            .collect();
+        self.active_alerts
+            .retain(|alert| !resolved_alerts.contains(alert));
     }
 
     /// Check if alert type is already active
     fn has_active_alert(&self, alert_type: AlertType) -> bool {
-        self.active_alerts.iter().any(|a| std::mem::discriminant(&a.alert_type) == std::mem::discriminant(&alert_type))
+        self.active_alerts
+            .iter()
+            .any(|a| std::mem::discriminant(&a.alert_type) == std::mem::discriminant(&alert_type))
     }
 
     /// Check if alert is resolved
@@ -327,7 +408,10 @@ impl MLXMonitor {
                 matches!(result.status, HealthStatus::Healthy | HealthStatus::Warning)
             }
             AlertType::BackendDown => {
-                matches!(result.status, HealthStatus::Healthy | HealthStatus::Warning | HealthStatus::Critical)
+                matches!(
+                    result.status,
+                    HealthStatus::Healthy | HealthStatus::Warning | HealthStatus::Critical
+                )
             }
             AlertType::SuccessRateLow => {
                 result.metrics.success_rate >= self.config.alert_thresholds.min_success_rate_percent
@@ -345,18 +429,26 @@ impl MLXMonitor {
             AlertSeverity::Critical => "CRIT",
         };
 
-        let log_fn = match alert.severity {
-            AlertSeverity::Info => info,
-            AlertSeverity::Warning => warn,
-            AlertSeverity::Error | AlertSeverity::Critical => error,
+        match alert.severity {
+            AlertSeverity::Info => info!(
+                backend = %alert.backend_name,
+                alert_type = ?alert.alert_type,
+                severity = %severity_str,
+                "MLX alert: {}", alert.message
+            ),
+            AlertSeverity::Warning => warn!(
+                backend = %alert.backend_name,
+                alert_type = ?alert.alert_type,
+                severity = %severity_str,
+                "MLX alert: {}", alert.message
+            ),
+            AlertSeverity::Error | AlertSeverity::Critical => error!(
+                backend = %alert.backend_name,
+                alert_type = ?alert.alert_type,
+                severity = %severity_str,
+                "MLX alert: {}", alert.message
+            ),
         };
-
-        log_fn!(
-            backend = %alert.backend_name,
-            alert_type = ?alert.alert_type,
-            severity = %severity_str,
-            "MLX alert: {}", alert.message
-        );
 
         // In real implementation, would send to PagerDuty, Slack, etc.
         // For demo, just log
@@ -398,19 +490,26 @@ impl MLXMonitor {
             } else {
                 100.0
             },
-            self.calculate_health_score(&health, if health.total_requests > 0 {
-                (health.successful_requests as f32 / health.total_requests as f32) * 100.0
-            } else {
-                100.0
-            })
+            self.calculate_health_score(
+                &health,
+                if health.total_requests > 0 {
+                    (health.successful_requests as f32 / health.total_requests as f32) * 100.0
+                } else {
+                    100.0
+                }
+            )
         )
+    }
+
+    /// Get current performance metrics from the backend
+    pub fn performance_metrics(&self) -> crate::backend::PerformanceMetrics {
+        self.backend.performance_metrics.read().clone()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::MLXResilienceConfig;
     use std::sync::Arc;
 
     #[test]

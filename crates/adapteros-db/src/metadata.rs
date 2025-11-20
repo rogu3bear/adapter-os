@@ -6,7 +6,6 @@
 /// **PRD-02: Adapter & Stack Metadata Normalization + Version Guarantees**
 ///
 /// Citation: PRD-02 (2025-11-17)
-
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -33,13 +32,13 @@ pub struct AdapterMeta {
     pub adapter_id: Option<String>,
 
     // Versioning
-    pub version: String,             // Semantic version (e.g., "1.0.0") or monotonic
-    pub lifecycle_state: LifecycleState,  // draft/active/deprecated/retired
+    pub version: String, // Semantic version (e.g., "1.0.0") or monotonic
+    pub lifecycle_state: LifecycleState, // draft/active/deprecated/retired
 
     // Classification
     pub category: String,
     pub scope: String,
-    pub tier: String,                // ephemeral/persistent/warm
+    pub tier: String, // ephemeral/persistent/warm
 
     // Technical metadata
     pub hash_b3: String,
@@ -72,7 +71,7 @@ pub struct AdapterMeta {
     pub intent: Option<String>,
 
     // Runtime state
-    pub current_state: String,       // Runtime loading state (unloaded/cold/warm/hot/resident)
+    pub current_state: String, // Runtime loading state (unloaded/cold/warm/hot/resident)
     pub load_state: String,
     pub pinned: bool,
     pub memory_bytes: i64,
@@ -105,8 +104,8 @@ pub struct AdapterStackMeta {
     pub description: Option<String>,
 
     // Versioning
-    pub version: String,             // Semantic version (e.g., "1.0.0") or monotonic
-    pub lifecycle_state: LifecycleState,  // draft/active/deprecated/retired
+    pub version: String, // Semantic version (e.g., "1.0.0") or monotonic
+    pub lifecycle_state: LifecycleState, // draft/active/deprecated/retired
 
     // Configuration
     pub adapter_ids: Vec<String>,
@@ -230,7 +229,10 @@ impl From<crate::adapters::Adapter> for AdapterMeta {
             purpose: adapter.purpose,
             revision: adapter.revision,
             parent_id: adapter.parent_id,
-            fork_type: adapter.fork_type.as_deref().and_then(ForkType::from_str),
+            fork_type: adapter
+                .fork_type
+                .as_deref()
+                .and_then(ForkType::from_str),
             fork_reason: adapter.fork_reason,
             framework: adapter.framework,
             framework_id: adapter.framework_id,
@@ -256,8 +258,8 @@ impl From<crate::adapters::Adapter> for AdapterMeta {
 /// Convert database StackRecord to canonical AdapterStackMeta
 impl From<crate::traits::StackRecord> for AdapterStackMeta {
     fn from(stack: crate::traits::StackRecord) -> Self {
-        let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
-            .unwrap_or_else(|_| vec![]);
+        let adapter_ids: Vec<String> =
+            serde_json::from_str(&stack.adapter_ids_json).unwrap_or_else(|_| vec![]);
 
         AdapterStackMeta {
             id: stack.id,
@@ -268,7 +270,10 @@ impl From<crate::traits::StackRecord> for AdapterStackMeta {
             lifecycle_state: LifecycleState::from_str(&stack.lifecycle_state)
                 .unwrap_or(LifecycleState::Active),
             adapter_ids,
-            workflow_type: stack.workflow_type.as_deref().and_then(WorkflowType::from_str),
+            workflow_type: stack
+                .workflow_type
+                .as_deref()
+                .and_then(WorkflowType::from_str),
             created_at: stack.created_at,
             updated_at: stack.updated_at,
             created_by: stack.created_by,
@@ -302,16 +307,15 @@ pub fn validate_state_transition(
 /// Validate semantic version format (basic check)
 pub fn validate_version(version: &str) -> Result<(), MetadataValidationError> {
     // Simple validation: either semver (X.Y.Z) or monotonic (digits)
-    let is_semver = version
-        .split('.')
-        .all(|part| part.parse::<u32>().is_ok());
+    let is_semver = version.split('.').all(|part| part.parse::<u32>().is_ok());
 
     let is_monotonic = version.parse::<u64>().is_ok();
 
     if !is_semver && !is_monotonic {
-        return Err(MetadataValidationError::InvalidVersion(
-            format!("Version must be semver (X.Y.Z) or monotonic integer, got: {}", version)
-        ));
+        return Err(MetadataValidationError::InvalidVersion(format!(
+            "Version must be semver (X.Y.Z) or monotonic integer, got: {}",
+            version
+        )));
     }
 
     Ok(())
@@ -366,26 +370,20 @@ mod tests {
     #[test]
     fn test_state_transition_validation() {
         // Valid transition
-        let result = validate_state_transition(
-            LifecycleState::Draft,
-            LifecycleState::Active,
-            "persistent"
-        );
+        let result =
+            validate_state_transition(LifecycleState::Draft, LifecycleState::Active, "persistent");
         assert!(result.is_ok());
 
         // Invalid transition (backward)
-        let result = validate_state_transition(
-            LifecycleState::Active,
-            LifecycleState::Draft,
-            "persistent"
-        );
+        let result =
+            validate_state_transition(LifecycleState::Active, LifecycleState::Draft, "persistent");
         assert!(result.is_err());
 
         // Invalid state for tier
         let result = validate_state_transition(
             LifecycleState::Active,
             LifecycleState::Deprecated,
-            "ephemeral"
+            "ephemeral",
         );
         assert!(result.is_err());
     }

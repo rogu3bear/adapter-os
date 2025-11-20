@@ -36,9 +36,7 @@ async fn apply_all_migrations_to_test_database() {
         .expect("Failed to connect to test database");
 
     println!("Applying migrations...");
-    db.migrate()
-        .await
-        .expect("Failed to apply migrations");
+    db.migrate().await.expect("Failed to apply migrations");
 
     println!("✓ All migrations applied successfully to: {}", db_path_str);
     println!("✓ Database ready for SQLx compile-time validation");

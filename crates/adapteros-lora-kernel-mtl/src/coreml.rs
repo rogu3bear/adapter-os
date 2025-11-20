@@ -253,9 +253,7 @@ impl Model {
 
         let mut error_code = CoreMLErrorCode::Success;
 
-        let ptr = unsafe {
-            coreml_predict(self.ptr, input.ptr, name_ptr, &mut error_code)
-        };
+        let ptr = unsafe { coreml_predict(self.ptr, input.ptr, name_ptr, &mut error_code) };
 
         if ptr.is_null() {
             let error_msg = get_last_error().unwrap_or_else(|| "Prediction failed".to_string());
@@ -306,7 +304,10 @@ impl Model {
             return Err(AosError::Config(error_msg));
         }
 
-        debug!(input_count = inputs.len(), "CoreML multi-input prediction completed");
+        debug!(
+            input_count = inputs.len(),
+            "CoreML multi-input prediction completed"
+        );
 
         Ok(Prediction { ptr })
     }
@@ -368,7 +369,8 @@ impl Array {
         let ptr = unsafe { coreml_array_new(data.as_ptr(), &c_shape, &mut error_code) };
 
         if ptr.is_null() {
-            let error_msg = get_last_error().unwrap_or_else(|| "Failed to create array".to_string());
+            let error_msg =
+                get_last_error().unwrap_or_else(|| "Failed to create array".to_string());
             return Err(AosError::Config(error_msg));
         }
 
@@ -403,7 +405,8 @@ impl Array {
         let ptr = unsafe { coreml_array_new_int8(data.as_ptr(), &c_shape, &mut error_code) };
 
         if ptr.is_null() {
-            let error_msg = get_last_error().unwrap_or_else(|| "Failed to create array".to_string());
+            let error_msg =
+                get_last_error().unwrap_or_else(|| "Failed to create array".to_string());
             return Err(AosError::Config(error_msg));
         }
 
@@ -438,7 +441,8 @@ impl Array {
         let ptr = unsafe { coreml_array_new_float16(data.as_ptr(), &c_shape, &mut error_code) };
 
         if ptr.is_null() {
-            let error_msg = get_last_error().unwrap_or_else(|| "Failed to create array".to_string());
+            let error_msg =
+                get_last_error().unwrap_or_else(|| "Failed to create array".to_string());
             return Err(AosError::Config(error_msg));
         }
 

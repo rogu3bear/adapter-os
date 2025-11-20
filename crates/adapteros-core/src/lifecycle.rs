@@ -323,10 +323,7 @@ mod tests {
 
     #[test]
     fn test_lifecycle_state_progression() {
-        assert_eq!(
-            LifecycleState::Draft.next(),
-            Some(LifecycleState::Active)
-        );
+        assert_eq!(LifecycleState::Draft.next(), Some(LifecycleState::Active));
         assert_eq!(
             LifecycleState::Active.next(),
             Some(LifecycleState::Deprecated)
@@ -357,60 +354,43 @@ mod tests {
     #[test]
     fn test_valid_transitions() {
         // Valid forward transitions
-        assert!(LifecycleTransition::new(
-            LifecycleState::Draft,
-            LifecycleState::Active
-        )
-        .is_valid());
-        assert!(LifecycleTransition::new(
-            LifecycleState::Active,
-            LifecycleState::Deprecated
-        )
-        .is_valid());
-        assert!(LifecycleTransition::new(
-            LifecycleState::Deprecated,
-            LifecycleState::Retired
-        )
-        .is_valid());
+        assert!(LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Active).is_valid());
+        assert!(
+            LifecycleTransition::new(LifecycleState::Active, LifecycleState::Deprecated).is_valid()
+        );
+        assert!(
+            LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Retired)
+                .is_valid()
+        );
 
         // No-op transitions (same state)
-        assert!(LifecycleTransition::new(
-            LifecycleState::Active,
-            LifecycleState::Active
-        )
-        .is_valid());
+        assert!(
+            LifecycleTransition::new(LifecycleState::Active, LifecycleState::Active).is_valid()
+        );
     }
 
     #[test]
     fn test_invalid_transitions() {
         // Backward transitions
-        assert!(!LifecycleTransition::new(
-            LifecycleState::Active,
-            LifecycleState::Draft
-        )
-        .is_valid());
-        assert!(!LifecycleTransition::new(
-            LifecycleState::Deprecated,
-            LifecycleState::Active
-        )
-        .is_valid());
-        assert!(!LifecycleTransition::new(
-            LifecycleState::Retired,
-            LifecycleState::Deprecated
-        )
-        .is_valid());
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Active, LifecycleState::Draft).is_valid()
+        );
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Deprecated, LifecycleState::Active)
+                .is_valid()
+        );
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Retired, LifecycleState::Deprecated)
+                .is_valid()
+        );
 
         // Skip-ahead transitions
-        assert!(!LifecycleTransition::new(
-            LifecycleState::Draft,
-            LifecycleState::Deprecated
-        )
-        .is_valid());
-        assert!(!LifecycleTransition::new(
-            LifecycleState::Draft,
-            LifecycleState::Retired
-        )
-        .is_valid());
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Deprecated).is_valid()
+        );
+        assert!(
+            !LifecycleTransition::new(LifecycleState::Draft, LifecycleState::Retired).is_valid()
+        );
     }
 
     #[test]

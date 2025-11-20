@@ -380,21 +380,25 @@ fn decisions(args: DecisionsArgs) -> Result<()> {
                     );
                 }
 
-                println!("\n{} decisions displayed (limit: {})", decisions.len(), args.limit);
+                println!(
+                    "\n{} decisions displayed (limit: {})",
+                    decisions.len(),
+                    args.limit
+                );
 
                 // Show summary statistics
                 let avg_entropy: f64 =
                     decisions.iter().map(|d| d.entropy).sum::<f64>() / decisions.len() as f64;
-                let avg_k: f64 = decisions
-                    .iter()
-                    .filter_map(|d| d.k_value)
-                    .sum::<i64>() as f64
+                let avg_k: f64 = decisions.iter().filter_map(|d| d.k_value).sum::<i64>() as f64
                     / decisions.len() as f64;
                 let avg_latency: f64 = decisions
                     .iter()
                     .filter_map(|d| d.router_latency_us)
                     .sum::<i64>() as f64
-                    / decisions.iter().filter(|d| d.router_latency_us.is_some()).count() as f64;
+                    / decisions
+                        .iter()
+                        .filter(|d| d.router_latency_us.is_some())
+                        .count() as f64;
 
                 println!("\nSummary Statistics:");
                 println!("  Average Entropy:        {:.3}", avg_entropy);

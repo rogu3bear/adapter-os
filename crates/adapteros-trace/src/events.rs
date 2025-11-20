@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_router_decision_event() {
-        use adapteros_telemetry::events::{RouterDecisionEvent, RouterCandidate};
+        use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 
         let decision = RouterDecisionEvent {
             step: 0,

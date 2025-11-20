@@ -142,7 +142,6 @@ pub trait CircuitBreaker: Send + Sync {
     /// returns CircuitState::Closed as a safe default to allow operations to continue.
     fn state(&self) -> CircuitState;
 
-
     /// Get current circuit breaker metrics
     fn metrics(&self) -> CircuitBreakerMetrics;
 
@@ -150,7 +149,12 @@ pub trait CircuitBreaker: Send + Sync {
     fn name(&self) -> &str;
 
     /// Execute a boxed future through the circuit breaker
-    async fn call_boxed(&self, _operation: std::pin::Pin<Box<dyn std::future::Future<Output = Result<serde_json::Value>> + Send>>) -> Result<serde_json::Value> {
+    async fn call_boxed(
+        &self,
+        _operation: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<serde_json::Value>> + Send>,
+        >,
+    ) -> Result<serde_json::Value> {
         // Default implementation - concrete types should override
         Err(AosError::Internal("call_boxed not implemented".to_string()))
     }
@@ -177,14 +181,22 @@ impl Clone for StandardCircuitBreaker {
     fn clone(&self) -> Self {
         // For testing purposes, we need to copy the current state
         // This is safe because tests don't run operations concurrently during cloning
-        let current_state = self.state.try_lock().map(|guard| *guard).unwrap_or(CircuitState::Closed);
+        let current_state = self
+            .state
+            .try_lock()
+            .map(|guard| *guard)
+            .unwrap_or(CircuitState::Closed);
 
         Self {
             name: self.name.clone(),
             config: self.config.clone(),
             state: Mutex::new(current_state),
-            consecutive_failures: AtomicUsize::new(self.consecutive_failures.load(Ordering::Relaxed)),
-            consecutive_successes: AtomicUsize::new(self.consecutive_successes.load(Ordering::Relaxed)),
+            consecutive_failures: AtomicUsize::new(
+                self.consecutive_failures.load(Ordering::Relaxed),
+            ),
+            consecutive_successes: AtomicUsize::new(
+                self.consecutive_successes.load(Ordering::Relaxed),
+            ),
             half_open_requests: AtomicUsize::new(self.half_open_requests.load(Ordering::Relaxed)),
             requests_total: AtomicU64::new(self.requests_total.load(Ordering::Relaxed)),
             successes_total: AtomicU64::new(self.successes_total.load(Ordering::Relaxed)),
@@ -258,7 +270,10 @@ impl StandardCircuitBreaker {
                 self.half_open_requests.store(0, Ordering::Relaxed);
 
                 // Only emit if transitioning to closed from open/half-open
-                if matches!(old_state, CircuitState::Open { .. } | CircuitState::HalfOpen) {
+                if matches!(
+                    old_state,
+                    CircuitState::Open { .. } | CircuitState::HalfOpen
+                ) {
                     self.emit_telemetry_event(new_state).await;
                 }
             }
@@ -295,7 +310,13 @@ impl StandardCircuitBreaker {
                 let _ = self.half_open_requests.fetch_update(
                     Ordering::AcqRel,
                     Ordering::Acquire,
-                    |current| if current > 0 { Some(current - 1) } else { Some(0) }
+                    |current| {
+                        if current > 0 {
+                            Some(current - 1)
+                        } else {
+                            Some(0)
+                        }
+                    },
                 );
 
                 // Close circuit only if we have enough consecutive successes
@@ -334,7 +355,13 @@ impl StandardCircuitBreaker {
                 let _ = self.half_open_requests.fetch_update(
                     Ordering::AcqRel,
                     Ordering::Acquire,
-                    |current| if current > 0 { Some(current - 1) } else { Some(0) }
+                    |current| {
+                        if current > 0 {
+                            Some(current - 1)
+                        } else {
+                            Some(0)
+                        }
+                    },
                 );
 
                 // Any failure in half-open immediately re-opens (traditional circuit breaker behavior)
@@ -519,7 +546,9 @@ mod tests {
 
         // Cause failures to open circuit
         for _ in 0..3 {
-            let result: Result<()> = breaker.call(async { Err(AosError::Unavailable("test failure".to_string())) }).await;
+            let result: Result<()> = breaker
+                .call(async { Err(AosError::Unavailable("test failure".to_string())) })
+                .await;
             assert!(result.is_err());
         }
 
@@ -547,7 +576,9 @@ mod tests {
 
         // Open the circuit
         for _ in 0..3 {
-            let _result: Result<()> = breaker.call(async { Err(AosError::Unavailable("test failure".to_string())) }).await;
+            let _result: Result<()> = breaker
+                .call(async { Err(AosError::Unavailable("test failure".to_string())) })
+                .await;
         }
 
         // Wait for timeout
@@ -582,14 +613,18 @@ mod tests {
 
         // Open the circuit
         for _ in 0..3 {
-            let _result: Result<()> = breaker.call(async { Err(AosError::Unavailable("test failure".to_string())) }).await;
+            let _result: Result<()> = breaker
+                .call(async { Err(AosError::Unavailable("test failure".to_string())) })
+                .await;
         }
 
         // Wait for timeout
         sleep(Duration::from_millis(150)).await;
 
         // Failure in half-open should immediately reopen
-        let result: Result<()> = breaker.call(async { Err(AosError::Unavailable("half-open failure".to_string())) }).await;
+        let result: Result<()> = breaker
+            .call(async { Err(AosError::Unavailable("half-open failure".to_string())) })
+            .await;
         assert!(result.is_err());
 
         match breaker.state() {
@@ -611,7 +646,9 @@ mod tests {
 
         // Open the circuit
         for _ in 0..2 {
-            let _result: Result<()> = breaker.call(async { Err(AosError::Unavailable("test failure".to_string())) }).await;
+            let _result: Result<()> = breaker
+                .call(async { Err(AosError::Unavailable("test failure".to_string())) })
+                .await;
         }
 
         // Wait for timeout
@@ -627,11 +664,13 @@ mod tests {
         let handle1 = tokio::spawn({
             let breaker = Arc::clone(&breaker);
             async move {
-                breaker.call(async {
-                    // Simulate long-running operation
-                    sleep(Duration::from_millis(50)).await;
-                    Ok("success1")
-                }).await
+                breaker
+                    .call(async {
+                        // Simulate long-running operation
+                        sleep(Duration::from_millis(50)).await;
+                        Ok("success1")
+                    })
+                    .await
             }
         });
 
@@ -639,10 +678,12 @@ mod tests {
         let handle2 = tokio::spawn({
             let breaker = Arc::clone(&breaker);
             async move {
-                breaker.call(async {
-                    sleep(Duration::from_millis(50)).await;
-                    Ok("success2")
-                }).await
+                breaker
+                    .call(async {
+                        sleep(Duration::from_millis(50)).await;
+                        Ok("success2")
+                    })
+                    .await
             }
         });
 
@@ -652,7 +693,10 @@ mod tests {
         // Third request should be rejected due to concurrent limit
         let result3 = breaker.call(async { Ok("should be rejected") }).await;
         assert!(result3.is_err());
-        assert!(matches!(result3.unwrap_err(), AosError::CircuitBreakerHalfOpen { .. }));
+        assert!(matches!(
+            result3.unwrap_err(),
+            AosError::CircuitBreakerHalfOpen { .. }
+        ));
 
         // Wait for the first two requests to complete
         let result1 = handle1.await.unwrap();
@@ -668,7 +712,10 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_breaker_concurrent_state_access() {
         let config = CircuitBreakerConfig::default();
-        let breaker = Arc::new(StandardCircuitBreaker::new("concurrent_test".to_string(), config));
+        let breaker = Arc::new(StandardCircuitBreaker::new(
+            "concurrent_test".to_string(),
+            config,
+        ));
 
         // Spawn multiple tasks that will try to access state concurrently
         let mut handles = vec![];
@@ -752,5 +799,4 @@ mod tests {
         let final_state = breaker.state();
         assert_eq!(final_state, CircuitState::Closed);
     }
-
 }

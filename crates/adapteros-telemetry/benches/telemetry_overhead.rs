@@ -58,11 +58,7 @@ fn bench_event_sampling(c: &mut Criterion) {
     group.bench_function("should_sample", |b| {
         let event = create_test_event(0);
 
-        b.iter(|| {
-            rt.block_on(async {
-                sampler.should_sample(black_box(&event)).await
-            })
-        });
+        b.iter(|| rt.block_on(async { sampler.should_sample(black_box(&event)).await }));
     });
 
     group.finish();
@@ -139,11 +135,7 @@ fn bench_ring_buffer_read(c: &mut Criterion) {
                 }
             });
 
-            b.iter(|| {
-                rt.block_on(async {
-                    buffer.read_all().await
-                })
-            });
+            b.iter(|| rt.block_on(async { buffer.read_all().await }));
         });
     }
 

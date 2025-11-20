@@ -108,8 +108,11 @@ pub async fn list_telemetry_events(
 
         if by_stack.is_some() || event_type.is_some() {
             output.print_line("")?;
-            output.print_line("Note: Event-level stack filtering requires parsing bundle files.")?;
-            output.print_line("This currently shows bundle-level metadata. Full implementation pending.")?;
+            output
+                .print_line("Note: Event-level stack filtering requires parsing bundle files.")?;
+            output.print_line(
+                "This currently shows bundle-level metadata. Full implementation pending.",
+            )?;
         }
     }
 

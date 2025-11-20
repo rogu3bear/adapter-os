@@ -46,9 +46,7 @@ impl TrainingJobStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            TrainingJobStatus::Completed
-                | TrainingJobStatus::Failed
-                | TrainingJobStatus::Cancelled
+            TrainingJobStatus::Completed | TrainingJobStatus::Failed | TrainingJobStatus::Cancelled
         )
     }
 
@@ -56,9 +54,7 @@ impl TrainingJobStatus {
     pub fn is_active(&self) -> bool {
         matches!(
             self,
-            TrainingJobStatus::Pending
-                | TrainingJobStatus::Running
-                | TrainingJobStatus::Paused
+            TrainingJobStatus::Pending | TrainingJobStatus::Running | TrainingJobStatus::Paused
         )
     }
 }
@@ -346,11 +342,17 @@ pub struct TrainingConfig {
     pub max_seq_length: Option<u32>,
 
     /// Gradient accumulation steps for larger effective batch size (optional)
-    #[serde(rename = "gradient_accumulation_steps", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "gradient_accumulation_steps",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub gradient_accumulation_steps: Option<u32>,
 
     /// Advanced weight group configuration (optional, format TBD)
-    #[serde(rename = "weight_group_config", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "weight_group_config",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub weight_group_config: Option<serde_json::Value>,
 }
 
@@ -461,7 +463,13 @@ pub struct TrainingTemplate {
 
 impl TrainingTemplate {
     /// Create a new training template
-    pub fn new(id: String, name: String, description: String, category: String, config: TrainingConfig) -> Self {
+    pub fn new(
+        id: String,
+        name: String,
+        description: String,
+        category: String,
+        config: TrainingConfig,
+    ) -> Self {
         Self {
             id,
             name,

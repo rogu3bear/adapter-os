@@ -30,7 +30,11 @@ pub enum SamplingStrategy {
     /// Sample first N events per time window
     HeadSampling { count: usize, window_secs: u64 },
     /// Sample based on event attributes
-    Adaptive { base_rate: f64, min_rate: f64, max_rate: f64 },
+    Adaptive {
+        base_rate: f64,
+        min_rate: f64,
+        max_rate: f64,
+    },
 }
 
 impl SamplingStrategy {
@@ -92,7 +96,10 @@ impl EventSampler {
         // Policy events (100% sampling)
         strategies.insert("policy.violation".to_string(), SamplingStrategy::Always);
         strategies.insert("policy.enforcement".to_string(), SamplingStrategy::Always);
-        strategies.insert("policy.hash_validation".to_string(), SamplingStrategy::Always);
+        strategies.insert(
+            "policy.hash_validation".to_string(),
+            SamplingStrategy::Always,
+        );
 
         // Egress events (100% sampling)
         strategies.insert("network.egress".to_string(), SamplingStrategy::Always);
@@ -104,7 +111,10 @@ impl EventSampler {
         strategies.insert("memory.pressure".to_string(), SamplingStrategy::Always);
 
         // Performance metrics (10% sampling)
-        strategies.insert("performance.metric".to_string(), SamplingStrategy::Fixed(0.1));
+        strategies.insert(
+            "performance.metric".to_string(),
+            SamplingStrategy::Fixed(0.1),
+        );
         strategies.insert("performance.alert".to_string(), SamplingStrategy::Always);
 
         // Router decisions (10% sampling, but deterministic replay uses 100%)
@@ -112,7 +122,10 @@ impl EventSampler {
 
         // Inference events (10% sampling)
         strategies.insert("inference.start".to_string(), SamplingStrategy::Fixed(0.1));
-        strategies.insert("inference.complete".to_string(), SamplingStrategy::Fixed(0.1));
+        strategies.insert(
+            "inference.complete".to_string(),
+            SamplingStrategy::Fixed(0.1),
+        );
         strategies.insert("inference.error".to_string(), SamplingStrategy::Always);
 
         // Debug events (1% sampling)
@@ -163,9 +176,7 @@ impl EventSampler {
 
         let mut state = self.head_sampling_state.write().await;
 
-        let (current_count, window_start) = state
-            .entry(event_type.to_string())
-            .or_insert((0, now));
+        let (current_count, window_start) = state.entry(event_type.to_string()).or_insert((0, now));
 
         // Check if we need to reset the window
         if now - *window_start >= window_secs {
@@ -283,16 +294,10 @@ mod tests {
         let sampler = EventSampler::new();
 
         sampler
-            .set_strategy(
-                "test.event".to_string(),
-                SamplingStrategy::Fixed(0.5),
-            )
+            .set_strategy("test.event".to_string(), SamplingStrategy::Fixed(0.5))
             .await;
 
-        let event = create_test_event(
-            EventType::Custom("test.event".to_string()),
-            LogLevel::Info,
-        );
+        let event = create_test_event(EventType::Custom("test.event".to_string()), LogLevel::Info);
 
         // Sample 1000 times and check approximate 50% rate
         let mut sampled = 0;
@@ -320,10 +325,7 @@ mod tests {
             )
             .await;
 
-        let event = create_test_event(
-            EventType::Custom("test.head".to_string()),
-            LogLevel::Info,
-        );
+        let event = create_test_event(EventType::Custom("test.head".to_string()), LogLevel::Info);
 
         // First 5 should be sampled
         for i in 0..5 {

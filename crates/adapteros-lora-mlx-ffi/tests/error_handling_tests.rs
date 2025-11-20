@@ -164,7 +164,13 @@ mod lora_error_tests {
         let base_output = vec![0.0; 8];
 
         // Apply LoRA to module that doesn't have weights
-        let result = apply_multi_lora(&adapters, &gates, "nonexistent_module", &input, &base_output);
+        let result = apply_multi_lora(
+            &adapters,
+            &gates,
+            "nonexistent_module",
+            &input,
+            &base_output,
+        );
 
         // Should succeed but return base output (no adapters qualify)
         assert!(result.is_ok());
@@ -218,7 +224,9 @@ mod model_error_tests {
         if let Err(e) = result {
             let error_msg = format!("{:?}", e);
             assert!(
-                error_msg.contains("config") || error_msg.contains("Io") || error_msg.contains("NotFound")
+                error_msg.contains("config")
+                    || error_msg.contains("Io")
+                    || error_msg.contains("NotFound")
             );
         }
     }
@@ -316,8 +324,8 @@ mod boundary_error_tests {
 
 #[cfg(test)]
 mod routing_error_tests {
-    use adapteros_lora_mlx_ffi::routing::{compute_adapter_score, select_top_k_adapters};
     use adapteros_lora_mlx_ffi::lora::{LoRAAdapter, LoRAConfig};
+    use adapteros_lora_mlx_ffi::routing::{compute_adapter_score, select_top_k_adapters};
 
     #[test]
     fn test_routing_empty_input() {

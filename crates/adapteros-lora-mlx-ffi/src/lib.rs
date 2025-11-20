@@ -6,8 +6,7 @@
 use adapteros_core::{AosError, Result};
 use std::path::Path;
 
-// Include the generated bindings
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+// Using manual FFI declarations instead of generated bindings
 
 pub mod backend;
 pub mod embedding;
@@ -50,7 +49,9 @@ pub use tensor::MLXFFITensor;
 /// ```
 pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
     if seed.is_empty() {
-        return Err(AosError::Internal("Seed buffer cannot be empty".to_string()));
+        return Err(AosError::Internal(
+            "Seed buffer cannot be empty".to_string(),
+        ));
     }
 
     unsafe {
@@ -62,7 +63,8 @@ pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
             let error_str = std::ffi::CStr::from_ptr(error_msg)
                 .to_string_lossy()
                 .to_string();
-            if !error_str.is_empty() && error_str != "Invalid seed: pointer is null or length is 0" {
+            if !error_str.is_empty() && error_str != "Invalid seed: pointer is null or length is 0"
+            {
                 // Clear the error for next call
                 mlx_clear_error();
                 tracing::warn!("MLX seed setting warning: {}", error_str);
@@ -350,7 +352,7 @@ impl MLXFFIModel {
         }));
 
         match Self::load_with_health(model_path, health.clone()) {
-            Ok(mut model) => {
+            Ok(model) => {
                 // Mark as operational
                 if let Ok(mut health_guard) = health.lock() {
                     health_guard.operational = true;
@@ -372,7 +374,10 @@ impl MLXFFIModel {
     }
 
     /// Internal load method with health tracking
-    fn load_with_health<P: AsRef<Path>>(model_path: P, health: std::sync::Arc<std::sync::Mutex<ModelHealth>>) -> Result<Self> {
+    fn load_with_health<P: AsRef<Path>>(
+        model_path: P,
+        health: std::sync::Arc<std::sync::Mutex<ModelHealth>>,
+    ) -> Result<Self> {
         let model_path = model_path.as_ref();
 
         // Load config
@@ -415,7 +420,11 @@ impl MLXFFIModel {
 
         tracing::info!("MLX model loaded via FFI: {}", path_str);
 
-        Ok(Self { model, config, health })
+        Ok(Self {
+            model,
+            config,
+            health,
+        })
     }
 
     /// Run forward pass for a single token using FFI
@@ -430,7 +439,9 @@ impl MLXFFIModel {
         // Check circuit breaker
         if let Ok(health) = self.health.lock() {
             if matches!(health.circuit_breaker, CircuitBreakerState::Open) {
-                return Err(AosError::Mlx("Circuit breaker open - model temporarily disabled".to_string()));
+                return Err(AosError::Mlx(
+                    "Circuit breaker open - model temporarily disabled".to_string(),
+                ));
             }
         }
 
@@ -453,9 +464,14 @@ impl MLXFFIModel {
                     health.consecutive_failures += 1;
                     health.last_failure = Some(e.to_string());
 
-                    if health.consecutive_failures >= 3 && matches!(health.circuit_breaker, CircuitBreakerState::Closed) {
+                    if health.consecutive_failures >= 3
+                        && matches!(health.circuit_breaker, CircuitBreakerState::Closed)
+                    {
                         health.circuit_breaker = CircuitBreakerState::Open;
-                        tracing::warn!("MLX model circuit breaker opened after {} consecutive failures", health.consecutive_failures);
+                        tracing::warn!(
+                            "MLX model circuit breaker opened after {} consecutive failures",
+                            health.consecutive_failures
+                        );
                     }
                 }
                 Err(e)
@@ -574,13 +590,15 @@ impl MLXFFIModel {
                 self.model,
                 input_array,
                 &mut hidden_states_ptr,
-                &mut num_hidden
+                &mut num_hidden,
             )
         };
 
         if output_array.is_null() {
             unsafe { mlx_array_free(input_array) };
-            return Err(AosError::Mlx("Failed to run model forward with hidden states".to_string()));
+            return Err(AosError::Mlx(
+                "Failed to run model forward with hidden states".to_string(),
+            ));
         }
 
         // Extract logits
@@ -606,9 +624,8 @@ impl MLXFFIModel {
             return Err(AosError::Mlx("Invalid output data pointer".to_string()));
         }
 
-        let logits: Vec<f32> = unsafe {
-            std::slice::from_raw_parts(output_data, output_size as usize).to_vec()
-        };
+        let logits: Vec<f32> =
+            unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
 
         // Process hidden states
         let mut hidden_states = std::collections::HashMap::new();
@@ -660,6 +677,59 @@ impl Drop for MLXFFIModel {
 // Safety: MLX FFI model is thread-safe
 unsafe impl Send for MLXFFIModel {}
 unsafe impl Sync for MLXFFIModel {}
+
+// FFI declarations for MLX operations
+#[cfg_attr(test, allow(dead_code))]
+#[link(name = "mlx_wrapper_stub")]
+extern "C" {
+    // Model lifecycle
+    fn mlx_model_load(path: *const std::os::raw::c_char) -> *mut mlx_model_t;
+    fn mlx_model_free(model: *mut mlx_model_t);
+
+    // Inference
+    fn mlx_model_forward(model: *mut mlx_model_t, input: *mut mlx_array_t) -> *mut mlx_array_t;
+    fn mlx_model_forward_with_hidden_states(
+        model: *mut mlx_model_t,
+        input: *mut mlx_array_t,
+        hidden_states: *mut *mut mlx_array_t,
+        hidden_count: *mut i32,
+    ) -> *mut mlx_array_t;
+
+    // Array operations
+    fn mlx_array_from_data(data: *const f32, size: i32) -> *mut mlx_array_t;
+    fn mlx_array_from_ints(data: *const i32, size: i32) -> *mut mlx_array_t;
+    fn mlx_array_data(array: *mut mlx_array_t) -> *mut f32;
+    fn mlx_array_size(array: *mut mlx_array_t) -> usize;
+    fn mlx_array_free(array: *mut mlx_array_t);
+    fn mlx_add(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
+    fn mlx_matmul(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
+    fn mlx_multiply(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
+
+    // Error handling
+    fn mlx_clear_error();
+    fn mlx_get_last_error() -> *const std::os::raw::c_char;
+
+    // Memory management
+    fn mlx_gc_collect();
+    fn mlx_allocation_count() -> usize;
+    fn mlx_memory_stats(total_bytes: *mut usize, allocation_count: *mut usize);
+    fn mlx_memory_reset();
+    fn mlx_memory_usage() -> usize;
+
+    // Deterministic seeding
+    fn mlx_set_seed(data: *const u8, size: usize);
+}
+
+// Opaque types for FFI
+#[repr(C)]
+pub struct mlx_model_t {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct mlx_array_t {
+    _private: [u8; 0],
+}
 
 #[cfg(test)]
 mod tests {

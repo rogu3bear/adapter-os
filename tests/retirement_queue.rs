@@ -36,7 +36,9 @@ async fn test_retirement_on_refcount_zero() {
     // Spawn retirement task
     let retirement_handle = tokio::spawn(async move {
         while let Some(_) = retirement_rx.recv().await {
-            let _ = table_clone.process_retired_stacks::<MockKernels>(None).await;
+            let _ = table_clone
+                .process_retired_stacks::<MockKernels>(None)
+                .await;
             if table_clone.retired_queue_size() == 0 {
                 cleanup_flag.store(true, Ordering::SeqCst);
             }
@@ -55,7 +57,9 @@ async fn test_retirement_on_refcount_zero() {
     assert_eq!(table.get_refcount("adapter1"), 1);
 
     // Swap out (should move to retired queue)
-    table.preload("adapter2".to_string(), B3Hash::hash(b"other"), 50).unwrap();
+    table
+        .preload("adapter2".to_string(), B3Hash::hash(b"other"), 50)
+        .unwrap();
     table
         .swap(&["adapter2".to_string()], &["adapter1".to_string()])
         .unwrap();
@@ -110,7 +114,9 @@ async fn test_retirement_wake_latency() {
                 .unwrap()
                 .as_millis() as usize;
             wake_time_clone.store(now, Ordering::SeqCst);
-            let _ = table_clone.process_retired_stacks::<MockKernels>(None).await;
+            let _ = table_clone
+                .process_retired_stacks::<MockKernels>(None)
+                .await;
         }
     });
 
@@ -166,7 +172,9 @@ async fn test_retirement_queue_bounded() {
     // Spawn retirement task
     let retirement_handle = tokio::spawn(async move {
         while let Some(_) = retirement_rx.recv().await {
-            let _ = table_clone.process_retired_stacks::<MockKernels>(None).await;
+            let _ = table_clone
+                .process_retired_stacks::<MockKernels>(None)
+                .await;
         }
     });
 
@@ -178,9 +186,7 @@ async fn test_retirement_queue_bounded() {
         table.swap(&[id.clone()], &[]).unwrap();
 
         // Swap out immediately (no refcount, should be cleaned up fast)
-        table
-            .swap(&[], &[id.clone()])
-            .expect("Failed to swap out");
+        table.swap(&[], &[id.clone()]).expect("Failed to swap out");
 
         // Send retirement signal
         table.send_retirement_signal().unwrap();
@@ -217,7 +223,9 @@ async fn test_concurrent_retirement() {
     // Spawn retirement task
     let retirement_handle = tokio::spawn(async move {
         while let Some(_) = retirement_rx.recv().await {
-            let _ = table_clone.process_retired_stacks::<MockKernels>(None).await;
+            let _ = table_clone
+                .process_retired_stacks::<MockKernels>(None)
+                .await;
         }
     });
 
@@ -284,7 +292,9 @@ async fn test_no_retirement_memory_leaks() {
     // Spawn retirement task
     let retirement_handle = tokio::spawn(async move {
         while let Some(_) = retirement_rx.recv().await {
-            let _ = table_clone.process_retired_stacks::<MockKernels>(None).await;
+            let _ = table_clone
+                .process_retired_stacks::<MockKernels>(None)
+                .await;
         }
     });
 

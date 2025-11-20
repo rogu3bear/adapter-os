@@ -23,7 +23,7 @@ use axum::http::HeaderMap;
 /// use adapteros_server_api::ip_extraction::extract_client_ip;
 ///
 /// let mut headers = HeaderMap::new();
-/// headers.insert("x-forwarded-for", "192.168.1.100, 10.0.0.1".parse().unwrap());
+/// headers.insert("x-forwarded-for", "192.168.1.100, 10.0.0.1".parse().expect("Invalid IP address in test"));
 ///
 /// let ip = extract_client_ip(&headers);
 /// assert_eq!(ip, Some("192.168.1.100".to_string()));
@@ -88,7 +88,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
-            "203.0.113.1, 10.0.0.1, 192.168.1.1".parse().unwrap(),
+            "203.0.113.1, 10.0.0.1, 192.168.1.1".parse().expect("Invalid IP address in test"),
         );
 
         let ip = extract_client_ip(&headers);
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_extract_from_x_real_ip() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-real-ip", "203.0.113.42".parse().unwrap());
+        headers.insert("x-real-ip", "203.0.113.42".parse().expect("Invalid IP address in test"));
 
         let ip = extract_client_ip(&headers);
         assert_eq!(ip, Some("203.0.113.42".to_string()));
@@ -107,8 +107,8 @@ mod tests {
     #[test]
     fn test_x_forwarded_for_priority_over_x_real_ip() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "203.0.113.1".parse().unwrap());
-        headers.insert("x-real-ip", "203.0.113.2".parse().unwrap());
+        headers.insert("x-forwarded-for", "203.0.113.1".parse().expect("Invalid IP address in test"));
+        headers.insert("x-real-ip", "203.0.113.2".parse().expect("Invalid IP address in test"));
 
         let ip = extract_client_ip(&headers);
         // X-Forwarded-For has priority
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn test_empty_x_forwarded_for() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "".parse().unwrap());
+        headers.insert("x-forwarded-for", "".parse().expect("Invalid IP address in test"));
 
         let ip = extract_client_ip(&headers);
         assert_eq!(ip, None);
@@ -136,7 +136,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
-            "  203.0.113.1  , 10.0.0.1".parse().unwrap(),
+            "  203.0.113.1  , 10.0.0.1".parse().expect("Invalid IP address in test"),
         );
 
         let ip = extract_client_ip(&headers);
@@ -148,7 +148,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
-            "2001:db8::1, 192.168.1.1".parse().unwrap(),
+            "2001:db8::1, 192.168.1.1".parse().expect("Invalid IP address in test"),
         );
 
         let ip = extract_client_ip(&headers);
