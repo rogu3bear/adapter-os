@@ -12,6 +12,7 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 pub mod backend;
 pub mod embedding;
 pub mod lora;
+pub mod model_config_cache;
 pub mod routing;
 pub mod tensor;
 
