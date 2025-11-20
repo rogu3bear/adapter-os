@@ -1,4 +1,4 @@
-.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install
+.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -18,6 +18,9 @@ clean: ## Clean build artifacts
 	rm -f metal/*.air metal/*.metallib
 	rm -rf dist node_modules
 	rm -rf crates/mplora-server/static
+
+infra-check: ## Run infrastructure health checks (prevents rectification issues)
+	./scripts/prevent_infrastructure_issues.sh
 	cd menu-bar-app && swift package clean || true
 
 fmt: ## Format code

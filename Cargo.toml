@@ -21,7 +21,7 @@ members = [
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database
     "crates/adapteros-system-metrics",
-    "crates/adapteros-lora-mlx-ffi",  # MLX backend - fixing compilation issues
+    # "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend - compilation issues
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -126,7 +126,7 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }
+# adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # Temporarily disabled for core stability
 
 [workspace.dependencies]
 # Core

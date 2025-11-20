@@ -7,8 +7,8 @@
 pub use adapteros_lora_kernel_api::FusedKernels;
 
 // Metal kernels are only available on macOS
-#[cfg(target_os = "macos")]
-pub use adapteros_lora_kernel_mtl::{GqaConfig, LoraConfig, MetalKernels};
+// #[cfg(target_os = "macos")]
+// pub use adapteros_lora_kernel_mtl::{GqaConfig, LoraConfig, MetalKernels};  // Temporarily disabled
 
 #[cfg(test)]
 mod tests {

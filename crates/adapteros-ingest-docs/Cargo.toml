@@ -11,7 +11,7 @@ default = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+# adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }  # Temporarily disabled
 tokenizers = { workspace = true }
 pulldown-cmark = "0.9"
 lopdf = "0.32"
