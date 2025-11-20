@@ -648,6 +648,124 @@ Current status may differ - see: [CURRENT_STATUS_OVERRIDE.md](../CURRENT_STATUS_
 3. **Archive with Warnings** - Add staleness notices when moving docs to archive
 4. **Quarterly Cleanup** - Remove documents that provide no historical value
 
+## Documentation Standards Implementation
+
+### Documentation Hierarchy
+
+```
+docs/
+├── [Core Documentation] (< 3 months old)
+│   ├── README.md                     # Project overview
+│   ├── CURRENT_STATUS_OVERRIDE.md    # Authoritative status ✅
+│   ├── DEVELOPMENT_WORKFLOW.md       # How to contribute
+│   ├── DOCUMENTATION_MAINTENANCE.md  # Documentation standards
+│   └── [Feature Documentation]       # Current features
+│
+├── archive/                          # Historical documentation ⚠️
+│   ├── README.md                     # Staleness warnings
+│   ├── completed-phases/             # Finished work
+│   ├── deprecated/                   # Removed features
+│   └── historical-reports/           # Old status reports
+│
+└── [Specialized Documentation]
+    ├── API docs, guides, tutorials
+    └── Tool-specific documentation
+```
+
+### Documentation Quality Standards
+
+#### Required Elements for All Docs
+
+```markdown
+---
+**Document Information**
+- **Status**: Active | Archived | Deprecated
+- **Last Reviewed**: YYYY-MM-DD
+- **Applies To**: Version X.Y.Z+
+- **Review Cycle**: Monthly | Quarterly | Annual
+---
+
+# Document Title
+
+## Overview
+[What this document covers]
+
+## Current Status
+[Link to CURRENT_STATUS_OVERRIDE.md for authoritative status]
+
+## Last Updated
+YYYY-MM-DD - [Brief change description]
+```
+
+#### Documentation Review Process
+
+1. **Monthly Review**: Check for obvious staleness
+2. **Quarterly Audit**: Comprehensive review against code
+3. **Version Updates**: Review when major versions released
+4. **Issue-Driven**: Update when implementation changes
+
+### Automated Documentation Validation
+
+#### Pre-commit Checks
+```bash
+# Add to .git/hooks/pre-commit
+#!/bin/bash
+
+# Check for required headers in new docs
+for file in $(git diff --cached --name-only | grep "\.md$"); do
+    if ! grep -q "Last Reviewed:" "$file"; then
+        echo "❌ $file missing 'Last Reviewed:' header"
+        exit 1
+    fi
+done
+```
+
+#### CI Validation
+```yaml
+# Add to .github/workflows/ci.yml
+- name: Validate Documentation
+  run: |
+    # Check all docs have required headers
+    find docs/ -name "*.md" -exec grep -L "Last Reviewed:" {} \; | wc -l | xargs test 0 -eq
+
+    # Check archive docs have staleness warnings
+    find docs/archive/ -name "*.md" -exec grep -L "ARCHIVED DOCUMENT" {} \; | wc -l | xargs test 0 -eq
+```
+
+### Documentation Lifecycle Automation
+
+#### Automated Staleness Detection
+```bash
+#!/bin/bash
+# docs/scripts/check_staleness.sh
+
+echo "=== Documentation Staleness Check ==="
+
+# Find docs older than 90 days
+find docs/ -name "*.md" -mtime +90 -not -path "*/archive/*" | while read file; do
+    echo "⚠️  STALE: $file ($(stat -f %Sm -t %Y-%m-%d "$file"))"
+done
+
+# Check for misleading status claims
+grep -r "100%\|complete\|COMPLETE" docs/archive/ | head -10
+```
+
+#### Automated Archive Processing
+```bash
+#!/bin/bash
+# docs/scripts/archive_document.sh
+
+DOC_PATH=$1
+ARCHIVE_REASON=$2
+
+# Add staleness warning
+sed -i '1i---\n⚠️ ARCHIVED DOCUMENT - POTENTIALLY OUTDATED\n\nArchived: '"$(date)"'\nReason: '"$ARCHIVE_REASON"'\n\nSee CURRENT_STATUS_OVERRIDE.md for current status\n---\n' "$DOC_PATH"
+
+# Move to archive
+mkdir -p "docs/archive/$(basename "$(dirname "$DOC_PATH")")"
+mv "$DOC_PATH" "docs/archive/$(basename "$(dirname "$DOC_PATH")")/"
+```
+
 ---
 
 **Last Updated:** 2025-11-20 (Added staleness management section)

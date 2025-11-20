@@ -6,6 +6,19 @@ Organized documentation by functional area for easy navigation.
 
 ---
 
+## 📋 Core Development Resources
+
+### Development Process
+- **[DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)** - Complete development standards and processes
+- **[DOCUMENTATION_MAINTENANCE.md](DOCUMENTATION_MAINTENANCE.md)** - Documentation standards and maintenance
+- **[CURRENT_STATUS_OVERRIDE.md](CURRENT_STATUS_OVERRIDE.md)** - **Authoritative project status**
+
+### Quality & Infrastructure
+- **[INFRASTRUCTURE_HEALTH_GUIDE.md](INFRASTRUCTURE_HEALTH_GUIDE.md)** - Infrastructure monitoring and maintenance
+- **[CONTRIBUTING.md](../../CONTRIBUTING.md)** - Contribution guidelines
+
+---
+
 ## 📁 Directory Structure
 
 ### `/routing/` - Router Decision Tracking & K-Sparse Selection
