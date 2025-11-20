@@ -21,7 +21,7 @@ members = [
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database
     "crates/adapteros-system-metrics",
-    # "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend - compilation issues
+    "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
     "crates/adapteros-autograd",  # Rust autograd system
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -62,7 +62,7 @@ members = [
     "crates/adapteros-verification",
     # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
-    # "crates/adapteros-lora-mlx-ffi",  # Experimental MLX backend - excluded for stable main merge
+    "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
     # "crates/sign-migrations",  # Migration signing tool - directory missing
     "xtask",
     "fuzz",

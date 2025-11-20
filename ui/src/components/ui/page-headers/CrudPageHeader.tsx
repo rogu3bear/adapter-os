@@ -1,51 +1,12 @@
 import React from 'react';
-import { Button } from '../button';
-import { LucideIcon } from 'lucide-react';
-import { cn } from '../utils';
+import { BasePageHeader } from './BasePageHeader';
+import { CrudPageHeaderProps } from './types';
 
-export interface CrudPageHeaderProps {
-  title: string;
-  description?: string;
-  primaryAction?: {
-    label: string;
-    icon?: LucideIcon;
-    onClick: () => void;
-    variant?: 'default' | 'outline' | 'secondary' | 'destructive';
-  };
-  secondaryActions?: React.ReactNode;
-  className?: string;
-}
+// 【2025-01-20†rectification†crud_page_header_refactored】
 
-export function CrudPageHeader({
-  title,
-  description,
-  primaryAction,
-  secondaryActions,
-  className
-}: CrudPageHeaderProps) {
-  const Icon = primaryAction?.icon;
+export { CrudPageHeaderProps } from './types';
 
-  return (
-    <div className={cn("flex items-center justify-between", className)}>
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        {description && (
-          <p className="text-muted-foreground mt-1">{description}</p>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        {secondaryActions}
-        {primaryAction && (
-          <Button
-            onClick={primaryAction.onClick}
-            variant={primaryAction.variant || 'default'}
-          >
-            {Icon && <Icon className="mr-2 h-4 w-4" />}
-            {primaryAction.label}
-          </Button>
-        )}
-      </div>
-    </div>
-  );
+export function CrudPageHeader(props: CrudPageHeaderProps) {
+  return <BasePageHeader {...props} />;
 }
 

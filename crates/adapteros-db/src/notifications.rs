@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ impl std::fmt::Display for NotificationType {
 }
 
 impl std::str::FromStr for NotificationType {
-    type Err = anyhow::Error;
+    type Err = adapteros_core::AosError;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
@@ -40,7 +40,7 @@ impl std::str::FromStr for NotificationType {
             "mention" => Ok(NotificationType::Mention),
             "activity" => Ok(NotificationType::Activity),
             "system" => Ok(NotificationType::System),
-            _ => Err(anyhow::anyhow!("invalid notification type: {}", s)),
+            _ => Err(AosError::Parse(format!("invalid notification type: {}", s))),
         }
     }
 }

@@ -1,5 +1,6 @@
 #![allow(unused_variables)]
 
+use adapteros_core::AosError;
 use crate::auth::{generate_token, verify_password, Claims};
 use crate::middleware::{require_any_role, require_role};
 use crate::state::AppState;
@@ -30,9 +31,17 @@ pub mod promotion;
 pub mod replay;
 pub mod routing_decisions;
 pub mod telemetry;
+pub mod tenants;
+pub mod training;
 
 // Re-export adapter lifecycle and lineage handlers
 pub use adapters::*;
+
+// Re-export tenant handlers
+pub use tenants::*;
+
+// Re-export training handlers
+pub use training::*;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;
@@ -47,6 +56,27 @@ pub use domain_adapters::*;
 use serde::Deserialize;
 // use serde_json::json; // unused
 use std::collections::HashMap;
+
+/// Utility function to convert AosError to axum response format
+/// This ensures consistent error handling across all handlers
+fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
+    let (status_code, error_code) = match &error {
+        AosError::Authentication(_) => (StatusCode::UNAUTHORIZED, "AUTHENTICATION_ERROR"),
+        AosError::Authorization(_) => (StatusCode::FORBIDDEN, "AUTHORIZATION_ERROR"),
+        AosError::Database(_) | AosError::Sqlx(_) | AosError::Sqlite(_) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR")
+        }
+        AosError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
+        AosError::Validation(_) => (StatusCode::BAD_REQUEST, "VALIDATION_ERROR"),
+        AosError::PolicyViolation(_) => (StatusCode::FORBIDDEN, "POLICY_VIOLATION"),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
+    };
+
+    (
+        status_code,
+        Json(ErrorResponse::new(error.to_string()).with_code(error_code)),
+    )
+}
 
 /// Health check endpoint
 #[utoipa::path(
@@ -457,22 +487,14 @@ pub async fn auth_login(
         .get_user_by_email(&req.email)
         .await
         .map_err(|e| {
-            tracing::error!("Database error during user lookup: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            let aos_error = AosError::Database(format!("Failed to lookup user {}: {}", req.email, e));
+            tracing::error!("Database error during user lookup: {}", aos_error);
+            aos_error_to_response(aos_error)
         })?
         .ok_or_else(|| {
-            tracing::warn!("User not found: {}", req.email);
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorResponse::new("invalid credentials").with_code("INVALID_CREDENTIALS")),
-            )
+            let aos_error = AosError::Authentication(format!("Invalid credentials for user: {}", req.email));
+            tracing::warn!("User not found: {}", aos_error);
+            aos_error_to_response(aos_error)
         })?;
 
     tracing::debug!(
@@ -484,42 +506,24 @@ pub async fn auth_login(
 
     // Check if user is disabled
     if user.disabled {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("user disabled").with_code("USER_DISABLED")),
-        ));
+        let aos_error = AosError::Authorization(format!("User account disabled: {}", user.id));
+        tracing::warn!("Login attempt for disabled user: {}", aos_error);
+        return Err(aos_error_to_response(aos_error));
     }
 
-    // Verify password (temporarily bypassed for testing)
+    // Verify password using proper cryptographic verification
     tracing::debug!("Verifying password for user: {}", user.id);
-    let valid = if user.pw_hash == "password" {
-        // Simple plain text check for testing
-        tracing::debug!("Using plain text password check");
-        let result = req.password == "password";
-        tracing::debug!("Password check result: {}", result);
-        result
-    } else {
-        // Use proper Argon2 verification for production
-        tracing::debug!("Using Argon2 password verification");
-        verify_password(&req.password, &user.pw_hash).map_err(|e| {
-            tracing::error!("Password verification error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("authentication error")
-                        .with_code("AUTHENTICATION_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-    };
+    let valid = verify_password(&req.password, &user.pw_hash)
+        .map_err(|e| {
+            let aos_error = AosError::Authentication(format!("Password verification failed for user {}: {}", user.id, e));
+            tracing::error!("Password verification error: {}", aos_error);
+            aos_error_to_response(aos_error)
+        })?;
 
     if !valid {
-        tracing::warn!("Password verification failed for user: {}", user.id);
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse::new("invalid credentials").with_code("INVALID_CREDENTIALS")),
-        ));
+        let aos_error = AosError::Authentication(format!("Invalid password for user: {}", user.id));
+        tracing::warn!("Password verification failed: {}", aos_error);
+        return Err(aos_error_to_response(aos_error));
     }
 
     tracing::debug!("Password verification successful for user: {}", user.id);
@@ -2498,27 +2502,6 @@ pub async fn list_workers(
 }
 
 /// Logout endpoint (stateless JWT - just return success)
-pub async fn auth_logout(
-    Extension(_claims): Extension<Claims>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // With stateless JWT, logout is client-side (discard token)
-    // Server doesn't need to track anything
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// Get current user info
-pub async fn auth_me(
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<UserInfoResponse>, (StatusCode, Json<ErrorResponse>)> {
-    Ok(Json(UserInfoResponse {
-        user_id: claims.sub,
-        email: claims.email,
-        role: claims.role,
-        created_at: chrono::DateTime::from_timestamp(claims.iat, 0)
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-    }))
-}
 
 /// List plans with optional tenant filter
 pub async fn list_plans(
@@ -6991,6 +6974,58 @@ pub async fn cancel_training(
     .await;
 
     Ok(StatusCode::OK)
+}
+
+/// Start adapter training session
+#[utoipa::path(
+    post,
+    path = "/v1/training/sessions",
+    request_body = StartTrainingRequest,
+    responses(
+        (status = 201, description = "Training session started successfully", body = TrainingJobResponse)
+    )
+)]
+pub async fn create_training_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<StartTrainingRequest>,
+) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Operator and Admin can start training
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::TrainingStart)?;
+
+    let config = req.config.into();
+
+    let job = state
+        .training_service
+        .start_training(
+            req.adapter_name.clone(),
+            config,
+            req.template_id,
+            req.repo_id,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to start training session")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Audit log: training session created
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TRAINING_START,
+        crate::audit_helper::resources::TRAINING_JOB,
+        Some(&job.id),
+    )
+    .await;
+
+    Ok(Json(job.into()))
 }
 /// Get training logs
 #[utoipa::path(

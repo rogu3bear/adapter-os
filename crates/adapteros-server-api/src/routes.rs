@@ -53,6 +53,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_training_job,
         handlers::start_training,
         handlers::cancel_training,
+        handlers::create_training_session,
         handlers::get_training_logs,
         handlers::get_training_metrics,
         handlers::list_training_templates,
@@ -629,6 +630,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/jobs/:job_id/cancel",
             post(handlers::cancel_training),
+        )
+        .route(
+            "/v1/training/sessions",
+            post(handlers::create_training_session),
         )
         .route(
             "/v1/training/jobs/:job_id/logs",

@@ -8,6 +8,17 @@ mod model_config_tests {
     use adapteros_lora_mlx_ffi::ModelConfig;
 
     #[test]
+    fn test_lora_loading_without_file() {
+        // Test that LoRA loading fails gracefully without a file
+        let result = adapteros_lora_mlx_ffi::lora::LoRAAdapter::load(
+            "nonexistent.safetensors",
+            "test_adapter".to_string(),
+            Default::default(),
+        );
+        assert!(result.is_err(), "Should fail when file doesn't exist");
+    }
+
+    #[test]
     fn test_model_config_parsing() {
         let config_json = r#"
         {
@@ -117,7 +128,7 @@ mod model_loading_tests {
     use tempfile::TempDir;
 
     #[test]
-    #[ignore] // Requires actual MLX model files
+    #[ignore] // Requires actual MLX model files (enable when MLX available)
     fn test_model_load_from_path() {
         // This test requires actual model files:
         // - config.json

@@ -324,6 +324,9 @@ impl From<ZipError> for AosError {
     }
 }
 
+// Note: DeterministicExecutorError conversion avoided to prevent circular dependency
+// Handle in calling code with manual mapping
+
 /// Extension trait to attach context to results without disrupting error types
 pub trait ResultExt<T> {
     fn context(self, ctx: impl Into<String>) -> Result<T>;

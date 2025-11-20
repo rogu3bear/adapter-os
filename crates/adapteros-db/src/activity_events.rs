@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -56,7 +56,7 @@ impl std::fmt::Display for ActivityEventType {
 }
 
 impl std::str::FromStr for ActivityEventType {
-    type Err = anyhow::Error;
+    type Err = adapteros_core::AosError;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
@@ -80,7 +80,7 @@ impl std::str::FromStr for ActivityEventType {
             "repo_scan_triggered" => Ok(ActivityEventType::RepoScanTriggered),
             "repo_report_viewed" => Ok(ActivityEventType::RepoReportViewed),
             "training_session_started" => Ok(ActivityEventType::TrainingSessionStarted),
-            _ => Err(anyhow::anyhow!("invalid activity event type: {}", s)),
+            _ => Err(AosError::Parse(format!("invalid activity event type: {}", s))),
         }
     }
 }

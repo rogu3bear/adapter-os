@@ -14,11 +14,11 @@ use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
 /// Mock telemetry sink that prints events
-struct ConsoleTelemetrySink {
+struct NoOpTelemetrySink {
     events: Arc<Mutex<Vec<String>>>,
 }
 
-impl ConsoleTelemetrySink {
+impl NoOpTelemetrySink {
     fn new() -> Self {
         Self {
             events: Arc::new(Mutex::new(Vec::new())),
@@ -26,7 +26,7 @@ impl ConsoleTelemetrySink {
     }
 }
 
-impl TelemetryEventSink for ConsoleTelemetrySink {
+impl TelemetryEventSink for NoOpTelemetrySink {
     fn emit_event<T: Serialize>(&self, event_type: &str, event: &T) {
         let json = serde_json::to_string_pretty(event).unwrap();
         let message = format!("[{}]\n{}\n", event_type, json);
@@ -39,7 +39,7 @@ fn main() {
     println!("=== Unified Memory Management Example ===\n");
 
     // Create telemetry sink
-    let telemetry_sink = Arc::new(ConsoleTelemetrySink::new());
+    let telemetry_sink = Arc::new(NoOpTelemetrySink::new());
     let telemetry = MemoryTelemetryWriter::new(Some(
         telemetry_sink.clone() as Arc<dyn TelemetryEventSink>
     ));

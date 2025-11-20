@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::str::FromStr;
@@ -27,14 +27,14 @@ impl std::fmt::Display for WorkspaceRole {
 }
 
 impl std::str::FromStr for WorkspaceRole {
-    type Err = anyhow::Error;
+    type Err = adapteros_core::AosError;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "owner" => Ok(WorkspaceRole::Owner),
             "member" => Ok(WorkspaceRole::Member),
             "viewer" => Ok(WorkspaceRole::Viewer),
-            _ => Err(anyhow::anyhow!("invalid workspace role: {}", s)),
+            _ => Err(AosError::Parse(format!("invalid workspace role: {}", s))),
         }
     }
 }
@@ -83,14 +83,14 @@ impl std::fmt::Display for ResourceType {
 }
 
 impl std::str::FromStr for ResourceType {
-    type Err = anyhow::Error;
+    type Err = adapteros_core::AosError;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "adapter" => Ok(ResourceType::Adapter),
             "node" => Ok(ResourceType::Node),
             "model" => Ok(ResourceType::Model),
-            _ => Err(anyhow::anyhow!("invalid resource type: {}", s)),
+            _ => Err(AosError::Parse(format!("invalid resource type: {}", s))),
         }
     }
 }

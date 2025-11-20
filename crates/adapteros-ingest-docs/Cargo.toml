@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 default = []
-# experimental-backends = ["adapteros-lora-mlx-ffi"]  # Disabled for stable compilation
+experimental-backends = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

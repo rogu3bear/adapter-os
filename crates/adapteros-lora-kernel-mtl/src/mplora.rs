@@ -7,7 +7,7 @@
 //! https://openreview.net/pdf?id=jqz6Msm3AF
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MploraConfig, MploraKernels, RouterRing};
+use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, MploraConfig, RouterRing};
 use metal::*;
 use std::sync::Arc;
 
@@ -153,6 +153,21 @@ impl FusedKernels for MploraKernel {
     fn unload_adapter(&mut self, _adapter_id: u16) -> Result<()> {
         // Metal adapters are managed via shared memory
         Ok(())
+    }
+
+    /// Get device information string
+    fn device_info(&self) -> String {
+        "Metal GPU (MPLoRA)".to_string()
+    }
+
+    /// Execute compression kernel
+    fn execute_compression(
+        &mut self,
+        input: &[f32],
+        output: &mut [f32],
+        config: &MploraConfig,
+    ) -> Result<()> {
+        self.execute_compression(input, output, config)
     }
 }
 

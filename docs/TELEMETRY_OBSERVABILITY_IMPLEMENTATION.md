@@ -1,7 +1,7 @@
 # Telemetry & Observability Implementation
 
 **Status:** ✅ Complete
-**PRD:** PRD-08
+**Implementation:** Telemetry & Observability System
 **Date:** 2025-11-19
 
 ## Overview
@@ -280,7 +280,7 @@ compression/zstd_compress/102400 time:   [78 µs 80 µs 82 µs]
 full_telemetry_pipeline          time:   [267 ns 271 ns 275 ns]
 ```
 
-**✅ Meets PRD-08 requirement: <1ms overhead (measured at ~271 nanoseconds)**
+**✅ Performance requirement met: <1ms overhead (measured at ~271 nanoseconds)**
 
 ### Memory Usage
 
@@ -493,7 +493,7 @@ curl --unix-socket /var/run/adapteros/metrics.sock | grep compression_ratio
 - [TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md) - Event catalog
 - [TELEMETRY_QUICK_REFERENCE.md](../TELEMETRY_QUICK_REFERENCE.md) - Quick start
 - [CLAUDE.md](../CLAUDE.md) - Developer guide
-- [PRD-08](../PRD-08.md) - Product requirements
+- [TELEMETRY_ARCHITECTURE.md](../TELEMETRY_ARCHITECTURE.md) - System architecture
 
 ## Implementation Summary
 

@@ -128,27 +128,90 @@ impl LoRAAdapter {
         self.parameter_count() * 4 // f32 = 4 bytes
     }
 
-    /// Load a LoRA adapter from file (mock implementation)
+    /// Load a LoRA adapter from file
     pub fn load<P: AsRef<std::path::Path>>(
-        _path: P,
+        path: P,
         id: String,
         config: LoRAConfig,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // For now, create a mock adapter with the given config
-        // TODO: Implement actual file loading
         let mut adapter = Self::new(id, config);
+        let path = path.as_ref();
 
-        // Add mock weights for each target module
-        let target_modules = adapter.config().target_modules.clone();
-        for module_name in &target_modules {
-            let rank = adapter.config().rank;
-            let lora_a = vec![vec![1.0; 128]; rank];
-            let lora_b = vec![vec![2.0; rank]; 128];
-            adapter.add_module_weights(module_name, lora_a, lora_b);
+        // Load safetensors file
+        let data = std::fs::read(path)
+            .map_err(|e| format!("Failed to read LoRA file {}: {}", path.display(), e))?;
+
+        let tensors = safetensors::SafeTensors::deserialize(&data)
+            .map_err(|e| format!("Failed to parse safetensors: {}", e))?;
+
+        // Extract LoRA weights for each target module
+        for module_name in &adapter.config().target_modules.clone() {
+            let lora_a_key = format!("{}.lora_A", module_name);
+            let lora_b_key = format!("{}.lora_B", module_name);
+
+            if let (Some(lora_a_tensor), Some(lora_b_tensor)) =
+                (tensors.tensor(&lora_a_key), tensors.tensor(&lora_b_key)) {
+
+                // Convert tensors to Vec<Vec<f32>>
+                let lora_a = tensor_to_nested_vec(lora_a_tensor)?;
+                let lora_b = tensor_to_nested_vec(lora_b_tensor)?;
+
+                adapter.add_module_weights(module_name, lora_a, lora_b);
+
+                tracing::debug!(
+                    "Loaded LoRA weights for {}: A shape {:?}, B shape {:?}",
+                    module_name,
+                    lora_a_tensor.shape(),
+                    lora_b_tensor.shape()
+                );
+            } else {
+                tracing::warn!(
+                    "LoRA weights not found for module {}: expected keys {}.lora_A, {}.lora_B",
+                    module_name, module_name, module_name
+                );
+            }
         }
 
         Ok(adapter)
     }
+}
+
+/// Convert safetensors tensor view to nested Vec<Vec<f32>>
+fn tensor_to_nested_vec(tensor: &safetensors::tensor::TensorView) -> Result<Vec<Vec<f32>>> {
+    let shape = tensor.shape();
+    let data = tensor.data();
+
+    if shape.len() != 2 {
+        return Err(format!("Expected 2D tensor, got shape {:?}", shape).into());
+    }
+
+    let rows = shape[0];
+    let cols = shape[1];
+
+    // Convert bytes to f32
+    let float_data: &[f32] = unsafe {
+        std::slice::from_raw_parts(
+            data.as_ptr() as *const f32,
+            data.len() / std::mem::size_of::<f32>()
+        )
+    };
+
+    if float_data.len() != rows * cols {
+        return Err(format!(
+            "Data size mismatch: expected {} elements, got {}",
+            rows * cols, float_data.len()
+        ).into());
+    }
+
+    // Convert to nested vec
+    let mut result = Vec::with_capacity(rows);
+    for i in 0..rows {
+        let start = i * cols;
+        let end = start + cols;
+        result.push(float_data[start..end].to_vec());
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]

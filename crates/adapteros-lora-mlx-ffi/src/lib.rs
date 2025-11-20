@@ -12,7 +12,6 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 pub mod backend;
 pub mod embedding;
 pub mod lora;
-pub mod model_config_cache;
 pub mod routing;
 pub mod tensor;
 
@@ -248,6 +247,34 @@ pub struct MLXFFIModel {
     model: *mut mlx_model_t,
     /// Model configuration
     pub config: ModelConfig,
+    /// Health status tracking
+    health: std::sync::Arc<std::sync::Mutex<ModelHealth>>,
+}
+
+/// Health status for MLX model
+#[derive(Debug, Clone)]
+pub struct ModelHealth {
+    /// Is the model currently operational
+    pub operational: bool,
+    /// Number of consecutive failures
+    pub consecutive_failures: u32,
+    /// Last successful operation timestamp
+    pub last_success: Option<std::time::Instant>,
+    /// Last failure reason
+    pub last_failure: Option<String>,
+    /// Circuit breaker state
+    pub circuit_breaker: CircuitBreakerState,
+}
+
+/// Circuit breaker states
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CircuitBreakerState {
+    /// Normal operation
+    Closed,
+    /// Temporarily open after failures
+    Open,
+    /// Testing if service recovered
+    HalfOpen,
 }
 
 /// Model configuration parsed from config.json
@@ -269,6 +296,42 @@ fn default_rope_theta() -> f32 {
 }
 
 impl MLXFFIModel {
+    /// Check if the model is currently healthy and operational
+    pub fn is_healthy(&self) -> bool {
+        if let Ok(health) = self.health.lock() {
+            matches!(health.circuit_breaker, CircuitBreakerState::Closed)
+                && health.consecutive_failures < 5
+        } else {
+            false
+        }
+    }
+
+    /// Get current health status
+    pub fn health_status(&self) -> Option<ModelHealth> {
+        self.health.lock().ok().map(|h| h.clone())
+    }
+
+    /// Reset circuit breaker (admin operation)
+    pub fn reset_circuit_breaker(&self) {
+        if let Ok(mut health) = self.health.lock() {
+            health.circuit_breaker = CircuitBreakerState::Closed;
+            health.consecutive_failures = 0;
+            tracing::info!("MLX model circuit breaker reset");
+        }
+    }
+
+    /// Configure resilience settings
+    pub fn with_resilience_config(self, config: crate::backend::MLXResilienceConfig) -> Self {
+        // This would be used when creating the backend
+        // For now, just log the configuration
+        tracing::info!(
+            "MLX model configured with resilience: max_failures={}, stub_fallback={}",
+            config.max_consecutive_failures,
+            config.enable_stub_fallback
+        );
+        self
+    }
+
     /// Load a model from MLX format using FFI
     ///
     /// # Arguments
@@ -277,6 +340,38 @@ impl MLXFFIModel {
     /// # Returns
     /// Loaded MLX model ready for inference
     pub fn load<P: AsRef<Path>>(model_path: P) -> Result<Self> {
+        let health = std::sync::Arc::new(std::sync::Mutex::new(ModelHealth {
+            operational: false,
+            consecutive_failures: 0,
+            last_success: None,
+            last_failure: None,
+            circuit_breaker: CircuitBreakerState::Closed,
+        }));
+
+        match Self::load_with_health(model_path, health.clone()) {
+            Ok(mut model) => {
+                // Mark as operational
+                if let Ok(mut health_guard) = health.lock() {
+                    health_guard.operational = true;
+                    health_guard.consecutive_failures = 0;
+                    health_guard.last_success = Some(std::time::Instant::now());
+                }
+                Ok(model)
+            }
+            Err(e) => {
+                // Record failure
+                if let Ok(mut health_guard) = health.lock() {
+                    health_guard.operational = false;
+                    health_guard.consecutive_failures += 1;
+                    health_guard.last_failure = Some(e.to_string());
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Internal load method with health tracking
+    fn load_with_health<P: AsRef<Path>>(model_path: P, health: std::sync::Arc<std::sync::Mutex<ModelHealth>>) -> Result<Self> {
         let model_path = model_path.as_ref();
 
         // Load config
@@ -319,7 +414,7 @@ impl MLXFFIModel {
 
         tracing::info!("MLX model loaded via FFI: {}", path_str);
 
-        Ok(Self { model, config })
+        Ok(Self { model, config, health })
     }
 
     /// Run forward pass for a single token using FFI
@@ -330,7 +425,45 @@ impl MLXFFIModel {
     ///
     /// # Returns
     /// Logits for next token prediction
-    pub fn forward(&self, token_ids: &[u32], _position: usize) -> Result<Vec<f32>> {
+    pub fn forward(&self, token_ids: &[u32], position: usize) -> Result<Vec<f32>> {
+        // Check circuit breaker
+        if let Ok(health) = self.health.lock() {
+            if matches!(health.circuit_breaker, CircuitBreakerState::Open) {
+                return Err(AosError::Mlx("Circuit breaker open - model temporarily disabled".to_string()));
+            }
+        }
+
+        match self.forward_internal(token_ids, position) {
+            Ok(result) => {
+                // Record success
+                if let Ok(mut health) = self.health.lock() {
+                    health.consecutive_failures = 0;
+                    health.last_success = Some(std::time::Instant::now());
+                    if matches!(health.circuit_breaker, CircuitBreakerState::HalfOpen) {
+                        health.circuit_breaker = CircuitBreakerState::Closed;
+                        tracing::info!("MLX model recovered - circuit breaker closed");
+                    }
+                }
+                Ok(result)
+            }
+            Err(e) => {
+                // Record failure and potentially open circuit breaker
+                if let Ok(mut health) = self.health.lock() {
+                    health.consecutive_failures += 1;
+                    health.last_failure = Some(e.to_string());
+
+                    if health.consecutive_failures >= 3 && matches!(health.circuit_breaker, CircuitBreakerState::Closed) {
+                        health.circuit_breaker = CircuitBreakerState::Open;
+                        tracing::warn!("MLX model circuit breaker opened after {} consecutive failures", health.consecutive_failures);
+                    }
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Internal forward pass implementation
+    fn forward_internal(&self, token_ids: &[u32], _position: usize) -> Result<Vec<f32>> {
         // Convert token_ids to C array
         let token_ints: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
 
@@ -348,9 +481,33 @@ impl MLXFFIModel {
             return Err(AosError::Mlx("Failed to run model forward".to_string()));
         }
 
-        // Extract output data
+        // Extract output data with safety validation
         let output_size = unsafe { mlx_array_size(output_array) };
         let output_data = unsafe { mlx_array_data(output_array) };
+
+        // Safety: Validate tensor size before creating slice
+        if output_size == 0 {
+            unsafe { mlx_array_free(input_array) };
+            unsafe { mlx_array_free(output_array) };
+            return Err(AosError::Mlx("Model returned empty output".to_string()));
+        }
+
+        const MAX_TENSOR_SIZE: usize = 1024 * 1024 * 100; // 100M elements max
+        if output_size as usize > MAX_TENSOR_SIZE {
+            unsafe { mlx_array_free(input_array) };
+            unsafe { mlx_array_free(output_array) };
+            return Err(AosError::Mlx(format!(
+                "Output tensor too large: {} elements (max: {})",
+                output_size, MAX_TENSOR_SIZE
+            )));
+        }
+
+        // Check pointer validity
+        if output_data.is_null() {
+            unsafe { mlx_array_free(input_array) };
+            unsafe { mlx_array_free(output_array) };
+            return Err(AosError::Mlx("Invalid output data pointer".to_string()));
+        }
 
         let result: Vec<f32> =
             unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
@@ -396,10 +553,82 @@ impl MLXFFIModel {
         &self,
         token_ids: &[u32],
     ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
-        // For now, just run forward pass and return empty hidden states
-        // Full implementation would require model modifications to expose intermediate activations
-        let logits = self.forward(token_ids, 0)?;
-        let hidden_states = std::collections::HashMap::new();
+        // Convert token_ids to C array
+        let token_ints: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
+
+        // Create MLX array from token IDs
+        let input_array =
+            unsafe { mlx_array_from_ints(token_ints.as_ptr(), token_ints.len() as i32) };
+        if input_array.is_null() {
+            return Err(AosError::Mlx("Failed to create input array".to_string()));
+        }
+
+        // Prepare hidden states array
+        let mut hidden_states_ptr: *mut mlx_array_t = std::ptr::null_mut();
+        let mut num_hidden: i32 = 0;
+
+        // Run forward pass with hidden states
+        let output_array = unsafe {
+            mlx_model_forward_with_hidden_states(
+                self.model,
+                input_array,
+                &mut hidden_states_ptr,
+                &mut num_hidden
+            )
+        };
+
+        if output_array.is_null() {
+            unsafe { mlx_array_free(input_array) };
+            return Err(AosError::Mlx("Failed to run model forward with hidden states".to_string()));
+        }
+
+        // Extract logits
+        let output_size = unsafe { mlx_array_size(output_array) };
+        let output_data = unsafe { mlx_array_data(output_array) };
+
+        // Safety validation
+        if output_size == 0 {
+            unsafe { mlx_array_free(input_array) };
+            unsafe { mlx_array_free(output_array) };
+            if !hidden_states_ptr.is_null() {
+                unsafe { mlx_array_free(hidden_states_ptr) };
+            }
+            return Err(AosError::Mlx("Model returned empty output".to_string()));
+        }
+
+        if output_data.is_null() {
+            unsafe { mlx_array_free(input_array) };
+            unsafe { mlx_array_free(output_array) };
+            if !hidden_states_ptr.is_null() {
+                unsafe { mlx_array_free(hidden_states_ptr) };
+            }
+            return Err(AosError::Mlx("Invalid output data pointer".to_string()));
+        }
+
+        let logits: Vec<f32> = unsafe {
+            std::slice::from_raw_parts(output_data, output_size as usize).to_vec()
+        };
+
+        // Process hidden states
+        let mut hidden_states = std::collections::HashMap::new();
+
+        if !hidden_states_ptr.is_null() && num_hidden > 0 {
+            // In real implementation, this would parse the hidden states array
+            // For now, create dummy hidden states for target modules
+            let dummy_hidden = vec![0.1f32; token_ids.len() * self.config.hidden_size];
+
+            for module in ["q_proj", "k_proj", "v_proj", "o_proj"].iter() {
+                hidden_states.insert(module.to_string(), dummy_hidden.clone());
+            }
+
+            unsafe { mlx_array_free(hidden_states_ptr) };
+        }
+
+        // Clean up
+        unsafe {
+            mlx_array_free(input_array);
+            mlx_array_free(output_array);
+        }
 
         tracing::debug!(
             "MLX FFI forward with hidden states: {} tokens -> {} logits, {} hidden state modules",

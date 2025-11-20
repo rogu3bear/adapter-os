@@ -8,6 +8,9 @@
 //! - Policy Pack #1 (Egress): "MUST NOT open listening TCP ports; use Unix domain sockets only"
 
 import * as types from './types';
+import * as authTypes from './auth-types';
+import * as trainingTypes from './training-types';
+import * as apiTypes from './api-types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
@@ -19,6 +22,7 @@ class ApiClient {
   private baseUrl: string;
   private requestLog: Array<{ id: string; method: string; path: string; timestamp: string }> = [];
   private retryConfig: RetryConfig;
+  private token?: string;
 
   constructor(baseUrl: string = API_BASE_URL, retryConfig?: Partial<RetryConfig>) {
     this.baseUrl = baseUrl;
@@ -37,6 +41,10 @@ class ApiClient {
       baseUrl: this.baseUrl,
       retryEnabled: true
     });
+  }
+
+  setToken(token: string) {
+    this.token = token;
   }
 
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
@@ -277,8 +285,8 @@ class ApiClient {
   }
 
   // Authentication
-  async login(credentials: types.LoginRequest): Promise<types.LoginResponse> {
-    const response = await this.request<types.LoginResponse>('/v1/auth/login', {
+  async login(credentials: authTypes.LoginRequest): Promise<authTypes.LoginResponse> {
+    const response = await this.request<authTypes.LoginResponse>('/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
@@ -295,11 +303,11 @@ class ApiClient {
     return this.request('/v1/auth/dev-bypass', { method: 'POST' });
   }
 
-  async getCurrentUser(): Promise<types.UserInfoResponse> {
-    return this.request<types.UserInfoResponse>('/v1/auth/me');
+  async getCurrentUser(): Promise<authTypes.UserInfoResponse> {
+    return this.request<authTypes.UserInfoResponse>('/v1/auth/me');
   }
 
-  async refreshSession(): Promise<types.UserInfoResponse> {
+  async refreshSession(): Promise<authTypes.UserInfoResponse> {
     logger.info('Refreshing auth session', {
       component: 'ApiClient',
       operation: 'refreshSession',
@@ -326,12 +334,12 @@ class ApiClient {
     });
   }
 
-  async rotateApiToken(): Promise<types.RotateTokenResponse> {
+  async rotateApiToken(): Promise<authTypes.RotateTokenResponse> {
     logger.info('Rotating API token', {
       component: 'ApiClient',
       operation: 'rotateApiToken',
     });
-    return this.request<types.RotateTokenResponse>('/v1/auth/token/rotate', {
+    return this.request<authTypes.RotateTokenResponse>('/v1/auth/token/rotate', {
       method: 'POST',
     });
   }
@@ -618,6 +626,28 @@ class ApiClient {
     return this.request<types.Adapter>(`/v1/adapters/${adapterId}`);
   }
 
+  async getAdapterDetail(adapterId: string): Promise<types.Adapter> {
+    return this.request<types.Adapter>(`/v1/adapters/${adapterId}/detail`);
+  }
+
+  async getAdapterLineage(adapterId: string): Promise<types.AdapterLineage> {
+    return this.request<types.AdapterLineage>(`/v1/adapters/${adapterId}/lineage`);
+  }
+
+  async promoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
+    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/promote`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async demoteAdapterLifecycle(adapterId: string, reason: string): Promise<types.LifecycleTransitionResponse> {
+    return this.request<types.LifecycleTransitionResponse>(`/v1/adapters/${adapterId}/lifecycle/demote`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
   async registerAdapter(data: types.RegisterAdapterRequest): Promise<types.Adapter> {
     return this.request<types.Adapter>('/v1/adapters/register', {
       method: 'POST',
@@ -662,12 +692,12 @@ class ApiClient {
   // (duplicate methods removed; see definitions above returning types.Adapter)
 
   // Training endpoints
-  async listTrainingJobs(): Promise<types.TrainingJob[]> {
-    return this.request<types.TrainingJob[]>('/v1/training/jobs');
+  async listTrainingJobs(): Promise<trainingTypes.TrainingJob[]> {
+    return this.request<trainingTypes.TrainingJob[]>('/v1/training/jobs');
   }
 
-  async getTrainingJob(jobId: string): Promise<types.TrainingJob> {
-    return this.request<types.TrainingJob>(`/v1/training/jobs/${jobId}`);
+  async getTrainingJob(jobId: string): Promise<trainingTypes.TrainingJob> {
+    return this.request<trainingTypes.TrainingJob>(`/v1/training/jobs/${jobId}`);
   }
 
   async getTrainingArtifacts(jobId: string): Promise<types.TrainingArtifactsResponse> {
@@ -847,8 +877,8 @@ class ApiClient {
   }
 
   // OpenAI-compatible models list for ModelSelector
-  async listModels(): Promise<types.OpenAIModelInfo[]> {
-    const resp = await this.request<types.OpenAIModelsListResponse>(`/v1/models`);
+  async listModels(): Promise<apiTypes.OpenAIModelInfo[]> {
+    const resp = await this.request<apiTypes.OpenAIModelsListResponse>(`/v1/models`);
     return resp.data;
   }
 
@@ -1144,7 +1174,7 @@ class ApiClient {
     });
   }
 
-  async updateMonitoringRule(ruleId: string, data: types.UpdateMonitoringRuleRequest): Promise<types.MonitoringRule> {
+  async updateMonitoringRule(ruleId: string, data: apiTypes.UpdateMonitoringRuleRequest): Promise<types.MonitoringRule> {
     return this.request<types.MonitoringRule>(`/v1/monitoring/rules/${ruleId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1424,7 +1454,7 @@ class ApiClient {
   }
 
   // Routing methods
-  async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.RoutingDecision[]> {
+  async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.TransformedRoutingDecision[]> {
     const params = new URLSearchParams();
     // Backend requires 'tenant' parameter in query struct (even though handler uses claims.tenant_id)
     // Always send tenant parameter - use provided value or 'default' as fallback

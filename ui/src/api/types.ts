@@ -2218,21 +2218,6 @@ export interface RoutingDecisionFilters {
 
 }
 
-export interface RoutingDecision {
-  id: string;
-  prompt_hash: string;
-  adapter_selections: AdapterSelection[];
-  adapters?: string[];  // Selected adapter IDs (alternative representation)
-  confidence_scores: Record<string, number>;
-  timestamp: string;
-  trace_id: string;
-}
-
-export interface AdapterSelection {
-  adapter_id: string;
-  gate_value: number;
-  rank: number;
-}
 
 
 export interface JourneyResponse {
@@ -2496,5 +2481,26 @@ export interface UpdateDashboardConfigResponse {
 export interface ResetDashboardConfigResponse {
   success: boolean;
   message: string;
+}
+
+// Missing alert types
+export interface ResolveAlertRequest {
+  alert_id: string;
+  resolution: string;
+  resolved_by: string;
+}
+
+// Transformed Routing Decision (from API client transformation)
+export interface TransformedRoutingDecision {
+  id: string;
+  timestamp: string;
+  prompt_hash: string;
+  input_hash?: string;
+  adapters: string[];
+  gates: number[];
+  total_score: number;
+  k_value: number;
+  entropy: number;
+  trace_id: string;
 }
 

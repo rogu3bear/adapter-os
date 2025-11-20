@@ -597,40 +597,35 @@ async fn main() -> Result<()> {
         );
     }
 
-    // TODO: Start Federation Daemon once dependencies are fixed
-    // NOTE: Federation daemon code exists in adapteros-orchestrator/src/federation_daemon.rs
-    // but cannot be started due to missing dependencies (adapteros-secd, parking_lot, etc.)
-    //
-    // Once fixed, uncomment this block:
-    // {
-    //     info!("Initializing federation daemon");
-    //
-    //     // Reuse telemetry and policy_watcher from above (would need to move out of scope)
-    //     // Create federation manager
-    //     let federation_keypair = adapteros_crypto::Keypair::generate();
-    //     let federation_manager = Arc::new(
-    //         adapteros_federation::FederationManager::new(db.clone(), federation_keypair)?
-    //     );
-    //
-    //     // Create federation daemon config (5 minute interval per spec)
-    //     let federation_config = adapteros_orchestrator::FederationDaemonConfig {
-    //         interval_secs: 300, // 5 minutes
-    //         max_hosts_per_sweep: 10,
-    //         enable_quarantine: true,
-    //     };
-    //
-    //     // Create and start daemon
-    //     let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
-    //         federation_manager,
-    //         policy_watcher.clone(),
-    //         telemetry.clone(),
-    //         Arc::new(db.clone()),
-    //         federation_config,
-    //     ));
-    //
-    //     let _federation_handle = federation_daemon.start();
-    //     info!("Federation daemon started (300s interval)");
-    // }
+    // Initialize Federation Daemon
+    {
+        info!("Initializing federation daemon");
+
+        // Reuse telemetry and policy_watcher from above
+        let federation_keypair = adapteros_crypto::Keypair::generate();
+        let federation_manager = Arc::new(
+            adapteros_federation::FederationManager::new(db.clone(), federation_keypair)?
+        );
+
+        // Create federation daemon config (5 minute interval per spec)
+        let federation_config = adapteros_orchestrator::FederationDaemonConfig {
+            interval_secs: 300, // 5 minutes
+            max_hosts_per_sweep: 10,
+            enable_quarantine: true,
+        };
+
+        // Create and start daemon
+        let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
+            federation_manager,
+            policy_watcher.clone(),
+            telemetry.clone(),
+            Arc::new(db.clone()),
+            federation_config,
+        ));
+
+        let _federation_handle = federation_daemon.start();
+        info!("Federation daemon started (300s interval)");
+    }
 
     // Create metrics exporter
     let metrics_exporter = {

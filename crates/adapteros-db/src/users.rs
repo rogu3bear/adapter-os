@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ impl std::fmt::Display for Role {
 }
 
 impl std::str::FromStr for Role {
-    type Err = anyhow::Error;
+    type Err = adapteros_core::AosError;
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
@@ -40,7 +40,7 @@ impl std::str::FromStr for Role {
             "sre" => Ok(Role::SRE),
             "compliance" => Ok(Role::Compliance),
             "viewer" => Ok(Role::Viewer),
-            _ => Err(anyhow::anyhow!("invalid role: {}", s)),
+            _ => Err(AosError::Parse(format!("invalid role: {}", s))),
         }
     }
 }
