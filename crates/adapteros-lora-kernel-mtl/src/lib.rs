@@ -1032,52 +1032,7 @@ impl FusedKernels for MetalKernels {
         Ok(())
     }
 
-    fn device_name(&self) -> &str {
-        self.device.name()
-    }
 
-    fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
-        // Get metallib hash from embedded constant
-        let metallib_hash = B3Hash::from_hex(METALLIB_HASH.trim())
-            .map_err(|e| AosError::Kernel(format!("Invalid metallib hash: {}", e)))?;
-
-        // Get manifest from verification (contains toolchain info)
-        let manifest_result = verify_embedded_manifest(METALLIB_BYTES, None);
-
-        let manifest = manifest_result.ok().map(|m| attestation::KernelManifest {
-            kernel_hash: m.kernel_hash,
-            xcrun_version: m.xcrun_version,
-            sdk_version: m.sdk_version,
-            rust_version: m.rust_version,
-            build_timestamp: m.build_timestamp,
-        });
-
-        // Metal backend uses HKDF seeding (via plan-derived seeds)
-        let rng_seed_method = attestation::RngSeedingMethod::HkdfSeeded;
-
-        // Metal kernels are compiled with deterministic settings
-        let floating_point_mode = attestation::FloatingPointMode::Deterministic;
-
-        // Compiler flags from build metadata (no fast-math)
-        let compiler_flags = vec![
-            "-O2".to_string(),
-            "-std=metal3.1".to_string(),
-            // No fast-math flags - ensures determinism
-        ];
-
-        // Metal backend is deterministic by design
-        let deterministic = true;
-
-        Ok(attestation::DeterminismReport {
-            backend_type: attestation::BackendType::Metal,
-            metallib_hash: Some(metallib_hash),
-            manifest,
-            rng_seed_method,
-            floating_point_mode,
-            compiler_flags,
-            deterministic,
-        })
-    }
 
     /// Load adapter weights into GPU VRAM for hot-swapping
     ///

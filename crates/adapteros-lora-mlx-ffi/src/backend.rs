@@ -49,6 +49,8 @@ pub struct MLXFFIBackend {
     resilience_config: MLXResilienceConfig,
     /// Backend health status
     health_status: Arc<RwLock<BackendHealth>>,
+    /// Optional monitoring integration
+    monitor: Option<Arc<std::sync::Mutex<crate::monitoring::MLXMonitor>>>,
 }
 
 /// Backend health tracking
@@ -92,6 +94,28 @@ impl MLXFFIBackend {
                 current_failure_streak: 0,
                 stub_fallback_active: false,
             })),
+            monitor: None,
+        }
+    }
+
+    /// Enable monitoring for this backend
+    pub fn with_monitoring(mut self, monitoring_config: crate::monitoring::MonitoringConfig) -> Self {
+        let monitor = Arc::new(std::sync::Mutex::new(
+            crate::monitoring::MLXMonitor::new(Arc::new(self.clone_without_monitor()), monitoring_config)
+        ));
+        self.monitor = Some(monitor);
+        self
+    }
+
+    /// Clone backend without monitor (for monitor creation)
+    fn clone_without_monitor(&self) -> MLXFFIBackend {
+        MLXFFIBackend {
+            model: self.model.clone(),
+            adapters: self.adapters.clone(),
+            device: self.device.clone(),
+            resilience_config: self.resilience_config.clone(),
+            health_status: self.health_status.clone(),
+            monitor: None,
         }
     }
 
