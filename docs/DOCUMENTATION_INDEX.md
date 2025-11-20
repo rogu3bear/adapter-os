@@ -1,4 +1,6 @@
-# AdapterOS Documentation Index
+# 🚨 AdapterOS Documentation Index
+
+**⚠️ CRITICAL: Read [CURRENT_STATUS_OVERRIDE.md](CURRENT_STATUS_OVERRIDE.md) first - it supersedes all other status information**
 
 Organized documentation by functional area for easy navigation.
 

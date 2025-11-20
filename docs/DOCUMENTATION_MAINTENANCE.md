@@ -13,6 +13,7 @@
 - [Review Process](#review-process)
 - [Breaking Changes](#breaking-changes)
 - [Tools and Automation](#tools-and-automation)
+- [Staleness Management](#staleness-management)
 
 ---
 
@@ -26,6 +27,7 @@ Documentation maintenance is critical for AdapterOS adoption and developer exper
 2. **Single Source of Truth** - API documentation should be generated from code, not manually maintained
 3. **Continuous Verification** - Automated checks ensure documentation accuracy
 4. **Developer Responsibility** - Contributors update documentation as part of feature development
+5. **Staleness Prevention** - Regular review and archiving of outdated documentation
 
 ---
 
@@ -589,7 +591,66 @@ mod documentation_tests {
 
 ---
 
-**Last Updated:** 2025-01-15
+## Staleness Management
+
+### Problem Statement
+
+AdapterOS has 377 documentation files with significant staleness issues:
+- Documents claiming "100% complete" while codebase shows 1,173+ unfinished items
+- Historical completion reports misleading new developers
+- Conflicting status information across multiple documents
+
+### Staleness Prevention Process
+
+#### 1. Regular Archive Reviews (Quarterly)
+```bash
+# Move outdated docs to archive with warnings
+# Update CURRENT_STATUS_OVERRIDE.md
+# Clean up truly obsolete documents
+```
+
+#### 2. Document Lifecycle Management
+- **Active:** Current docs in `docs/` root (< 3 months old)
+- **Archive:** Historical docs in `docs/archive/` (with staleness warnings)
+- **Delete:** Truly obsolete docs removed during quarterly cleanup
+
+#### 3. Status Document Override
+- `[CURRENT_STATUS_OVERRIDE.md](CURRENT_STATUS_OVERRIDE.md)` takes precedence over all other status claims
+- Single source of truth for project status
+- Updated with each major milestone
+
+#### 4. Staleness Detection
+```bash
+# Check for misleading completion claims
+grep -r "COMPLETE\|100%" docs/archive/
+
+# Verify against current TODO count
+grep -r "TODO\|FIXME" crates/ | wc -l
+```
+
+### Archive Documentation Standards
+
+All documents in `docs/archive/` must include:
+
+```markdown
+---
+**⚠️ ARCHIVED DOCUMENT - POTENTIALLY OUTDATED**
+
+This document reflects status as of: [DATE]
+Current status may differ - see: [CURRENT_STATUS_OVERRIDE.md](../CURRENT_STATUS_OVERRIDE.md)
+---
+```
+
+### Developer Guidelines
+
+1. **Never Trust Archive Status Claims** - Always verify against current code
+2. **Update Override Document** - When project status changes significantly
+3. **Archive with Warnings** - Add staleness notices when moving docs to archive
+4. **Quarterly Cleanup** - Remove documents that provide no historical value
+
+---
+
+**Last Updated:** 2025-11-20 (Added staleness management section)
 **Maintained By:** AdapterOS Documentation Team
 
 This guide ensures AdapterOS documentation remains accurate, complete, and synchronized with code changes.
