@@ -16,6 +16,7 @@ members = [
     "crates/adapteros-artifacts",
     "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
+    "crates/adapteros-types",
     # "crates/adapteros-lora-kernel-mtl",  # Metal kernels - excluded for stable main merge
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database

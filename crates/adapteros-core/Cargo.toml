@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+adapteros-types = { path = "../adapteros-types" }
 anyhow = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
