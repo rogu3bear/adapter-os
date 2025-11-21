@@ -25,7 +25,7 @@ export function DatasetBuilderExample() {
   const handleDatasetCreated = (datasetId: string, config: DatasetConfig) => {
     setCreatedDatasetId(datasetId);
     setDatasetConfig(config);
-    console.log('Dataset created successfully:', { datasetId, config });
+    // Dataset creation logged for debugging
   };
 
   const handleCancel = () => {
@@ -110,8 +110,7 @@ export function DatasetBuilderWithDefaults() {
           maxSequenceLength: 2048,
           validationSplit: 0.1
         }}
-        onDatasetCreated={(datasetId, config) => {
-          console.log('Dataset created:', datasetId, config);
+        onDatasetCreated={(datasetId, _config) => {
           navigate(`/training/configure?dataset=${datasetId}`);
         }}
         onCancel={() => navigate('/datasets')}

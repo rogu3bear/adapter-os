@@ -249,6 +249,21 @@ mlx_model_t* mlx_model_load(const char* path) {
     }
 }
 
+mlx_model_t* mlx_model_load_from_buffer(const uint8_t* buffer, size_t buffer_len, const char* config_json) {
+    if (!buffer || buffer_len < 4 || !config_json) {
+        g_last_error = "Invalid buffer or config";
+        return nullptr;
+    }
+    try {
+        // For stub, create a model with empty path
+        auto model = new StubModel("");
+        return reinterpret_cast<mlx_model_t*>(model);
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
 mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input) {
     if (!model || !input) return nullptr;
     try {

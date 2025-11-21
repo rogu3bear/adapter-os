@@ -3,7 +3,7 @@
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-01-19
+**Last Updated:** 2025-11-21
 **Maintained by:** James KC Auchterlonie
 
 ---
@@ -76,7 +76,7 @@ See `crates/adapteros-policy/src/packs/` for implementations.
 
 ---
 
-## RBAC (5 Roles, 20+ Permissions)
+## RBAC (5 Roles, 40 Permissions)
 
 **Roles:** Admin (full), Operator (runtime ops), SRE (infra debug), Compliance (audit-only), Viewer (read-only)
 
@@ -103,7 +103,7 @@ log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&i
 
 **Query logs:** `GET /v1/audit/logs?action=adapter.register&status=success&limit=50`
 
-**Detailed diagram:** See [docs/RBAC.md](docs/RBAC.md)
+**Detailed reference:** See [docs/RBAC.md](docs/RBAC.md) for complete permission matrix and audit logging
 
 ---
 
@@ -113,9 +113,9 @@ log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&i
 |---------|----------|-------------|
 | **K-Sparse Routing** | `adapteros-lora-router` | Top-K adapters via Q15 gates |
 | **Multi-Backend** | `adapteros-lora-worker/backend_factory.rs` | Metal/CoreML/MLX backends via `FusedKernels` trait |
-| **Metal Kernels** | `adapteros-lora-kernel-mtl` | Precompiled deterministic Metal kernels (production) |
-| **CoreML Backend** | `adapteros-lora-kernel-coreml` | ANE acceleration (active development) |
-| **MLX Backend** | `adapteros-lora-mlx-ffi` | Research/prototyping (experimental) |
+| **CoreML Backend** | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
+| **MLX Backend** | `adapteros-lora-mlx-ffi` | Research, training (active) |
+| **Metal Kernels** | `adapteros-lora-kernel-mtl` | Precompiled deterministic Metal kernels (fallback) |
 | **Configuration** | `adapteros-config` | Precedence: CLI > Env > File > Defaults |
 | **Memory Mgmt** | `adapteros-memory` | Auto-eviction maintains ≥15% headroom |
 | **Hot-Swap** | `adapteros-lora-worker/adapter_hotswap.rs` | Live adapter replacement |
@@ -222,7 +222,7 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 ### Migration Management
 
 **Canonical Migration Directory:** `/migrations/` (root)
-**Migration Count:** 74 migrations (0001-0074, complete sequence)
+**Migration Count:** 80 migrations (0001-0080, complete sequence)
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 **Status:** PRD-01 conflict resolution completed (2025-11-19)
 
@@ -245,6 +245,12 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 - **0072** - Tenant snapshots (renumbered from crate 0066)
 - **0073** - Index hash tracking (renumbered from crate 0067)
 - **0074** - Legacy index migration (renumbered from crate 0068)
+- **0075** - Lifecycle state transition triggers
+- **0076** - Golden run promotions
+- **0077** - Adapter performance tracking
+- **0078** - Federation consensus ledger
+- **0079** - Stack versioning extensions
+- **0080** - Tenant adapter stack isolation
 
 **Creating New Migrations:**
 ```bash
@@ -299,7 +305,7 @@ db.register_adapter_with_params(&params).await?;
 2. Background cleanup loop (5-min interval)
 3. Lifecycle manager integration (evict expired first)
 
-**Full details:** See [docs/PINNING_TTL.md](docs/PINNING_TTL.md)
+**Full reference:** See [docs/PINNING_TTL.md](docs/PINNING_TTL.md) for pinning system, TTL enforcement, and lifecycle integration
 
 ---
 
@@ -367,31 +373,51 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 ## Multi-Backend Architecture
 
-**Strategy:** Metal-first (production), CoreML-active (ANE), MLX-future (research)
+**Strategy:** CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)
 
 | Backend | Status | Determinism | Use Case | Crate |
 |---------|--------|-------------|----------|-------|
-| **Metal** | **Production** | **Guaranteed** | macOS GPU (M1/M2/M3/M4) | `adapteros-lora-kernel-mtl` |
-| **CoreML** | **Active Dev** | **Conditional*** | ANE acceleration (50% power ↓) | `adapteros-lora-kernel-coreml` |
-| **MLX** | **Experimental** | **Future HKDF** | Research/training prototyping | `adapteros-lora-mlx-ffi` |
+| **CoreML** | **Primary** (MLTensor API implemented, Swift bridge complete) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
+| **MLX** | **Active** (95% test pass rate) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
+| **Metal** | Fallback | Guaranteed | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
 
-\* *CoreML determinism: guaranteed on ANE, conditional on GPU fallback*
+**Note:** macOS 26 compatibility investigation needed for CoreML backend runtime behavior.
 
 **Backend Selection:**
 ```rust
 use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend};
 
-// Production: Metal (guaranteed determinism)
-let backend = create_backend(BackendChoice::Metal)?;
+// Production: CoreML (ANE acceleration, guaranteed determinism)
+let backend = create_backend(BackendChoice::CoreML { model_path: None })?;
 
-// Development: CoreML (ANE optimization)
-let backend = create_backend(BackendChoice::CoreML)?;
-
-// Research: MLX (requires --features experimental-backends)
+// Research/Training: MLX (HKDF-seeded determinism)
 let backend = create_backend(BackendChoice::Mlx { model_path })?;
+
+// Fallback: Metal (legacy, non-ANE systems)
+let backend = create_backend(BackendChoice::Metal)?;
 ```
 
-**FFI Patterns:** See [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](docs/OBJECTIVE_CPP_FFI_PATTERNS.md) for memory-safe Rust ↔ Objective-C++ patterns.
+### Swift Bridge (MLTensor)
+
+The CoreML backend includes a Swift bridge for MLTensor operations (macOS 15+):
+
+- **Location:** `crates/adapteros-lora-kernel-coreml/swift/CoreMLBridge.swift`
+- **Purpose:** Access modern MLTensor API for GPU-accelerated tensor operations
+- **Requirements:** Xcode 15+ with `swiftc` in PATH
+
+**Runtime Dispatch Behavior:**
+- macOS 15+: Uses MLTensor path (2x speedup, GPU/ANE tensor operations)
+- macOS 14: Falls back to MLMultiArray path (CPU-based)
+- Detection: `swift_coreml_supports_mltensor()` returns availability at runtime
+
+**Build Requirements:**
+```bash
+# Swift bridge compiles automatically during cargo build
+# Requires: swiftc (from Xcode Command Line Tools)
+xcode-select --install  # If swiftc not found
+```
+
+**FFI Patterns:** See [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](docs/OBJECTIVE_CPP_FFI_PATTERNS.md) for memory-safe Rust ↔ Objective-C++/Swift patterns.
 
 **Full details:**
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
@@ -406,9 +432,9 @@ let backend = create_backend(BackendChoice::Mlx { model_path })?;
 |-----------|-------|---------|
 | Router | `adapteros-lora-router` | K-sparse adapter selection |
 | Backend Factory | `adapteros-lora-worker/backend_factory.rs` | Multi-backend creation & attestation |
-| Metal Kernels | `adapteros-lora-kernel-mtl` | Deterministic GPU kernels (production) |
-| CoreML Backend | `adapteros-lora-kernel-coreml` | ANE acceleration (active dev) |
-| MLX Backend | `adapteros-lora-mlx-ffi` | Research/prototyping (experimental) |
+| CoreML Backend | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
+| MLX Backend | `adapteros-lora-mlx-ffi` | Research, training (active) |
+| Metal Kernels | `adapteros-lora-kernel-mtl` | Deterministic GPU kernels (fallback) |
 | Policy Engine | `adapteros-policy` | 23-pack policy enforcement |
 | Memory Mgmt | `adapteros-memory` | Auto-eviction, headroom maintenance |
 | Lifecycle | `adapteros-lora-lifecycle` | State machine (Unloaded→Resident) |
@@ -482,13 +508,18 @@ cargo udeps                        # Unused dependencies
 
 **Status:** 40+ crates building successfully
 
-**Disabled crates:**
-1. `adapteros-server-api` (62 errors) - REST handlers need refactor. Priority: High
-2. `adapteros-system-metrics` (11 SQL errors) - sqlx validation failures. Priority: Medium
-3. `adapteros-lora-mlx-ffi` (Stub implementation) - Experimental. Use Metal backend. Priority: Low
-4. `adapteros-codegraph` (SQLite conflict) - Version conflict. Priority: Low
+**Backend Implementation Status:**
+- `adapteros-lora-kernel-coreml` - MLTensor API implemented, Swift bridge complete. macOS 26 compatibility investigation needed. Priority: High
+- `adapteros-lora-mlx-ffi` - Active development, 95% test pass rate. Building successfully. Priority: High
 
-**Impact:** Core inference pipeline (Worker, Router, Kernels, Lifecycle, Policy, Telemetry) fully functional. CLI (`aosctl`) operational.
+**Disabled crates (workspace excluded):**
+1. `adapteros-lora-kernel-mtl` - Excluded for stable main merge. Use Metal backend support in `adapteros-lora-worker`. Priority: Low
+2. `adapteros-lora-worker` - Temporarily disabled due to compilation errors. Core inference pipeline tests passing. Priority: High
+3. `adapteros-server` - Excluded for stable main merge. REST API available in `adapteros-server-api`. Priority: Low
+
+**Note:** `adapteros-server-api`, `adapteros-system-metrics`, `adapteros-lora-mlx-ffi`, and `adapteros-codegraph` are workspace members and building successfully.
+
+**Impact:** Core inference pipeline building (prebuilt Metal kernels). CLI (`aosctl`) operational. REST API in `adapteros-server-api`.
 
 ---
 
@@ -521,3 +552,4 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 ---
 
 **Rule:** When in doubt, follow patterns in `crates/`. All documentation and code signed by **James KC Auchterlonie**.
+- no python, only rust

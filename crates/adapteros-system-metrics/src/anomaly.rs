@@ -18,7 +18,7 @@ use tracing::{error, info, warn};
 /// Anomaly detection engine
 pub struct AnomalyDetector {
     db: Arc<Db>,
-    telemetry_writer: TelemetryWriter,
+    telemetry_writer: Arc<TelemetryWriter>,
     config: AnomalyConfig,
 }
 
@@ -87,7 +87,7 @@ pub struct DetectedAnomaly {
 
 impl AnomalyDetector {
     /// Create a new anomaly detector
-    pub fn new(db: Arc<Db>, telemetry_writer: TelemetryWriter, config: AnomalyConfig) -> Self {
+    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: AnomalyConfig) -> Self {
         Self {
             db,
             telemetry_writer,
@@ -691,7 +691,7 @@ mod tests {
     async fn test_statistical_calculations() {
         let detector = AnomalyDetector::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             AnomalyConfig::default(),
         );
 
@@ -714,7 +714,7 @@ mod tests {
     async fn test_zscore_detection() {
         let detector = AnomalyDetector::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             AnomalyConfig::default(),
         );
 
@@ -755,7 +755,7 @@ mod tests {
     async fn test_iqr_detection() {
         let detector = AnomalyDetector::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             AnomalyConfig::default(),
         );
 

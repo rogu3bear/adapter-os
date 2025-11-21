@@ -1,5 +1,5 @@
 // 【ui/src/components/TrainingMonitor.tsx§45-88】 - Replace manual polling with standardized hook
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -29,8 +29,10 @@ import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsRespons
 import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
 import { usePolling } from '../hooks/usePolling';
+import { useSSE } from '../hooks/useSSE';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { SectionErrorBoundary } from './ui/section-error-boundary';
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -67,6 +69,58 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   const [stopError, setStopError] = useState<Error | null>(null);
   const [isPolling, setIsPolling] = useState(true);
   const logScrollRef = useRef<HTMLDivElement>(null);
+
+  // Track SSE connection state for polling coordination
+  const sseConnectedRef = useRef(false);
+  const lastSseUpdateRef = useRef<number>(0);
+
+  // Memoize SSE onMessage callback to prevent reconnections
+  const handleSSEMessage = useCallback((data: {
+    job_id?: string;
+    progress?: number;
+    status?: string;
+    metrics?: TrainingMetrics;
+    logs?: string[];
+  }) => {
+    lastSseUpdateRef.current = Date.now();
+
+    // Update metrics in real-time from SSE
+    if (data.metrics) {
+      setMetrics(data.metrics);
+    }
+    if (data.logs && data.logs.length > 0) {
+      // Limit logs to last 1000 entries to prevent unbounded growth
+      setLogs(prev => {
+        const newLogs = [...prev, ...data.logs];
+        return newLogs.length > 1000 ? newLogs.slice(-1000) : newLogs;
+      });
+    }
+    if (data.status) {
+      setJob(prev => prev ? { ...prev, status: data.status as TrainingJob['status'] } : null);
+    }
+  }, []);
+
+  // SSE connection for real-time training updates
+  const {
+    data: sseUpdate,
+    connected: sseConnected,
+    error: sseError,
+    reconnect: sseReconnect
+  } = useSSE<{
+    job_id?: string;
+    progress?: number;
+    status?: string;
+    metrics?: TrainingMetrics;
+    logs?: string[];
+  }>(`/v1/stream/training/${effectiveId}`, {
+    enabled: !!effectiveId && isPolling,
+    onMessage: handleSSEMessage
+  });
+
+  // Update SSE connection ref
+  useEffect(() => {
+    sseConnectedRef.current = sseConnected;
+  }, [sseConnected]);
 
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for training monitor
   const fetchTrainingData = async () => {
@@ -135,8 +189,15 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   );
 
   // Update state when polling data arrives
+  // Only update if SSE is not connected or data is newer than last SSE update
   useEffect(() => {
     if (!trainingData) return;
+
+    // If SSE is connected and we received SSE data recently (within 5s), skip polling updates
+    // to avoid race conditions. Exception: always update session/job/artifacts from polling.
+    const sseRecentlyUpdated = sseConnectedRef.current &&
+      (Date.now() - lastSseUpdateRef.current) < 5000;
+
     if (trainingData.session) {
       setSession(trainingData.session);
       setJob(null);
@@ -144,8 +205,17 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
       setSession(null);
       setJob(trainingData.job);
     }
-    setMetrics(trainingData.metrics);
-    setLogs(trainingData.logs);
+
+    // Only update metrics/logs from polling if SSE hasn't provided recent updates
+    if (!sseRecentlyUpdated) {
+      setMetrics(trainingData.metrics);
+      // Limit logs from polling as well
+      const limitedLogs = trainingData.logs.length > 1000
+        ? trainingData.logs.slice(-1000)
+        : trainingData.logs;
+      setLogs(limitedLogs);
+    }
+
     setArtifacts(trainingData.artifacts);
     setError(null);
 
@@ -359,6 +429,21 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         handleStop
       )}
 
+      {/* SSE Connection Error */}
+      {sseError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>Real-time updates unavailable: {sseError}. Falling back to polling.</span>
+            {sseError.includes('failed after') && (
+              <Button variant="outline" size="sm" onClick={sseReconnect} className="ml-4">
+                Reconnect
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
@@ -451,55 +536,57 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
       {/* Resource Usage */}
       {metrics && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Cpu className="mr-2 h-5 w-5" />
-              Resource Usage
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Cpu className="h-4 w-4" />
-                    <span className="text-sm font-medium">GPU Utilization</span>
+        <SectionErrorBoundary sectionName="Training Metrics">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Cpu className="mr-2 h-5 w-5" />
+                Resource Usage
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Cpu className="h-4 w-4" />
+                      <span className="text-sm font-medium">GPU Utilization</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{metrics.gpu_utilization}%</span>
                   </div>
-                  <span className="text-sm text-muted-foreground">{metrics.gpu_utilization}%</span>
+                  <Progress value={metrics.gpu_utilization} className="h-2" />
                 </div>
-                <Progress value={metrics.gpu_utilization} className="h-2" />
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <MemoryStick className="h-4 w-4" />
-                    <span className="text-sm font-medium">Memory Usage</span>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <MemoryStick className="h-4 w-4" />
+                      <span className="text-sm font-medium">Memory Usage</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{metrics.memory_usage}GB</span>
                   </div>
-                  <span className="text-sm text-muted-foreground">{metrics.memory_usage}GB</span>
+                  <Progress value={(metrics.memory_usage / 24) * 100} className="h-2" />
                 </div>
-                <Progress value={(metrics.memory_usage / 24) * 100} className="h-2" />
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Zap className="h-4 w-4" />
-                    <span className="text-sm font-medium">Tokens/sec</span>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Zap className="h-4 w-4" />
+                      <span className="text-sm font-medium">Tokens/sec</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{metrics.tokens_per_second}</span>
                   </div>
-                  <span className="text-sm text-muted-foreground">{metrics.tokens_per_sec}</span>
-                </div>
-                <div className="h-2 bg-gray-200 rounded-full">
-                  <div 
-                    className="h-2 bg-green-500 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.min((metrics.tokens_per_sec / 2000) * 100, 100)}%` }}
-                  />
+                  <div className="h-2 bg-gray-200 rounded-full">
+                    <div
+                      className="h-2 bg-green-500 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min((metrics.tokens_per_second / 2000) * 100, 100)}%` }}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </SectionErrorBoundary>
       )}
 
       {/* Training Configuration */}
@@ -609,48 +696,52 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
       {/* Training Logs - only show in job mode */}
       {job && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Activity className="mr-2 h-5 w-5" />
-              Training Logs
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-64 w-full" ref={logScrollRef}>
-              <div className="space-y-1 font-mono text-sm">
-                {logs.map((log, idx) => (
-                  <div key={idx} className="text-muted-foreground">
-                    {log}
-                  </div>
-                ))}
-                {logs.length === 0 && (
-                  <div className="text-center text-muted-foreground py-8">
-                    No logs available yet
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
+        <SectionErrorBoundary sectionName="Training Logs">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Activity className="mr-2 h-5 w-5" />
+                Training Logs
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-64 w-full" ref={logScrollRef}>
+                <div className="space-y-1 font-mono text-sm">
+                  {logs.map((log, idx) => (
+                    <div key={idx} className="text-muted-foreground">
+                      {log}
+                    </div>
+                  ))}
+                  {logs.length === 0 && (
+                    <div className="text-center text-muted-foreground py-8">
+                      No logs available yet
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </SectionErrorBoundary>
       )}
 
       {/* Loss Chart Placeholder */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <TrendingDown className="mr-2 h-5 w-5" />
-            Loss Trend
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-48 flex items-center justify-center text-muted-foreground">
-            Loss visualization chart would go here
-            <br />
-            <small className="text-xs">Real-time loss tracking and validation curves</small>
-          </div>
-        </CardContent>
-      </Card>
+      <SectionErrorBoundary sectionName="Progress Chart">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <TrendingDown className="mr-2 h-5 w-5" />
+              Loss Trend
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-48 flex items-center justify-center text-muted-foreground">
+              Loss visualization chart would go here
+              <br />
+              <small className="text-xs">Real-time loss tracking and validation curves</small>
+            </div>
+          </CardContent>
+        </Card>
+      </SectionErrorBoundary>
     </div>
   );
 }

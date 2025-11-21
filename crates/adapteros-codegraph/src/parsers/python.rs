@@ -6,14 +6,11 @@
 use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
-use std::ffi::c_void;
-use std::mem;
 use std::path::Path;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
 
-fn language_from_ptr(ptr: *const c_void) -> TSLanguage {
-    assert!(!ptr.is_null(), "tree_sitter_python returned null language");
-    unsafe { mem::transmute::<*const c_void, TSLanguage>(ptr) }
+fn python_language() -> TSLanguage {
+    tree_sitter_python::language()
 }
 
 /// Python-specific parser implementation
@@ -43,10 +40,7 @@ impl PythonParser {
     /// Create a new Python parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-
-        let python_lang_fn = tree_sitter_python::LANGUAGE;
-        let python_lang = unsafe { python_lang_fn.into_raw()() as *const c_void };
-        let python_lang = language_from_ptr(python_lang);
+        let python_lang = python_language();
 
         parser
             .set_language(python_lang)

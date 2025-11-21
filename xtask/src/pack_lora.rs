@@ -35,8 +35,10 @@ pub async fn run(args: PackLoraArgs) -> Result<()> {
     let quant = adapteros_lora_worker::training::LoRAQuantizer::quantize_to_q15(&weights);
 
     // Use default training config for manifest, but preserve rank
-    let mut cfg = adapteros_lora_worker::training::TrainingConfig::default();
-    cfg.rank = weights.lora_a.len();
+    let cfg = adapteros_lora_worker::training::TrainingConfig {
+        rank: weights.lora_a.len(),
+        ..Default::default()
+    };
 
     // Package
     let packager = adapteros_lora_worker::training::AdapterPackager::new(&args.output_dir);

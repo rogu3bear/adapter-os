@@ -7,6 +7,32 @@
 
 import type { UserRole } from '@/api/types';
 
+// Re-export UserRole for convenience
+export type { UserRole };
+
+/**
+ * User interface for RBAC checks
+ */
+export interface User {
+  id: string;
+  email: string;
+  role: UserRole;
+  tenant_id?: string;
+}
+
+/**
+ * Role hierarchy (higher roles inherit permissions from lower roles)
+ * Used for hasRoleLevel checks
+ */
+const ROLE_HIERARCHY: Record<string, number> = {
+  admin: 6,
+  operator: 5,
+  sre: 4,
+  compliance: 3,
+  auditor: 2,
+  viewer: 1,
+};
+
 /**
  * RBAC Role definitions
  */
@@ -253,4 +279,111 @@ export function getPermissionDescription(permission: string): string {
   };
 
   return descriptions[permission] || permission;
+}
+
+/**
+ * Check if user has a role with at least the specified level
+ * (e.g., hasRoleLevel(user, 'operator') returns true for admin, operator, and sre)
+ *
+ * @param user - The user object
+ * @param minRole - The minimum role required
+ * @returns true if the user's role level is >= minRole level
+ */
+export function hasRoleLevel(user: User | null | undefined, minRole: UserRole): boolean {
+  if (!user) return false;
+  const userLevel = ROLE_HIERARCHY[user.role.toLowerCase()] || 0;
+  const minLevel = ROLE_HIERARCHY[minRole.toLowerCase()] || 0;
+  return userLevel >= minLevel;
+}
+
+/**
+ * Check if user can perform admin operations
+ */
+export function canAdmin(user: User | null | undefined): boolean {
+  return user?.role.toLowerCase() === 'admin';
+}
+
+/**
+ * Check if user can perform operator operations
+ */
+export function canOperate(user: User | null | undefined): boolean {
+  return hasRoleLevel(user, 'operator');
+}
+
+/**
+ * Check if user can view compliance data
+ */
+export function canViewCompliance(user: User | null | undefined): boolean {
+  if (!user) return false;
+  const role = user.role.toLowerCase();
+  return ['admin', 'operator', 'sre', 'compliance'].includes(role);
+}
+
+/**
+ * Check if user can modify tenants
+ */
+export function canModifyTenants(user: User | null | undefined): boolean {
+  return user?.role.toLowerCase() === 'admin';
+}
+
+/**
+ * Check if user can manage adapters
+ */
+export function canManageAdapters(user: User | null | undefined): boolean {
+  return hasRoleLevel(user, 'operator');
+}
+
+/**
+ * Check if user can view audit logs
+ */
+export function canViewAudits(user: User | null | undefined): boolean {
+  if (!user) return false;
+  const role = user.role.toLowerCase();
+  return ['admin', 'operator', 'sre', 'compliance'].includes(role);
+}
+
+/**
+ * Check if user can export telemetry bundles
+ */
+export function canExportTelemetry(user: User | null | undefined): boolean {
+  if (!user) return false;
+  const role = user.role.toLowerCase();
+  return ['admin', 'operator', 'sre', 'compliance'].includes(role);
+}
+
+/**
+ * Check if user can promote CPIDs
+ */
+export function canPromote(user: User | null | undefined): boolean {
+  return user?.role.toLowerCase() === 'admin';
+}
+
+/**
+ * Get human-readable role name
+ */
+export function getRoleName(role: UserRole): string {
+  const names: Record<string, string> = {
+    admin: 'Administrator',
+    operator: 'Operator',
+    sre: 'Site Reliability Engineer',
+    compliance: 'Compliance Officer',
+    auditor: 'Auditor',
+    viewer: 'Viewer',
+  };
+  return names[role.toLowerCase()] || role;
+}
+
+/**
+ * Get role description
+ */
+export function getRoleDescription(role: UserRole): string {
+  const descriptions: Record<string, string> = {
+    admin: 'Full system access including tenant management and CPID promotion',
+    operator: 'Can manage adapters, workers, and perform inference operations',
+    sre: 'Can view system information, debug, and manage infrastructure',
+    compliance: 'Can view audit logs, telemetry bundles, and compliance reports',
+    auditor: 'Read-only access to audit information',
+    viewer: 'Read-only access to system status and metrics',
+  };
+  return descriptions[role.toLowerCase()] || '';
 }

@@ -213,7 +213,7 @@ export function createRetryWrapper(config: Partial<RetryConfig> = {}) {
     if (result.success) {
       return result.value;
     }
-    throw result.error;
+    throw (result as { success: false; error: any; attempts: number }).error;
   };
 }
 

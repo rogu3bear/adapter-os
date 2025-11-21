@@ -442,29 +442,119 @@ impl CodeQualityVerifier {
     }
 
     /// Run complexity analysis
-    async fn run_complexity_analysis(&self, _max_complexity: u32) -> Result<ComplexityResults> {
+    async fn run_complexity_analysis(&self, max_complexity: u32) -> Result<ComplexityResults> {
         debug!("Running complexity analysis");
 
-        // For now, return mock data. In a real implementation, this would
-        // integrate with tools like rust-code-analysis or custom AST analysis
+        let mut complex_functions = Vec::new();
+        let mut complexity_distribution: HashMap<u32, u32> = HashMap::new();
+        let mut total_complexity = 0u64;
+        let mut function_count = 0u32;
+        let mut max_found = 0u32;
+
+        // Analyze Rust source files for complexity indicators
+        for entry in walkdir::WalkDir::new(&self.workspace_root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| !e.path().to_string_lossy().contains("/target/"))
+        {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                // Simple complexity estimation based on control flow keywords
+                let mut in_function = false;
+                let mut current_fn_name = String::new();
+                let mut current_fn_line = 0;
+                let mut current_complexity = 1u32; // Base complexity
+                let mut brace_depth = 0;
+
+                for (line_num, line) in content.lines().enumerate() {
+                    let trimmed = line.trim();
+
+                    // Detect function start
+                    if (trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
+                        trimmed.starts_with("async fn ") || trimmed.starts_with("pub async fn "))
+                        && !in_function
+                    {
+                        in_function = true;
+                        current_fn_line = line_num + 1;
+                        current_complexity = 1;
+                        brace_depth = 0;
+                        // Extract function name
+                        if let Some(start) = trimmed.find("fn ") {
+                            let name_start = start + 3;
+                            if let Some(end) = trimmed[name_start..].find('(') {
+                                current_fn_name = trimmed[name_start..name_start + end].to_string();
+                            }
+                        }
+                    }
+
+                    if in_function {
+                        // Count braces for scope tracking
+                        brace_depth += line.matches('{').count() as i32;
+                        brace_depth -= line.matches('}').count() as i32;
+
+                        // Count complexity-increasing constructs
+                        let complexity_keywords = ["if ", "else if ", "while ", "for ", "match ", "&&", "||", "?"];
+                        for keyword in &complexity_keywords {
+                            current_complexity += trimmed.matches(keyword).count() as u32;
+                        }
+
+                        // Count match arms
+                        if trimmed.contains("=>") && !trimmed.contains("fn") {
+                            current_complexity += 1;
+                        }
+
+                        // End of function
+                        if brace_depth <= 0 && line.contains('}') {
+                            function_count += 1;
+                            total_complexity += current_complexity as u64;
+
+                            if current_complexity > max_found {
+                                max_found = current_complexity;
+                            }
+
+                            // Track distribution
+                            let bucket = current_complexity.min(10);
+                            *complexity_distribution.entry(bucket).or_insert(0) += 1;
+
+                            // Track complex functions
+                            if current_complexity > max_complexity {
+                                let relative_path = entry.path()
+                                    .strip_prefix(&self.workspace_root)
+                                    .unwrap_or(entry.path())
+                                    .to_string_lossy()
+                                    .to_string();
+
+                                complex_functions.push(ComplexFunction {
+                                    name: current_fn_name.clone(),
+                                    file: relative_path,
+                                    line: current_fn_line as u32,
+                                    complexity: current_complexity,
+                                });
+                            }
+
+                            in_function = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        let avg_complexity = if function_count > 0 {
+            total_complexity as f64 / function_count as f64
+        } else {
+            0.0
+        };
+
+        // Sort complex functions by complexity (descending)
+        complex_functions.sort_by(|a, b| b.complexity.cmp(&a.complexity));
+        // Limit to top 20
+        complex_functions.truncate(20);
+
         Ok(ComplexityResults {
-            avg_cyclomatic_complexity: 5.2,
-            max_cyclomatic_complexity: 12,
-            complex_functions: vec![ComplexFunction {
-                name: "complex_function".to_string(),
-                file: "src/complex.rs".to_string(),
-                line: 42,
-                complexity: 15,
-            }],
-            complexity_distribution: HashMap::from([
-                (1, 45),
-                (2, 32),
-                (3, 28),
-                (4, 15),
-                (5, 8),
-                (6, 3),
-                (7, 2),
-            ]),
+            avg_cyclomatic_complexity: avg_complexity,
+            max_cyclomatic_complexity: max_found,
+            complex_functions,
+            complexity_distribution,
         })
     }
 
@@ -472,17 +562,118 @@ impl CodeQualityVerifier {
     async fn run_documentation_checks(&self) -> Result<DocumentationResults> {
         debug!("Running documentation checks");
 
-        // For now, return mock data. In a real implementation, this would
-        // analyze the codebase for missing documentation
+        let mut missing_docs = Vec::new();
+        let mut total_public_items = 0u32;
+        let mut documented_items = 0u32;
+        let mut issues = Vec::new();
+
+        // Analyze Rust source files for documentation coverage
+        for entry in walkdir::WalkDir::new(&self.workspace_root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| !e.path().to_string_lossy().contains("/target/"))
+        {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                let lines: Vec<&str> = content.lines().collect();
+                let mut prev_line_is_doc = false;
+
+                for (i, line) in lines.iter().enumerate() {
+                    let trimmed = line.trim();
+
+                    // Check if line is a doc comment
+                    if trimmed.starts_with("///") || trimmed.starts_with("//!") {
+                        prev_line_is_doc = true;
+                        continue;
+                    }
+
+                    // Check for public items
+                    let is_public = trimmed.starts_with("pub ");
+                    if is_public {
+                        let item_type = if trimmed.contains("fn ") {
+                            Some("function")
+                        } else if trimmed.contains("struct ") {
+                            Some("struct")
+                        } else if trimmed.contains("enum ") {
+                            Some("enum")
+                        } else if trimmed.contains("trait ") {
+                            Some("trait")
+                        } else if trimmed.contains("const ") {
+                            Some("const")
+                        } else if trimmed.contains("type ") {
+                            Some("type")
+                        } else if trimmed.contains("mod ") {
+                            Some("module")
+                        } else {
+                            None
+                        };
+
+                        if let Some(item_type) = item_type {
+                            total_public_items += 1;
+
+                            // Check if previous line(s) have documentation
+                            let has_doc = prev_line_is_doc ||
+                                (i > 0 && lines[i - 1].trim().starts_with("///"));
+
+                            if has_doc {
+                                documented_items += 1;
+                            } else {
+                                // Extract item name
+                                let name = extract_item_name(trimmed, item_type);
+                                let relative_path = entry.path()
+                                    .strip_prefix(&self.workspace_root)
+                                    .unwrap_or(entry.path())
+                                    .to_string_lossy()
+                                    .to_string();
+
+                                missing_docs.push(MissingDoc {
+                                    name,
+                                    item_type: item_type.to_string(),
+                                    file: relative_path,
+                                    line: (i + 1) as u32,
+                                });
+                            }
+                        }
+                    }
+
+                    prev_line_is_doc = false;
+                }
+            }
+        }
+
+        let coverage = if total_public_items > 0 {
+            (documented_items as f64 / total_public_items as f64) * 100.0
+        } else {
+            100.0
+        };
+
+        // Generate issues based on coverage
+        if coverage < 80.0 {
+            issues.push(format!(
+                "Documentation coverage is below 80% ({:.1}%)",
+                coverage
+            ));
+        }
+
+        if !missing_docs.is_empty() {
+            let undoc_funcs = missing_docs.iter().filter(|d| d.item_type == "function").count();
+            let undoc_structs = missing_docs.iter().filter(|d| d.item_type == "struct").count();
+
+            if undoc_funcs > 10 {
+                issues.push(format!("{} public functions lack documentation", undoc_funcs));
+            }
+            if undoc_structs > 5 {
+                issues.push(format!("{} public structs lack documentation", undoc_structs));
+            }
+        }
+
+        // Limit missing docs to top 50
+        missing_docs.truncate(50);
+
         Ok(DocumentationResults {
-            missing_docs: vec![MissingDoc {
-                name: "undocumented_function".to_string(),
-                item_type: "function".to_string(),
-                file: "src/undocumented.rs".to_string(),
-                line: 10,
-            }],
-            coverage: 85.0,
-            issues: vec!["Missing documentation for public API".to_string()],
+            missing_docs,
+            coverage,
+            issues,
         })
     }
 
@@ -490,16 +681,119 @@ impl CodeQualityVerifier {
     async fn run_dead_code_detection(&self) -> Result<DeadCodeResults> {
         debug!("Running dead code detection");
 
-        // For now, return mock data. In a real implementation, this would
-        // analyze the codebase for unused code
+        let mut dead_items = Vec::new();
+        let mut total_items = 0u32;
+
+        // Use cargo to check for dead code warnings
+        let output = Command::new("cargo")
+            .args(["check", "--workspace", "--message-format=json"])
+            .current_dir(&self.workspace_root)
+            .output();
+
+        if let Ok(output) = output {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+
+            // Parse JSON messages for dead code warnings
+            for line in output_str.lines() {
+                if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(message) = msg.get("message") {
+                        if let Some(code) = message.get("code").and_then(|c| c.get("code")) {
+                            let code_str = code.as_str().unwrap_or("");
+
+                            // Check for dead code lints
+                            if code_str == "dead_code" || code_str == "unused_variables"
+                                || code_str == "unused_imports" || code_str == "unused_mut"
+                            {
+                                let msg_text = message.get("message")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("unknown");
+
+                                // Extract location
+                                if let Some(spans) = message.get("spans").and_then(|s| s.as_array()) {
+                                    if let Some(span) = spans.first() {
+                                        let file = span.get("file_name")
+                                            .and_then(|f| f.as_str())
+                                            .unwrap_or("unknown")
+                                            .to_string();
+                                        let line = span.get("line_start")
+                                            .and_then(|l| l.as_u64())
+                                            .unwrap_or(0) as u32;
+
+                                        // Extract name from message
+                                        let name = extract_dead_code_name(msg_text);
+
+                                        let item_type = if code_str == "dead_code" {
+                                            if msg_text.contains("function") {
+                                                "function"
+                                            } else if msg_text.contains("struct") {
+                                                "struct"
+                                            } else if msg_text.contains("field") {
+                                                "field"
+                                            } else if msg_text.contains("variant") {
+                                                "variant"
+                                            } else {
+                                                "item"
+                                            }
+                                        } else if code_str == "unused_imports" {
+                                            "import"
+                                        } else if code_str == "unused_variables" {
+                                            "variable"
+                                        } else {
+                                            "item"
+                                        };
+
+                                        dead_items.push(DeadItem {
+                                            name,
+                                            item_type: item_type.to_string(),
+                                            file,
+                                            line,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Count total items in codebase for percentage calculation
+        for entry in walkdir::WalkDir::new(&self.workspace_root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| !e.path().to_string_lossy().contains("/target/"))
+        {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("struct ") || trimmed.starts_with("pub struct ")
+                        || trimmed.starts_with("const ") || trimmed.starts_with("pub const ")
+                        || trimmed.starts_with("let ")
+                    {
+                        total_items += 1;
+                    }
+                }
+            }
+        }
+
+        // Deduplicate dead items
+        dead_items.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+        dead_items.dedup_by(|a, b| a.file == b.file && a.line == b.line);
+
+        let percentage = if total_items > 0 {
+            (dead_items.len() as f64 / total_items as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Limit to top 50 items
+        dead_items.truncate(50);
+
         Ok(DeadCodeResults {
-            dead_items: vec![DeadItem {
-                name: "unused_function".to_string(),
-                item_type: "function".to_string(),
-                file: "src/unused.rs".to_string(),
-                line: 5,
-            }],
-            percentage: 2.5,
+            dead_items,
+            percentage,
         })
     }
 
@@ -642,4 +936,40 @@ impl CodeQualityVerifier {
             tool: "estimation".to_string(),
         })
     }
+}
+
+/// Extract item name from a code line
+fn extract_item_name(line: &str, item_type: &str) -> String {
+    let keyword = match item_type {
+        "function" => "fn ",
+        "struct" => "struct ",
+        "enum" => "enum ",
+        "trait" => "trait ",
+        "const" => "const ",
+        "type" => "type ",
+        "module" => "mod ",
+        _ => return "unknown".to_string(),
+    };
+
+    if let Some(start) = line.find(keyword) {
+        let after_keyword = &line[start + keyword.len()..];
+        let end_chars = ['(', '<', '{', ':', ' ', ';'];
+        let end = after_keyword
+            .find(|c| end_chars.contains(&c))
+            .unwrap_or(after_keyword.len());
+        after_keyword[..end].trim().to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
+/// Extract name from dead code warning message
+fn extract_dead_code_name(message: &str) -> String {
+    // Messages like "unused variable: `foo`" or "function `bar` is never used"
+    if let Some(start) = message.find('`') {
+        if let Some(end) = message[start + 1..].find('`') {
+            return message[start + 1..start + 1 + end].to_string();
+        }
+    }
+    "unknown".to_string()
 }

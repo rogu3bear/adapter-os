@@ -52,56 +52,6 @@ interface AlertRule {
   description: string;
 }
 
-const DEFAULT_ALERT_RULES: AlertRule[] = [
-  {
-    id: 'rule-1',
-    name: 'High Memory Usage',
-    enabled: true,
-    metric: 'memory_usage_pct',
-    condition: 'gt',
-    threshold: 85,
-    duration_seconds: 300,
-    severity: 'high',
-    notification_channels: ['dashboard', 'log'],
-    description: 'Alert when memory usage exceeds 85% for 5 minutes'
-  },
-  {
-    id: 'rule-2',
-    name: 'High Latency',
-    enabled: true,
-    metric: 'latency_p95_ms',
-    condition: 'gt',
-    threshold: 24,
-    duration_seconds: 60,
-    severity: 'medium',
-    notification_channels: ['dashboard'],
-    description: 'Alert when P95 latency exceeds 24ms for 1 minute'
-  },
-  {
-    id: 'rule-3',
-    name: 'Low Tokens/Second',
-    enabled: true,
-    metric: 'tokens_per_sec',
-    condition: 'lt',
-    threshold: 10,
-    duration_seconds: 120,
-    severity: 'medium',
-    notification_channels: ['dashboard'],
-    description: 'Alert when token throughput drops below 10/s'
-  },
-  {
-    id: 'rule-4',
-    name: 'Adapter Capacity',
-    enabled: true,
-    metric: 'adapter_count',
-    condition: 'gt',
-    threshold: 256,
-    duration_seconds: 0,
-    severity: 'high',
-    notification_channels: ['dashboard', 'log'],
-    description: 'Alert when adapter count exceeds capacity'
-  }
-];
 
 export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
   const { selectedTenant } = useTenant();
@@ -349,33 +299,17 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
         operation: 'loadAlertRules',
         tenantId: effectiveTenant,
       }, toError(error));
-      // Fallback to default rules if API fails
-      setAlertRules([
-        {
-          id: 'rule-1',
-          name: 'High Memory Usage',
-          enabled: true,
-          metric: 'memory_usage_pct',
-          condition: 'gt',
-          threshold: 85,
-          duration_seconds: 300,
-          severity: 'high',
-          notification_channels: ['dashboard', 'log'],
-          description: 'Alert when memory usage exceeds 85% for 5 minutes'
-        },
-        {
-          id: 'rule-2',
-          name: 'High Latency',
-          enabled: true,
-          metric: 'latency_p95_ms',
-          condition: 'gt',
-          threshold: 24,
-          duration_seconds: 60,
-          severity: 'medium',
-          notification_channels: ['dashboard'],
-          description: 'Alert when P95 latency exceeds 24ms for 1 minute'
-        },
-      ]);
+      // Keep empty rules on API failure - no fallback to mock data
+      setAlertRules([]);
+      setErrorRecovery(
+        errorRecoveryTemplates.genericError(
+          error instanceof Error ? error : new Error(errorMessage),
+          () => {
+            setErrorRecovery(null);
+            void loadAlertRules();
+          }
+        )
+      );
     } finally {
       setIsLoadingRules(false);
     }
@@ -489,12 +423,10 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
     switch (severity) {
       case 'critical':
         return 'text-red-600 bg-red-50 border-red-200';
-      case 'high':
+      case 'error':
         return 'text-orange-600 bg-orange-50 border-orange-200';
-      case 'medium':
+      case 'warning':
         return 'text-amber-600 bg-amber-50 border-amber-200';
-      case 'low':
-        return 'text-blue-600 bg-blue-50 border-blue-200';
       case 'info':
         return 'text-gray-600 bg-gray-50 border-gray-200';
     }
@@ -755,7 +687,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                     >
                       <option value="memory_usage_pct">Memory Usage %</option>
                       <option value="latency_p95_ms">P95 Latency (ms)</option>
-                      <option value="tokens_per_sec">Tokens/Second</option>
+                      <option value="tokens_per_second">Tokens/Second</option>
                       <option value="adapter_count">Adapter Count</option>
                       <option value="active_sessions">Active Sessions</option>
                     </select>
@@ -973,7 +905,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                   </div>
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground mb-1">Tokens/Second</div>
-                    <div className="text-2xl font-bold">{metrics.tokens_per_sec}</div>
+                    <div className="text-2xl font-bold">{metrics.tokens_per_second}</div>
                   </div>
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground mb-1">Adapter Count</div>

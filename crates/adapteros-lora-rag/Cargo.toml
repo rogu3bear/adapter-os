@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-# adapteros-codegraph = { path = "../adapteros-codegraph" }  # Disabled due to tree-sitter conflict
+adapteros-codegraph = { path = "../adapteros-codegraph" }
 hnsw_rs = { workspace = true }
 tantivy = { workspace = true }
 serde = { workspace = true }

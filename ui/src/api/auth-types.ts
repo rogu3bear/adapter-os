@@ -32,13 +32,13 @@ export interface UserInfoResponse {
 }
 
 export interface User {
-  user_id: string;
-  id: string;  // Alias for user_id for compatibility
+  user_id?: string;
+  id?: string;  // Alias for user_id for compatibility
   email: string;
   display_name?: string;
   role: UserRole;
   tenant_id?: string;
-  created_at: string;
+  created_at?: string;
   last_login?: string;
   last_login_at?: string;  // Alias for last_login
   mfa_enabled?: boolean;
@@ -118,10 +118,10 @@ export interface SessionInfo {
 }
 
 export interface TokenMetadata {
-  token_id: string;
+  token_id?: string;
   user_id?: string;
   issued_at?: string;
-  created_at: string;
+  created_at?: string;
   expires_at?: string;
   last_used_at?: string;
   last_rotated_at?: string;
@@ -153,6 +153,10 @@ export interface AuthConfigResponse {
   password_min_length: number;
   mfa_required: boolean;
   allowed_domains?: string[];
+  production_mode?: boolean;
+  dev_token_enabled?: boolean;
+  jwt_mode?: string;
+  token_expiry_hours?: number;
 }
 
 // Cursor/Config types
@@ -286,18 +290,24 @@ export interface CreateWorkspaceRequest {
   name: string;
   description?: string;
   settings?: Record<string, unknown>;
+  tenant_id?: string;
 }
 
 export interface AddWorkspaceMemberRequest {
   workspace_id: string;
   user_id: string;
   role: 'owner' | 'admin' | 'member' | 'viewer';
+  tenant_id?: string;
 }
 
 export interface CreateActivityEventRequest {
-  type: string;
-  actor: string;
-  action: string;
+  type?: string;
+  actor?: string;
+  action?: string;
   target?: string;
+  target_id?: string;
+  target_type?: string;
   metadata?: Record<string, unknown>;
+  metadata_json?: string;
+  event_type?: string;
 }

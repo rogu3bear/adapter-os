@@ -9,11 +9,11 @@
 //! - Telemetry Ruleset (#9): 100% sampling for federation events
 //! - Incident Ruleset (#17): Quarantine on chain breaks
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, Result};
 use adapteros_db::Db;
 use adapteros_federation::FederationManager;
 use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
-use adapteros_telemetry::{LogLevel, TelemetryEventBuilder, TelemetryWriter};
+use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -60,8 +60,8 @@ impl Default for FederationDaemonConfig {
 pub struct FederationDaemon {
     /// Federation manager
     federation: Arc<FederationManager>,
-    /// Policy hash watcher
-    policy_watcher: Arc<PolicyHashWatcher>,
+    /// Policy hash watcher (reserved for policy change detection)
+    _policy_watcher: Arc<PolicyHashWatcher>,
     /// Quarantine manager
     quarantine: Arc<parking_lot::RwLock<QuarantineManager>>,
     /// Telemetry writer
@@ -83,7 +83,7 @@ impl FederationDaemon {
     ) -> Self {
         Self {
             federation,
-            policy_watcher,
+            _policy_watcher: policy_watcher,
             quarantine: Arc::new(parking_lot::RwLock::new(QuarantineManager::new())),
             telemetry,
             config,
@@ -267,10 +267,20 @@ impl FederationDaemon {
         Ok(())
     }
 
+    /// Create default identity envelope for telemetry events
+    fn create_identity(&self) -> IdentityEnvelope {
+        IdentityEnvelope::new(
+            "system".to_string(),
+            "orchestrator".to_string(),
+            "federation-verification".to_string(),
+            env!("CARGO_PKG_VERSION").to_string(),
+        )
+    }
+
     /// Log verification report to telemetry
     fn log_verification_report(&self, report: &FederationVerificationReport) -> Result<()> {
         let event = TelemetryEventBuilder::new(
-            adapteros_telemetry::EventType::Custom("federation.periodic_verification".to_string()),
+            EventType::Custom("federation.periodic_verification".to_string()),
             if report.ok {
                 LogLevel::Info
             } else {
@@ -281,6 +291,7 @@ impl FederationDaemon {
                 report.hosts_verified,
                 report.hosts_verified + report.errors.len()
             ),
+            self.create_identity(),
         )
         .component("adapteros-orchestrator".to_string())
         .metadata(json!({
@@ -291,16 +302,17 @@ impl FederationDaemon {
         }))
         .build();
 
-        self.telemetry.log_event(event);
+        let _ = self.telemetry.log_event(event);
         Ok(())
     }
 
     /// Log verification error to telemetry
     fn log_verification_error(&self, error: &AosError) -> Result<()> {
         let event = TelemetryEventBuilder::new(
-            adapteros_telemetry::EventType::Custom("federation.verification_error".to_string()),
+            EventType::Custom("federation.verification_error".to_string()),
             LogLevel::Error,
             format!("Federation verification error: {}", error),
+            self.create_identity(),
         )
         .component("adapteros-orchestrator".to_string())
         .metadata(json!({
@@ -308,16 +320,17 @@ impl FederationDaemon {
         }))
         .build();
 
-        self.telemetry.log_event(event);
+        let _ = self.telemetry.log_event(event);
         Ok(())
     }
 
     /// Log quarantine triggered event
     fn log_quarantine_triggered(&self, reason: &str) -> Result<()> {
         let event = TelemetryEventBuilder::new(
-            adapteros_telemetry::EventType::Custom("policy.quarantine_triggered".to_string()),
+            EventType::Custom("policy.quarantine_triggered".to_string()),
             LogLevel::Warn,
             format!("Policy quarantine triggered: {}", reason),
+            self.create_identity(),
         )
         .component("adapteros-orchestrator".to_string())
         .metadata(json!({
@@ -326,7 +339,7 @@ impl FederationDaemon {
         }))
         .build();
 
-        self.telemetry.log_event(event);
+        let _ = self.telemetry.log_event(event);
         Ok(())
     }
 

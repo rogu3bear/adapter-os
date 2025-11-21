@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -44,6 +44,7 @@ import { DashboardSettings } from './dashboard/DashboardSettings';
 import apiClient from '../api/client';
 import { useAnnounce, useKeyboardShortcuts } from '@/utils/accessibility';
 import { usePolling } from '../hooks/usePolling';
+import { useSSE } from '../hooks/useSSE';
 import { useDashboardConfig } from '../hooks/useDashboardConfig';
 import { User } from '@/api/types';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
@@ -53,12 +54,20 @@ import { PageHeader } from './ui/page-header';
 import { ActionGrid } from './ui/action-grid';
 import { KpiGrid, ContentGrid, FormGrid } from './ui/grid';
 import { useModalManager } from '@/contexts/ModalContext';
+import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 const MODAL_IDS = {
   HEALTH: 'dashboard-health',
   CREATE_TENANT: 'dashboard-create-tenant',
   DEPLOY_ADAPTER: 'dashboard-deploy-adapter',
 } as const;
+
+// Static dashboard tabs - moved outside component to prevent recreation
+const DASHBOARD_TABS = [
+  { id: 'overview', label: 'Overview', icon: BarChart3, description: 'System overview and metrics' },
+  { id: 'nodes', label: 'Nodes', icon: Server, description: 'Compute infrastructure monitoring' },
+  { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring' }
+] as const;
 
 interface DashboardProps {
   user?: User;
@@ -83,34 +92,38 @@ interface DashboardLayout {
 }
 
 // Main Dashboard component
-export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) {
+export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) {
   const announce = useAnnounce();
   const navigate = useNavigate();
   const { can, userRole } = useRBAC();
   const { openModal, closeModal, isOpen } = useModalManager();
 
-  // TODO: Implement SSE metrics stream when backend endpoint is available
-  // const { data: sseMetrics, error: sseError } = useSSE('/v1/stream/metrics');
-  // const [systemMetrics, setSystemMetrics] = useState<any>(null);
-
-  // Update metrics from SSE stream
-  // useEffect(() => {
-  //   if (sseMetrics) {
-  //     setSystemMetrics(sseMetrics);
-  //   }
-  // }, [sseMetrics]);
-
-  // Handle SSE connection status
-  // useEffect(() => {
-  //   if (sseError) {
-  //     logger.error('Real-time metrics connection error', {
-  //       component: 'Dashboard',
-  //       operation: 'sse_connection',
-  //       tenantId: selectedTenant,
-  //       userId: user?.user_id
-  //     }, sseError);
-  //   }
-  // }, [sseError, selectedTenant, user?.user_id]);
+  // SSE connection for real-time metrics updates
+  const {
+    data: sseMetrics,
+    error: sseError,
+    connected: sseConnected,
+    reconnect: sseReconnect
+  } = useSSE<{
+    cpu_usage_percent?: number;
+    memory_usage_percent?: number;
+    disk_usage_percent?: number;
+    network_rx_bytes?: number;
+    adapter_count?: number;
+    active_sessions?: number;
+    tokens_per_second?: number;
+    latency_p95_ms?: number;
+  }>('/v1/stream/metrics', {
+    enabled: true,
+    onError: (event) => {
+      logger.error('Real-time metrics connection error', {
+        component: 'Dashboard',
+        operation: 'sse_connection',
+        tenantId: selectedTenant,
+        userId: user?.user_id
+      }, new Error('SSE connection error'));
+    }
+  });
 
   // State declarations
   const [activeTab, setActiveTab] = useState('overview');
@@ -161,8 +174,8 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
   };
   const effectiveTenant = selectedTenant || 'default';
 
-  // SSE connection status
-  const connected = false; // TODO: Connect to actual SSE stream
+  // SSE connection status - use real SSE connection state
+  const connected = sseConnected;
 
   // System metrics polling
   const fetchSystemMetrics = useCallback(async () => {
@@ -176,7 +189,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
     error: metricsError,
     refetch: refetchMetrics
   } = usePolling(fetchSystemMetrics, 'normal', {
-    enabled: true,
+    enabled: !sseConnected, // Disable polling when SSE is connected
     operationName: 'system-metrics',
     onError: (err) => {
       logger.error('Failed to fetch system metrics', {
@@ -320,16 +333,20 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
     }
   };
 
-  // Transform activity events to display format
-  const recentActivity = activityEvents.map(event => ({
-    time: formatTimeAgo(event.timestamp),
-    action: event.message,
-    type: event.type,
-    icon: getActivityIcon(event.type),
-    severity: event.severity
-  }));
+  // Transform activity events to display format - memoized to prevent re-renders
+  const recentActivity = useMemo(() =>
+    activityEvents.map(event => ({
+      time: formatTimeAgo(event.timestamp),
+      action: event.message,
+      type: event.type,
+      icon: getActivityIcon(event.type),
+      severity: event.severity
+    })),
+    [activityEvents]
+  );
 
-  const quickActions = [
+  // Memoize quickActions to prevent re-renders
+  const quickActions = useMemo(() => [
     {
       label: 'View System Health',
       icon: Activity,
@@ -362,7 +379,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       helpId: 'quick-action-policies',
       onClick: () => (onNavigate ? onNavigate('policies') : navigate('/policies'))
     }
-  ];
+  ], [can, openModal, onNavigate, navigate]);
 
   if (loading) {
     return (
@@ -379,21 +396,17 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
     );
   }
 
-  const memoryUsage = systemMetrics?.memory_usage_pct || 0;
-  const adapterCount = systemMetrics?.adapter_count || 0;
-  const activeSessions = systemMetrics?.active_sessions || 0;
-  const tokensPerSecond = systemMetrics?.tokens_per_sec || 0;
-  const latencyP95 = systemMetrics?.latency_p95_ms || 0;
-  const cpuUsage = systemMetrics?.cpu_usage_percent || 0;
-  const diskUsage = systemMetrics?.disk_usage_percent || 0;
-  const networkBandwidth = systemMetrics?.network_rx_bytes ? (systemMetrics.network_rx_bytes / 1024 / 1024).toFixed(1) : '0';
+  // Merge SSE and polling data - SSE takes priority for real-time updates
+  const effectiveMetrics = sseMetrics || systemMetrics;
+  const memoryUsage = effectiveMetrics?.memory_usage_percent || (systemMetrics as { memory_usage_pct?: number } | null)?.memory_usage_pct || 0;
+  const adapterCount = effectiveMetrics?.adapter_count || 0;
+  const activeSessions = effectiveMetrics?.active_sessions || 0;
+  const tokensPerSecond = effectiveMetrics?.tokens_per_second || 0;
+  const latencyP95 = effectiveMetrics?.latency_p95_ms || 0;
+  const cpuUsage = effectiveMetrics?.cpu_usage_percent || 0;
+  const diskUsage = effectiveMetrics?.disk_usage_percent || 0;
+  const networkBandwidth = effectiveMetrics?.network_rx_bytes ? (effectiveMetrics.network_rx_bytes / 1024 / 1024).toFixed(1) : '0';
 
-  // Citation: docs/architecture/MasterPlan.md L30-L33
-  const dashboardTabs = [
-    { id: 'overview', label: 'Overview', icon: BarChart3, description: 'System overview and metrics' },
-    { id: 'nodes', label: 'Nodes', icon: Server, description: 'Compute infrastructure monitoring' },
-    { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring' }
-  ];
 
   return (
     <div className="space-y-6">
@@ -416,7 +429,7 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       {/* Dashboard Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
-          {dashboardTabs.map((tab) => {
+          {DASHBOARD_TABS.map((tab) => {
             const Icon = tab.icon;
             return (
               <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2">
@@ -429,6 +442,33 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
 
         {/* Overview Tab */}
         <TabsContent value="overview" className={spacing.sectionGap}>
+          {/* SSE Connection Error Alert */}
+          {sseError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Real-time Connection Error</AlertTitle>
+              <AlertDescription className="flex items-center justify-between">
+                <span>{sseError}. Falling back to polling for metrics updates.</span>
+                {sseError.includes('failed after') && (
+                  <Button variant="outline" size="sm" onClick={sseReconnect} className="ml-4">
+                    Reconnect
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* SSE Disconnected Warning */}
+          {!sseConnected && !sseError && (
+            <Alert variant="default" className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              <AlertTitle className="text-yellow-800 dark:text-yellow-200">Real-time Updates Disconnected</AlertTitle>
+              <AlertDescription className="text-yellow-700 dark:text-yellow-300">
+                Live metrics streaming is disconnected. Using polling for updates.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Error Recovery */}
           {error && errorRecoveryTemplates.genericError(error, () => {
             setError(null);
@@ -604,43 +644,49 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
             </Card>
 
             {/* Recent Activity */}
-            <Card className="card-standard">
-              <CardHeader>
-                <HelpTooltip helpId="recent-activity">
-                  <CardTitle className="cursor-help">Recent Activity</CardTitle>
-                </HelpTooltip>
-              </CardHeader>
-              <CardContent>
-                {activityError ? (
-                  errorRecoveryTemplates.genericError(
-                    activityError || 'Failed to load activity feed',
-                    () => window.location.reload()
-                  )
-                ) : (
-                  <div className="form-field">
-                    {recentActivity.map((activity, index) => {
-                      const Icon = activity.icon;
-                      return (
-                        <div key={index} className="flex-standard">
-                          <div className={`p-1 rounded-full bg-muted`}>
-                            <Icon className="icon-small" />
+            <SectionErrorBoundary sectionName="Recent Activity">
+              <Card className="card-standard">
+                <CardHeader>
+                  <HelpTooltip helpId="recent-activity">
+                    <CardTitle className="cursor-help">Recent Activity</CardTitle>
+                  </HelpTooltip>
+                </CardHeader>
+                <CardContent>
+                  {activityError ? (
+                    errorRecoveryTemplates.genericError(
+                      activityError || 'Failed to load activity feed',
+                      () => window.location.reload()
+                    )
+                  ) : (
+                    <div className="form-field">
+                      {recentActivity.map((activity, index) => {
+                        const Icon = activity.icon;
+                        return (
+                          <div key={index} className="flex-standard">
+                            <div className={`p-1 rounded-full bg-muted`}>
+                              <Icon className="icon-small" />
+                            </div>
+                            <div className="flex-1 form-field">
+                              <p className="text-sm">{activity.action}</p>
+                              <p className="text-xs text-muted-foreground">{activity.time}</p>
+                            </div>
                           </div>
-                          <div className="flex-1 form-field">
-                            <p className="text-sm">{activity.action}</p>
-                            <p className="text-xs text-muted-foreground">{activity.time}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </SectionErrorBoundary>
 
             {/* Base Model Status */}
-            <BaseModelStatusComponent selectedTenant={effectiveTenant} />
+            <SectionErrorBoundary sectionName="Base Model Status">
+              <BaseModelStatusComponent selectedTenant={effectiveTenant} />
+            </SectionErrorBoundary>
             {/* Plugin Status */}
-            <PluginStatusWidget />
+            <SectionErrorBoundary sectionName="Plugin Status">
+              <PluginStatusWidget />
+            </SectionErrorBoundary>
           </ContentGrid>
 
           {/* Quick Actions */}
@@ -836,4 +882,4 @@ export function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) 
       </Tabs>
     </div>
   );
-}
+});

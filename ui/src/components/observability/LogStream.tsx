@@ -11,7 +11,7 @@ interface LogEvent {
   id: string;
   timestamp: string;
   event_type: string;
-  level: 'Debug' | 'Info' | 'Warn' | 'Error' | 'Critical';
+  level: string;
   message: string;
   component?: string;
   tenant_id?: string;

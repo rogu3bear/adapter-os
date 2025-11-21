@@ -8,6 +8,7 @@ use adapteros_telemetry::events::RouterDecisionEvent;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Spawn a background task to consume router decision events and persist them to the database
 ///
@@ -42,9 +43,9 @@ pub fn spawn_consumer(
             );
 
             // Convert event to database record
-            // For now, use a synthetic request_id based on step
-            // TODO: Enhance to use actual request_id from context
-            let request_id = format!("router-decision-{}", event.step);
+            // Generate a unique request_id for each event using UUID v4
+            // Include step in prefix for traceability while ensuring uniqueness
+            let request_id = format!("router-decision-{}-{}", event.step, Uuid::new_v4());
 
             match routing_telemetry_bridge::event_to_decision(&event, &tenant_id, Some(&request_id)) {
                 Ok(decision) => {

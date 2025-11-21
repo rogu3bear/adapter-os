@@ -250,7 +250,7 @@ export const AdapterDetail: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-gray-500">Adapter ID</p>
-              <p className="font-mono text-sm">{adapter.adapter_id}</p>
+              <p className="font-mono text-sm">{adapter.adapter.adapter_id}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">Hash (B3)</p>

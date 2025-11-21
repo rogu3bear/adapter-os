@@ -25,7 +25,7 @@ export function MetricsGrid() {
     // Fetch current snapshot
     const data = await apiClient.getMetricsSnapshot();
     const transformedSnapshot: MetricsSnapshot = {
-      timestamp: data.timestamp,
+      timestamp: typeof data.timestamp === 'string' ? parseInt(data.timestamp, 10) : data.timestamp,
       counters: data.counters,
       gauges: data.gauges,
       histograms: data.histograms,
@@ -111,7 +111,7 @@ export function MetricsGrid() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {snapshot.gauges['adapteros_tokens_per_sec']?.toFixed(1) || '0'}
+              {snapshot.gauges['adapteros_tokens_per_second']?.toFixed(1) || '0'}
             </div>
             <p className="text-xs text-muted-foreground">Inference throughput</p>
           </CardContent>

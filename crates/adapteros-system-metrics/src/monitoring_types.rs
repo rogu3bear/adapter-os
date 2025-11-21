@@ -4,6 +4,7 @@
 //! Includes serialization, validation, and API response types.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 // Re-export types from database module
 pub use adapteros_db::process_monitoring::{
@@ -17,7 +18,7 @@ pub use adapteros_db::process_monitoring::{
 
 // ===== API Response Types =====
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MonitoringRuleResponse {
     pub id: String,
     pub name: String,
@@ -62,7 +63,7 @@ impl From<ProcessMonitoringRule> for MonitoringRuleResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthMetricResponse {
     pub id: String,
     pub worker_id: String,
@@ -89,7 +90,7 @@ impl From<ProcessHealthMetric> for HealthMetricResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AlertResponse {
     pub id: String,
     pub rule_id: String,
@@ -140,7 +141,7 @@ impl From<ProcessAlert> for AlertResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AnomalyResponse {
     pub id: String,
     pub worker_id: String,
@@ -187,7 +188,7 @@ impl From<ProcessAnomaly> for AnomalyResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BaselineResponse {
     pub id: String,
     pub worker_id: String,
@@ -226,7 +227,7 @@ impl From<PerformanceBaseline> for BaselineResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardResponse {
     pub id: String,
     pub name: String,
@@ -255,7 +256,7 @@ impl From<MonitoringDashboard> for DashboardResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ProcessMonitoringReportResponse {
     pub id: String,
     pub name: String,
@@ -272,7 +273,7 @@ pub struct ProcessMonitoringReportResponse {
 
 // ===== Request Types =====
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateMonitoringRuleApiRequest {
     pub name: String,
     pub description: Option<String>,
@@ -312,7 +313,7 @@ impl TryFrom<CreateMonitoringRuleApiRequest> for CreateMonitoringRuleRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateMonitoringRuleApiRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -331,7 +332,7 @@ impl From<UpdateMonitoringRuleApiRequest> for UpdateMonitoringRuleRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateDashboardApiRequest {
     pub name: String,
     pub description: Option<String>,
@@ -340,7 +341,7 @@ pub struct CreateDashboardApiRequest {
     pub is_shared: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateDashboardApiRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -348,7 +349,7 @@ pub struct UpdateDashboardApiRequest {
     pub is_shared: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateProcessMonitoringReportRequest {
     pub name: String,
     pub description: Option<String>,
@@ -357,25 +358,25 @@ pub struct CreateProcessMonitoringReportRequest {
     pub report_config: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AcknowledgeAlertRequest {
     pub user: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SuppressAlertRequest {
     pub reason: String,
     pub until: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateAnomalyStatusRequest {
     pub status: String,
     pub investigation_notes: Option<String>,
     pub investigated_by: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RecalculateBaselineRequest {
     pub worker_id: String,
     pub metric_name: String,
@@ -384,7 +385,7 @@ pub struct RecalculateBaselineRequest {
 
 // ===== Dashboard Widget Types =====
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardWidget {
     pub id: String,
     pub widget_type: WidgetType,
@@ -395,7 +396,7 @@ pub struct DashboardWidget {
     pub is_visible: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum WidgetType {
     TimeSeries,
     Gauge,
@@ -405,19 +406,19 @@ pub enum WidgetType {
     StatusIndicator,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WidgetPosition {
     pub x: i64,
     pub y: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WidgetSize {
     pub width: i64,
     pub height: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TimeSeriesWidgetConfig {
     pub metric: String,
     pub aggregation: String,
@@ -427,7 +428,7 @@ pub struct TimeSeriesWidgetConfig {
     pub threshold_critical: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GaugeWidgetConfig {
     pub metric: String,
     pub threshold_warning: f64,
@@ -437,7 +438,7 @@ pub struct GaugeWidgetConfig {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AlertListWidgetConfig {
     pub severities: Vec<String>,
     pub limit: i64,
@@ -445,7 +446,7 @@ pub struct AlertListWidgetConfig {
     pub show_acknowledged: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AnomalyHeatmapWidgetConfig {
     pub workers: Vec<String>,
     pub metric: String,
@@ -453,7 +454,7 @@ pub struct AnomalyHeatmapWidgetConfig {
     pub detection_methods: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricCardWidgetConfig {
     pub metric: String,
     pub aggregation: String,
@@ -462,7 +463,7 @@ pub struct MetricCardWidgetConfig {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StatusIndicatorWidgetConfig {
     pub metric: String,
     pub healthy_threshold: f64,
@@ -473,14 +474,14 @@ pub struct StatusIndicatorWidgetConfig {
 
 // ===== Dashboard Data Types =====
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardData {
     pub dashboard_id: String,
     pub widgets: Vec<WidgetData>,
     pub timestamp: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WidgetData {
     pub widget_id: String,
     pub widget_type: String,
@@ -488,7 +489,7 @@ pub struct WidgetData {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TimeSeriesData {
     pub metric: String,
     pub points: Vec<TimeSeriesPoint>,
@@ -496,14 +497,14 @@ pub struct TimeSeriesData {
     pub window: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TimeSeriesPoint {
     pub timestamp: String,
     pub value: f64,
     pub worker_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GaugeData {
     pub metric: String,
     pub current_value: f64,
@@ -513,14 +514,14 @@ pub struct GaugeData {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AlertListData {
     pub alerts: Vec<AlertSummary>,
     pub total_count: i64,
     pub unacknowledged_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AlertSummary {
     pub id: String,
     pub title: String,
@@ -531,14 +532,14 @@ pub struct AlertSummary {
     pub acknowledged_by: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AnomalyHeatmapData {
     pub workers: Vec<WorkerAnomalyData>,
     pub metric: String,
     pub time_window: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WorkerAnomalyData {
     pub worker_id: String,
     pub anomaly_count: i64,
@@ -546,7 +547,7 @@ pub struct WorkerAnomalyData {
     pub confidence_scores: Vec<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AnomalySummary {
     pub id: String,
     pub anomaly_type: String,
@@ -555,7 +556,7 @@ pub struct AnomalySummary {
     pub detected_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricCardData {
     pub metric: String,
     pub value: f64,
@@ -565,14 +566,14 @@ pub struct MetricCardData {
     pub unit: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TrendData {
     pub direction: String, // "up", "down", "stable"
     pub percentage_change: f64,
     pub period: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StatusIndicatorData {
     pub metric: String,
     pub status: String, // "healthy", "warning", "critical"
@@ -580,7 +581,7 @@ pub struct StatusIndicatorData {
     pub thresholds: ThresholdData,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ThresholdData {
     pub healthy: f64,
     pub warning: f64,
@@ -640,7 +641,7 @@ impl From<MonitoringWidget> for DashboardWidget {
 
 // ===== Error Types =====
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MonitoringError {
     pub error: String,
     pub details: Option<String>,

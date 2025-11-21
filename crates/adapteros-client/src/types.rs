@@ -83,8 +83,8 @@ pub struct ClientTelemetryEvent {
 }
 
 /// Conversion from canonical TelemetryEvent to client DTO
-impl From<adapteros_telemetry::TelemetryEvent> for ClientTelemetryEvent {
-    fn from(ev: adapteros_telemetry::TelemetryEvent) -> Self {
+impl From<adapteros_telemetry::unified_events::TelemetryEvent> for ClientTelemetryEvent {
+    fn from(ev: adapteros_telemetry::unified_events::TelemetryEvent) -> Self {
         ClientTelemetryEvent {
             id: ev.id,
             timestamp: ev.timestamp.to_rfc3339(),

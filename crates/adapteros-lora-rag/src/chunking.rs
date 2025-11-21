@@ -3,122 +3,13 @@
 //! Uses tree-sitter to chunk code by semantic boundaries (functions, classes, modules)
 //! while including context (imports, surrounding code).
 
-// use adapteros_codegraph::types::{Language, SymbolKind, SymbolNode};
 use adapteros_core::B3Hash;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-// Stub types for disabled adapteros-codegraph dependency
-/// Stub SymbolId for disabled codegraph
-#[derive(Debug, Clone)]
-pub struct SymbolId(String);
-
-impl SymbolId {
-    pub fn to_hex(&self) -> String {
-        self.0.clone()
-    }
-}
-
-/// Stub Visibility for disabled codegraph
-#[derive(Debug, Clone)]
-pub enum Visibility {
-    Public,
-    Private,
-    Crate,
-}
-
-impl std::fmt::Display for Visibility {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Visibility::Public => write!(f, "public"),
-            Visibility::Private => write!(f, "private"),
-            Visibility::Crate => write!(f, "crate"),
-        }
-    }
-}
-
-/// Stub SymbolNode for disabled codegraph
-#[derive(Debug, Clone)]
-pub struct SymbolNode {
-    pub id: SymbolId,
-    pub kind: SymbolKind,
-    pub span: Span,
-    pub name: String,
-    pub module_path: Vec<String>,
-    pub file_path: String,
-    pub signature: Option<String>,
-    pub visibility: Visibility,
-    pub docstring: Option<String>,
-}
-
-impl SymbolNode {
-    pub fn qualified_name(&self) -> String {
-        if self.module_path.is_empty() {
-            self.name.clone()
-        } else {
-            format!("{}::{}", self.module_path.join("::"), self.name)
-        }
-    }
-}
-
-/// Stub SymbolKind for disabled codegraph
-#[derive(Debug, Clone, PartialEq)]
-pub enum SymbolKind {
-    Function,
-    Method,
-    Struct,
-    Enum,
-    Trait,
-    Impl,
-    Module,
-    Const,
-    Static,
-    Type,
-    Field,
-    Variant,
-}
-
-impl std::fmt::Display for SymbolKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SymbolKind::Function => write!(f, "function"),
-            SymbolKind::Method => write!(f, "method"),
-            SymbolKind::Struct => write!(f, "struct"),
-            SymbolKind::Enum => write!(f, "enum"),
-            SymbolKind::Trait => write!(f, "trait"),
-            SymbolKind::Impl => write!(f, "impl"),
-            SymbolKind::Module => write!(f, "module"),
-            SymbolKind::Const => write!(f, "const"),
-            SymbolKind::Static => write!(f, "static"),
-            SymbolKind::Type => write!(f, "type"),
-            SymbolKind::Field => write!(f, "field"),
-            SymbolKind::Variant => write!(f, "variant"),
-        }
-    }
-}
-
-/// Stub Span for disabled codegraph
-#[derive(Debug, Clone)]
-pub struct Span {
-    pub start_line: u32,
-    pub end_line: u32,
-}
-
-/// Stub Language for disabled codegraph
-pub struct Language;
-
-impl Language {
-    pub fn from_path(_path: &Path) -> Option<Self> {
-        None // Return None to skip unsupported files
-    }
-}
-
-impl std::fmt::Display for Language {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "unknown")
-    }
-}
+// Re-export types from codegraph for convenience
+pub use adapteros_codegraph::types::{Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
 
 /// Chunking configuration
 #[derive(Debug, Clone)]
@@ -209,6 +100,7 @@ impl CodeChunk {
     }
 
     /// Create new code chunk
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repo_id: String,
         file_path: String,
@@ -252,10 +144,15 @@ impl CodeChunker {
         Self { config }
     }
 
-    /// Create with default configuration
-    pub fn default() -> Self {
+}
+
+impl Default for CodeChunker {
+    fn default() -> Self {
         Self::new(ChunkConfig::default())
     }
+}
+
+impl CodeChunker {
 
     /// Chunk a file based on its symbols
     pub fn chunk_file(
@@ -367,6 +264,7 @@ impl CodeChunker {
     }
 
     /// Create a chunk from a symbol and its children
+    #[allow(clippy::too_many_arguments)]
     fn create_symbol_chunk(
         &self,
         parent: &SymbolNode,
@@ -463,10 +361,9 @@ impl CodeChunker {
     fn extract_file_context(&self, content: &str, language: &str) -> Result<ChunkContext> {
         let mut context = ChunkContext::new();
 
-        // Simple regex-based import extraction
-        // TODO: Use tree-sitter for more accurate extraction
         match language {
             "rust" => {
+                // Use line-based extraction for Rust (simple and accurate for use statements)
                 for line in content.lines() {
                     let trimmed = line.trim();
                     if trimmed.starts_with("use ") {
@@ -475,10 +372,40 @@ impl CodeChunker {
                 }
             }
             "python" => {
+                // Extract Python imports using line-based parsing with better accuracy
+                // Handles: import x, from x import y, multi-line imports
+                let mut in_multiline_import = false;
+                let mut current_import = String::new();
+
                 for line in content.lines() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
-                        context.imports.push(trimmed.to_string());
+
+                    if in_multiline_import {
+                        current_import.push(' ');
+                        current_import.push_str(trimmed);
+                        if trimmed.contains(')') {
+                            context.imports.push(current_import.clone());
+                            current_import.clear();
+                            in_multiline_import = false;
+                        }
+                    } else if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
+                        if trimmed.contains('(') && !trimmed.contains(')') {
+                            // Start of multi-line import
+                            in_multiline_import = true;
+                            current_import = trimmed.to_string();
+                        } else {
+                            context.imports.push(trimmed.to_string());
+                        }
+                    } else if !trimmed.is_empty()
+                        && !trimmed.starts_with('#')
+                        && !trimmed.starts_with("\"\"\"")
+                        && !trimmed.starts_with("'''")
+                    {
+                        // Stop at first non-import, non-comment, non-docstring line
+                        // (imports should be at the top of the file)
+                        if !context.imports.is_empty() {
+                            break;
+                        }
                     }
                 }
             }

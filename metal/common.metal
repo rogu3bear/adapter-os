@@ -95,18 +95,24 @@ float2 apply_rope_rotation(float x, float y, float cos_theta, float sin_theta) {
 float deterministic_dropout(uint seed, uint position, float dropout_rate) {
     if (dropout_rate <= 0.0f) return 1.0f;
     if (dropout_rate >= 1.0f) return 0.0f;
-    
+
     // Xorshift RNG for deterministic random numbers
     uint state = seed ^ position;
     state ^= state << 13;
     state ^= state >> 17;
     state ^= state << 5;
-    
+
     // Convert to [0, 1] range
     float rand_val = float(state) / float(0xFFFFFFFF);
-    
+
     // Inverted dropout: scale by 1/(1-p) when keeping
     return (rand_val >= dropout_rate) ? (1.0f / (1.0f - dropout_rate)) : 0.0f;
 }
+
+/// RMSNorm configuration
+struct RmsNormConfig {
+    uint hidden_size;       // Dimension of the hidden states
+    float eps;              // Epsilon for numerical stability (typically 1e-6)
+};
 
 #endif // COMMON_METAL

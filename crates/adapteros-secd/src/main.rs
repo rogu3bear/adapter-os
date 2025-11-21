@@ -3,7 +3,7 @@
 //! Run with:
 //!   aos-secd --socket /var/run/aos-secd.sock
 
-use adapteros_core::AosError;
+use adapteros_core::{derive_seed, AosError, B3Hash};
 use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
 use adapteros_secd::{
     remove_pid, serve_uds, write_pid, AuditLogger, Heartbeat, KeyLifecycleManager,
@@ -40,6 +40,10 @@ struct Args {
     /// Key age warning threshold in days
     #[clap(long, default_value = "90")]
     key_age_threshold: i64,
+
+    /// Manifest path for deterministic seed derivation
+    #[clap(long)]
+    manifest: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -54,8 +58,25 @@ async fn main() -> Result<(), AosError> {
 
     let args = Args::parse();
 
-    // Initialize deterministic executor
-    let global_seed = [42u8; 32]; // TODO: derive from manifest
+    // Initialize deterministic executor with HKDF-derived seed
+    let global_seed = if let Some(manifest_path) = &args.manifest {
+        // Derive seed from manifest hash using HKDF per determinism patterns
+        let manifest_content = std::fs::read(manifest_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read manifest at {}: {}",
+                manifest_path.display(),
+                e
+            ))
+        })?;
+        let manifest_hash = B3Hash::hash(&manifest_content);
+        derive_seed(&manifest_hash, "secd-executor")
+    } else {
+        // Fallback: derive from daemon identity when no manifest provided
+        tracing::warn!("No manifest provided, using daemon identity for seed derivation");
+        let identity_hash = B3Hash::hash(b"aos-secd-daemon-v1");
+        derive_seed(&identity_hash, "secd-executor")
+    };
+
     let config = ExecutorConfig {
         global_seed,
         enable_event_logging: true,
@@ -64,7 +85,10 @@ async fn main() -> Result<(), AosError> {
     };
     init_global_executor(config)
         .map_err(|e| AosError::Internal(format!("Failed to initialize executor: {}", e)))?;
-    tracing::info!("Deterministic executor initialized");
+    tracing::info!(
+        seed_prefix = %hex::encode(&global_seed[..8]),
+        "Deterministic executor initialized with HKDF-derived seed"
+    );
 
     tracing::info!("AdapterOS Secure Enclave Daemon starting...");
     tracing::info!("Socket: {}", args.socket.display());

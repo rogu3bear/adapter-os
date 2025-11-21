@@ -59,7 +59,6 @@ pub enum BranchOperation {
 #[derive(Clone)]
 pub struct BranchManager {
     config: BranchManagerConfig,
-    #[allow(dead_code)] // TODO: Implement database integration in future iteration
     db: adapteros_db::Db,
     active_sessions: Arc<RwLock<HashMap<String, GitSession>>>,
     repositories: Arc<RwLock<HashMap<String, PathBuf>>>,
@@ -277,6 +276,95 @@ impl BranchManager {
     /// Get session by ID
     pub async fn get_session(&self, session_id: &str) -> Option<GitSession> {
         self.active_sessions.read().await.get(session_id).cloned()
+    }
+
+    /// Save a session to the database
+    pub async fn save_session(&self, session: &GitSession) -> Result<()> {
+        // Update in-memory cache
+        self.active_sessions
+            .write()
+            .await
+            .insert(session.id.clone(), session.clone());
+
+        // Persist to database
+        let status = match session.status {
+            SessionStatus::Active => "active",
+            SessionStatus::Merged => "merged",
+            SessionStatus::Abandoned => "abandoned",
+        };
+
+        // Check if session exists
+        let existing = self.db.get_git_session(&session.id).await.map_err(|e| {
+            AosError::Database(format!("Failed to check existing session: {}", e))
+        })?;
+
+        if existing.is_some() {
+            // Update existing session
+            self.db
+                .update_git_session_status(&session.id, status, session.merge_commit_sha.as_deref())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to update git session: {}", e)))?;
+        } else {
+            // Create new session
+            self.db
+                .create_git_session(
+                    &session.id,
+                    &session.adapter_id,
+                    &session.repo_id,
+                    &session.branch_name,
+                    &session.base_commit_sha,
+                )
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to create git session: {}", e)))?;
+        }
+
+        debug!(session_id = %session.id, "Saved session to database");
+        Ok(())
+    }
+
+    /// Load a session from the database by ID
+    pub async fn load_session(&self, session_id: &str) -> Result<Option<GitSession>> {
+        // Check in-memory cache first
+        if let Some(session) = self.active_sessions.read().await.get(session_id) {
+            return Ok(Some(session.clone()));
+        }
+
+        // Load from database
+        let db_session = self.db.get_git_session(session_id).await.map_err(|e| {
+            AosError::Database(format!("Failed to load session from database: {}", e))
+        })?;
+
+        if let Some(db_session) = db_session {
+            let session = GitSession {
+                id: db_session.id,
+                adapter_id: db_session.adapter_id,
+                repo_id: db_session.repo_id,
+                branch_name: db_session.branch_name,
+                base_commit_sha: db_session.base_commit_sha,
+                started_at: db_session.started_at.parse().map_err(|e| {
+                    AosError::Database(format!("Failed to parse started_at: {}", e))
+                })?,
+                ended_at: db_session.ended_at.and_then(|s| s.parse().ok()),
+                status: match db_session.status.as_str() {
+                    "active" => SessionStatus::Active,
+                    "merged" => SessionStatus::Merged,
+                    "abandoned" => SessionStatus::Abandoned,
+                    _ => SessionStatus::Active,
+                },
+                merge_commit_sha: db_session.merge_commit_sha,
+            };
+
+            // Cache in memory
+            self.active_sessions
+                .write()
+                .await
+                .insert(session.id.clone(), session.clone());
+
+            debug!(session_id = %session_id, "Loaded session from database");
+            Ok(Some(session))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Switch to a branch (synchronous, call from spawn_blocking)

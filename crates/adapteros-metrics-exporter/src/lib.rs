@@ -6,8 +6,32 @@ use prometheus::{
     Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
     TextEncoder,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
+
+/// Snapshot of current metrics for health checks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsSnapshot {
+    pub timestamp: u64,
+    pub queue_depth: f64,
+    pub total_requests: f64,
+    pub avg_latency_ms: f64,
+}
+
+impl Default for MetricsSnapshot {
+    fn default() -> Self {
+        Self {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            queue_depth: 0.0,
+            total_requests: 0.0,
+            avg_latency_ms: 0.0,
+        }
+    }
+}
 
 /// Metrics exporter with Prometheus-compatible OpenMetrics format
 pub struct MetricsExporter {
@@ -214,6 +238,60 @@ impl MetricsExporter {
     /// Get a reference to the registry for custom metrics
     pub fn registry(&self) -> &Registry {
         &self.registry
+    }
+
+    /// Get a snapshot of current metrics for health checks
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        // Gather current metrics from registry
+        let metrics = self.registry.gather();
+
+        let mut total_requests = 0.0;
+        let mut queue_depth = 0.0;
+        let mut avg_latency_ms = 0.0;
+        let mut request_count: u64 = 0;
+
+        for family in metrics {
+            match family.get_name() {
+                "mplora_http_requests_total" => {
+                    for metric in family.get_metric() {
+                        if metric.has_counter() {
+                            total_requests += metric.get_counter().get_value();
+                        }
+                    }
+                }
+                "mplora_jobs_active" => {
+                    for metric in family.get_metric() {
+                        if metric.has_gauge() {
+                            queue_depth += metric.get_gauge().get_value();
+                        }
+                    }
+                }
+                "mplora_http_request_duration_seconds" => {
+                    for metric in family.get_metric() {
+                        if metric.has_histogram() {
+                            avg_latency_ms += metric.get_histogram().get_sample_sum() * 1000.0;
+                            request_count = metric.get_histogram().get_sample_count();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Calculate average latency
+        if request_count > 0 {
+            avg_latency_ms /= request_count as f64;
+        }
+
+        MetricsSnapshot {
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            queue_depth,
+            total_requests,
+            avg_latency_ms,
+        }
     }
 }
 

@@ -11,6 +11,7 @@ experimental-backends = []
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 # adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }  # Temporarily disabled
 tokenizers = { workspace = true }
 pulldown-cmark = "0.9"

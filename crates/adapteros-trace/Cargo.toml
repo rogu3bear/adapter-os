@@ -22,6 +22,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-graph = { path = "../adapteros-graph" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-telemetry-types = { path = "../adapteros-telemetry-types" }
 
 # Schema & Validation
 schemars = "0.8"

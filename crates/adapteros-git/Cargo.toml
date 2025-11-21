@@ -33,6 +33,7 @@ crossbeam-channel = "0.5"
 # Async utilities
 tokio-stream = "0.1"
 futures-util.workspace = true
+async-trait.workspace = true
 
 [dev-dependencies]
 tempfile = "3.8"

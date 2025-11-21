@@ -7,6 +7,10 @@ import useEnhancedActionHistory from '../hooks/useEnhancedActionHistory';
 import { ActionHistoryItem } from '../types/history';
 
 describe('useEnhancedActionHistory', () => {
+  beforeEach(() => {
+    // Clear localStorage to isolate tests
+    localStorage.clear();
+  });
   it('should add action to history', () => {
     const { result } = renderHook(() => useEnhancedActionHistory());
 
@@ -45,8 +49,8 @@ describe('useEnhancedActionHistory', () => {
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(false);
 
-    act(() => {
-      result.current.undo();
+    await act(async () => {
+      await result.current.undo();
     });
 
     expect(undoCalled).toBe(true);
@@ -156,6 +160,14 @@ describe('useEnhancedActionHistory', () => {
       }
     });
 
+    // Verify all actions were added
+    expect(result.current.allActions.length).toBe(10);
+
+    // Trigger filter recalculation by setting empty filter
+    act(() => {
+      result.current.setFilter({});
+    });
+
     act(() => {
       result.current.setPagination({ page: 0, pageSize: 5 });
     });
@@ -173,8 +185,6 @@ describe('useEnhancedActionHistory', () => {
   it('should handle action selection', () => {
     const { result } = renderHook(() => useEnhancedActionHistory());
 
-    let actionId = '';
-
     act(() => {
       result.current.addAction({
         action: 'create',
@@ -183,9 +193,10 @@ describe('useEnhancedActionHistory', () => {
         description: 'Test',
         undo: async () => {},
       });
-
-      actionId = result.current.allActions[0].id;
     });
+
+    // Get actionId after state has updated
+    const actionId = result.current.allActions[0].id;
 
     act(() => {
       result.current.toggleSelection(actionId);
@@ -333,8 +344,6 @@ describe('useEnhancedActionHistory', () => {
   it('should get action by ID', () => {
     const { result } = renderHook(() => useEnhancedActionHistory());
 
-    let actionId = '';
-
     act(() => {
       result.current.addAction({
         action: 'create',
@@ -343,9 +352,10 @@ describe('useEnhancedActionHistory', () => {
         description: 'Test',
         undo: async () => {},
       });
-
-      actionId = result.current.allActions[0].id;
     });
+
+    // Get actionId after state has updated
+    const actionId = result.current.allActions[0].id;
 
     const action = result.current.getActionById(actionId);
     expect(action).toBeDefined();

@@ -3,8 +3,7 @@
 //! Provides high-performance FTS5-based indices for symbols, tests, and documentation
 //! with per-tenant isolation and deterministic ordering.
 
-use crate::chunking::SymbolNode;
-// use adapteros_codegraph::types::SymbolNode;
+use adapteros_codegraph::types::SymbolNode;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -58,7 +57,6 @@ pub struct IndexedDoc {
 /// Symbol index implementation using SQLite FTS5
 pub struct SymbolIndexImpl {
     pool: SqlitePool,
-    #[allow(dead_code)] // TODO: Implement tenant isolation in future iteration
     tenant_id: String,
 }
 
@@ -75,7 +73,7 @@ impl SymbolIndexImpl {
             .await
             .context("Failed to connect to symbols database")?;
 
-        // Create FTS5 table for full-text search
+        // Create FTS5 table for full-text search with tenant isolation
         sqlx::query(
             r#"
             CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
@@ -91,6 +89,7 @@ impl SymbolIndexImpl {
                 commit_sha UNINDEXED,
                 docstring,
                 module_path,
+                tenant_id UNINDEXED,
                 tokenize = 'porter unicode61'
             );
             "#,
@@ -134,14 +133,14 @@ impl SymbolIndexImpl {
             let symbol_id = symbol.id.to_hex();
             let module_path = symbol.module_path.join("::");
 
-            // Insert into FTS5 table
+            // Insert into FTS5 table with tenant isolation
             sqlx::query(
                 r#"
                 INSERT INTO symbols_fts (
                     symbol_id, name, file_path, start_line, end_line,
                     kind, signature, visibility, repo_id, commit_sha,
-                    docstring, module_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    docstring, module_path, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&symbol_id)
@@ -156,6 +155,7 @@ impl SymbolIndexImpl {
             .bind(commit_sha)
             .bind(symbol.docstring)
             .bind(&module_path)
+            .bind(&self.tenant_id)
             .execute(&mut *tx)
             .await?;
 
@@ -182,18 +182,19 @@ impl SymbolIndexImpl {
         Ok(count)
     }
 
-    /// Search symbols by query
+    /// Search symbols by query with tenant isolation
     pub async fn search(
         &self,
         query: &str,
         repo_id: Option<&str>,
         max_results: usize,
     ) -> Result<Vec<IndexedSymbol>> {
+        // Always filter by tenant_id for isolation
         let sql = if let Some(_repo_id) = repo_id {
             format!(
                 r#"
                 SELECT * FROM symbols_fts
-                WHERE symbols_fts MATCH ? AND repo_id = ?
+                WHERE symbols_fts MATCH ? AND repo_id = ? AND tenant_id = ?
                 ORDER BY rank
                 LIMIT {}
                 "#,
@@ -203,7 +204,7 @@ impl SymbolIndexImpl {
             format!(
                 r#"
                 SELECT * FROM symbols_fts
-                WHERE symbols_fts MATCH ?
+                WHERE symbols_fts MATCH ? AND tenant_id = ?
                 ORDER BY rank
                 LIMIT {}
                 "#,
@@ -213,7 +214,9 @@ impl SymbolIndexImpl {
 
         let mut query_builder = sqlx::query(&sql).bind(query);
         if let Some(repo_id) = repo_id {
-            query_builder = query_builder.bind(repo_id);
+            query_builder = query_builder.bind(repo_id).bind(&self.tenant_id);
+        } else {
+            query_builder = query_builder.bind(&self.tenant_id);
         }
 
         let rows = query_builder.fetch_all(&self.pool).await?;
@@ -281,7 +284,6 @@ impl SymbolIndexImpl {
 /// Test index implementation using SQLite FTS5
 pub struct TestIndexImpl {
     pool: SqlitePool,
-    #[allow(dead_code)] // TODO: Implement tenant isolation in future iteration
     tenant_id: String,
 }
 
@@ -298,7 +300,7 @@ impl TestIndexImpl {
             .await
             .context("Failed to connect to tests database")?;
 
-        // Create FTS5 table
+        // Create FTS5 table with tenant isolation
         sqlx::query(
             r#"
             CREATE VIRTUAL TABLE IF NOT EXISTS tests_fts USING fts5(
@@ -311,6 +313,7 @@ impl TestIndexImpl {
                 target_function,
                 repo_id UNINDEXED,
                 commit_sha UNINDEXED,
+                tenant_id UNINDEXED,
                 tokenize = 'porter unicode61'
             );
             "#,
@@ -349,13 +352,13 @@ impl TestIndexImpl {
         let mut count = 0;
 
         for test in tests {
-            // Insert into FTS5 table
+            // Insert into FTS5 table with tenant isolation
             sqlx::query(
                 r#"
                 INSERT INTO tests_fts (
                     test_id, test_name, file_path, start_line, end_line,
-                    target_symbol_id, target_function, repo_id, commit_sha
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    target_symbol_id, target_function, repo_id, commit_sha, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&test.test_id)
@@ -367,6 +370,7 @@ impl TestIndexImpl {
             .bind(&test.target_function)
             .bind(repo_id)
             .bind(commit_sha)
+            .bind(&self.tenant_id)
             .execute(&mut *tx)
             .await?;
 
@@ -392,18 +396,19 @@ impl TestIndexImpl {
         Ok(count)
     }
 
-    /// Search tests by query
+    /// Search tests by query with tenant isolation
     pub async fn search(
         &self,
         query: &str,
         repo_id: Option<&str>,
         max_results: usize,
     ) -> Result<Vec<IndexedTest>> {
+        // Always filter by tenant_id for isolation
         let sql = if let Some(_repo_id) = repo_id {
             format!(
                 r#"
                 SELECT * FROM tests_fts
-                WHERE tests_fts MATCH ? AND repo_id = ?
+                WHERE tests_fts MATCH ? AND repo_id = ? AND tenant_id = ?
                 ORDER BY rank
                 LIMIT {}
                 "#,
@@ -413,7 +418,7 @@ impl TestIndexImpl {
             format!(
                 r#"
                 SELECT * FROM tests_fts
-                WHERE tests_fts MATCH ?
+                WHERE tests_fts MATCH ? AND tenant_id = ?
                 ORDER BY rank
                 LIMIT {}
                 "#,
@@ -423,7 +428,9 @@ impl TestIndexImpl {
 
         let mut query_builder = sqlx::query(&sql).bind(query);
         if let Some(repo_id) = repo_id {
-            query_builder = query_builder.bind(repo_id);
+            query_builder = query_builder.bind(repo_id).bind(&self.tenant_id);
+        } else {
+            query_builder = query_builder.bind(&self.tenant_id);
         }
 
         let rows = query_builder.fetch_all(&self.pool).await?;
@@ -488,7 +495,6 @@ impl TestIndexImpl {
 /// Documentation index implementation using SQLite FTS5
 pub struct DocIndexImpl {
     pool: SqlitePool,
-    #[allow(dead_code)] // TODO: Implement tenant isolation in future iteration
     tenant_id: String,
 }
 
@@ -505,7 +511,7 @@ impl DocIndexImpl {
             .await
             .context("Failed to connect to docs database")?;
 
-        // Create FTS5 table
+        // Create FTS5 table with tenant isolation
         sqlx::query(
             r#"
             CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
@@ -518,6 +524,7 @@ impl DocIndexImpl {
                 commit_sha UNINDEXED,
                 start_line UNINDEXED,
                 end_line UNINDEXED,
+                tenant_id UNINDEXED,
                 tokenize = 'porter unicode61'
             );
             "#,
@@ -556,13 +563,13 @@ impl DocIndexImpl {
         let mut count = 0;
 
         for doc in docs {
-            // Insert into FTS5 table
+            // Insert into FTS5 table with tenant isolation
             sqlx::query(
                 r#"
                 INSERT INTO docs_fts (
                     doc_id, doc_type, file_path, title, content,
-                    repo_id, commit_sha, start_line, end_line
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    repo_id, commit_sha, start_line, end_line, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&doc.doc_id)
@@ -574,6 +581,7 @@ impl DocIndexImpl {
             .bind(commit_sha)
             .bind(doc.start_line)
             .bind(doc.end_line)
+            .bind(&self.tenant_id)
             .execute(&mut *tx)
             .await?;
 
@@ -599,18 +607,19 @@ impl DocIndexImpl {
         Ok(count)
     }
 
-    /// Search documentation by query
+    /// Search documentation by query with tenant isolation
     pub async fn search(
         &self,
         query: &str,
         repo_id: Option<&str>,
         max_results: usize,
     ) -> Result<Vec<IndexedDoc>> {
+        // Always filter by tenant_id for isolation
         let sql = if let Some(_repo_id) = repo_id {
             format!(
                 r#"
                 SELECT * FROM docs_fts
-                WHERE docs_fts MATCH ? AND repo_id = ?
+                WHERE docs_fts MATCH ? AND repo_id = ? AND tenant_id = ?
                 ORDER BY rank
                 LIMIT {}
                 "#,
@@ -620,7 +629,7 @@ impl DocIndexImpl {
             format!(
                 r#"
                 SELECT * FROM docs_fts
-                WHERE docs_fts MATCH ?
+                WHERE docs_fts MATCH ? AND tenant_id = ?
                 ORDER BY rank
                 LIMIT {}
                 "#,
@@ -630,7 +639,9 @@ impl DocIndexImpl {
 
         let mut query_builder = sqlx::query(&sql).bind(query);
         if let Some(repo_id) = repo_id {
-            query_builder = query_builder.bind(repo_id);
+            query_builder = query_builder.bind(repo_id).bind(&self.tenant_id);
+        } else {
+            query_builder = query_builder.bind(&self.tenant_id);
         }
 
         let rows = query_builder.fetch_all(&self.pool).await?;

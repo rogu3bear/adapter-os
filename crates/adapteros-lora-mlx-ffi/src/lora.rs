@@ -85,6 +85,7 @@ impl LoRAAdapter {
     }
 
     /// Get LoRA weights for a module
+    #[allow(clippy::type_complexity)]
     pub fn get_module_weights(
         &self,
         module_name: &str,
@@ -119,13 +120,13 @@ impl LoRAAdapter {
         let mut total = 0;
 
         // Count parameters from both lora_a and lora_b matrices
-        for (_module_name, matrix) in &self.lora_a {
+        for matrix in self.lora_a.values() {
             for row in matrix {
                 total += row.len();
             }
         }
 
-        for (_module_name, matrix) in &self.lora_b {
+        for matrix in self.lora_b.values() {
             for row in matrix {
                 total += row.len();
             }

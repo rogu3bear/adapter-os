@@ -1,7 +1,29 @@
 import { useState, useCallback, useEffect } from 'react';
-import { PolicyCheck } from '../components/golden/PolicyCheckDisplay';
+import { PolicyCheck, PolicyStatus, PolicyCategory, PolicySeverity } from '../components/golden/PolicyCheckDisplay';
 import apiClient from '../api/client';
+import { Policy } from '../api/types';
 import { logger } from '../utils/logger';
+
+// Transform API Policy to UI PolicyCheck
+function policyToPolicyCheck(policy: Policy): PolicyCheck {
+  // Map policy status to PolicyStatus
+  const statusMap: Record<string, PolicyStatus> = {
+    active: 'passed',
+    draft: 'pending',
+    archived: 'warning',
+  };
+
+  return {
+    id: policy.id,
+    name: policy.name,
+    description: policy.content || '',
+    status: statusMap[policy.status] || 'pending',
+    category: (policy.type as PolicyCategory) || 'compliance',
+    severity: 'medium' as PolicySeverity,
+    message: policy.enabled ? 'Policy is enabled' : 'Policy is disabled',
+    canOverride: policy.status !== 'archived',
+  };
+}
 
 export interface UsePolicyChecksOptions {
   cpid: string;
@@ -36,13 +58,14 @@ export function usePolicyChecks({
       // Fetch policies from the API
       // This assumes the API client has a method to get policy checks
       // Adjust the endpoint as needed based on your API contract
-      const response = await apiClient.getPolicies(cpid);
-      setPolicies(response.policies || []);
+      const response = await apiClient.getPolicy(cpid);
+      // Transform API Policy to UI PolicyCheck and wrap in array
+      setPolicies(response ? [policyToPolicyCheck(response)] : []);
 
       logger.info('Policies fetched successfully', {
         component: 'usePolicyChecks',
         cpid,
-        count: response.policies?.length || 0,
+        count: response ? 1 : 0,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch policies';
@@ -61,10 +84,12 @@ export function usePolicyChecks({
 
         // Call the override endpoint
         // This assumes the API client has a method to override policies
-        await apiClient.overridePolicy(cpid, policyId, {
+        // Use updatePolicy to apply override - content includes the override metadata
+        await apiClient.updatePolicy(cpid, JSON.stringify({
+          policyId,
           reason,
           overriddenAt: new Date().toISOString(),
-        });
+        }));
 
         // Update the local state to mark the policy as overridden
         setPolicies(prevPolicies =>

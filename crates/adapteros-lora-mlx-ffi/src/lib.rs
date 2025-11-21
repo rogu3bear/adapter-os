@@ -3,26 +3,31 @@
 //! This crate provides C FFI bindings for MLX's C++ API, avoiding PyO3 dependency issues.
 //! It implements the same interface as the PyO3-based MLX crate but uses direct C++ calls.
 
-use adapteros_core::{AosError, Result};
-use std::path::Path;
+use adapteros_core::{AosError, B3Hash, Result};
+use std::path::{Path, PathBuf};
 
 // Using manual FFI declarations instead of generated bindings
 
 pub mod backend;
 pub mod embedding;
+pub mod generation;
 pub mod lora;
 pub mod monitoring;
 pub mod routing;
+pub mod streaming;
 pub mod tensor;
+pub mod tokenizer;
 
-#[cfg(test)]
+// Mock module for testing - always available since integration tests need it
 pub mod mock;
 
 pub use backend::MLXFFIBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
+pub use generation::{GenerationConfig, MLXGenerator};
 pub use lora::{LoRAAdapter, LoRAConfig};
 pub use routing::apply_multi_lora;
 pub use tensor::MLXFFITensor;
+pub use tokenizer::MLXTokenizer;
 
 /// Set MLX's global random seed for deterministic dropout/sampling operations.
 ///
@@ -252,6 +257,10 @@ pub struct MLXFFIModel {
     pub config: ModelConfig,
     /// Health status tracking
     health: std::sync::Arc<std::sync::Mutex<ModelHealth>>,
+    /// Path to model directory (for loading tokenizer)
+    model_path: PathBuf,
+    /// Tokenizer for text encoding/decoding (loaded lazily)
+    tokenizer: Option<tokenizer::MLXTokenizer>,
 }
 
 /// Health status for MLX model
@@ -281,7 +290,7 @@ pub enum CircuitBreakerState {
 }
 
 /// Model configuration parsed from config.json
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelConfig {
     pub hidden_size: usize,
     pub num_hidden_layers: usize,
@@ -299,6 +308,26 @@ fn default_rope_theta() -> f32 {
 }
 
 impl MLXFFIModel {
+    /// Create a new MLXFFIModel with a null pointer for testing purposes.
+    ///
+    /// This constructor should not be used for actual inference as the model pointer is null.
+    /// It is intended for unit and integration tests only.
+    pub fn new_null(config: ModelConfig) -> Self {
+        Self {
+            model: std::ptr::null_mut(),
+            config,
+            health: std::sync::Arc::new(std::sync::Mutex::new(ModelHealth {
+                operational: false,
+                consecutive_failures: 0,
+                last_success: None,
+                last_failure: None,
+                circuit_breaker: CircuitBreakerState::Closed,
+            })),
+            model_path: PathBuf::new(),
+            tokenizer: None,
+        }
+    }
+
     /// Check if the model is currently healthy and operational
     pub fn is_healthy(&self) -> bool {
         if let Ok(health) = self.health.lock() {
@@ -327,6 +356,7 @@ impl MLXFFIModel {
     pub fn with_resilience_config(self, config: crate::backend::MLXResilienceConfig) -> Self {
         // This would be used when creating the backend
         // For now, just log the configuration
+        let _ = &config; // Silence unused warning
         tracing::info!(
             "MLX model configured with resilience: max_failures={}, stub_fallback={}",
             config.max_consecutive_failures,
@@ -420,10 +450,126 @@ impl MLXFFIModel {
 
         tracing::info!("MLX model loaded via FFI: {}", path_str);
 
+        // Try to load tokenizer from model directory
+        let tokenizer = match tokenizer::MLXTokenizer::from_model_dir(model_path) {
+            Ok(tok) => {
+                tracing::info!(
+                    model_path = %model_path.display(),
+                    vocab_size = tok.vocab_size(),
+                    eos_token_id = tok.eos_token_id(),
+                    "Tokenizer loaded successfully from model directory"
+                );
+                Some(tok)
+            }
+            Err(e) => {
+                // Check if it's a "not found" error vs other errors
+                let err_str = e.to_string();
+                if err_str.contains("not found") {
+                    tracing::debug!(
+                        model_path = %model_path.display(),
+                        "No tokenizer.json found in model directory - text generation will not be available"
+                    );
+                } else {
+                    tracing::warn!(
+                        model_path = %model_path.display(),
+                        error = %e,
+                        "Failed to load tokenizer - text generation will not be available"
+                    );
+                }
+                None
+            }
+        };
+
         Ok(Self {
             model,
             config,
             health,
+            model_path: model_path.to_path_buf(),
+            tokenizer,
+        })
+    }
+
+    /// Load a model from a pre-serialized weight buffer
+    ///
+    /// This allows loading models from pre-dequantized weights without requiring
+    /// a file path. Useful for int4 quantized models that have been dequantized
+    /// to f32 in memory.
+    ///
+    /// # Arguments
+    /// * `buffer` - Serialized weight buffer (format: num_tensors, then per-tensor: name_len, name, shape_len, shape, data_len, data)
+    /// * `config` - Model configuration
+    ///
+    /// # Returns
+    /// Loaded MLX model ready for inference
+    pub fn load_from_buffer(buffer: &[u8], config: ModelConfig) -> Result<Self> {
+        let health = std::sync::Arc::new(std::sync::Mutex::new(ModelHealth {
+            operational: false,
+            consecutive_failures: 0,
+            last_success: None,
+            last_failure: None,
+            circuit_breaker: CircuitBreakerState::Closed,
+        }));
+
+        // Safety: Check buffer validity
+        if buffer.len() < 4 {
+            return Err(AosError::Parse("Weight buffer too small".to_string()));
+        }
+
+        // Serialize config to JSON for FFI
+        let config_json = serde_json::to_string(&config)
+            .map_err(|e| AosError::Internal(format!("Failed to serialize config: {}", e)))?;
+        let config_cstr = std::ffi::CString::new(config_json)
+            .map_err(|e| AosError::Internal(format!("Invalid config string: {}", e)))?;
+
+        // Clear any previous errors
+        unsafe {
+            mlx_clear_error();
+        }
+
+        // Load model via FFI from buffer
+        let model = unsafe {
+            mlx_model_load_from_buffer(buffer.as_ptr(), buffer.len(), config_cstr.as_ptr())
+        };
+
+        if model.is_null() {
+            let error_msg = unsafe { mlx_get_last_error() };
+            let error_str = if error_msg.is_null() {
+                "Unknown MLX error".to_string()
+            } else {
+                unsafe {
+                    std::ffi::CStr::from_ptr(error_msg)
+                        .to_string_lossy()
+                        .to_string()
+                }
+            };
+            return Err(AosError::Mlx(format!(
+                "Failed to load MLX model from buffer: {}",
+                error_str
+            )));
+        }
+
+        // Mark as operational
+        if let Ok(mut health_guard) = health.lock() {
+            health_guard.operational = true;
+            health_guard.consecutive_failures = 0;
+            health_guard.last_success = Some(std::time::Instant::now());
+        }
+
+        let num_tensors = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        tracing::info!(
+            num_tensors = num_tensors,
+            buffer_size_mb = buffer.len() as f32 / (1024.0 * 1024.0),
+            hidden_size = config.hidden_size,
+            num_layers = config.num_hidden_layers,
+            "MLX model loaded from weight buffer via FFI"
+        );
+
+        Ok(Self {
+            model,
+            config,
+            health,
+            model_path: PathBuf::new(),
+            tokenizer: None,
         })
     }
 
@@ -552,11 +698,68 @@ impl MLXFFIModel {
     ///
     /// # Returns
     /// Generated text
-    pub fn generate(&self, prompt: &str, _max_tokens: usize) -> Result<String> {
-        // For now, return a placeholder implementation
-        // Full implementation would require tokenization and generation loop
-        tracing::warn!("MLX FFI generate() not yet implemented, returning placeholder");
-        Ok(format!("[MLX FFI placeholder for: {}]", prompt))
+    pub fn generate(&self, prompt: &str, max_tokens: usize) -> Result<String> {
+        // Check that tokenizer is available
+        let tokenizer = self.tokenizer.as_ref().ok_or_else(|| {
+            AosError::Mlx(
+                "Tokenizer not available. Ensure tokenizer.json exists in model directory."
+                    .to_string(),
+            )
+        })?;
+
+        // Create generation config
+        let gen_config = generation::GenerationConfig {
+            max_tokens,
+            temperature: 0.7,
+            top_k: Some(50),
+            top_p: Some(0.9),
+            repetition_penalty: 1.1,
+            eos_token: tokenizer.eos_token_id(),
+            use_cache: true,
+        };
+
+        // Create generator with deterministic seed based on model path
+        let base_seed = B3Hash::hash(self.model_path.to_string_lossy().as_bytes());
+        let mut generator = generation::MLXGenerator::new(base_seed, gen_config);
+
+        // Generate text using the generator
+        generator.generate_text(self, prompt, tokenizer)
+    }
+
+    /// Generate text with custom configuration
+    ///
+    /// # Arguments
+    /// * `prompt` - Input text prompt
+    /// * `config` - Generation configuration
+    ///
+    /// # Returns
+    /// Generated text
+    pub fn generate_with_config(
+        &self,
+        prompt: &str,
+        config: generation::GenerationConfig,
+    ) -> Result<String> {
+        let tokenizer = self.tokenizer.as_ref().ok_or_else(|| {
+            AosError::Mlx(
+                "Tokenizer not available. Ensure tokenizer.json exists in model directory."
+                    .to_string(),
+            )
+        })?;
+
+        let base_seed = B3Hash::hash(self.model_path.to_string_lossy().as_bytes());
+        let mut generator = generation::MLXGenerator::new(base_seed, config);
+
+        generator.generate_text(self, prompt, tokenizer)
+    }
+
+    /// Get the tokenizer if loaded
+    pub fn tokenizer(&self) -> Option<&tokenizer::MLXTokenizer> {
+        self.tokenizer.as_ref()
+    }
+
+    /// Get the model path
+    pub fn model_path(&self) -> &Path {
+        &self.model_path
     }
 
     /// Run forward pass with hidden states using FFI
@@ -566,6 +769,7 @@ impl MLXFFIModel {
     ///
     /// # Returns
     /// Tuple of (logits, hidden_states_by_module)
+    #[allow(clippy::type_complexity)]
     pub fn forward_with_hidden_states(
         &self,
         token_ids: &[u32],
@@ -684,6 +888,11 @@ unsafe impl Sync for MLXFFIModel {}
 extern "C" {
     // Model lifecycle
     fn mlx_model_load(path: *const std::os::raw::c_char) -> *mut mlx_model_t;
+    fn mlx_model_load_from_buffer(
+        buffer: *const u8,
+        buffer_len: usize,
+        config_json: *const std::os::raw::c_char,
+    ) -> *mut mlx_model_t;
     fn mlx_model_free(model: *mut mlx_model_t);
 
     // Inference
@@ -698,12 +907,27 @@ extern "C" {
     // Array operations
     fn mlx_array_from_data(data: *const f32, size: i32) -> *mut mlx_array_t;
     fn mlx_array_from_ints(data: *const i32, size: i32) -> *mut mlx_array_t;
+    fn mlx_array_from_uints(data: *const u32, size: i32) -> *mut mlx_array_t;
     fn mlx_array_data(array: *mut mlx_array_t) -> *mut f32;
     fn mlx_array_size(array: *mut mlx_array_t) -> usize;
     fn mlx_array_free(array: *mut mlx_array_t);
+    fn mlx_array_reshape(
+        array: *mut mlx_array_t,
+        shape: *const i32,
+        ndim: i32,
+    ) -> *mut mlx_array_t;
     fn mlx_add(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
     fn mlx_matmul(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
     fn mlx_multiply(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
+    fn mlx_divide(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
+
+    // Reduction operations
+    fn mlx_sum(array: *mut mlx_array_t, axis: i32) -> *mut mlx_array_t;
+    fn mlx_mean(array: *mut mlx_array_t, axis: i32) -> *mut mlx_array_t;
+    fn mlx_sqrt(array: *mut mlx_array_t) -> *mut mlx_array_t;
+
+    // Indexing operations
+    fn mlx_take(array: *mut mlx_array_t, indices: *mut mlx_array_t, axis: i32) -> *mut mlx_array_t;
 
     // Error handling
     fn mlx_clear_error();
@@ -757,9 +981,169 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires MLX model
-    fn test_model_loading() {
-        // This test would require a real MLX model
-        // Skipped for now
+    fn test_model_new_null_creation() {
+        // Test that we can create a null model for testing purposes
+        let config = ModelConfig {
+            hidden_size: 4096,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 8,
+            intermediate_size: 11008,
+            vocab_size: 32000,
+            max_position_embeddings: 32768,
+            rope_theta: 10000.0,
+        };
+        let model = MLXFFIModel::new_null(config.clone());
+        assert_eq!(model.config.hidden_size, 4096);
+        assert_eq!(model.config.num_hidden_layers, 32);
+        assert!(model.model.is_null());
+    }
+
+    #[test]
+    fn test_generate_requires_tokenizer() {
+        let config = ModelConfig {
+            hidden_size: 4096,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 8,
+            intermediate_size: 11008,
+            vocab_size: 32000,
+            max_position_embeddings: 32768,
+            rope_theta: 10000.0,
+        };
+        let model = MLXFFIModel::new_null(config);
+
+        let result = model.generate("test prompt", 10);
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Tokenizer not available"),
+            "Expected error message to mention tokenizer, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_generate_with_config_requires_tokenizer() {
+        let config = ModelConfig {
+            hidden_size: 4096,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 8,
+            intermediate_size: 11008,
+            vocab_size: 32000,
+            max_position_embeddings: 32768,
+            rope_theta: 10000.0,
+        };
+        let model = MLXFFIModel::new_null(config);
+
+        let gen_config = generation::GenerationConfig {
+            max_tokens: 100,
+            temperature: 0.5,
+            top_k: Some(40),
+            top_p: Some(0.95),
+            repetition_penalty: 1.2,
+            eos_token: 2,
+            use_cache: true,
+        };
+
+        let result = model.generate_with_config("test prompt", gen_config);
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Tokenizer not available"),
+            "Expected error message to mention tokenizer, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_tokenizer_accessor_returns_none_for_null_model() {
+        let config = ModelConfig {
+            hidden_size: 4096,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 8,
+            intermediate_size: 11008,
+            vocab_size: 32000,
+            max_position_embeddings: 32768,
+            rope_theta: 10000.0,
+        };
+        let model = MLXFFIModel::new_null(config);
+
+        assert!(
+            model.tokenizer().is_none(),
+            "Tokenizer should be None for null model"
+        );
+    }
+
+    #[test]
+    fn test_model_path_accessor_returns_empty_for_null_model() {
+        let config = ModelConfig {
+            hidden_size: 4096,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 8,
+            intermediate_size: 11008,
+            vocab_size: 32000,
+            max_position_embeddings: 32768,
+            rope_theta: 10000.0,
+        };
+        let model = MLXFFIModel::new_null(config);
+
+        assert!(
+            model.model_path().as_os_str().is_empty(),
+            "Model path should be empty for null model"
+        );
+    }
+
+    #[test]
+    fn test_new_null_creates_non_operational_model() {
+        let config = ModelConfig {
+            hidden_size: 4096,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: 8,
+            intermediate_size: 11008,
+            vocab_size: 32000,
+            max_position_embeddings: 32768,
+            rope_theta: 10000.0,
+        };
+        let model = MLXFFIModel::new_null(config);
+
+        // Check health status
+        let health = model.health_status().expect("Should get health status");
+        assert!(!health.operational, "Null model should not be operational");
+        assert_eq!(
+            health.consecutive_failures, 0,
+            "Should have no failures initially"
+        );
+        assert!(
+            matches!(health.circuit_breaker, CircuitBreakerState::Closed),
+            "Circuit breaker should be closed initially"
+        );
+    }
+
+    #[test]
+    fn test_config_accessor() {
+        let config = ModelConfig {
+            hidden_size: 2048,
+            num_hidden_layers: 24,
+            num_attention_heads: 16,
+            num_key_value_heads: 4,
+            intermediate_size: 8192,
+            vocab_size: 50000,
+            max_position_embeddings: 16384,
+            rope_theta: 5000.0,
+        };
+        let model = MLXFFIModel::new_null(config);
+
+        let retrieved_config = model.config();
+        assert_eq!(retrieved_config.hidden_size, 2048);
+        assert_eq!(retrieved_config.num_hidden_layers, 24);
+        assert_eq!(retrieved_config.vocab_size, 50000);
+        assert_eq!(retrieved_config.rope_theta, 5000.0);
     }
 }

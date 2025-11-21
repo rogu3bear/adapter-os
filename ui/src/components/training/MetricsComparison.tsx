@@ -139,9 +139,9 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
       jobs.forEach(job => {
         const history = metricsHistory.get(job.id);
         if (history && history[epoch]) {
-          point[`${job.id}_tokens_per_sec`] = history[epoch].tokens_per_sec;
+          point[`${job.id}_tokens_per_second`] = history[epoch].tokens_per_second;
         } else if (epoch === (job.current_epoch || 0)) {
-          point[`${job.id}_tokens_per_sec`] = job.tokens_per_sec;
+          point[`${job.id}_tokens_per_second`] = job.tokens_per_second;
         }
       });
       dataPoints.push(point);
@@ -190,10 +190,10 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
       }
 
       // Average performance
-      const throughputs = history.map(m => m.tokens_per_sec).filter(t => t !== undefined);
+      const throughputs = history.map(m => m.tokens_per_second).filter(t => t !== undefined);
       const avgThroughput = throughputs.length > 0
         ? throughputs.reduce((a, b) => a + b, 0) / throughputs.length
-        : job.tokens_per_sec || 0;
+        : job.tokens_per_second || 0;
 
       return {
         jobId: job.id,
@@ -216,9 +216,8 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
   }, [statistics]);
 
   // Export chart as PNG (simplified - would need html2canvas or similar)
-  const exportChart = (chartId: string) => {
+  const exportChart = (_chartId: string) => {
     // Placeholder for export functionality
-    console.log(`Exporting chart: ${chartId}`);
     // TODO: Implement with html2canvas or similar library
   };
 
@@ -511,7 +510,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                   <Area
                     key={job.id}
                     type="monotone"
-                    dataKey={`${job.id}_tokens_per_sec`}
+                    dataKey={`${job.id}_tokens_per_second`}
                     name={job.adapter_name}
                     fill={color}
                     fillOpacity={0.2}

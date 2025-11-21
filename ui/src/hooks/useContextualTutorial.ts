@@ -6,6 +6,19 @@ import { logger, toError } from '@/utils/logger';
 
 const STORAGE_KEY = 'aos_tutorials';
 
+// Map numeric position to string position
+function mapPositionToString(position: number | undefined): 'top' | 'bottom' | 'left' | 'right' | 'center' | undefined {
+  if (position === undefined) return undefined;
+  const positionMap: Record<number, 'top' | 'bottom' | 'left' | 'right' | 'center'> = {
+    0: 'top',
+    1: 'right',
+    2: 'bottom',
+    3: 'left',
+    4: 'center',
+  };
+  return positionMap[position] ?? 'center';
+}
+
 // Convert API Tutorial to TutorialConfig
 function tutorialToConfig(tutorial: Tutorial): TutorialConfig {
   return {
@@ -13,13 +26,13 @@ function tutorialToConfig(tutorial: Tutorial): TutorialConfig {
     title: tutorial.title,
     description: tutorial.description,
     steps: tutorial.steps.map(step => ({
-      id: step.id,
+      id: step.id || crypto.randomUUID(),
       title: step.title,
       content: step.content,
       targetSelector: step.target_selector || undefined,
-      position: (step.position as 'top' | 'bottom' | 'left' | 'right' | 'center') || undefined,
+      position: mapPositionToString(step.position),
     })),
-    trigger: tutorial.trigger || 'manual',
+    trigger: (tutorial.trigger || 'manual') as TutorialConfig['trigger'],
     dismissible: tutorial.dismissible,
   };
 }

@@ -72,10 +72,14 @@ export type EvictionPriority = 'never' | 'low' | 'normal' | 'high' | 'critical';
 
 export interface ModelInfo {
   id: string;
-  name: string;
+  name?: string;
   size_mb?: number;
   quantization?: string;
-  loaded: boolean;
+  loaded?: boolean;
+  // OpenAI compatible fields
+  object?: string;
+  created?: number;
+  owned_by?: string;
 }
 
 export interface RegisterAdapterRequest {
@@ -286,6 +290,7 @@ export interface Policy {
   policy_json?: string;
   enabled?: boolean;
   priority?: number;
+  policies?: Policy[];
 }
 
 export interface ValidatePolicyRequest {
@@ -294,9 +299,8 @@ export interface ValidatePolicyRequest {
 }
 
 export interface ApplyPolicyRequest {
-  policy_id: string;
-  target_type: 'adapter' | 'tenant' | 'global';
-  target_id?: string;
+  cpid: string;
+  content: string;
 }
 
 // Adapter stats and state types
@@ -338,8 +342,9 @@ export interface AdapterHealthResponse {
 }
 
 export interface UpdateAdapterPolicyRequest {
-  adapter_id: string;
-  policy_ids: string[];
+  adapter_id?: string;
+  policy_ids?: string[];
+  category?: AdapterCategory;
 }
 
 export interface UpdateAdapterPolicyResponse {
@@ -370,6 +375,10 @@ export interface DomainAdapter {
   updated_at: string;
 
   // Extended properties for DomainAdapterManager
+  model?: string;
+  hash?: string;
+  input_format?: string;
+  output_format?: string;
   version?: string;
   domain_type?: string;
   status?: 'active' | 'inactive' | 'loading' | 'error';
@@ -446,10 +455,20 @@ export interface MonitoringRule {
 }
 
 export interface CreateMonitoringRuleRequest {
+  // Required fields (backend enforced)
   name: string;
-  condition: string;
-  threshold: number;
-  action: 'alert' | 'scale' | 'restart';
+  tenant_id: string;
+  rule_type: string;
+  metric_name: string;
+  threshold_value: number;
+  threshold_operator: string;
+  severity: 'low' | 'medium' | 'high' | 'critical' | 'info';
+  evaluation_window_seconds: number;
+  cooldown_seconds: number;
+  is_active: boolean;
+  // Optional fields
+  description?: string;
+  notification_channels?: Record<string, unknown>;
 }
 
 export interface AdapterOSStatus {
@@ -481,6 +500,7 @@ export interface AdapterScore {
   adapter_id: string;
   score: number;
   rank?: number;
+  gate_value?: number;
 }
 
 export interface AdapterActivationEvent {
@@ -513,6 +533,9 @@ export interface AdapterEvictionEvent {
   reason: string;
   memory_freed_bytes?: number;
 }
+
+// Memory usage tracking by adapter category
+export type MemoryUsageByCategory = Record<AdapterCategory, number>;
 
 // Re-export commonly used types for convenience
 export type { Adapter as default };

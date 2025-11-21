@@ -54,7 +54,7 @@ export interface SystemMetrics {
   timestamp?: string;
   adapter_count?: number;
   active_sessions?: number;
-  tokens_per_sec?: number;
+  tokens_per_second?: number;
   latency_p95_ms?: number;
   // Additional training-related metrics
   current_epoch?: number;
@@ -71,10 +71,13 @@ export interface SystemMetrics {
   disk_total_gb?: number;
   network_rx_packets?: number;
   network_tx_packets?: number;
+  // Performance metrics
+  cache_hit_rate?: number;
+  error_rate?: number;
 }
 
 export interface BaseModelStatus {
-  status: string;
+  status: 'loading' | 'error' | 'unloaded' | 'ready' | 'loaded' | 'unloading';
   model_name: string;
   model_id: string;
   memory_usage_mb?: number;
@@ -193,16 +196,21 @@ export interface CreateTenantRequest {
 export interface RegisterNodeRequest {
   node_id: string;
   hostname: string;
-  ip_address: string;
-  capabilities: string[];
+  ip_address?: string;
+  capabilities: {
+    memory_gb?: number;
+    agent_endpoint?: string;
+    [key: string]: unknown;
+  };
   metadata?: Record<string, unknown>;
+  metal_family?: string;
 }
 
 // Worker types
 export interface SpawnWorkerRequest {
-  worker_type: string;
-  node_id?: string;
-  config?: Record<string, unknown>;
+  tenant_id: string;
+  node_id: string;
+  plan_id: string;
 }
 
 export interface WorkerResponse {
@@ -254,9 +262,8 @@ export interface PlanStep {
 }
 
 export interface BuildPlanRequest {
-  name: string;
-  description?: string;
-  steps: Omit<PlanStep, 'id' | 'status'>[];
+  tenant_id: string;
+  manifest_hash_b3: string;
 }
 
 export interface PlanComparisonResponse {
@@ -300,22 +307,17 @@ export interface RoutingDecision {
 }
 
 export interface RouterConfig {
-  k: number;
-  threshold: number;
-  strategy: 'top_k' | 'threshold' | 'hybrid';
-  k_sparse?: number;
-  entropy_floor?: number;
-  gate_quant?: string;
-  sample_tokens_full?: number;
+  k_sparse: number;
+  gate_quant: string;
+  entropy_floor: number;
+  sample_tokens_full: number;
 }
 
 // Promotion types
 export interface PromotionRequest {
-  adapter_id: string;
-  from_tier: string;
-  to_tier: string;
-  reason?: string;
-  gates?: PromotionGate[];
+  tenant_id: string;
+  cpid: string;
+  plan_id: string;
 }
 
 export interface PromotionRecord {
@@ -365,13 +367,8 @@ export interface Commit {
 }
 
 export interface RegisterRepositoryRequest {
-  name: string;
-  url: string;
-  branch?: string;
-  credentials?: {
-    type: 'ssh' | 'token';
-    value: string;
-  };
+  repo_id: string;
+  path: string;
 }
 
 // Inference types
@@ -530,7 +527,7 @@ export interface ServiceStatus {
 
 export interface Alert {
   id: string;
-  severity: 'info' | 'warning' | 'error' | 'critical';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'warning' | 'error';
   message: string;
   timestamp: string;
   acknowledged: boolean;
@@ -606,10 +603,16 @@ export interface ExportPolicyResponse {
 
 // Model import/validation types
 export interface ImportModelRequest {
-  source: 'huggingface' | 'local' | 'url';
-  model_id: string;
+  source?: 'huggingface' | 'local' | 'url';
+  model_id?: string;
   name?: string;
   quantization?: string;
+  model_name?: string;
+  weights_path?: string;
+  config_path?: string;
+  tokenizer_path?: string;
+  tokenizer_config_path?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ImportModelResponse {
@@ -647,7 +650,8 @@ export interface ModelDownloadResponse {
 export interface AllModelsStatusResponse {
   models: ModelStatusResponse[];
   total_memory_mb: number;
-  available_memory_mb: number;
+  available_memory_mb?: number;
+  active_model_count: number;
 }
 
 // Routing debug types
@@ -813,6 +817,7 @@ export interface Notification {
   title: string;
   message: string;
   timestamp: string;
+  created_at?: string;
   read_at?: string;
   action_url?: string;
   metadata?: Record<string, unknown>;
@@ -828,7 +833,7 @@ export interface Notification {
 export interface NotificationSummary {
   total_count: number;
   unread_count: number;
-  by_type: Record<string, number>;
+  by_type?: Record<string, number>;
 }
 
 export interface UnifiedTelemetryEvent extends TelemetryEvent {
@@ -840,12 +845,19 @@ export interface UnifiedTelemetryEvent extends TelemetryEvent {
 
 export interface Trace {
   trace_id: string;
+  root_span_id: string;
   spans: Array<{
     span_id: string;
     name: string;
     start_time: string;
     end_time: string;
     attributes?: Record<string, unknown>;
+    // Required fields for TraceTimeline component
+    trace_id: string;
+    parent_id: string;
+    start_ns: number;
+    end_ns: number;
+    status: string;
   }>;
 }
 
@@ -866,6 +878,7 @@ export interface Tutorial {
   description: string;
   steps: Array<{ title: string; content: string; id?: string; position?: number; target_selector?: string }>;
   completed?: boolean;
+  completed_at?: string;
   dismissed?: boolean;
   dismissed_at?: string;
   dismissible?: boolean;
@@ -879,7 +892,9 @@ export interface UpdateDashboardConfigResponse {
 }
 
 export interface ProcessLog {
+  id: string;
   process_id: string;
+  worker_id: string;
   timestamp: string;
   level: 'info' | 'warn' | 'error' | 'debug';
   message: string;
@@ -887,9 +902,28 @@ export interface ProcessLog {
 }
 
 export interface ProcessCrash {
+  id: string;
+  worker_id: string;
+  crash_type: string;
+  crash_timestamp: string;
+  exit_code?: number;
+  signal?: string;
+  stack_trace?: string;
+  memory_snapshot_json?: string;
+  recovery_action?: string;
+  recovered_at?: string;
+  // Legacy fields for backwards compatibility
+  process_id?: string;
+  timestamp?: string;
+}
+
+export interface ProcessCrashDump {
+  id: string;
   process_id: string;
+  worker_id: string;
+  crash_type: string;
   timestamp: string;
-  exit_code: number;
+  exit_code?: number;
   signal?: string;
   stack_trace?: string;
 }
@@ -959,20 +993,28 @@ export interface UpdateDashboardConfigRequest {
 }
 
 export interface TroubleshootingStep {
-  step_id: string;
-  title: string;
-  description: string;
+  worker_id: string;
+  step_name: string;
+  step_type: string;
+  command?: string;
+  // Legacy fields for backwards compatibility
+  step_id?: string;
+  title?: string;
+  description?: string;
   action?: string;
   expected_result?: string;
+  parameters?: Record<string, unknown>;
 }
 
 export interface RoutingDecisionFilters {
   adapter_id?: string;
-  start_time?: string;
-  end_time?: string;
-  min_score?: number;
+  since?: string;
+  until?: string;
+  min_entropy?: number;
   limit?: number;
   offset?: number;
+  tenant_id?: string;
+  anomalies_only?: boolean;
 }
 
 export interface ResolveAlertRequest {
@@ -981,15 +1023,33 @@ export interface ResolveAlertRequest {
   resolved_by?: string;
 }
 
-export interface TransformedRoutingDecision extends RoutingDecision {
+export interface TransformedRoutingDecision {
+  id: string;
   transformed?: boolean;
   display_adapters?: string[];
+  request_id: string;
+  selected_adapters: string[];
+  scores: Record<string, number>;
+  timestamp: string;
+  latency_ms: number;
+  overhead_pct?: number;
+  tau?: number;
+  step?: number;
+  stack_hash?: string;
+  input_token_id?: number;
+  entropy_floor?: number;
+  entropy?: number;
+  k_value?: number;
+  router_latency_us?: number;
+  candidates: RouterCandidateInfo[];
+  items?: TransformedRoutingDecision[];
 }
 
 export interface DebugSessionConfig {
   session_type: string;
   target_process?: string;
   breakpoints?: Array<{ file: string; line: number }>;
+  max_duration_ms?: number;
 }
 
 export interface ProcessDebugSession extends DebugSession {
@@ -1009,11 +1069,13 @@ export interface ProcessLogFilters {
 }
 
 export interface AlertFilters {
-  severity?: string;
+  severity?: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'warning' | 'error';
   status?: string;
   start_time?: string;
   end_time?: string;
   limit?: number;
+  tenant_id?: string;
+  worker_id?: string;
 }
 
 export interface AcknowledgeAlertRequest {
@@ -1035,9 +1097,13 @@ export interface FrameworkInfo {
 }
 
 export interface CreateReplaySessionRequest {
-  bundle_id: string;
+  bundle_id?: string;
+  telemetry_bundle_ids?: string[];
   name?: string;
   config?: Record<string, unknown>;
+  tenant_id?: string;
+  cpid?: string;
+  plan_id?: string;
 }
 
 // Inference session for tracking inference history
@@ -1053,4 +1119,164 @@ export interface InferenceSession {
 // Inference configuration type
 export interface InferenceConfig extends InferRequest {
   id: string;
+}
+
+// Compliance and audit types
+export interface ComplianceControl {
+  id: string;
+  control_id?: string;
+  control_name?: string;
+  name: string;
+  status: string;
+  category?: string;
+  message?: string;
+  last_checked?: string;
+  details?: Record<string, unknown>;
+  evidence?: string;
+  findings?: string[];
+}
+
+export interface PolicyViolationRecord {
+  id: string;
+  policy_id: string;
+  rule: string;
+  message: string;
+  reason?: string;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  timestamp: string;
+  created_at?: string;
+  adapter_id?: string;
+  tenant_id?: string;
+  cpid?: string;
+  violation_type?: string;
+  metadata?: string;
+  resolved?: boolean;
+  resolved_at?: string;
+  released?: boolean;
+}
+
+// Policy pack configuration
+export interface PolicyPackConfig {
+  pack_id: string;
+  name: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  version?: string;
+  description?: string;
+}
+
+// Router types
+export interface FeatureVector {
+  adapter_id: string;
+  features: number[];
+  normalized?: boolean;
+  dimension?: number;
+}
+
+export interface RouterCandidateInfo {
+  adapter_id: string;
+  adapter_idx: number;
+  gate_q15: number;
+  gate_float: number;
+  raw_score: number;
+  selected: boolean;
+  rank?: number;
+  score?: number;
+}
+
+// Audit log entry
+export interface AuditLog {
+  id: string;
+  user_id: string;
+  action: string;
+  resource: string;
+  resource_id?: string;
+  status: 'success' | 'failure' | 'error';
+  timestamp: string;
+  ip_address?: string;
+  user_agent?: string;
+  details?: Record<string, unknown>;
+  tenant_id?: string;
+  session_id?: string;
+}
+
+export interface AuditLogFilters {
+  action?: string;
+  user_id?: string;
+  resource?: string;
+  status?: string;
+  start_time?: string;
+  end_time?: string;
+  limit?: number;
+  offset?: number;
+  tenant_id?: string;
+}
+
+// Isolation test types
+export interface IsolationTestScenario {
+  id: string;
+  name: string;
+  description: string;
+  category: 'tenant' | 'memory' | 'network' | 'filesystem';
+}
+
+export interface IsolationTestResult {
+  scenario_id: string;
+  passed: boolean;
+  message: string;
+  duration_ms: number;
+  timestamp: string;
+  details?: Record<string, unknown>;
+}
+
+// Threat monitoring types
+export interface AnomalyDetectionStatus {
+  enabled: boolean;
+  last_scan: string;
+  anomalies_detected: number;
+  model_version: string;
+}
+
+export interface AccessPattern {
+  hour: number;
+  count: number;
+  anomaly_score: number;
+}
+
+// Inference trace for observability
+export interface InferenceTrace {
+  latency_ms: number;
+  router_decisions?: Array<{
+    adapter: string;
+    score: number;
+    adapters?: string[];
+    latency_ms?: number;
+    // Per-token routing decision properties
+    step?: number;
+    token_idx?: number;
+    input_token_id?: number;
+    entropy?: number;
+    tau?: number;
+    entropy_floor?: number;
+    candidate_adapters?: Array<{
+      adapter_idx: number;
+      raw_score: number;
+      gate_q15: number;
+    }> | string[];
+    gates?: number[];
+    stack_hash?: string;
+  }>;
+  evidence_spans?: Array<{
+    text: string;
+    relevance: number;
+    source?: string;
+    // Evidence span identification
+    doc_id?: string;
+    span_hash?: string;
+  }>;
+  steps?: Array<{
+    adapter: string;
+    latency_ms: number;
+    tokens: number;
+  }>;
 }

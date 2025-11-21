@@ -139,7 +139,7 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
     <div className="space-y-4">
       <h3 className="font-semibold">Cursor Configuration Steps</h3>
       <ol className="list-decimal list-inside space-y-2">
-        {config?.setup_instructions.map((instruction, idx) => (
+        {config?.setup_instructions?.split('\n').map((instruction, idx) => (
           <li key={idx} className="text-sm">{instruction}</li>
         ))}
       </ol>

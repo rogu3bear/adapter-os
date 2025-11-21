@@ -166,9 +166,11 @@ async fn setup_real_state() -> AppState {
     let jwt_secret = vec![0u8; 32]; // Test secret
     let config = Arc::new(RwLock::new(ApiConfig::default()));
     let metrics_exporter = Arc::new(MetricsExporter::default());
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new().unwrap());
+    let metrics_registry = Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new(metrics_collector.clone()));
     let uma_monitor = Arc::new(UmaPressureMonitor::new());
 
-    AppState::new(db, jwt_secret, config, metrics_exporter, uma_monitor)
+    AppState::new(db, jwt_secret, config, metrics_exporter, metrics_collector, metrics_registry, uma_monitor)
 }
 
 async fn run_baseline_real(server: &TestServer) -> f64 {

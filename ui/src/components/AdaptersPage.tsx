@@ -154,7 +154,7 @@ function AdaptersPageContent() {
 
       {operationError && (
         <ErrorRecovery
-          error={operationError}
+          error={typeof operationError === 'string' ? operationError : String(operationError)}
           onRetry={clearOperationError || (() => {})}
         />
       )}
@@ -304,7 +304,7 @@ function AdaptersPageContent() {
                           {/* Load/Unload actions */}
                           <DropdownMenuItem
                             onClick={() => loadAdapter?.(adapter.id)}
-                            disabled={!canLoad || adapter.current_state === 'Resident'}
+                            disabled={!canLoad || adapter.current_state === 'resident'}
                             title={!canLoad ? 'Requires adapter:load permission' : 'Load adapter into memory'}
                           >
                             <Power className="mr-2 h-4 w-4" />
@@ -313,7 +313,7 @@ function AdaptersPageContent() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => unloadAdapter?.(adapter.id)}
-                            disabled={!canUnload || adapter.current_state === 'Unloaded'}
+                            disabled={!canUnload || adapter.current_state === 'unloaded'}
                             title={!canUnload ? 'Requires adapter:unload permission' : 'Unload adapter from memory'}
                           >
                             <PowerOff className="mr-2 h-4 w-4" />

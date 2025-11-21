@@ -69,8 +69,8 @@ function mapComplianceControlToStatus(control: ComplianceControl): ComplianceSta
     controlName: control.control_name,
     status,
     lastChecked: control.last_checked,
-    evidence: control.evidence,
-    findings: control.findings
+    evidence: Array.isArray(control.evidence) ? control.evidence : [control.evidence],
+    findings: Array.isArray(control.findings) ? control.findings : [control.findings]
   };
 }
 

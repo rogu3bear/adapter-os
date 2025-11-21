@@ -24,6 +24,7 @@ interface PromotionProps {
 export function Promotion({ user, selectedTenant }: PromotionProps) {
   const { can } = useRBAC();
   const [cpid, setCpid] = useState('');
+  const [planId, setPlanId] = useState('');
   const [gates, setGates] = useState<any[]>([]);
   const [dryRunResult, setDryRunResult] = useState<any | null>(null);
   const [history, setHistory] = useState<any[]>([]);
@@ -159,12 +160,13 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
   const handlePromote = async () => {
     setLoading(true);
     try {
-      await apiClient.promote({ cpid });
+      await apiClient.promote({ tenant_id: selectedTenant, cpid, plan_id: planId });
       setStatusMessage({ message: 'Promoted successfully.', variant: 'success' });
       logger.info('Promotion: promote executed', {
         component: 'Promotion',
         tenantId: selectedTenant,
         cpid,
+        planId,
       });
       fetchHistory();
     } catch (err) {
@@ -178,7 +180,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       );
       logger.error(
         'Promotion: promote failed',
-        { component: 'Promotion', tenantId: selectedTenant, cpid },
+        { component: 'Promotion', tenantId: selectedTenant, cpid, planId },
         toError(err),
       );
     } finally {
@@ -270,6 +272,13 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
               <HelpTooltip helpId="promotion-cpid" />
             </Label>
             <Input value={cpid} onChange={(e) => setCpid(e.target.value)} />
+          </div>
+          <div>
+            <Label className="flex items-center gap-1">
+              Plan ID
+              <HelpTooltip helpId="promotion-plan-id" />
+            </Label>
+            <Input value={planId} onChange={(e) => setPlanId(e.target.value)} />
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button onClick={handleDryRun} disabled={loading || !canView}>

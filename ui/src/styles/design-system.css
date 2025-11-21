@@ -24,38 +24,8 @@
   --chart-3: 197 37% 24%;
   --chart-4: 43 74% 66%;
   --chart-5: 27 87% 67%;
+}
 
-  --gray-50: 249 250 251;
-  --gray-100: 243 244 246;
-  --gray-200: 229 231 235;
-  --gray-300: 209 213 219;
-  --gray-400: 156 163 175;
-  --gray-500: 107 114 128;
-  --gray-600: 75 85 99;
-  --gray-700: 55 65 81;
-  --gray-800: 31 41 55;
-  --gray-900: 17 24 39;
-  --gray-950: 3 7 18;
-
-  --green-50: 240 253 244;
-  --green-100: 220 252 231;
-  --green-200: 187 247 208;
-  --green-300: 134 239 172;
-  --green-400: 74 222 128;
-  --green-500: 34 197 94;
-  --green-600: 22 163 74;
-  --green-700: 21 128 61;
-  --green-800: 22 101 52;
-  --green-950: 5 46 22;
-
-  --error: 0 84.2% 60.2%;
-  --success: 142.1 70.6% 45.3%;
-  --warning: 43.9 96.1% 72.2%;
-  --info: 221.2 83.2% 53.3%;
-
-  --surface-1: 0 0% 98%;
-  --surface-2: 0 0% 95%;
-  --surface-3: 0 0% 92%;
 /* AdapterOS Design System - Mathematical Visual System */
 
 /*
@@ -211,47 +181,6 @@
   --surface-1: var(--gray-0);
   --surface-2: #fafafa;
   --surface-3: #f5f5f5;
-  /* ===== SHADOWS ===== */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.12);
-  --shadow-lg: 0 12px 24px rgba(15, 23, 42, 0.16);
-
-  /* ===== COLOR SYSTEM ===== */
-  --gray-0: #ffffff;
-  --gray-100: #f7f8fb;
-  --gray-200: #e7e9f0;
-  --gray-300: #d2d6e0;
-  --gray-400: #a8afbd;
-  --gray-500: #788198;
-  --gray-600: #525a70;
-  --gray-700: #353c4f;
-  --gray-800: #1f2535;
-  --gray-900: #111827;
-
-  --accent-300: #a5b4fc;
-  --accent-400: #818cf8;
-  --accent-500: #6366f1;
-  --accent-600: #4f46e5;
-
-  --success: #10b981;
-  --success-surface: #ecfdf5;
-  --success-border: #a7f3d0;
-
-  --warning: #f59e0b;
-  --warning-surface: #fffbeb;
-  --warning-border: #fcd34d;
-
-  --error: #ef4444;
-  --error-surface: #fef2f2;
-  --error-border: #fecaca;
-
-  --info: #3b82f6;
-  --info-surface: #eff6ff;
-  --info-border: #bfdbfe;
-
-  --surface-1: var(--gray-0);
-  --surface-2: #f3f4f9;
-  --surface-3: #e8eaf3;
 
   /* Semantic aliases for legacy usage */
   --status-success: var(--success);
@@ -287,10 +216,12 @@
 /* Dark mode overrides */
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Invert surfaces and grays */
+    /* Surfaces - dark backgrounds */
     --surface-1: #171717;
     --surface-2: #262626;
     --surface-3: #404040;
+
+    /* Gray scale - inverted for dark mode */
     --gray-0: #fafafa;
     --gray-100: #f5f5f5;
     --gray-200: #e5e5e5;
@@ -302,52 +233,40 @@
     --gray-800: #262626;
     --gray-900: #171717;
 
-  --gray-50: 249 250 251;
-  --gray-100: 243 244 246;
-  --gray-200: 229 231 235;
-  --gray-300: 209 213 219;
-  --gray-400: 156 163 175;
-  --gray-500: 107 114 128;
-  --gray-600: 75 85 99;
-  --gray-700: 55 65 81;
-  --gray-800: 31 41 55;
-  --gray-900: 17 24 39;
-  --gray-950: 3 7 18;
+    /* Accent colors - brighter for dark backgrounds */
+    --accent-300: #c4b5fd;
+    --accent-400: #a78bfa;
+    --accent-500: #8b5cf6;
+    --accent-600: #7c3aed;
 
-  --green-50: 240 253 244;
-  --green-100: 220 252 231;
-  --green-200: 187 247 208;
-  --green-300: 134 239 172;
-  --green-400: 74 222 128;
-  --green-500: 34 197 94;
-  --green-600: 22 163 74;
-  --green-700: 21 128 61;
-  --green-800: 22 101 52;
-  --green-950: 5 46 22;
+    /* Status colors - adjusted for dark mode contrast */
+    --success: #34d399;
+    --success-surface: #064e3b;
+    --success-border: #059669;
 
-  --error: 0 62.8% 30.6%;
-  --success: 142.1 70.6% 45.3%;
-  --warning: 43.9 96.1% 72.2%;
-  --info: 221.2 83.2% 53.3%;
+    --warning: #fbbf24;
+    --warning-surface: #78350f;
+    --warning-border: #d97706;
 
-  --surface-1: 222.2 47.4% 11.2%;
-  --surface-2: 222.2 47.4% 15%;
-  --surface-3: 222.2 47.4% 18%;
+    --error: #f87171;
+    --error-surface: #7f1d1d;
+    --error-border: #dc2626;
 
-  --card-radius: 0.5rem;
-  --transition-base: 0.2s;
-  --transition-timing: ease-out;
-}
+    --info: #60a5fa;
+    --info-surface: #1e3a5f;
+    --info-border: #2563eb;
 
-/* Reduced motion for accessibility */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-snap-type: none !important;
+    /* Chart colors - optimized for dark backgrounds */
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 49%;
+    --chart-3: 197 47% 44%;
+    --chart-4: 43 84% 66%;
+    --chart-5: 27 87% 67%;
+
+    /* Shadows - lighter for dark mode */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -361,6 +280,7 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+    scroll-snap-type: none !important;
   }
 }
 

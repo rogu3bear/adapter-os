@@ -14,6 +14,10 @@
 //! 4. **Replay Capability**: Can reconstruct identical execution from event logs
 //! 5. **HKDF Seeding**: All randomness derived from global seed via HKDF labels
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::await_holding_lock)]
+
 pub mod channel;
 pub mod cpu_affinity;
 pub mod global_ledger;

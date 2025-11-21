@@ -7,6 +7,15 @@
 //! - Metal Performance Shaders: https://developer.apple.com/documentation/metalperformanceshaders
 //! - Metal Shading Language: https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf
 
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::identity_op)]
+
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
 
@@ -15,6 +24,9 @@ use metal::*;
 
 #[cfg(target_os = "macos")]
 use rand::{Rng, SeedableRng};
+
+#[cfg(target_os = "macos")]
+use safetensors::SafeTensors;
 
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
@@ -27,15 +39,19 @@ pub mod compute_shaders;
 pub mod debug;
 pub mod fused_mlp;
 pub mod fused_qkv;
+pub mod gpu_memory_pool;
 pub mod keys;
+pub mod kv_cache;
 pub mod layout;
 pub mod manifest;
+pub mod memory_integration;
 pub mod metal3x;
 pub mod mplora;
 pub mod noise_tracker;
 pub mod optimization;
 pub mod recovery;
 pub mod ring_buffer;
+pub mod rms_norm;
 pub mod vision_kernels;
 pub mod vram;
 
@@ -55,6 +71,7 @@ pub use compute_shaders::{ComputeShaderDescriptor, ComputeShaderRegistry, Shader
 pub use debug::{KernelDebugger, KernelParams};
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
+pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, LayerKVCache};
 pub use layout::LayoutValidator;
 pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use mplora::MploraKernel;
@@ -62,11 +79,22 @@ pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
 pub use optimization::{KernelOptimizationPlan, KernelOptimizer, KernelPerformanceMetrics};
 pub use recovery::RecoveryWrapper;
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
+pub use rms_norm::{RmsNormConfig, RmsNormKernel};
 pub use vision_kernels::{
     MetalImageTensor, MetalImageTensorOwned, MetalVisionActivation, MetalVisionArchitecture,
     MetalVisionKernelConfig, MetalVisionPooling, VisionKernelBundle,
 };
 pub use vram::VramTracker;
+
+// GPU memory management exports
+pub use gpu_memory_pool::{
+    GpuMemoryPool, GpuMemoryPoolConfig, GpuMemoryStats, MemoryPressureCallback,
+    MemoryPressureEvent,
+};
+pub use memory_integration::{
+    GpuMemoryEventType, GpuMemoryManager, GpuMemoryReport, GpuMemoryStatsSnapshot,
+    GpuMemoryTelemetryEvent, TelemetrySink,
+};
 
 /// Embedding dimensions for Metal inference
 #[derive(Debug, Clone)]
@@ -91,7 +119,20 @@ pub struct TransformerWeights {
 /// Language modeling head weights for vocabulary projection
 #[derive(Debug)]
 pub struct LmHeadWeights {
-    pub weight: Buffer, // [hidden_size, vocab_size]
+    pub weight: Buffer, // [vocab_size, hidden_size] - transposed for efficient access
+    pub bias: Option<Buffer>, // [vocab_size] - optional bias term
+    pub vocab_size: usize,
+    pub hidden_size: usize,
+}
+
+/// Configuration for vocabulary projection kernel (matches Metal struct)
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VocabProjectionConfig {
+    pub hidden_size: u32,
+    pub vocab_size: u32,
+    pub batch_size: u32,
+    pub use_bias: u32,
 }
 
 /// GPU-resident adapter weights for hot-swappable LoRA adapters
@@ -174,6 +215,8 @@ pub struct MetalKernels {
     lm_head_pipeline: Option<ComputePipelineState>,
     // Hot-swappable adapter weights indexed by adapter_id
     adapter_weights: HashMap<u16, AdapterWeights>,
+    // GPU memory pool for buffer reuse
+    memory_pool: Option<GpuMemoryPool>,
 }
 
 // Safety: Metal objects are thread-safe
@@ -199,9 +242,16 @@ impl MetalKernels {
 
         let device = Self::select_device()?;
         let queue = device.new_command_queue();
+        let device_arc = Arc::new(device);
+
+        // Initialize GPU memory pool with default config
+        let memory_pool = GpuMemoryPool::new(
+            Arc::clone(&device_arc),
+            GpuMemoryPoolConfig::default(),
+        );
 
         Ok(Self {
-            device: Arc::new(device),
+            device: device_arc,
             _queue: queue,
             library: None,
             mlp_kernel: None,
@@ -220,6 +270,7 @@ impl MetalKernels {
             lm_head_weights: None,
             lm_head_pipeline: None,
             adapter_weights: HashMap::new(),
+            memory_pool: Some(memory_pool),
         })
     }
 
@@ -291,6 +342,57 @@ impl MetalKernels {
     /// Get mutable noise tracker
     pub fn noise_tracker_mut(&mut self) -> &mut NoiseTracker {
         &mut self.noise_tracker
+    }
+
+    /// Get GPU memory pool reference
+    pub fn memory_pool(&self) -> Option<&GpuMemoryPool> {
+        self.memory_pool.as_ref()
+    }
+
+    /// Get GPU memory pool stats
+    pub fn memory_pool_stats(&self) -> Option<GpuMemoryStats> {
+        self.memory_pool.as_ref().map(|p| p.stats())
+    }
+
+    /// Handle memory pressure by freeing pooled buffers
+    pub fn handle_memory_pressure(&self, bytes_to_free: u64) -> u64 {
+        match &self.memory_pool {
+            Some(pool) => pool.handle_memory_pressure(bytes_to_free),
+            None => 0,
+        }
+    }
+
+    /// Cleanup idle buffers in the memory pool
+    pub fn cleanup_idle_buffers(&self) -> u64 {
+        match &self.memory_pool {
+            Some(pool) => pool.cleanup_idle_buffers(),
+            None => 0,
+        }
+    }
+
+    /// Clear the entire memory pool
+    pub fn clear_memory_pool(&self) {
+        if let Some(pool) = &self.memory_pool {
+            pool.clear_pool();
+        }
+    }
+
+    /// Get comprehensive memory report
+    pub fn memory_report(&self) -> GpuMemoryReport {
+        let pool_stats = self.memory_pool.as_ref()
+            .map(|p| p.stats())
+            .unwrap_or_default();
+        let pool_buckets = self.memory_pool.as_ref()
+            .map(|p| p.pool_info())
+            .unwrap_or_default();
+
+        GpuMemoryReport {
+            pool_stats,
+            pool_buckets,
+            adapter_count: self.vram_tracker.adapter_count(),
+            adapter_vram_total: self.vram_tracker.get_total_vram(),
+            adapter_allocations: self.vram_tracker.get_all_allocations(),
+        }
     }
 
     /// Load library from embedded metallib with hash verification
@@ -383,37 +485,112 @@ impl MetalKernels {
             .map_err(|e| AosError::Kernel(format!("Failed to create pipeline: {}", e)))
     }
 
-    /// Parse embedding weights from plan bytes
+    /// Parse embedding weights from SafeTensors plan bytes
     ///
-    /// Plan bytes contain a serialized model structure with embedding weights.
+    /// Plan bytes contain a SafeTensors file with embedding weights.
     /// This method extracts the embedding matrix for Metal kernel execution.
     fn parse_embedding_weights(&self, plan_bytes: &[u8]) -> Result<Vec<f32>> {
-        // For now, create dummy embedding weights for testing
-        // In production, this would parse the actual plan structure
-        let vocab_size = 152064; // Qwen2.5-7B vocab size
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
+        // Parse SafeTensors format
+        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
+            AosError::Kernel(format!("Failed to parse SafeTensors: {}", e))
+        })?;
 
-        // Create deterministic embedding weights based on plan hash
-        let plan_hash = adapteros_core::B3Hash::hash(plan_bytes);
-        let hash_bytes = plan_hash.as_bytes();
-        let mut seed = [0u8; 32];
-        let copy_len = std::cmp::min(hash_bytes.len(), 32);
-        seed[..copy_len].copy_from_slice(&hash_bytes[..copy_len]);
-        let mut rng = rand::rngs::StdRng::from_seed(seed);
+        // Common embedding tensor names across different model architectures
+        let embedding_names = [
+            "model.embed_tokens.weight",      // LLaMA, Qwen, Mistral
+            "transformer.wte.weight",         // GPT-2, GPT-J
+            "embeddings.word_embeddings.weight", // BERT
+            "embed_tokens.weight",            // Shortened form
+            "wte.weight",                     // Shortened form
+        ];
 
-        let mut embedding_weights = Vec::with_capacity(vocab_size * hidden_size);
-        for _ in 0..vocab_size * hidden_size {
-            embedding_weights.push(rng.gen_range(-0.1..0.1));
-        }
+        // Find embedding tensor
+        let tensor = embedding_names
+            .iter()
+            .find_map(|name| tensors.tensor(name).ok())
+            .ok_or_else(|| {
+                let available: Vec<_> = tensors.names().into_iter().collect();
+                AosError::Kernel(format!(
+                    "Embedding tensor not found. Tried: {:?}. Available tensors: {:?}",
+                    embedding_names, available
+                ))
+            })?;
+
+        // Extract dimensions from tensor shape (before consuming tensor)
+        let shape = tensor.shape();
+        let (vocab_size, hidden_size) = if shape.len() == 2 {
+            (shape[0], shape[1])
+        } else {
+            return Err(AosError::Kernel(format!(
+                "Expected 2D embedding tensor, got shape: {:?}",
+                shape
+            )));
+        };
+
+        // Convert tensor data to f32
+        let embedding_weights = Self::tensor_to_f32(tensor)?;
 
         tracing::info!(
-            "Parsed embedding weights: {} tokens, {} dims, {} total params",
+            "Parsed embedding weights from SafeTensors: {} tokens, {} dims, {} total params",
             vocab_size,
             hidden_size,
             embedding_weights.len()
         );
 
         Ok(embedding_weights)
+    }
+
+    /// Convert SafeTensors tensor data to f32 vector
+    fn tensor_to_f32(tensor: safetensors::tensor::TensorView<'_>) -> Result<Vec<f32>> {
+        use safetensors::Dtype;
+
+        let data = tensor.data();
+
+        match tensor.dtype() {
+            Dtype::F32 => {
+                // Direct conversion from f32 bytes
+                if !data.len().is_multiple_of(4) {
+                    return Err(AosError::Kernel("Invalid f32 tensor data length".to_string()));
+                }
+                let floats: Vec<f32> = data
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect();
+                Ok(floats)
+            }
+            Dtype::F16 => {
+                // Convert from f16 to f32
+                if !data.len().is_multiple_of(2) {
+                    return Err(AosError::Kernel("Invalid f16 tensor data length".to_string()));
+                }
+                let floats: Vec<f32> = data
+                    .chunks_exact(2)
+                    .map(|chunk| {
+                        let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                        half::f16::from_bits(bits).to_f32()
+                    })
+                    .collect();
+                Ok(floats)
+            }
+            Dtype::BF16 => {
+                // Convert from bf16 to f32
+                if !data.len().is_multiple_of(2) {
+                    return Err(AosError::Kernel("Invalid bf16 tensor data length".to_string()));
+                }
+                let floats: Vec<f32> = data
+                    .chunks_exact(2)
+                    .map(|chunk| {
+                        let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                        half::bf16::from_bits(bits).to_f32()
+                    })
+                    .collect();
+                Ok(floats)
+            }
+            dtype => Err(AosError::Kernel(format!(
+                "Unsupported tensor dtype: {:?}. Expected F32, F16, or BF16",
+                dtype
+            ))),
+        }
     }
 
     /// Create Metal buffer for embedding weights
@@ -459,24 +636,46 @@ impl MetalKernels {
         Ok(())
     }
 
-    /// Parse LM head weights from plan bytes
+    /// Parse LM head weights from SafeTensors plan bytes
     fn parse_lm_head_weights(&self, plan_bytes: &[u8]) -> Result<LmHeadWeights> {
-        // For now, create deterministic weights for testing
-        // In production, this would parse the actual plan structure
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let vocab_size = 152064; // Qwen2.5-7B vocab size
+        // Parse SafeTensors format
+        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
+            AosError::Kernel(format!("Failed to parse SafeTensors: {}", e))
+        })?;
 
-        let plan_hash = adapteros_core::B3Hash::hash(plan_bytes);
-        let hash_bytes = plan_hash.as_bytes();
-        let mut seed = [0u8; 32];
-        let copy_len = std::cmp::min(hash_bytes.len(), 32);
-        seed[..copy_len].copy_from_slice(&hash_bytes[..copy_len]);
-        let mut rng = rand::rngs::StdRng::from_seed(seed);
+        // Common LM head tensor names across different model architectures
+        let lm_head_names = [
+            "lm_head.weight",                 // LLaMA, Qwen, Mistral
+            "transformer.lm_head.weight",     // GPT-J
+            "cls.predictions.decoder.weight", // BERT
+            "output.weight",                  // Shortened form
+        ];
 
-        let mut lm_head_weight = vec![0.0f32; hidden_size * vocab_size];
-        for w in lm_head_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        // Find LM head tensor
+        let tensor = lm_head_names
+            .iter()
+            .find_map(|name| tensors.tensor(name).ok())
+            .ok_or_else(|| {
+                let available: Vec<_> = tensors.names().into_iter().collect();
+                AosError::Kernel(format!(
+                    "LM head tensor not found. Tried: {:?}. Available tensors: {:?}",
+                    lm_head_names, available
+                ))
+            })?;
+
+        // Extract dimensions from tensor shape (before consuming tensor)
+        let shape = tensor.shape();
+        let (vocab_size, hidden_size) = if shape.len() == 2 {
+            (shape[0], shape[1])
+        } else {
+            return Err(AosError::Kernel(format!(
+                "Expected 2D LM head tensor, got shape: {:?}",
+                shape
+            )));
+        };
+
+        // Convert tensor data to f32
+        let lm_head_weight = Self::tensor_to_f32(tensor)?;
 
         // Create Metal buffer
         let lm_head_buffer = self.device.new_buffer_with_data(
@@ -485,69 +684,129 @@ impl MetalKernels {
             MTLResourceOptions::StorageModeShared,
         );
 
+        // Look for optional bias
+        let bias_names = [
+            "lm_head.bias",
+            "transformer.lm_head.bias",
+            "cls.predictions.decoder.bias",
+            "output.bias",
+        ];
+
+        let bias_buffer = bias_names
+            .iter()
+            .find_map(|name| tensors.tensor(name).ok())
+            .and_then(|bias_tensor| {
+                let bias_data = Self::tensor_to_f32(bias_tensor).ok()?;
+                if bias_data.len() != vocab_size {
+                    tracing::warn!(
+                        "Bias size {} doesn't match vocab_size {}, ignoring bias",
+                        bias_data.len(),
+                        vocab_size
+                    );
+                    return None;
+                }
+                Some(self.device.new_buffer_with_data(
+                    bias_data.as_ptr() as *const std::ffi::c_void,
+                    (bias_data.len() * std::mem::size_of::<f32>()) as u64,
+                    MTLResourceOptions::StorageModeShared,
+                ))
+            });
+
         tracing::info!(
-            "Parsed LM head weights: {}x{}, {} total params",
-            hidden_size,
+            "Parsed LM head weights from SafeTensors: {}x{}, {} total params, bias={}",
             vocab_size,
-            lm_head_weight.len()
+            hidden_size,
+            lm_head_weight.len(),
+            bias_buffer.is_some()
         );
 
         Ok(LmHeadWeights {
             weight: lm_head_buffer,
+            bias: bias_buffer,
+            vocab_size,
+            hidden_size,
         })
     }
 
-    /// Parse transformer weights from plan bytes
+    /// Parse transformer weights from SafeTensors plan bytes
+    ///
+    /// Loads weights for layer 0 (first transformer block) from the SafeTensors file.
+    /// For a full implementation, this would iterate over all layers.
     fn parse_transformer_weights(&self, plan_bytes: &[u8]) -> Result<TransformerWeights> {
-        // For now, create deterministic weights for testing
-        // In production, this would parse the actual plan structure
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let intermediate_size = 18944; // Qwen2.5-7B intermediate size
+        // Parse SafeTensors format
+        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
+            AosError::Kernel(format!("Failed to parse SafeTensors: {}", e))
+        })?;
 
-        let plan_hash = adapteros_core::B3Hash::hash(plan_bytes);
-        let hash_bytes = plan_hash.as_bytes();
-        let mut seed = [0u8; 32];
-        let copy_len = std::cmp::min(hash_bytes.len(), 32);
-        seed[..copy_len].copy_from_slice(&hash_bytes[..copy_len]);
-        let mut rng = rand::rngs::StdRng::from_seed(seed);
+        // Load layer 0 weights (can be extended to load all layers)
+        let layer_idx = 0;
 
-        // MLP weights
-        let gate_weight_size = hidden_size * intermediate_size;
-        let mut gate_weight = vec![0.0f32; gate_weight_size];
-        for w in gate_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        // MLP weight tensor names for different architectures
+        let gate_names = [
+            format!("model.layers.{}.mlp.gate_proj.weight", layer_idx), // LLaMA, Qwen
+            format!("transformer.h.{}.mlp.c_fc.weight", layer_idx),     // GPT-2
+            format!("model.layers.{}.mlp.w1.weight", layer_idx),        // Alternative
+        ];
+        let up_names = [
+            format!("model.layers.{}.mlp.up_proj.weight", layer_idx),   // LLaMA, Qwen
+            format!("transformer.h.{}.mlp.c_fc2.weight", layer_idx),    // GPT-J style
+            format!("model.layers.{}.mlp.w3.weight", layer_idx),        // Alternative
+        ];
+        let down_names = [
+            format!("model.layers.{}.mlp.down_proj.weight", layer_idx), // LLaMA, Qwen
+            format!("transformer.h.{}.mlp.c_proj.weight", layer_idx),   // GPT-2
+            format!("model.layers.{}.mlp.w2.weight", layer_idx),        // Alternative
+        ];
 
-        let up_weight_size = hidden_size * intermediate_size;
-        let mut up_weight = vec![0.0f32; up_weight_size];
-        for w in up_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        // QKV weight tensor names
+        let q_names = [
+            format!("model.layers.{}.self_attn.q_proj.weight", layer_idx), // LLaMA, Qwen
+            format!("transformer.h.{}.attn.q_proj.weight", layer_idx),     // GPT-J
+        ];
+        let k_names = [
+            format!("model.layers.{}.self_attn.k_proj.weight", layer_idx), // LLaMA, Qwen
+            format!("transformer.h.{}.attn.k_proj.weight", layer_idx),     // GPT-J
+        ];
+        let v_names = [
+            format!("model.layers.{}.self_attn.v_proj.weight", layer_idx), // LLaMA, Qwen
+            format!("transformer.h.{}.attn.v_proj.weight", layer_idx),     // GPT-J
+        ];
 
-        let down_weight_size = intermediate_size * hidden_size;
-        let mut down_weight = vec![0.0f32; down_weight_size];
-        for w in down_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        // Helper to find tensor by name variants
+        let find_tensor = |names: &[String]| -> Result<safetensors::tensor::TensorView<'_>> {
+            names
+                .iter()
+                .find_map(|name| tensors.tensor(name).ok())
+                .ok_or_else(|| {
+                    let available: Vec<_> = tensors.names().into_iter().collect();
+                    AosError::Kernel(format!(
+                        "Tensor not found. Tried: {:?}. Available: {:?}",
+                        names, available
+                    ))
+                })
+        };
 
-        // QKV weights
-        let q_weight_size = hidden_size * hidden_size;
-        let mut q_weight = vec![0.0f32; q_weight_size];
-        for w in q_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        // Load MLP weights
+        let gate_tensor = find_tensor(&gate_names)?;
+        let gate_shape = gate_tensor.shape().to_vec();
+        let gate_weight = Self::tensor_to_f32(gate_tensor)?;
 
-        let k_weight_size = hidden_size * (hidden_size / 8); // GQA: 4 KV heads
-        let mut k_weight = vec![0.0f32; k_weight_size];
-        for w in k_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        let up_tensor = find_tensor(&up_names)?;
+        let up_weight = Self::tensor_to_f32(up_tensor)?;
 
-        let v_weight_size = hidden_size * (hidden_size / 8); // GQA: 4 KV heads
-        let mut v_weight = vec![0.0f32; v_weight_size];
-        for w in v_weight.iter_mut() {
-            *w = rng.gen_range(-0.1..0.1);
-        }
+        let down_tensor = find_tensor(&down_names)?;
+        let down_weight = Self::tensor_to_f32(down_tensor)?;
+
+        // Load QKV weights
+        let q_tensor = find_tensor(&q_names)?;
+        let q_shape = q_tensor.shape().to_vec();
+        let q_weight = Self::tensor_to_f32(q_tensor)?;
+
+        let k_tensor = find_tensor(&k_names)?;
+        let k_weight = Self::tensor_to_f32(k_tensor)?;
+
+        let v_tensor = find_tensor(&v_names)?;
+        let v_weight = Self::tensor_to_f32(v_tensor)?;
 
         // Create Metal buffers
         let gate_buffer = self.device.new_buffer_with_data(
@@ -587,10 +846,11 @@ impl MetalKernels {
         );
 
         tracing::info!(
-            "Parsed transformer weights: hidden={}, intermediate={}, qkv_params={}",
-            hidden_size,
-            intermediate_size,
-            q_weight_size + k_weight_size + v_weight_size
+            "Parsed transformer weights from SafeTensors (layer {}): gate={:?}, q={:?}, total params={}",
+            layer_idx,
+            gate_shape,
+            q_shape,
+            gate_weight.len() + up_weight.len() + down_weight.len() + q_weight.len() + k_weight.len() + v_weight.len()
         );
 
         Ok(TransformerWeights {
@@ -713,17 +973,36 @@ impl MetalKernels {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        // Copy results back to io buffers
-        // For now, use deterministic values based on input
-        let total_gate_weight: f32 = 1.0; // Placeholder
-        let base_logit = total_gate_weight * 0.1;
-        for (idx, logit) in io.output_logits.iter_mut().enumerate() {
-            *logit = base_logit * ((idx % 100) as f32) * 0.01;
+        // Check for GPU errors
+        if command_buffer.status() == MTLCommandBufferStatus::Error {
+            return Err(AosError::Kernel(
+                "Embedding lookup kernel execution failed".to_string(),
+            ));
+        }
+
+        // Copy results from GPU buffer to intermediate buffers
+        let intermediate_buffers = self
+            .intermediate_buffers
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Intermediate buffers not initialized".to_string()))?;
+
+        // Read hidden states from GPU and copy to intermediate buffer
+        let result_hidden_states = self.safe_read_floats_from_buffer(&hidden_buffer, hidden_states.len())?;
+
+        // Copy to the intermediate hidden_states buffer for use by transformer layers
+        unsafe {
+            let dst_ptr = intermediate_buffers.hidden_states.contents() as *mut f32;
+            std::ptr::copy_nonoverlapping(
+                result_hidden_states.as_ptr(),
+                dst_ptr,
+                result_hidden_states.len(),
+            );
         }
 
         tracing::debug!(
-            "Embedding lookup completed for {} tokens",
-            io.input_ids.len()
+            num_tokens = io.input_ids.len(),
+            hidden_size = hidden_size,
+            "Embedding lookup completed"
         );
         Ok(())
     }
@@ -810,8 +1089,7 @@ impl MetalKernels {
         //
         // ✅ DONE (Phase 2.1/2.2): Updated kernel execute() signatures to accept &[&AdapterWeights]
         // ✅ DONE (Phase 2.3): Wired adapter_weight_refs to kernel execute() calls
-        // ⏸️ TODO (Phase 2.4): Update Metal shaders to use actual weight buffers
-        //    Currently kernels receive weights but shaders still use LoraConfig workaround
+        // ✅ DONE (Phase 2.4): LoRA A/B weight buffers set on encoder (buffers 8-13) in fused_mlp.rs and fused_qkv.rs
 
         tracing::debug!(
             num_adapters = adapters.len(),
@@ -823,9 +1101,19 @@ impl MetalKernels {
     }
 
     /// Perform vocabulary projection using Metal kernels
+    ///
+    /// Computes: logits = hidden_state @ lm_head_weight^T + bias
+    ///
+    /// This is the final layer that projects hidden states from the last transformer
+    /// layer to vocabulary logits for next token prediction.
+    ///
+    /// Optimization strategies:
+    /// - Uses tiled kernel for large vocabularies (>32K tokens)
+    /// - Batched processing for multiple sequences
+    /// - Memory-efficient with shared memory tiling
     fn perform_vocabulary_projection(
         &self,
-        adapters: &[ActiveAdapter],
+        _adapters: &[ActiveAdapter],
         io: &mut IoBuffers,
     ) -> Result<()> {
         let lm_head_weights = self
@@ -838,30 +1126,41 @@ impl MetalKernels {
             .as_ref()
             .ok_or_else(|| AosError::Kernel("LM head pipeline not initialized".to_string()))?;
 
-        // Get the final hidden states from transformer layers
-        // For now, assume we have hidden states from the transformer computation
-        // In production, this would be the output from the last transformer layer
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let vocab_size = 152064; // Qwen2.5-7B vocab size
+        let intermediate_buffers = self
+            .intermediate_buffers
+            .as_ref()
+            .ok_or_else(|| AosError::Kernel("Intermediate buffers not initialized".to_string()))?;
 
-        // Create dummy hidden states for testing (in production, this comes from transformer)
-        let mut hidden_states = vec![0.0f32; hidden_size];
-        for (i, val) in hidden_states.iter_mut().enumerate() {
-            *val = (i as f32 * 0.001) % 1.0; // Deterministic pattern
+        let vocab_size = lm_head_weights.vocab_size;
+        let hidden_size = lm_head_weights.hidden_size;
+        let batch_size = 1; // Single token inference for autoregressive generation
+
+        // Validate output buffer size
+        if io.output_logits.len() < vocab_size * batch_size {
+            return Err(AosError::Kernel(format!(
+                "Output logits buffer too small: need {}, got {}",
+                vocab_size * batch_size,
+                io.output_logits.len()
+            )));
         }
 
-        // Create Metal buffer for hidden states
-        let hidden_buffer = self.device.new_buffer_with_data(
-            hidden_states.as_ptr() as *const std::ffi::c_void,
-            (hidden_states.len() * std::mem::size_of::<f32>()) as u64,
+        // Create output buffer for logits
+        let logits_buffer = self.device.new_buffer(
+            (vocab_size * batch_size * std::mem::size_of::<f32>()) as u64,
             MTLResourceOptions::StorageModeShared,
         );
 
-        // Create output buffer for logits
-        let mut logits = vec![0.0f32; vocab_size];
-        let logits_buffer = self.device.new_buffer_with_data(
-            logits.as_mut_ptr() as *const std::ffi::c_void,
-            (logits.len() * std::mem::size_of::<f32>()) as u64,
+        // Create configuration buffer
+        let config = VocabProjectionConfig {
+            hidden_size: hidden_size as u32,
+            vocab_size: vocab_size as u32,
+            batch_size: batch_size as u32,
+            use_bias: if lm_head_weights.bias.is_some() { 1 } else { 0 },
+        };
+
+        let config_buffer = self.device.new_buffer_with_data(
+            &config as *const VocabProjectionConfig as *const std::ffi::c_void,
+            std::mem::size_of::<VocabProjectionConfig>() as u64,
             MTLResourceOptions::StorageModeShared,
         );
 
@@ -872,45 +1171,58 @@ impl MetalKernels {
         // Set compute pipeline state
         encoder.set_compute_pipeline_state(lm_head_pipeline);
 
-        // Set buffers
-        encoder.set_buffer(0, Some(&hidden_buffer), 0);
+        // Set buffers:
+        // 0: hidden_state (from last transformer layer MLP output)
+        // 1: lm_head_weight
+        // 2: bias (or nullptr)
+        // 3: output logits
+        // 4: config
+        encoder.set_buffer(0, Some(&intermediate_buffers.mlp_output), 0);
         encoder.set_buffer(1, Some(&lm_head_weights.weight), 0);
-        encoder.set_buffer(2, Some(&logits_buffer), 0);
 
-        // Dispatch vocabulary projection kernel
+        // Set bias buffer (Metal handles nullptr gracefully)
+        if let Some(ref bias) = lm_head_weights.bias {
+            encoder.set_buffer(2, Some(bias), 0);
+        }
+
+        encoder.set_buffer(3, Some(&logits_buffer), 0);
+        encoder.set_buffer(4, Some(&config_buffer), 0);
+
+        // Calculate dispatch dimensions for optimal GPU utilization
+        // Thread arrangement: each thread computes one vocabulary logit
+        // Threadgroup size: 256 threads (optimal for Apple Silicon)
         let threadgroup_size = MTLSize::new(256, 1, 1);
-        let threadgroup_count = MTLSize::new((vocab_size as u64).div_ceil(256), 1, 1);
+
+        // Grid arrangement: [batch_size, ceil(vocab_size / 256)]
+        // This allows efficient parallel computation across the large vocabulary
+        let num_vocab_groups = (vocab_size as u64).div_ceil(256);
+        let threadgroup_count = MTLSize::new(batch_size as u64, num_vocab_groups, 1);
+
         encoder.dispatch_thread_groups(threadgroup_count, threadgroup_size);
 
         encoder.end_encoding();
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
-        // Copy results back to io buffers
-        // Read back the logits from GPU
-        let logits_ptr = logits_buffer.contents() as *const f32;
-        for i in 0..vocab_size {
-            // SAFETY: logits_ptr is derived from Metal buffer contents() which is guaranteed
-            // to be valid for the buffer's lifetime. We validate bounds before this loop to ensure
-            // i never exceeds the allocated buffer size. Metal maintains proper alignment.
-            io.output_logits[i] = unsafe { *logits_ptr.add(i) };
+        // Check for GPU errors
+        if command_buffer.status() == MTLCommandBufferStatus::Error {
+            return Err(AosError::Kernel(
+                "Vocabulary projection kernel execution failed".to_string(),
+            ));
         }
 
-        // Apply adapter fusion scaling
-        let total_gate_weight: f32 = adapters
-            .iter()
-            .map(|a| (a.gate as f32) / 32768.0) // Convert Q15 to float
-            .sum();
-
-        for logit in io.output_logits.iter_mut() {
-            *logit *= total_gate_weight;
-        }
+        // Copy results back to io buffers using safe wrapper
+        let logits = self.safe_read_floats_from_buffer(&logits_buffer, vocab_size * batch_size)?;
+        io.output_logits[..logits.len()].copy_from_slice(&logits);
 
         tracing::debug!(
-            "Performed vocabulary projection with {} adapters, total gate weight: {}",
-            adapters.len(),
-            total_gate_weight
+            vocab_size = vocab_size,
+            hidden_size = hidden_size,
+            batch_size = batch_size,
+            has_bias = lm_head_weights.bias.is_some(),
+            "Vocabulary projection completed"
         );
+
         Ok(())
     }
 }
@@ -949,12 +1261,59 @@ impl FusedKernels for MetalKernels {
 
     /// Run a single token step
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        // For now, return an error indicating Metal kernel execution is not fully implemented
-        // This would need the full Metal shader pipeline to be compiled and loaded
-        Err(AosError::Kernel(
-            "Metal kernel inference not yet implemented - requires compiled Metal shaders"
-                .to_string(),
-        ))
+        // Validate that kernels are initialized
+        if self.mlp_kernel.is_none()
+            || self.qkv_kernel.is_none()
+            || self.flash_attention_kernel.is_none()
+        {
+            return Err(AosError::Kernel(
+                "Metal kernels not initialized - call load() first".to_string(),
+            ));
+        }
+
+        // Convert RouterRing to ActiveAdapter format for kernel execution
+        let adapters: Vec<ActiveAdapter> = (0..ring.k)
+            .map(|i| ActiveAdapter {
+                id: ring.indices[i],
+                gate: ring.gates_q15[i],
+            })
+            .collect();
+
+        // Update ring buffer with active adapters
+        if let Some(ref mut ring_buffer) = self.ring_buffer {
+            ring_buffer.update(&adapters)?;
+        } else {
+            return Err(AosError::Kernel("Ring buffer not initialized".to_string()));
+        }
+
+        // Update IO position from ring
+        io.position = ring.position;
+
+        tracing::debug!(
+            num_adapters = ring.k,
+            position = io.position,
+            input_tokens = io.input_ids.len(),
+            "Starting Metal inference step"
+        );
+
+        // Step 1: Embedding lookup (token IDs → hidden states)
+        self.perform_embedding_lookup(io)?;
+
+        // Step 2: Run transformer layers (QKV → Attention → MLP)
+        // This processes through all transformer layers with LoRA adapter fusion
+        self.run_transformer_layers(&adapters, io)?;
+
+        // Step 3: Vocabulary projection (hidden states → logits)
+        self.perform_vocabulary_projection(&adapters, io)?;
+
+        tracing::debug!(
+            num_adapters = ring.k,
+            position = io.position,
+            output_logits_len = io.output_logits.len(),
+            "Metal inference step completed"
+        );
+
+        Ok(())
     }
 
     /// Get device name

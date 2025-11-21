@@ -305,7 +305,7 @@ export const errorResponseSchema = z.object({
     .optional()
     .describe('Error code'),
 
-  details: z.union([z.string(), z.record(z.any())])
+  details: z.union([z.string(), z.record(z.string(), z.any())])
     .optional()
     .describe('Additional error details'),
 

@@ -16,6 +16,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-policy = { path = "../adapteros-policy" }
+adapteros-crypto = { path = "../adapteros-crypto" }
 
 # Workspace dependencies
 anyhow.workspace = true
@@ -38,3 +39,6 @@ clap.workspace = true
 rand = "0.8"
 uuid.workspace = true
 hostname.workspace = true
+blake3 = "1"
+hex = "0.4"
+ed25519-dalek = { workspace = true }

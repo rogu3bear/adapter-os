@@ -144,7 +144,7 @@ impl DeterminismReport {
             issues.push("Incremental compilation enabled".to_string());
         }
 
-        if self.environment_variables.get("RUSTC_WRAPPER").is_some() {
+        if self.environment_variables.contains_key("RUSTC_WRAPPER") {
             score -= 5.0;
             issues.push("Rustc wrapper detected (e.g., sccache)".to_string());
         }

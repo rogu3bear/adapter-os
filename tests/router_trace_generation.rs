@@ -7,6 +7,21 @@ use adapteros_lora_router::{Decision, Router, RouterWeights};
 use adapteros_telemetry::{RouterCandidate, RouterDecisionEvent, TelemetryWriter};
 use std::path::PathBuf;
 use tempfile::TempDir;
+/// Test configuration for router trace generation
+struct TestRouterConfig {
+    stack_id: String,
+    stack_version: String,
+}
+
+impl Default for TestRouterConfig {
+    fn default() -> Self {
+        Self {
+            // Generate a deterministic test UUID for reproducibility
+            stack_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            stack_version: "1.0.0".to_string(),
+        }
+    }
+}
 
 fn emit_router_event(
     telemetry: &TelemetryWriter,
@@ -14,6 +29,7 @@ fn emit_router_event(
     decision: &Decision,
     step: usize,
     input_token_id: Option<u32>,
+    config: &TestRouterConfig,
 ) {
     let candidate_adapters: Vec<RouterCandidate> = decision
         .candidates
@@ -33,8 +49,8 @@ fn emit_router_event(
         tau: router.temperature(),
         entropy_floor: router.entropy_floor(),
         stack_hash: router.stack_hash(),
-        stack_id: None,      // TODO: Pass from AppState in production
-        stack_version: None, // TODO: Pass from AppState in production
+        stack_id: Some(config.stack_id.clone()),
+        stack_version: Some(config.stack_version.clone()),
     };
 
     telemetry.log_router_decision(event).unwrap();
@@ -65,6 +81,9 @@ fn test_generate_router_trace() {
     ];
     router.set_active_stack(Some("code_stack".to_string()), Some(adapter_ids.clone()));
 
+    // Create test configuration with stack ID and version
+    let config = TestRouterConfig::default();
+
     // Simulate routing for multiple tokens
     // Each call to route() represents one token in the sequence
     let test_prompt = "def fibonacci(n): # Python code example";
@@ -88,7 +107,7 @@ fn test_generate_router_trace() {
     println!("  F32 gates: {:?}", decision_0.gates_f32());
     println!();
 
-    emit_router_event(&telemetry, &router, &decision_0, 0, Some(0));
+    emit_router_event(&telemetry, &router, &decision_0, 0, Some(0), &config);
 
     // Token 1: "fibonacci" - function name
     let features_token_1 = vec![
@@ -108,7 +127,7 @@ fn test_generate_router_trace() {
     println!("  F32 gates: {:?}", decision_1.gates_f32());
     println!();
 
-    emit_router_event(&telemetry, &router, &decision_1, 1, Some(1));
+    emit_router_event(&telemetry, &router, &decision_1, 1, Some(1), &config);
 
     // Token 2: "(" - syntax
     let features_token_2 = vec![
@@ -128,7 +147,7 @@ fn test_generate_router_trace() {
     println!("  F32 gates: {:?}", decision_2.gates_f32());
     println!();
 
-    emit_router_event(&telemetry, &router, &decision_2, 2, Some(2));
+    emit_router_event(&telemetry, &router, &decision_2, 2, Some(2), &config);
 
     // Token 3: "n" - parameter
     let features_token_3 = vec![
@@ -148,7 +167,7 @@ fn test_generate_router_trace() {
     println!("  F32 gates: {:?}", decision_3.gates_f32());
     println!();
 
-    emit_router_event(&telemetry, &router, &decision_3, 3, Some(3));
+    emit_router_event(&telemetry, &router, &decision_3, 3, Some(3), &config);
 
     // Token 4: "):" - syntax
     let features_token_4 = vec![
@@ -168,7 +187,7 @@ fn test_generate_router_trace() {
     println!("  F32 gates: {:?}", decision_4.gates_f32());
     println!();
 
-    emit_router_event(&telemetry, &router, &decision_4, 4, Some(4));
+    emit_router_event(&telemetry, &router, &decision_4, 4, Some(4), &config);
 
     // Wait a moment for telemetry to flush
     std::thread::sleep(std::time::Duration::from_millis(100));

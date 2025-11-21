@@ -50,8 +50,27 @@ class MemoryStorage implements Storage {
   setItem(key: string, value: string) { this.store.set(key, String(value)); }
 }
 
-if (!(globalThis as any).localStorage) (globalThis as any).localStorage = new MemoryStorage();
-if (!(globalThis as any).sessionStorage) (globalThis as any).sessionStorage = new MemoryStorage();
+// Check if localStorage works, otherwise replace with MemoryStorage
+try {
+  if (!(globalThis as any).localStorage) {
+    (globalThis as any).localStorage = new MemoryStorage();
+  } else {
+    // Test if it's accessible (jsdom may throw SecurityError)
+    (globalThis as any).localStorage.getItem('__test__');
+  }
+} catch {
+  (globalThis as any).localStorage = new MemoryStorage();
+}
+
+try {
+  if (!(globalThis as any).sessionStorage) {
+    (globalThis as any).sessionStorage = new MemoryStorage();
+  } else {
+    (globalThis as any).sessionStorage.getItem('__test__');
+  }
+} catch {
+  (globalThis as any).sessionStorage = new MemoryStorage();
+}
 
 // ResizeObserver stub
 if (!(globalThis as any).ResizeObserver) {
@@ -60,6 +79,23 @@ if (!(globalThis as any).ResizeObserver) {
     unobserve() {}
     disconnect() {}
   } as any;
+}
+
+// matchMedia stub
+if (!window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 }
 
 // scrollIntoView stub
@@ -101,6 +137,7 @@ const defaultApiMock = {
   subscribeToActivity: vi.fn(() => () => {}),
   listAlerts: vi.fn().mockResolvedValue([]),
   subscribeToAlerts: vi.fn(() => () => {}),
+  getStatus: vi.fn().mockResolvedValue({ status: 'healthy', services: {} }),
 };
 
 vi.mock('@/api/client', () => ({ __esModule: true, default: defaultApiMock, apiClient: defaultApiMock }));

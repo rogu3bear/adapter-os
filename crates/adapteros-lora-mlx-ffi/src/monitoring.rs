@@ -260,7 +260,7 @@ impl MLXMonitor {
             score -= 50.0;
         }
 
-        score.max(0.0).min(100.0)
+        score.clamp(0.0, 100.0)
     }
 
     /// Check for alerts based on health check result
@@ -268,81 +268,81 @@ impl MLXMonitor {
         let mut new_alerts = Vec::new();
 
         // Circuit breaker opened
-        if matches!(result.status, HealthStatus::Critical | HealthStatus::Down) {
-            if !self.has_active_alert(AlertType::CircuitBreakerOpened) {
-                new_alerts.push(Alert {
-                    alert_type: AlertType::CircuitBreakerOpened,
-                    severity: AlertSeverity::Critical,
-                    backend_name: result.backend_name.clone(),
-                    message: "MLX backend circuit breaker opened".to_string(),
-                    timestamp: Instant::now(),
-                    context: [
-                        (
-                            "failure_streak".to_string(),
-                            result.metrics.current_failure_streak.to_string(),
-                        ),
-                        (
-                            "success_rate".to_string(),
-                            format!("{:.1}", result.metrics.success_rate),
-                        ),
-                    ]
-                    .into(),
-                });
-            }
+        if matches!(result.status, HealthStatus::Critical | HealthStatus::Down)
+            && !self.has_active_alert(AlertType::CircuitBreakerOpened)
+        {
+            new_alerts.push(Alert {
+                alert_type: AlertType::CircuitBreakerOpened,
+                severity: AlertSeverity::Critical,
+                backend_name: result.backend_name.clone(),
+                message: "MLX backend circuit breaker opened".to_string(),
+                timestamp: Instant::now(),
+                context: [
+                    (
+                        "failure_streak".to_string(),
+                        result.metrics.current_failure_streak.to_string(),
+                    ),
+                    (
+                        "success_rate".to_string(),
+                        format!("{:.1}", result.metrics.success_rate),
+                    ),
+                ]
+                .into(),
+            });
         }
 
         // Backend down
-        if matches!(result.status, HealthStatus::Down) {
-            if !self.has_active_alert(AlertType::BackendDown) {
-                new_alerts.push(Alert {
-                    alert_type: AlertType::BackendDown,
-                    severity: AlertSeverity::Critical,
-                    backend_name: result.backend_name.clone(),
-                    message: "MLX backend is down".to_string(),
-                    timestamp: Instant::now(),
-                    context: [
-                        (
-                            "total_requests".to_string(),
-                            result.metrics.total_requests.to_string(),
-                        ),
-                        (
-                            "failed_requests".to_string(),
-                            result.metrics.failed_requests.to_string(),
-                        ),
-                    ]
-                    .into(),
-                });
-            }
+        if matches!(result.status, HealthStatus::Down)
+            && !self.has_active_alert(AlertType::BackendDown)
+        {
+            new_alerts.push(Alert {
+                alert_type: AlertType::BackendDown,
+                severity: AlertSeverity::Critical,
+                backend_name: result.backend_name.clone(),
+                message: "MLX backend is down".to_string(),
+                timestamp: Instant::now(),
+                context: [
+                    (
+                        "total_requests".to_string(),
+                        result.metrics.total_requests.to_string(),
+                    ),
+                    (
+                        "failed_requests".to_string(),
+                        result.metrics.failed_requests.to_string(),
+                    ),
+                ]
+                .into(),
+            });
         }
 
         // Low success rate
-        if result.metrics.success_rate < self.config.alert_thresholds.min_success_rate_percent {
-            if !self.has_active_alert(AlertType::SuccessRateLow) {
-                new_alerts.push(Alert {
-                    alert_type: AlertType::SuccessRateLow,
-                    severity: AlertSeverity::Warning,
-                    backend_name: result.backend_name.clone(),
-                    message: format!(
-                        "MLX backend success rate {:.1}% below threshold",
-                        result.metrics.success_rate
+        if result.metrics.success_rate < self.config.alert_thresholds.min_success_rate_percent
+            && !self.has_active_alert(AlertType::SuccessRateLow)
+        {
+            new_alerts.push(Alert {
+                alert_type: AlertType::SuccessRateLow,
+                severity: AlertSeverity::Warning,
+                backend_name: result.backend_name.clone(),
+                message: format!(
+                    "MLX backend success rate {:.1}% below threshold",
+                    result.metrics.success_rate
+                ),
+                timestamp: Instant::now(),
+                context: [
+                    (
+                        "success_rate".to_string(),
+                        format!("{:.1}", result.metrics.success_rate),
                     ),
-                    timestamp: Instant::now(),
-                    context: [
-                        (
-                            "success_rate".to_string(),
-                            format!("{:.1}", result.metrics.success_rate),
-                        ),
-                        (
-                            "threshold".to_string(),
-                            self.config
-                                .alert_thresholds
-                                .min_success_rate_percent
-                                .to_string(),
-                        ),
-                    ]
-                    .into(),
-                });
-            }
+                    (
+                        "threshold".to_string(),
+                        self.config
+                            .alert_thresholds
+                            .min_success_rate_percent
+                            .to_string(),
+                    ),
+                ]
+                .into(),
+            });
         }
 
         // Recovery alerts
@@ -533,6 +533,8 @@ mod tests {
                 last_failure: None,
                 circuit_breaker: crate::CircuitBreakerState::Closed,
             })),
+            model_path: std::path::PathBuf::new(),
+            tokenizer: None,
         }));
 
         let config = MonitoringConfig {

@@ -394,7 +394,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                   <TableCell className="p-4 border-b border-border font-medium">{plan.id}</TableCell>
                   <TableCell className="p-4 border-b border-border">{plan.cpid}</TableCell>
                   <TableCell className="p-4 border-b border-border">
-                    <Badge variant={plan.status === 'ready' ? 'default' : 'secondary'}>
+                    <Badge variant={plan.status === 'active' ? 'default' : 'secondary'}>
                       {plan.status}
                     </Badge>
                   </TableCell>

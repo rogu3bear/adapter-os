@@ -184,7 +184,6 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         batch_size: args.batch_size,
         epochs: args.epochs,
         hidden_dim: args.hidden_dim,
-        weight_group_config: WeightGroupConfig::default(),
     };
 
     let mut trainer =

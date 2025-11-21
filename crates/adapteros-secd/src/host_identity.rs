@@ -6,8 +6,132 @@
 use adapteros_core::Result;
 use adapteros_crypto::{Keypair, PublicKey, Signature};
 use serde::{Deserialize, Serialize};
+use std::process::Command;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+/// Detect macOS hardware model identifier using system_profiler
+fn detect_hardware_model() -> String {
+    let output = Command::new("system_profiler")
+        .args(["SPHardwareDataType", "-json"])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(model) = json
+                    .get("SPHardwareDataType")
+                    .and_then(|arr| arr.get(0))
+                    .and_then(|hw| hw.get("machine_model"))
+                    .and_then(|v| v.as_str())
+                {
+                    return model.to_string();
+                }
+                // Fallback to model_name if machine_model not found
+                if let Some(model) = json
+                    .get("SPHardwareDataType")
+                    .and_then(|arr| arr.get(0))
+                    .and_then(|hw| hw.get("model_name"))
+                    .and_then(|v| v.as_str())
+                {
+                    return model.to_string();
+                }
+            }
+        }
+        Ok(output) => {
+            warn!(
+                "system_profiler failed with status: {:?}",
+                output.status.code()
+            );
+        }
+        Err(e) => {
+            warn!("Failed to execute system_profiler: {}", e);
+        }
+    }
+
+    // Fallback: use sysctl for hw.model
+    let sysctl_output = Command::new("sysctl")
+        .args(["-n", "hw.model"])
+        .output();
+
+    match sysctl_output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => "unknown-hardware".to_string(),
+    }
+}
+
+/// Detect Secure Enclave version/capability using ioreg
+fn detect_secure_enclave_version() -> String {
+    // Check if Secure Enclave is available (Apple Silicon or T2 chip)
+    let output = Command::new("ioreg")
+        .args(["-c", "AppleSEPManager", "-d", "1"])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            if output_str.contains("AppleSEPManager") {
+                // Check for specific SEP properties
+                let version_output = Command::new("ioreg")
+                    .args(["-c", "AppleSEPManager", "-r", "-d", "1"])
+                    .output();
+
+                if let Ok(ver_out) = version_output {
+                    let ver_str = String::from_utf8_lossy(&ver_out.stdout);
+
+                    // Extract SEP version if available
+                    for line in ver_str.lines() {
+                        if line.contains("\"seprom-version\"") || line.contains("\"sep-version\"") {
+                            if let Some(version) = line.split('=').nth(1) {
+                                let cleaned = version
+                                    .trim()
+                                    .trim_matches('"')
+                                    .trim_matches('<')
+                                    .trim_matches('>')
+                                    .to_string();
+                                if !cleaned.is_empty() {
+                                    return format!("SEP-{}", cleaned);
+                                }
+                            }
+                        }
+                    }
+
+                    // Check chip generation based on AppleSEPManager presence
+                    if ver_str.contains("apple,") {
+                        // Apple Silicon (M1/M2/M3)
+                        return "SEP-AppleSilicon".to_string();
+                    }
+
+                    return "SEP-v1".to_string();
+                }
+
+                return "SEP-available".to_string();
+            }
+        }
+        Ok(_) => {
+            debug!("AppleSEPManager not found in ioreg");
+        }
+        Err(e) => {
+            warn!("Failed to execute ioreg: {}", e);
+        }
+    }
+
+    // Check for T2 chip as fallback
+    let t2_output = Command::new("ioreg")
+        .args(["-c", "AppleT2Controller"])
+        .output();
+
+    if let Ok(output) = t2_output {
+        if output.status.success() && String::from_utf8_lossy(&output.stdout).contains("AppleT2Controller") {
+            return "SEP-T2".to_string();
+        }
+    }
+
+    "SEP-unavailable".to_string()
+}
 
 /// Host identity with hardware-backed signing key
 #[derive(Debug, Clone)]
@@ -163,8 +287,8 @@ impl HostIdentityManager {
             pubkey: pubkey.to_bytes().to_vec(),
             attestation_data,
             timestamp_us,
-            hardware_model: "mock-hardware".to_string(),
-            secure_enclave_version: "mock-v1.0".to_string(),
+            hardware_model: detect_hardware_model(),
+            secure_enclave_version: detect_secure_enclave_version(),
         };
 
         Ok(AttestationReport {
@@ -215,8 +339,8 @@ impl HostIdentity {
             pubkey: self.pubkey.to_bytes().to_vec(),
             attestation_data,
             timestamp_us,
-            hardware_model: "mock-hardware".to_string(),
-            secure_enclave_version: "mock-v1.0".to_string(),
+            hardware_model: detect_hardware_model(),
+            secure_enclave_version: detect_secure_enclave_version(),
         };
 
         Ok(AttestationReport {

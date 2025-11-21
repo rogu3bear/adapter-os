@@ -92,10 +92,7 @@ mod adapter_error_tests {
     #[test]
     fn test_unload_nonexistent_adapter() {
         let config = create_mock_config();
-        let model = MLXFFIModel {
-            model: std::ptr::null_mut(),
-            config,
-        };
+        let model = MLXFFIModel::new_null(config);
 
         let backend = MLXFFIBackend::new(model);
 
@@ -112,10 +109,7 @@ mod adapter_error_tests {
     #[test]
     fn test_get_memory_nonexistent_adapter() {
         let config = create_mock_config();
-        let model = MLXFFIModel {
-            model: std::ptr::null_mut(),
-            config,
-        };
+        let model = MLXFFIModel::new_null(config);
 
         let backend = MLXFFIBackend::new(model);
 
@@ -128,10 +122,7 @@ mod adapter_error_tests {
     #[test]
     fn test_adapter_duplicate_registration() {
         let config = create_mock_config();
-        let model = MLXFFIModel {
-            model: std::ptr::null_mut(),
-            config,
-        };
+        let model = MLXFFIModel::new_null(config);
 
         let backend = MLXFFIBackend::new(model);
 
@@ -389,10 +380,7 @@ mod concurrency_error_tests {
     #[test]
     fn test_concurrent_adapter_registration() {
         let config = create_mock_config();
-        let model = MLXFFIModel {
-            model: std::ptr::null_mut(),
-            config,
-        };
+        let model = MLXFFIModel::new_null(config);
 
         let backend = Arc::new(MLXFFIBackend::new(model));
 
@@ -416,10 +404,7 @@ mod concurrency_error_tests {
     #[test]
     fn test_concurrent_adapter_access() {
         let config = create_mock_config();
-        let model = MLXFFIModel {
-            model: std::ptr::null_mut(),
-            config,
-        };
+        let model = MLXFFIModel::new_null(config);
 
         let backend = Arc::new(MLXFFIBackend::new(model));
 

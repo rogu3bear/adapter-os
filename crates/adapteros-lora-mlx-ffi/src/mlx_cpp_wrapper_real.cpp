@@ -114,19 +114,8 @@ struct MLXModelWrapper {
                 safetensors_path = model_path + "/pytorch_model.bin.safetensors";
                 test_file.open(safetensors_path);
                 if (!test_file.good()) {
-                    // Fall back to dummy weights for testing
-                    g_last_error = "Model file not found, using dummy weights";
-                    weights.emplace("token_embeddings.weight", mx::ones({32000, 4096}, mx::float32));
-                    weights.emplace("lm_head.weight", mx::ones({4096, 32000}, mx::float32));
-
-                    // Track memory for dummy weights
-                    total_weight_bytes = 0;
-                    for (const auto& [name, arr] : weights) {
-                        size_t bytes = calculate_array_memory(arr);
-                        total_weight_bytes += bytes;
-                    }
-                    record_allocation(reinterpret_cast<uintptr_t>(this), total_weight_bytes);
-                    return true;
+                    g_last_error = "Model file not found: tried '" + model_path + "/model.safetensors' and '" + model_path + "/pytorch_model.bin.safetensors'";
+                    return false;
                 }
             }
             test_file.close();
@@ -152,18 +141,7 @@ struct MLXModelWrapper {
             return true;
         } catch (const std::exception& e) {
             g_last_error = std::string("Failed to load weights: ") + e.what();
-            // Fall back to dummy weights
-            weights.emplace("token_embeddings.weight", mx::ones({32000, 4096}, mx::float32));
-            weights.emplace("lm_head.weight", mx::ones({4096, 32000}, mx::float32));
-
-            // Track memory for fallback dummy weights
-            total_weight_bytes = 0;
-            for (const auto& [name, arr] : weights) {
-                size_t bytes = calculate_array_memory(arr);
-                total_weight_bytes += bytes;
-            }
-            record_allocation(reinterpret_cast<uintptr_t>(this), total_weight_bytes);
-            return true;
+            return false;
         }
     }
 
@@ -258,11 +236,12 @@ struct MLXModelWrapper {
         return residual + mlp_output;
     }
 
-    // Self-attention with hidden state capture
+    // Self-attention with hidden state capture using scaled dot-product attention
     mx::array self_attention_with_hidden_states(const mx::array& hidden, const std::string& prefix) {
         int hidden_size = hidden.shape(-1);
         int num_heads = 32;  // Assume 32 heads for standard models
         int head_dim = hidden_size / num_heads;
+        int seq_len = hidden.shape(1);
 
         // QKV projections
         mx::array q = linear_projection(hidden, prefix + ".q_proj");
@@ -287,16 +266,25 @@ struct MLXModelWrapper {
         k = mx::transpose(k, {0, 2, 1, 3});
         v = mx::transpose(v, {0, 2, 1, 3});
 
-        // Attention scores
-        mx::array scores = mx::matmul(q, mx::transpose(k, {0, 1, 3, 2})) / std::sqrt(head_dim);
+        // Create causal mask for autoregressive attention
+        std::vector<float> mask_data(seq_len * seq_len, 0.0f);
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = i + 1; j < seq_len; ++j) {
+                mask_data[i * seq_len + j] = -1e9f;
+            }
+        }
+        mx::array causal_mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
 
-        // Causal mask (simplified - would need proper causal masking for generation)
+        // Scaled dot-product attention: softmax(Q @ K^T * scale + mask) @ V
+        float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
+        mx::array k_transposed = mx::transpose(k, {0, 1, 3, 2});
+        mx::array scores = mx::matmul(q, k_transposed);
+        scores = mx::multiply(scores, mx::array(scale));
+        scores = mx::add(scores, causal_mask);
         mx::array attn_weights = mx::softmax(scores, -1);
-
-        // Apply attention to values
         mx::array attn_output = mx::matmul(attn_weights, v);
 
-        // Reshape back
+        // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
         attn_output = mx::transpose(attn_output, {0, 2, 1, 3});
         attn_output = mx::reshape(attn_output, {attn_output.shape(0), attn_output.shape(1), hidden_size});
 
@@ -310,11 +298,12 @@ struct MLXModelWrapper {
         return output;
     }
 
-    // Self-attention mechanism (legacy method)
+    // Self-attention mechanism using scaled dot-product attention
     mx::array self_attention(const mx::array& hidden, const std::string& prefix) {
         int hidden_size = hidden.shape(-1);
         int num_heads = 32;  // Assume 32 heads
         int head_dim = hidden_size / num_heads;
+        int seq_len = hidden.shape(1);
 
         // QKV projections
         mx::array q = linear_projection(hidden, prefix + ".q_proj");
@@ -331,16 +320,25 @@ struct MLXModelWrapper {
         k = mx::transpose(k, {0, 2, 1, 3});
         v = mx::transpose(v, {0, 2, 1, 3});
 
-        // Attention scores
-        mx::array scores = mx::matmul(q, mx::transpose(k, {0, 1, 3, 2})) / std::sqrt(head_dim);
+        // Create causal mask for autoregressive attention
+        std::vector<float> mask_data(seq_len * seq_len, 0.0f);
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = i + 1; j < seq_len; ++j) {
+                mask_data[i * seq_len + j] = -1e9f;
+            }
+        }
+        mx::array causal_mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
 
-        // Causal mask (simplified - would need proper causal masking)
+        // Scaled dot-product attention: softmax(Q @ K^T * scale + mask) @ V
+        float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
+        mx::array k_transposed = mx::transpose(k, {0, 1, 3, 2});
+        mx::array scores = mx::matmul(q, k_transposed);
+        scores = mx::multiply(scores, mx::array(scale));
+        scores = mx::add(scores, causal_mask);
         mx::array attn_weights = mx::softmax(scores, -1);
-
-        // Apply attention to values
         mx::array attn_output = mx::matmul(attn_weights, v);
 
-        // Reshape back
+        // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
         attn_output = mx::transpose(attn_output, {0, 2, 1, 3});
         attn_output = mx::reshape(attn_output, {attn_output.shape(0), attn_output.shape(1), hidden_size});
 
@@ -363,14 +361,19 @@ struct MLXModelWrapper {
 
         if (!weight_ptr) return input;
 
-        // Simplified layer norm (would need proper mean/variance calculation)
-        mx::array normalized = input;  // Placeholder
-        normalized = normalized * (*weight_ptr);
+        // RMSNorm: y = x / sqrt(mean(x^2) + eps) * weight
+        float eps = 1e-5f;
+        mx::array squared = mx::multiply(input, input);
+        mx::array mean_sq = mx::mean(squared, -1, true);  // keepdims
+        mx::array rms = mx::sqrt(mx::add(mean_sq, eps));
+        mx::array normalized = mx::divide(input, rms);
+        mx::array output = mx::multiply(normalized, *weight_ptr);
+
         if (bias_ptr) {
-            normalized = normalized + (*bias_ptr);
+            output = mx::add(output, *bias_ptr);
         }
 
-        return normalized;
+        return output;
     }
 
     // MLP forward pass
@@ -403,8 +406,44 @@ struct MLXModelWrapper {
             mx::eval(hidden);
             hidden_states_vec.push_back({"embeddings", hidden});
 
-            // Process through transformer layers and capture hidden states
-            int num_layers = 1;  // Simplified: just one layer for now
+            // Count actual number of transformer layers from loaded weights
+            // Look for model.layers.N.self_attn pattern
+            int num_layers = 0;
+            for (const auto& [name, _] : weights) {
+                // Match pattern: model.layers.N.self_attn.q_proj.weight
+                if (name.find("model.layers.") == 0 && name.find(".self_attn.q_proj.weight") != std::string::npos) {
+                    // Extract layer number
+                    size_t dot_pos = name.find('.', 13); // After "model.layers."
+                    if (dot_pos != std::string::npos) {
+                        int layer_num = std::stoi(name.substr(13, dot_pos - 13));
+                        num_layers = std::max(num_layers, layer_num + 1);
+                    }
+                }
+            }
+
+            // Fallback: if no layers found, try alternative patterns or use default
+            if (num_layers == 0) {
+                // Try counting any layer pattern
+                for (const auto& [name, _] : weights) {
+                    if (name.find("model.layers.") == 0) {
+                        size_t dot_pos = name.find('.', 13);
+                        if (dot_pos != std::string::npos) {
+                            try {
+                                int layer_num = std::stoi(name.substr(13, dot_pos - 13));
+                                num_layers = std::max(num_layers, layer_num + 1);
+                            } catch (...) {
+                                // Skip non-numeric layer names
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Final fallback for dummy weights or minimal models
+            if (num_layers == 0) {
+                num_layers = 1;
+            }
+
             for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
                 // Capture pre-attention hidden state
                 mx::eval(hidden);
@@ -444,37 +483,10 @@ struct MLXModelWrapper {
 
             mx::array logits = mx::matmul(hidden, mx::transpose(*lm_head_ptr));
             return logits;
-        mx::array k_hidden = hidden;
-        auto k_weight_ptr = find_weight("layers.0.self_attn.k_proj.weight");
-        if (k_weight_ptr) {
-            k_hidden = mx::matmul(hidden, mx::transpose(*k_weight_ptr));
+        } catch (const std::exception& e) {
+            g_last_error = std::string("Forward with hidden states failed: ") + e.what();
+            throw;
         }
-        mx::eval(k_hidden);
-        hidden_states_vec.push_back({"k_proj", k_hidden});
-
-        // Simulate V projection (value)
-        mx::array v_hidden = hidden;
-        auto v_weight_ptr = find_weight("layers.0.self_attn.v_proj.weight");
-        if (v_weight_ptr) {
-            v_hidden = mx::matmul(hidden, mx::transpose(*v_weight_ptr));
-        }
-        mx::eval(v_hidden);
-        hidden_states_vec.push_back({"v_proj", v_hidden});
-
-        // Simulate O projection (output)
-        mx::array o_hidden = hidden;
-        auto o_weight_ptr = find_weight("layers.0.self_attn.o_proj.weight");
-        if (o_weight_ptr) {
-            o_hidden = mx::matmul(hidden, mx::transpose(*o_weight_ptr));
-        }
-        mx::eval(o_hidden);
-        hidden_states_vec.push_back({"o_proj", o_hidden});
-
-        // Output projection
-        mx::array logits = mx::matmul(hidden, *output_weight_ptr);
-        mx::eval(logits);
-
-        return logits;
     }
 };
 
@@ -717,6 +729,96 @@ extern "C" mlx_model_t* mlx_model_load(const char* path) {
     }
 }
 
+extern "C" mlx_model_t* mlx_model_load_from_buffer(const uint8_t* buffer, size_t buffer_len, const char* config_json) {
+    if (!buffer || buffer_len < 4 || !config_json) {
+        g_last_error = "Invalid buffer or config";
+        return nullptr;
+    }
+
+    try {
+        // Create model wrapper with empty path (loading from buffer)
+        auto model = new MLXModelWrapper("");
+
+        // Parse buffer format:
+        // [0-3] num_tensors (u32 LE)
+        // For each tensor:
+        //   [4 bytes] name_len
+        //   [name_len bytes] name
+        //   [4 bytes] shape_len
+        //   [shape_len * 4 bytes] shape dimensions
+        //   [4 bytes] data_len
+        //   [data_len * 4 bytes] f32 data
+
+        size_t offset = 0;
+
+        // Read number of tensors
+        uint32_t num_tensors = 0;
+        std::memcpy(&num_tensors, buffer + offset, 4);
+        offset += 4;
+
+        model->total_weight_bytes = 0;
+
+        for (uint32_t i = 0; i < num_tensors && offset < buffer_len; ++i) {
+            // Read tensor name
+            if (offset + 4 > buffer_len) break;
+            uint32_t name_len = 0;
+            std::memcpy(&name_len, buffer + offset, 4);
+            offset += 4;
+
+            if (offset + name_len > buffer_len) break;
+            std::string name(reinterpret_cast<const char*>(buffer + offset), name_len);
+            offset += name_len;
+
+            // Read shape
+            if (offset + 4 > buffer_len) break;
+            uint32_t shape_len = 0;
+            std::memcpy(&shape_len, buffer + offset, 4);
+            offset += 4;
+
+            std::vector<int> shape(shape_len);
+            if (offset + shape_len * 4 > buffer_len) break;
+            for (uint32_t j = 0; j < shape_len; ++j) {
+                uint32_t dim = 0;
+                std::memcpy(&dim, buffer + offset, 4);
+                shape[j] = static_cast<int>(dim);
+                offset += 4;
+            }
+
+            // Read data
+            if (offset + 4 > buffer_len) break;
+            uint32_t data_len = 0;
+            std::memcpy(&data_len, buffer + offset, 4);
+            offset += 4;
+
+            if (offset + data_len * 4 > buffer_len) break;
+
+            // Create MLX array from data
+            std::vector<float> data(data_len);
+            std::memcpy(data.data(), buffer + offset, data_len * sizeof(float));
+            offset += data_len * sizeof(float);
+
+            // Convert shape to size_t for MLX
+            std::vector<int> mlx_shape = shape;
+
+            // Create MLX array
+            mx::array arr = mx::array(data.data(), mlx_shape, mx::float32);
+            model->weights[name] = arr;
+
+            // Track memory
+            size_t bytes = data_len * sizeof(float);
+            model->total_weight_bytes += bytes;
+        }
+
+        // Track total allocation
+        record_allocation(reinterpret_cast<uintptr_t>(model), model->total_weight_bytes);
+
+        return reinterpret_cast<mlx_model_t*>(model);
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to load model from buffer: ") + e.what();
+        return nullptr;
+    }
+}
+
 extern "C" mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input) {
     if (!model || !input) return nullptr;
     try {
@@ -878,6 +980,61 @@ extern "C" mlx_array_t* mlx_matmul(mlx_array_t* a, mlx_array_t* b) {
     }
 }
 
+// Reduction operations
+extern "C" mlx_array_t* mlx_sum(mlx_array_t* array, int axis) {
+    if (!array) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::array result = mx::sum(wrapper->arr, axis);
+        auto result_wrapper = new MLXArrayWrapper(result);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_mean(mlx_array_t* array, int axis) {
+    if (!array) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::array result = mx::mean(wrapper->arr, axis);
+        auto result_wrapper = new MLXArrayWrapper(result);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_sqrt(mlx_array_t* array) {
+    if (!array) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::array result = mx::sqrt(wrapper->arr);
+        auto result_wrapper = new MLXArrayWrapper(result);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+// Indexing operations
+extern "C" mlx_array_t* mlx_take(mlx_array_t* array, mlx_array_t* indices, int axis) {
+    if (!array || !indices) return nullptr;
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        auto idx_wrapper = reinterpret_cast<MLXArrayWrapper*>(indices);
+        mx::array result = mx::take(wrapper->arr, idx_wrapper->arr, axis);
+        auto result_wrapper = new MLXArrayWrapper(result);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+    } catch (const std::exception& e) {
+        g_last_error = e.what();
+        return nullptr;
+    }
+}
+
 // Activation functions
 extern "C" mlx_array_t* mlx_relu(mlx_array_t* array) {
     if (!array) return nullptr;
@@ -943,6 +1100,91 @@ extern "C" mlx_array_t* mlx_softmax(mlx_array_t* array) {
         return reinterpret_cast<mlx_array_t*>(result_wrapper);
     } catch (const std::exception& e) {
         g_last_error = e.what();
+        return nullptr;
+    }
+}
+
+// Scaled dot-product attention
+// Implements: softmax(Q @ K^T * scale + mask) @ V
+extern "C" mlx_array_t* mlx_scaled_dot_product_attention(
+    mlx_array_t* query,
+    mlx_array_t* key,
+    mlx_array_t* value,
+    mlx_array_t* mask,  // nullable - causal or padding mask
+    float scale
+) {
+    if (!query || !key || !value) {
+        g_last_error = "Query, key, and value arrays are required";
+        return nullptr;
+    }
+
+    try {
+        auto q_wrapper = reinterpret_cast<MLXArrayWrapper*>(query);
+        auto k_wrapper = reinterpret_cast<MLXArrayWrapper*>(key);
+        auto v_wrapper = reinterpret_cast<MLXArrayWrapper*>(value);
+
+        // Q: [batch, heads, seq_q, head_dim]
+        // K: [batch, heads, seq_k, head_dim]
+        // V: [batch, heads, seq_k, head_dim]
+
+        // Step 1: Compute attention scores: Q @ K^T
+        // K^T: [batch, heads, head_dim, seq_k]
+        // scores: [batch, heads, seq_q, seq_k]
+        mx::array k_transposed = mx::transpose(k_wrapper->arr, {0, 1, 3, 2});
+        mx::array scores = mx::matmul(q_wrapper->arr, k_transposed);
+
+        // Step 2: Apply scale
+        scores = mx::multiply(scores, mx::array(scale));
+
+        // Step 3: Apply mask if provided
+        if (mask) {
+            auto mask_wrapper = reinterpret_cast<MLXArrayWrapper*>(mask);
+            // Mask should be broadcastable to scores shape
+            // Typically 0 for positions to keep, -inf for positions to mask
+            scores = mx::add(scores, mask_wrapper->arr);
+        }
+
+        // Step 4: Apply softmax along last axis (over keys)
+        mx::array attn_weights = mx::softmax(scores, -1);
+
+        // Step 5: Apply attention to values: attn_weights @ V
+        // attn_weights: [batch, heads, seq_q, seq_k]
+        // V: [batch, heads, seq_k, head_dim]
+        // output: [batch, heads, seq_q, head_dim]
+        mx::array output = mx::matmul(attn_weights, v_wrapper->arr);
+
+        auto result_wrapper = new MLXArrayWrapper(output);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Scaled dot-product attention failed: ") + e.what();
+        return nullptr;
+    }
+}
+
+// Create causal attention mask
+// Returns a mask with 0 for valid positions and -inf for masked positions
+extern "C" mlx_array_t* mlx_create_causal_mask(int seq_len) {
+    try {
+        // Create upper triangular matrix filled with -inf
+        // Lower triangle (including diagonal) = 0, upper triangle = -inf
+        mx::array mask = mx::zeros({seq_len, seq_len}, mx::float32);
+
+        // Create indices for upper triangle
+        std::vector<float> mask_data(seq_len * seq_len, 0.0f);
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = i + 1; j < seq_len; ++j) {
+                mask_data[i * seq_len + j] = -1e9f;  // Large negative instead of -inf for numerical stability
+            }
+        }
+
+        mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
+
+        auto result_wrapper = new MLXArrayWrapper(mask);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to create causal mask: ") + e.what();
         return nullptr;
     }
 }

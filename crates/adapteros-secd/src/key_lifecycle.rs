@@ -1,6 +1,8 @@
 //! Key lifecycle tracking and age monitoring
 
 use adapteros_db::Db;
+#[cfg(target_os = "macos")]
+use security_framework::item::{ItemClass, ItemSearchOptions, SearchResult};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -74,21 +76,49 @@ impl KeyLifecycleManager {
     }
 
     /// Try to get key creation date from macOS keychain
+    #[cfg(target_os = "macos")]
+    fn get_keychain_creation_date(&self, key_label: &str) -> Option<i64> {
+        // Query Security.framework for key metadata including creation date
+        let mut search = ItemSearchOptions::new();
+        search.class(ItemClass::key());
+        search.label(key_label);
+        search.load_attributes(true);
+
+        match search.search() {
+            Ok(results) => {
+                // Check if we got any results - indicates key exists
+                if !results.is_empty() {
+                    // The security-framework crate's SearchResult::Dict variant provides
+                    // access to keychain item attributes. However, extracting the creation
+                    // date requires low-level CFDictionary operations that are platform-specific.
+                    // For now, we log that we found the key but couldn't extract the date.
+                    //
+                    // Full implementation would require:
+                    // 1. Using kSecAttrCreationDate constant from Security.framework
+                    // 2. Converting CFDate to Unix timestamp (CFAbsoluteTime + 978307200)
+                    tracing::debug!(
+                        key_label,
+                        result_count = results.len(),
+                        "Key found in keychain - creation date extraction not yet implemented"
+                    );
+                }
+                None
+            }
+            Err(e) => {
+                tracing::debug!(
+                    key_label,
+                    error = %e,
+                    "Failed to query keychain for key metadata"
+                );
+                None
+            }
+        }
+    }
+
+    /// Try to get key creation date from macOS keychain (non-macOS fallback)
+    #[cfg(not(target_os = "macos"))]
     fn get_keychain_creation_date(&self, _key_label: &str) -> Option<i64> {
-        // TODO: Implement macOS keychain metadata extraction
-        // This would use Security Framework to query kSecAttrCreationDate
-        // For now, return None to fall back to manual tracking
-
-        // Example implementation (requires additional Security Framework bindings):
-        // use security_framework::item::{ItemSearchOptions, ItemClass};
-        // let mut search = ItemSearchOptions::new();
-        // search.class(ItemClass::key());
-        // search.label(key_label);
-        // search.load_attributes(true);
-        // if let Ok(results) = search.search() {
-        //     // Extract kSecAttrCreationDate from results
-        // }
-
+        // Keychain metadata extraction only available on macOS
         None
     }
 
@@ -143,8 +173,17 @@ impl KeyLifecycleManager {
             if !warnings.is_empty() {
                 tracing::warn!("Found {} key age warnings", warnings.len());
 
-                // TODO: Emit telemetry events for each warning
-                // This will be integrated when telemetry is wired up
+                // Emit structured telemetry events for each warning
+                for warning in &warnings {
+                    tracing::warn!(
+                        event = "key.age_warning",
+                        key_label = %warning.key_label,
+                        age_days = warning.age_days,
+                        threshold_days = warning.threshold_days,
+                        severity = if warning.age_days > warning.threshold_days * 2 { "critical" } else { "warning" },
+                        "Key age exceeds threshold - rotation recommended"
+                    );
+                }
             } else {
                 tracing::debug!("Key age check: all keys within threshold");
             }

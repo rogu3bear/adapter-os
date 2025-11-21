@@ -61,7 +61,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import apiClient from '../api/client';
-import { User } from '../api/types';
+import { User, DomainAdapter as ApiDomainAdapter } from '../api/types';
 import { logger, toError } from '../utils/logger';
 
 interface DomainAdapterManagerProps {
@@ -74,7 +74,7 @@ type DomainAdapterDomain = 'text' | 'vision' | 'telemetry';
 interface DomainAdapter {
   id: string;
   name: string;
-  version: string;
+  version?: string;
   description: string;
   domain_type: DomainAdapterDomain;
   model: string;
@@ -116,6 +116,41 @@ type NewAdapterFormState = {
   config: Record<string, unknown>;
 };
 
+// Transform API DomainAdapter to local DomainAdapter interface
+function apiToLocalAdapter(apiAdapter: ApiDomainAdapter): DomainAdapter {
+  // Map API status to local status
+  const statusMap: Record<string, 'loaded' | 'unloaded' | 'error'> = {
+    active: 'loaded',
+    inactive: 'unloaded',
+    loading: 'unloaded',
+    error: 'error',
+  };
+
+  return {
+    id: apiAdapter.id,
+    name: apiAdapter.name,
+    version: apiAdapter.version,
+    description: apiAdapter.description || '',
+    domain_type: (apiAdapter.domain_type || apiAdapter.domain || 'text') as DomainAdapterDomain,
+    model: apiAdapter.model || '',
+    hash: apiAdapter.hash || '',
+    input_format: apiAdapter.input_format || '',
+    output_format: apiAdapter.output_format || '',
+    config: apiAdapter.config as Record<string, unknown>,
+    status: statusMap[apiAdapter.status || ''] || 'unloaded',
+    epsilon_stats: apiAdapter.epsilon_stats ? {
+      mean_error: apiAdapter.epsilon_stats.mean_error,
+      max_error: apiAdapter.epsilon_stats.max_error || 0,
+      error_count: 0,
+      last_updated: new Date().toISOString(),
+    } : undefined,
+    last_execution: apiAdapter.last_execution,
+    execution_count: apiAdapter.execution_count || 0,
+    created_at: apiAdapter.created_at,
+    updated_at: apiAdapter.updated_at,
+  };
+}
+
 export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterManagerProps) {
   const [adapters, setAdapters] = useState<DomainAdapter[]>([]);
   const [tests, setTests] = useState<DomainAdapterTest[]>([]);
@@ -143,7 +178,8 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
       try {
         // Citation: ui/src/api/client.ts L625-L628
         const adaptersData = await apiClient.listDomainAdapters();
-        setAdapters(adaptersData);
+        // Transform API adapters to local interface
+        setAdapters(adaptersData.map(apiToLocalAdapter));
         // Domain adapter tests - placeholder implementation
         setTests([]);
       } catch (err) {

@@ -1,24 +1,5 @@
-//! Structured logging utility for AdapterOS UI
-//!
-//! Provides structured logging with telemetry integration and user-facing error handling.
-//! Replaces console.log/error/warn usage throughout the application.
-//!
-//! # Citations
-//! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
-//! - CLAUDE.md L130: "Use `tracing` for logging (not `println!`)"
-//! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
-//!
-//! # Examples
-//!
-//! ```typescript
-//! import { logger } from './utils/logger';
-//!
-//! // Info logging
-//! logger.info('User logged in', { userId: 'user-123', tenantId: 'default' });
-//!
-//! // Error logging with context
-//! logger.error('Failed to fetch data', { component: 'Dashboard', operation: 'fetchData' }, error);
-//! ```
+// Structured logging utility with telemetry integration.
+// Complies with Policy Pack #9 (Telemetry) - canonical JSON events.
 
 import { toast } from 'sonner';
 
@@ -51,18 +32,16 @@ export interface LogEntry {
 }
 
 
-/**
- * Normalize unknown error-like values to proper Error instances.
- *
- * Ensures all logger callers can safely pass any thrown value without
- * duplicating conversion logic at call sites.
- */
+/** Normalize unknown error-like values to proper Error instances. */
 export const toError = (error: unknown): Error => {
   if (error instanceof Error) {
     return error;
   }
   if (typeof error === 'string') {
     return new Error(error);
+  }
+  if (error === undefined) {
+    return new Error('undefined');
   }
   try {
     return new Error(JSON.stringify(error));
@@ -72,26 +51,26 @@ export const toError = (error: unknown): Error => {
 };
 
 class Logger {
-  private isDevelopment = import.meta.env.DEV;
   // Track recent error toasts to prevent spam (message -> last shown timestamp)
   private errorToastHistory = new Map<string, number>();
   private readonly ERROR_TOAST_THROTTLE_MS = 10000; // 10 seconds
 
-  /**
-   * Log a message with structured context and error information
-   *
-   * # Arguments
-   *
-   * * `level` - Log level (debug, info, warn, error)
-   * * `message` - Human-readable log message
-   * * `context` - Structured context data
-   * * `error` - Error object if applicable
-   *
-   * # Policy Compliance
-   *
-   * - Policy Pack #9 (Telemetry): Logs events with canonical JSON structure
-   * - CONTRIBUTING.md L123: Uses structured logging instead of console.log
-   */
+  // Allow tests to override development mode detection
+  private _isDevelopmentOverride: boolean | null = null;
+
+  private get isDevelopment(): boolean {
+    if (this._isDevelopmentOverride !== null) {
+      return this._isDevelopmentOverride;
+    }
+    return import.meta.env.DEV;
+  }
+
+  /** For testing only: override development mode detection */
+  setDevelopmentMode(isDev: boolean | null): void {
+    this._isDevelopmentOverride = isDev;
+  }
+
+  /** Log a message with structured context. */
   log(level: LogLevel, message: string, context?: LogContext, error?: Error) {
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
@@ -107,7 +86,7 @@ class Logger {
 
     // Development: Console logging with structured format
     if (this.isDevelopment) {
-      const consoleMethod = level === LogLevel.ERROR ? 'error' : 
+      const consoleMethod = level === LogLevel.ERROR ? 'error' :
                            level === LogLevel.WARN ? 'warn' : 'log';
       console[consoleMethod](`[${level.toUpperCase()}] ${message}`, logEntry);
     }
@@ -151,14 +130,6 @@ class Logger {
     }
   }
 
-  /**
-   * Send log entry to telemetry endpoint
-   *
-   * # Policy Compliance
-   *
-   * - Policy Pack #9 (Telemetry): Canonical JSON serialization
-   * - Policy Pack #1 (Egress): Uses relative API paths only
-   */
   private async sendToTelemetry(logEntry: LogEntry) {
     try {
 
@@ -197,51 +168,18 @@ class Logger {
     }
   }
 
-  /**
-   * Log debug information
-   *
-   * # Arguments
-   *
-   * * `message` - Debug message
-   * * `context` - Optional context data
-   */
   debug(message: string, context?: LogContext) {
     this.log(LogLevel.DEBUG, message, context);
   }
 
-  /**
-   * Log informational message
-   *
-   * # Arguments
-   *
-   * * `message` - Info message
-   * * `context` - Optional context data
-   */
   info(message: string, context?: LogContext) {
     this.log(LogLevel.INFO, message, context);
   }
 
-  /**
-   * Log warning message
-   *
-   * # Arguments
-   *
-   * * `message` - Warning message
-   * * `context` - Optional context data
-   */
   warn(message: string, context?: LogContext) {
     this.log(LogLevel.WARN, message, context);
   }
 
-  /**
-   * Log error message with optional error object
-   *
-   * # Arguments
-   *
-   * * `message` - Error message
-   * * `context` - Optional context data
-   * * `error` - Optional Error object
-   */
   error(message: string, context?: LogContext, error?: Error) {
     this.log(LogLevel.ERROR, message, context, error);
   }

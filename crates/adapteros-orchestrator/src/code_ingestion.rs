@@ -124,6 +124,7 @@ impl CodeIngestionPipeline {
             "Starting code ingestion pipeline",
         );
 
+        // Build CodeGraph from repository
         let codegraph = CodeGraph::from_directory(&prepared_repo.root, None).await?;
         debug!(
             symbol_count = codegraph.symbols.len(),
@@ -581,12 +582,19 @@ async fn register_adapter(
     let rank_i32 = i32::try_from(config.rank)
         .map_err(|_| AosError::Validation(format!("Training rank {} exceeds i32", config.rank)))?;
 
+    // Convert numeric tier to string: 0 = ephemeral, 1 = warm, 2+ = persistent
+    let tier_str = match tier {
+        0 => "ephemeral",
+        1 => "warm",
+        _ => "persistent",
+    };
+
     let params = AdapterRegistrationBuilder::new()
         .adapter_id(adapter_id)
         .name(adapter_id)
         .hash_b3(hash_b3)
         .rank(rank_i32)
-        .tier(tier)
+        .tier(tier_str)
         .category("code".to_string())
         .scope(repo_id.to_string())
         .repo_id(Some(repo_id.to_string()))

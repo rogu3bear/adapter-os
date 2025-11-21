@@ -9,10 +9,13 @@ license.workspace = true
 adapteros-core = { path = "../adapteros-core" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-lora-quant = { path = "../adapteros-lora-quant" }
+adapteros-registry = { path = "../adapteros-registry" }
+adapteros-chat = { path = "../adapteros-chat" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 safetensors = { workspace = true }
 memmap2 = { workspace = true }
-adapteros-chat = { path = "../adapteros-chat" }
+tracing = { workspace = true }
+rusqlite = { workspace = true }
 tempfile = "3.0"

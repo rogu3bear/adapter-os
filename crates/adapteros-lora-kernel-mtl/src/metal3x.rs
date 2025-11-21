@@ -232,21 +232,115 @@ pub struct Metal3xMemoryManager {
     allocation_stats: AllocationStats,
 }
 
-/// Dynamic memory pool for Metal 3.x
+/// Dynamic memory pool for Metal 3.x with ring buffer allocation
 #[derive(Debug)]
 pub struct DynamicMemoryPool {
     /// Pool identifier
-    #[allow(dead_code)] // TODO: Implement memory pool management in future iteration
     id: String,
     /// Buffer size
     buffer_size: usize,
-    /// Number of buffers
-    #[allow(dead_code)] // TODO: Implement memory pool management in future iteration
+    /// Number of buffers allocated from this pool
     buffer_count: usize,
-    /// Available buffers
+    /// Available buffers (ring buffer - FIFO reuse)
     available_buffers: Vec<Buffer>,
-    /// Allocated buffers
+    /// Allocated buffers currently in use
     allocated_buffers: Vec<Buffer>,
+    /// Pool statistics
+    stats: PoolStats,
+}
+
+/// Statistics for a memory pool
+#[derive(Debug, Default, Clone)]
+pub struct PoolStats {
+    /// Total allocations from this pool
+    pub allocations: u64,
+    /// Total deallocations to this pool
+    pub deallocations: u64,
+    /// Number of times a buffer was reused
+    pub reuse_count: u64,
+    /// Number of times a new buffer was created
+    pub new_buffer_count: u64,
+    /// Hit rate (reuse_count / allocations)
+    pub hit_rate: f32,
+}
+
+impl DynamicMemoryPool {
+    /// Create a new memory pool
+    pub fn new(id: String, buffer_size: usize) -> Self {
+        Self {
+            id,
+            buffer_size,
+            buffer_count: 0,
+            available_buffers: Vec::new(),
+            allocated_buffers: Vec::new(),
+            stats: PoolStats::default(),
+        }
+    }
+
+    /// Get pool identifier
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Get total buffer count
+    pub fn buffer_count(&self) -> usize {
+        self.buffer_count
+    }
+
+    /// Get pool statistics
+    pub fn stats(&self) -> &PoolStats {
+        &self.stats
+    }
+
+    /// Allocate a buffer from the pool (ring buffer FIFO)
+    fn allocate(&mut self, device: &Device) -> Buffer {
+        self.stats.allocations += 1;
+
+        // Ring buffer: take from front (oldest), return to back
+        if let Some(buffer) = self.available_buffers.pop() {
+            self.stats.reuse_count += 1;
+            self.allocated_buffers.push(buffer.clone());
+            self.update_hit_rate();
+            debug!(pool_id = %self.id, "Reused buffer from pool");
+            buffer
+        } else {
+            // Create new buffer
+            let buffer = device.new_buffer(
+                self.buffer_size as u64,
+                MTLResourceOptions::StorageModeShared,
+            );
+            self.buffer_count += 1;
+            self.stats.new_buffer_count += 1;
+            self.allocated_buffers.push(buffer.clone());
+            self.update_hit_rate();
+            debug!(pool_id = %self.id, size = self.buffer_size, "Created new buffer");
+            buffer
+        }
+    }
+
+    /// Return a buffer to the pool
+    fn deallocate(&mut self, buffer: Buffer) -> bool {
+        if let Some(pos) = self
+            .allocated_buffers
+            .iter()
+            .position(|b| b.as_ptr() == buffer.as_ptr())
+        {
+            self.allocated_buffers.remove(pos);
+            // Ring buffer: return to back for FIFO reuse
+            self.available_buffers.push(buffer);
+            self.stats.deallocations += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Update hit rate
+    fn update_hit_rate(&mut self) {
+        if self.stats.allocations > 0 {
+            self.stats.hit_rate = self.stats.reuse_count as f32 / self.stats.allocations as f32;
+        }
+    }
 }
 
 /// Memory allocation statistics
@@ -274,70 +368,58 @@ impl Metal3xMemoryManager {
         }
     }
 
-    /// Allocate dynamic buffer
+    /// Allocate dynamic buffer using ring buffer pool
     pub fn allocate_buffer(&mut self, size: usize) -> Result<Buffer> {
         // Find or create appropriate memory pool
         let pool_index = self.find_pool_index(size)?;
+        let pool = &mut self.memory_pools[pool_index];
+        let actual_size = pool.buffer_size;
 
-        // Allocate buffer from pool
-        if let Some(buffer) = self.memory_pools[pool_index].available_buffers.pop() {
-            self.memory_pools[pool_index]
-                .allocated_buffers
-                .push(buffer.clone());
-            self.allocation_stats.total_allocations += 1;
-            self.allocation_stats.current_memory_usage += size;
+        // Allocate buffer from pool using ring buffer strategy
+        let buffer = pool.allocate(&self.device);
 
-            if self.allocation_stats.current_memory_usage > self.allocation_stats.peak_memory_usage
-            {
-                self.allocation_stats.peak_memory_usage =
-                    self.allocation_stats.current_memory_usage;
-            }
+        // Update global stats
+        self.allocation_stats.total_allocations += 1;
+        self.allocation_stats.current_memory_usage += actual_size;
 
-            debug!("Allocated Metal 3.x buffer: {} bytes", size);
-            Ok(buffer)
-        } else {
-            // Create new buffer
-            let buffer = self
-                .device
-                .new_buffer(size as u64, MTLResourceOptions::StorageModeShared);
-            self.memory_pools[pool_index]
-                .allocated_buffers
-                .push(buffer.clone());
-            self.allocation_stats.total_allocations += 1;
-            self.allocation_stats.current_memory_usage += size;
-
-            debug!("Created new Metal 3.x buffer: {} bytes", size);
-            Ok(buffer)
+        if self.allocation_stats.current_memory_usage > self.allocation_stats.peak_memory_usage {
+            self.allocation_stats.peak_memory_usage = self.allocation_stats.current_memory_usage;
         }
+
+        debug!(
+            size = actual_size,
+            pool_id = %pool.id(),
+            hit_rate = pool.stats().hit_rate,
+            "Allocated Metal 3.x buffer"
+        );
+        Ok(buffer)
     }
 
-    /// Deallocate buffer
+    /// Deallocate buffer back to its pool
     pub fn deallocate_buffer(&mut self, buffer: Buffer) -> Result<()> {
         let buffer_size = buffer.length() as usize;
 
-        // Find the pool containing this buffer
+        // Find the pool containing this buffer and deallocate
         for pool in &mut self.memory_pools {
-            if let Some(pos) = pool
-                .allocated_buffers
-                .iter()
-                .position(|b| b.as_ptr() == buffer.as_ptr())
-            {
-                pool.allocated_buffers.remove(pos);
-                pool.available_buffers.push(buffer);
-
+            if pool.deallocate(buffer.clone()) {
                 self.allocation_stats.total_deallocations += 1;
-                self.allocation_stats.current_memory_usage -= buffer_size;
+                self.allocation_stats.current_memory_usage =
+                    self.allocation_stats.current_memory_usage.saturating_sub(buffer_size);
 
-                debug!("Deallocated Metal 3.x buffer: {} bytes", buffer_size);
+                debug!(
+                    size = buffer_size,
+                    pool_id = %pool.id(),
+                    "Deallocated Metal 3.x buffer"
+                );
                 return Ok(());
             }
         }
 
-        warn!("Attempted to deallocate unknown Metal 3.x buffer");
+        warn!(size = buffer_size, "Attempted to deallocate unknown Metal 3.x buffer");
         Ok(())
     }
 
-    /// Find pool index for given size
+    /// Find pool index for given size, creating new pool if needed
     fn find_pool_index(&mut self, size: usize) -> Result<usize> {
         // Find existing pool with appropriate size
         for (index, pool) in self.memory_pools.iter().enumerate() {
@@ -346,44 +428,37 @@ impl Metal3xMemoryManager {
             }
         }
 
-        // Create new pool
+        // Create new pool with the requested size
         let pool_count = self.memory_pools.len();
         let pool_id = format!("pool_{}", pool_count);
-        let new_pool = DynamicMemoryPool {
-            id: pool_id,
-            buffer_size: size,
-            buffer_count: 0,
-            available_buffers: Vec::new(),
-            allocated_buffers: Vec::new(),
-        };
+        let new_pool = DynamicMemoryPool::new(pool_id, size);
+
+        info!(
+            pool_id = pool_count,
+            buffer_size = size,
+            "Created new memory pool"
+        );
 
         self.memory_pools.push(new_pool);
         Ok(self.memory_pools.len() - 1)
     }
 
-    /// Find or create memory pool for given size
-    #[allow(dead_code)] // TODO: Implement memory pool management in future iteration
-    fn find_or_create_pool(&mut self, size: usize) -> Result<usize> {
-        // Find existing pool with appropriate size
-        for (index, pool) in self.memory_pools.iter().enumerate() {
-            if pool.buffer_size >= size {
-                return Ok(index);
-            }
-        }
+    /// Get pool statistics for all pools
+    pub fn pool_stats(&self) -> Vec<(&str, &PoolStats)> {
+        self.memory_pools
+            .iter()
+            .map(|pool| (pool.id(), pool.stats()))
+            .collect()
+    }
 
-        // Create new pool
-        let pool_count = self.memory_pools.len();
-        let pool_id = format!("pool_{}", pool_count);
-        let new_pool = DynamicMemoryPool {
-            id: pool_id,
-            buffer_size: size,
-            buffer_count: 0,
-            available_buffers: Vec::new(),
-            allocated_buffers: Vec::new(),
-        };
+    /// Get total number of pools
+    pub fn pool_count(&self) -> usize {
+        self.memory_pools.len()
+    }
 
-        self.memory_pools.push(new_pool);
-        Ok(self.memory_pools.len() - 1)
+    /// Get total buffers across all pools
+    pub fn total_buffers(&self) -> usize {
+        self.memory_pools.iter().map(|p| p.buffer_count()).sum()
     }
 
     /// Get allocation statistics
@@ -423,5 +498,24 @@ mod tests {
         assert_eq!(stats.peak_memory_usage, 0);
         assert_eq!(stats.current_memory_usage, 0);
         assert_eq!(stats.allocation_failures, 0);
+    }
+
+    #[test]
+    fn test_pool_stats() {
+        let stats = PoolStats::default();
+        assert_eq!(stats.allocations, 0);
+        assert_eq!(stats.deallocations, 0);
+        assert_eq!(stats.reuse_count, 0);
+        assert_eq!(stats.new_buffer_count, 0);
+        assert_eq!(stats.hit_rate, 0.0);
+    }
+
+    #[test]
+    fn test_dynamic_memory_pool_new() {
+        let pool = DynamicMemoryPool::new("test_pool".to_string(), 1024);
+        assert_eq!(pool.id(), "test_pool");
+        assert_eq!(pool.buffer_count(), 0);
+        assert_eq!(pool.buffer_size, 1024);
+        assert_eq!(pool.stats().allocations, 0);
     }
 }

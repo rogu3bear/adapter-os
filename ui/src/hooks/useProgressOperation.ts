@@ -102,7 +102,7 @@ function getHistoricalOperationData(type: ProgressOperation['type']): Array<{ du
 function storeOperationData(type: ProgressOperation['type'], duration: number) {
   try {
     const history = getHistoricalOperationData(type);
-    history.push({ duration, timestamp: Date.now() });
+    history.push({ duration });
 
     // Keep only last 10 operations for each type
     if (history.length > 10) {
@@ -227,7 +227,7 @@ export function useProgressOperation(operationId?: string): UseProgressOperation
         return null;
       }
     },
-    activeOperation ? 'fast' : 'off', // Fast polling when active
+    activeOperation ? 'fast' : 'slow', // Fast polling when active, slow when idle
     {
       onError: (error) => {
         logger.error('Progress polling failed', {

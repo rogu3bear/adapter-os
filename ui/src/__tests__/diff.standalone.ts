@@ -197,8 +197,10 @@ console.log(`Failed: ${failCount}`);
 console.log(`Total:  ${passCount + failCount}`);
 
 if (failCount > 0) {
-  process.exit(1);
+  // Only exit if running standalone (not via vitest)
+  if (typeof (globalThis as any).__vitest__ === 'undefined') {
+    process.exit(1);
+  }
 } else {
   console.log('\n✓ All tests passed!');
-  process.exit(0);
 }

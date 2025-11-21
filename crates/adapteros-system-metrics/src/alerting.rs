@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 /// Alert evaluation engine
 pub struct AlertEvaluator {
     db: Arc<Db>,
-    telemetry_writer: TelemetryWriter,
+    telemetry_writer: Arc<TelemetryWriter>,
     config: AlertingConfig,
     notification_sender: Arc<dyn NotificationSender + Send + Sync>,
     anomaly_detector: Option<AnomalyDetector>,
@@ -72,7 +72,7 @@ impl AlertEvaluator {
     /// Create a new alert evaluator
     pub fn new(
         db: Arc<Db>,
-        telemetry_writer: TelemetryWriter,
+        telemetry_writer: Arc<TelemetryWriter>,
         config: AlertingConfig,
         notification_sender: Arc<dyn NotificationSender + Send + Sync>,
     ) -> Self {
@@ -89,7 +89,7 @@ impl AlertEvaluator {
     /// Create a new alert evaluator with anomaly detection
     pub fn new_with_anomaly_detection(
         db: Arc<Db>,
-        telemetry_writer: TelemetryWriter,
+        telemetry_writer: Arc<TelemetryWriter>,
         config: AlertingConfig,
         notification_sender: Arc<dyn NotificationSender + Send + Sync>,
         anomaly_config: AnomalyConfig,
@@ -109,7 +109,7 @@ impl AlertEvaluator {
     /// Create a new alert evaluator with policy engine
     pub fn new_with_policy_engine(
         db: Arc<Db>,
-        telemetry_writer: TelemetryWriter,
+        telemetry_writer: Arc<TelemetryWriter>,
         config: AlertingConfig,
         notification_sender: Arc<dyn NotificationSender + Send + Sync>,
         policies: Policies,
@@ -128,7 +128,7 @@ impl AlertEvaluator {
     /// Create a new alert evaluator with both anomaly detection and policy engine
     pub fn new_with_full_features(
         db: Arc<Db>,
-        telemetry_writer: TelemetryWriter,
+        telemetry_writer: Arc<TelemetryWriter>,
         config: AlertingConfig,
         notification_sender: Arc<dyn NotificationSender + Send + Sync>,
         anomaly_config: AnomalyConfig,
@@ -2176,6 +2176,7 @@ mod tests {
     use adapteros_manifest::Policies;
     use adapteros_telemetry::TelemetryWriter;
     use std::path::Path;
+    use std::sync::Arc;
 
     struct MockNotificationSender;
 
@@ -2190,7 +2191,7 @@ mod tests {
     async fn test_threshold_checking() {
         let evaluator = AlertEvaluator::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             AlertingConfig::default(),
             Arc::new(MockNotificationSender),
         );
@@ -2229,7 +2230,7 @@ mod tests {
     #[tokio::test]
     async fn test_drift_detection() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
 
@@ -2264,7 +2265,7 @@ mod tests {
     #[tokio::test]
     async fn test_performance_budget_validation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let policies = Policies::default();
@@ -2305,7 +2306,7 @@ mod tests {
     #[tokio::test]
     async fn test_memory_headroom_validation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let policies = Policies::default();
@@ -2346,7 +2347,7 @@ mod tests {
     #[tokio::test]
     async fn test_security_event_correlation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let policies = Policies::default();
@@ -2387,7 +2388,7 @@ mod tests {
     #[tokio::test]
     async fn test_compliance_validation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let policies = Policies::default();
@@ -2428,7 +2429,7 @@ mod tests {
     #[tokio::test]
     async fn test_patch_validation_pipeline() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let policies = Policies::default();
@@ -2469,7 +2470,7 @@ mod tests {
     #[tokio::test]
     async fn test_performance_monitoring() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let policies = Policies::default();
@@ -2510,7 +2511,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_features_evaluator() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap();
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
         let notification_sender = Arc::new(MockNotificationSender);
         let anomaly_config = AnomalyConfig::default();

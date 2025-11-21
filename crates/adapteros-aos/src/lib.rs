@@ -16,8 +16,21 @@
 pub mod aos2_implementation;
 
 pub mod aos2_writer;
+#[cfg(feature = "mmap")]
+pub mod cache;
+#[cfg(feature = "mmap")]
+pub mod hot_swap;
+#[cfg(feature = "mmap")]
+pub mod manager;
+pub mod metrics;
+#[cfg(feature = "mmap")]
+pub mod mmap_loader;
 
 #[cfg(feature = "mmap")]
 pub use aos2_implementation::{AOS2Loader, AOS2Manifest, LoadedAdapter};
 
 pub use aos2_writer::{AOS2Writer, WriteOptions};
+#[cfg(feature = "mmap")]
+pub use manager::{AosManager, AosManagerBuilder};
+#[cfg(feature = "mmap")]
+pub use mmap_loader::{MmapAdapter, MmapAdapterLoader};

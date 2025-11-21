@@ -719,7 +719,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             <div className="flex items-center justify-center">
               <Database className="h-4 w-4 text-purple-600" />
               <div>
-                <p className="text-2xl font-bold">{tenants.reduce((sum, t) => sum + (t.adapters ?? 0), 0)}</p>
+                <p className="text-2xl font-bold">{tenants.reduce((sum, t) => sum + (Number(t.adapters) || 0), 0)}</p>
                 <p className="text-xs text-muted-foreground">Total Adapters</p>
               </div>
             </div>

@@ -2,10 +2,16 @@
 
 use crate::types::*;
 use adapteros_core::{AosError, Result};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{OnceLock, RwLock};
 
 /// Global guard state
 static GUARD_STATE: OnceLock<RwLock<GuardState>> = OnceLock::new();
+
+/// Global feature flag registry
+static FEATURE_FLAGS: OnceLock<RwLock<FeatureFlagRegistry>> = OnceLock::new();
 
 /// Guard state tracking
 #[derive(Debug, Clone)]
@@ -34,6 +40,110 @@ impl GuardState {
 
     fn get_violations(&self) -> Vec<ConfigFreezeError> {
         self.violations.clone()
+    }
+}
+
+/// Feature flag registry for runtime feature detection
+#[derive(Debug, Clone)]
+struct FeatureFlagRegistry {
+    flags: HashMap<String, FeatureFlag>,
+    environment: String,
+    tenant_id: Option<String>,
+}
+
+impl FeatureFlagRegistry {
+    fn new() -> Self {
+        Self {
+            flags: HashMap::new(),
+            environment: std::env::var("ADAPTEROS_ENV").unwrap_or_else(|_| "development".to_string()),
+            tenant_id: None,
+        }
+    }
+
+    fn register(&mut self, flag: FeatureFlag) {
+        self.flags.insert(flag.name.clone(), flag);
+    }
+
+    fn is_enabled(&self, name: &str) -> bool {
+        self.flags
+            .get(name)
+            .map(|flag| self.evaluate_flag(flag))
+            .unwrap_or(false)
+    }
+
+    fn evaluate_flag(&self, flag: &FeatureFlag) -> bool {
+        if !flag.enabled {
+            return false;
+        }
+
+        // Check conditions if present
+        if let Some(ref conditions) = flag.conditions {
+            // Check environment condition
+            if let Some(ref envs) = conditions.environments {
+                if !envs.contains(&self.environment) {
+                    return false;
+                }
+            }
+
+            // Check tenant condition
+            if let Some(ref tenant_ids) = conditions.tenant_ids {
+                if let Some(ref current_tenant) = self.tenant_id {
+                    if !tenant_ids.contains(current_tenant) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+
+            // Check date conditions
+            let now = chrono::Utc::now();
+            if let Some(ref after) = conditions.enabled_after {
+                if let Ok(date) = chrono::DateTime::parse_from_rfc3339(after) {
+                    if now < date {
+                        return false;
+                    }
+                }
+            }
+            if let Some(ref before) = conditions.enabled_before {
+                if let Ok(date) = chrono::DateTime::parse_from_rfc3339(before) {
+                    if now > date {
+                        return false;
+                    }
+                }
+            }
+
+            // Check rollout percentage (deterministic based on flag name hash)
+            if let Some(percentage) = conditions.rollout_percentage {
+                let hash = {
+                    let mut hasher = DefaultHasher::new();
+                    flag.name.hash(&mut hasher);
+                    hasher.finish()
+                };
+                let bucket = (hash % 100) as u8;
+                if bucket >= percentage {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    fn set_environment(&mut self, env: String) {
+        self.environment = env;
+    }
+
+    fn set_tenant(&mut self, tenant_id: Option<String>) {
+        self.tenant_id = tenant_id;
+    }
+
+    fn get_all_flags(&self) -> Vec<FeatureFlag> {
+        self.flags.values().cloned().collect()
+    }
+
+    fn remove(&mut self, name: &str) -> Option<FeatureFlag> {
+        self.flags.remove(name)
     }
 }
 
@@ -148,6 +258,115 @@ impl ConfigGuards {
     }
 }
 
+/// Feature flag management for runtime feature detection
+pub struct FeatureFlags;
+
+impl FeatureFlags {
+    /// Initialize the feature flag system
+    pub fn initialize() -> Result<()> {
+        FEATURE_FLAGS
+            .set(RwLock::new(FeatureFlagRegistry::new()))
+            .map_err(|_| AosError::Config("Feature flag system already initialized".to_string()))?;
+
+        tracing::info!("Feature flag system initialized");
+        Ok(())
+    }
+
+    /// Register a new feature flag
+    pub fn register(flag: FeatureFlag) -> Result<()> {
+        let registry = FEATURE_FLAGS
+            .get()
+            .ok_or_else(|| AosError::Config("Feature flag system not initialized".to_string()))?;
+
+        let mut flags = registry
+            .write()
+            .map_err(|_| AosError::Config("Failed to acquire feature flag lock".to_string()))?;
+
+        tracing::debug!(flag_name = %flag.name, enabled = flag.enabled, "Registering feature flag");
+        flags.register(flag);
+        Ok(())
+    }
+
+    /// Check if a feature flag is enabled
+    pub fn is_enabled(name: &str) -> bool {
+        FEATURE_FLAGS
+            .get()
+            .and_then(|registry| registry.read().ok())
+            .map(|flags| flags.is_enabled(name))
+            .unwrap_or(false)
+    }
+
+    /// Set the current environment for feature flag evaluation
+    pub fn set_environment(env: &str) -> Result<()> {
+        let registry = FEATURE_FLAGS
+            .get()
+            .ok_or_else(|| AosError::Config("Feature flag system not initialized".to_string()))?;
+
+        let mut flags = registry
+            .write()
+            .map_err(|_| AosError::Config("Failed to acquire feature flag lock".to_string()))?;
+
+        flags.set_environment(env.to_string());
+        tracing::debug!(environment = env, "Feature flag environment updated");
+        Ok(())
+    }
+
+    /// Set the current tenant for feature flag evaluation
+    pub fn set_tenant(tenant_id: Option<&str>) -> Result<()> {
+        let registry = FEATURE_FLAGS
+            .get()
+            .ok_or_else(|| AosError::Config("Feature flag system not initialized".to_string()))?;
+
+        let mut flags = registry
+            .write()
+            .map_err(|_| AosError::Config("Failed to acquire feature flag lock".to_string()))?;
+
+        flags.set_tenant(tenant_id.map(|s| s.to_string()));
+        tracing::debug!(tenant_id = ?tenant_id, "Feature flag tenant updated");
+        Ok(())
+    }
+
+    /// Get all registered feature flags
+    pub fn get_all() -> Result<Vec<FeatureFlag>> {
+        let registry = FEATURE_FLAGS
+            .get()
+            .ok_or_else(|| AosError::Config("Feature flag system not initialized".to_string()))?;
+
+        let flags = registry
+            .read()
+            .map_err(|_| AosError::Config("Failed to acquire feature flag lock".to_string()))?;
+
+        Ok(flags.get_all_flags())
+    }
+
+    /// Remove a feature flag
+    pub fn remove(name: &str) -> Result<Option<FeatureFlag>> {
+        let registry = FEATURE_FLAGS
+            .get()
+            .ok_or_else(|| AosError::Config("Feature flag system not initialized".to_string()))?;
+
+        let mut flags = registry
+            .write()
+            .map_err(|_| AosError::Config("Failed to acquire feature flag lock".to_string()))?;
+
+        tracing::debug!(flag_name = name, "Removing feature flag");
+        Ok(flags.remove(name))
+    }
+
+    /// Register multiple feature flags from configuration
+    pub fn register_from_config(flags: Vec<FeatureFlag>) -> Result<()> {
+        for flag in flags {
+            Self::register(flag)?;
+        }
+        Ok(())
+    }
+
+    /// Check if the feature flag system is initialized
+    pub fn is_initialized() -> bool {
+        FEATURE_FLAGS.get().is_some()
+    }
+}
+
 /// Safe environment variable access that respects freeze
 pub fn safe_env_var(key: &str) -> Result<Option<String>> {
     if ConfigGuards::is_frozen() {
@@ -193,9 +412,13 @@ pub fn strict_env_var(key: &str) -> Result<String> {
             "Environment variable access prohibited after freeze",
         )?;
 
-        // In strict mode, panic on freeze violations
-        // For now, always return error instead of panicking
-        // TODO: Add proper feature flag support
+        // Check if strict panic mode is enabled via feature flag
+        if FeatureFlags::is_enabled("strict_panic_on_freeze") {
+            panic!(
+                "STRICT MODE: Environment variable access prohibited after freeze: {}",
+                key
+            );
+        }
 
         return Err(error);
     }
@@ -260,5 +483,145 @@ mod tests {
 
         ConfigGuards::clear_violations().unwrap();
         assert_eq!(ConfigGuards::get_violations().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_feature_flag_initialization() {
+        FeatureFlags::initialize().unwrap();
+        assert!(FeatureFlags::is_initialized());
+    }
+
+    #[test]
+    fn test_feature_flag_registration() {
+        FeatureFlags::initialize().unwrap();
+
+        let flag = FeatureFlag {
+            name: "test_feature".to_string(),
+            enabled: true,
+            description: Some("Test feature".to_string()),
+            conditions: None,
+        };
+
+        FeatureFlags::register(flag).unwrap();
+        assert!(FeatureFlags::is_enabled("test_feature"));
+        assert!(!FeatureFlags::is_enabled("nonexistent_feature"));
+    }
+
+    #[test]
+    fn test_feature_flag_disabled() {
+        FeatureFlags::initialize().unwrap();
+
+        let flag = FeatureFlag {
+            name: "disabled_feature".to_string(),
+            enabled: false,
+            description: None,
+            conditions: None,
+        };
+
+        FeatureFlags::register(flag).unwrap();
+        assert!(!FeatureFlags::is_enabled("disabled_feature"));
+    }
+
+    #[test]
+    fn test_feature_flag_environment_condition() {
+        FeatureFlags::initialize().unwrap();
+
+        let flag = FeatureFlag {
+            name: "prod_only_feature".to_string(),
+            enabled: true,
+            description: None,
+            conditions: Some(FeatureFlagConditions {
+                environments: Some(vec!["production".to_string()]),
+                tenant_ids: None,
+                enabled_after: None,
+                enabled_before: None,
+                rollout_percentage: None,
+            }),
+        };
+
+        FeatureFlags::register(flag).unwrap();
+
+        // Should be disabled in development (default)
+        FeatureFlags::set_environment("development").unwrap();
+        assert!(!FeatureFlags::is_enabled("prod_only_feature"));
+
+        // Should be enabled in production
+        FeatureFlags::set_environment("production").unwrap();
+        assert!(FeatureFlags::is_enabled("prod_only_feature"));
+    }
+
+    #[test]
+    fn test_feature_flag_tenant_condition() {
+        FeatureFlags::initialize().unwrap();
+
+        let flag = FeatureFlag {
+            name: "tenant_specific_feature".to_string(),
+            enabled: true,
+            description: None,
+            conditions: Some(FeatureFlagConditions {
+                environments: None,
+                tenant_ids: Some(vec!["tenant-a".to_string(), "tenant-b".to_string()]),
+                enabled_after: None,
+                enabled_before: None,
+                rollout_percentage: None,
+            }),
+        };
+
+        FeatureFlags::register(flag).unwrap();
+
+        // Should be disabled without tenant
+        assert!(!FeatureFlags::is_enabled("tenant_specific_feature"));
+
+        // Should be disabled for wrong tenant
+        FeatureFlags::set_tenant(Some("tenant-c")).unwrap();
+        assert!(!FeatureFlags::is_enabled("tenant_specific_feature"));
+
+        // Should be enabled for correct tenant
+        FeatureFlags::set_tenant(Some("tenant-a")).unwrap();
+        assert!(FeatureFlags::is_enabled("tenant_specific_feature"));
+    }
+
+    #[test]
+    fn test_feature_flag_get_all() {
+        FeatureFlags::initialize().unwrap();
+
+        let flag1 = FeatureFlag {
+            name: "feature_1".to_string(),
+            enabled: true,
+            description: None,
+            conditions: None,
+        };
+
+        let flag2 = FeatureFlag {
+            name: "feature_2".to_string(),
+            enabled: false,
+            description: None,
+            conditions: None,
+        };
+
+        FeatureFlags::register(flag1).unwrap();
+        FeatureFlags::register(flag2).unwrap();
+
+        let all_flags = FeatureFlags::get_all().unwrap();
+        assert_eq!(all_flags.len(), 2);
+    }
+
+    #[test]
+    fn test_feature_flag_remove() {
+        FeatureFlags::initialize().unwrap();
+
+        let flag = FeatureFlag {
+            name: "removable_feature".to_string(),
+            enabled: true,
+            description: None,
+            conditions: None,
+        };
+
+        FeatureFlags::register(flag).unwrap();
+        assert!(FeatureFlags::is_enabled("removable_feature"));
+
+        let removed = FeatureFlags::remove("removable_feature").unwrap();
+        assert!(removed.is_some());
+        assert!(!FeatureFlags::is_enabled("removable_feature"));
     }
 }

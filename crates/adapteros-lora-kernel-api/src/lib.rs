@@ -2,8 +2,35 @@
 
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub mod attestation;
+
+/// Backend health status for monitoring and failover
+#[derive(Debug, Clone)]
+pub enum BackendHealth {
+    /// Backend is operating normally
+    Healthy,
+    /// Backend is degraded but operational
+    Degraded { reason: String },
+    /// Backend has failed
+    Failed { reason: String, recoverable: bool },
+}
+
+/// Backend performance metrics
+#[derive(Debug, Clone, Default)]
+pub struct BackendMetrics {
+    /// Total operations executed
+    pub total_operations: u64,
+    /// Successful operations
+    pub successful_operations: u64,
+    /// Failed operations
+    pub failed_operations: u64,
+    /// Average latency
+    pub avg_latency: Duration,
+    /// Memory usage in bytes
+    pub memory_usage_bytes: u64,
+}
 
 /// Type alias for buffer verification result to reduce type complexity
 pub type BufferVerificationResult = (u64, Vec<u8>, Vec<u8>, Vec<u8>);
@@ -393,6 +420,41 @@ pub trait FusedKernels: Send + Sync {
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (true, 0.0, None) // No anomaly detection for non-GPU backends
     }
+
+    /// Get backend metrics
+    ///
+    /// Returns performance metrics for monitoring and telemetry
+    fn get_metrics(&self) -> BackendMetrics {
+        BackendMetrics::default()
+    }
+
+    /// Perform health check on the backend
+    ///
+    /// Returns the current health status of the backend.
+    ///
+    /// Default implementation returns Healthy.
+    fn health_check(&self) -> Result<BackendHealth> {
+        Ok(BackendHealth::Healthy)
+    }
+
+    /// Get GPU fingerprints for loaded adapters
+    ///
+    /// Returns a map of adapter IDs to their GPU buffer fingerprints.
+    /// Each fingerprint contains buffer size and checkpoint hash.
+    ///
+    /// Default implementation returns empty map for backends without VRAM tracking.
+    fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
+        std::collections::HashMap::new()
+    }
+}
+
+/// GPU buffer fingerprint for cross-layer integrity verification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GpuBufferFingerprint {
+    /// Buffer size in bytes
+    pub buffer_bytes: u64,
+    /// BLAKE3 hash of checkpoint samples
+    pub checkpoint_hash: adapteros_core::B3Hash,
 }
 
 /// Mock kernels implementation for testing
@@ -499,6 +561,18 @@ impl FusedKernels for Box<dyn FusedKernels> {
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
     }
+
+    fn get_metrics(&self) -> BackendMetrics {
+        (**self).get_metrics()
+    }
+
+    fn health_check(&self) -> Result<BackendHealth> {
+        (**self).health_check()
+    }
+
+    fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
+        (**self).get_gpu_fingerprints()
+    }
 }
 
 /// Impl FusedKernels for Box<dyn FusedKernels + Send + Sync> to enable dynamic dispatch with explicit bounds
@@ -551,6 +625,34 @@ impl FusedKernels for Box<dyn FusedKernels + Send + Sync> {
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
         (**self).check_memory_footprint(id, buffer_size)
     }
+
+    fn get_metrics(&self) -> BackendMetrics {
+        (**self).get_metrics()
+    }
+
+    fn health_check(&self) -> Result<BackendHealth> {
+        (**self).health_check()
+    }
+
+    fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
+        (**self).get_gpu_fingerprints()
+    }
+}
+
+/// Trait for adapter lookup operations
+///
+/// This trait abstracts adapter table operations to break circular dependencies
+/// between lifecycle and worker crates. Implementations can be provided by
+/// the worker crate while being consumed by the lifecycle crate.
+pub trait AdapterLookup: Send + Sync {
+    /// Get adapter weight bytes by ID
+    fn get_adapter_weights(&self, adapter_id: &str) -> Result<Vec<u8>>;
+
+    /// Check if adapter is loaded
+    fn is_adapter_loaded(&self, adapter_id: &str) -> bool;
+
+    /// Get adapter index for routing
+    fn get_adapter_index(&self, adapter_id: &str) -> Option<u16>;
 }
 
 /// MPLoRA configuration for kernels

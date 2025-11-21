@@ -8,7 +8,7 @@
 //!
 //! Citation: docs/llm-interface-specification.md §5.1
 
-use crate::{types::*, AdapterOSClient};
+use crate::{types::*, AdapterOSClient, TelemetryBundleResponse, TelemetryEvent};
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json;
@@ -271,12 +271,12 @@ impl UdsClient {
                             event_data.clear();
                             event_type.clear();
                             event_id.clear();
-                        } else if line.starts_with("data: ") {
-                            event_data.push_str(&line[6..]);
-                        } else if line.starts_with("event: ") {
-                            event_type = line[7..].to_string();
-                        } else if line.starts_with("id: ") {
-                            event_id = line[4..].to_string();
+                        } else if let Some(data) = line.strip_prefix("data: ") {
+                            event_data.push_str(data);
+                        } else if let Some(evt) = line.strip_prefix("event: ") {
+                            event_type = evt.to_string();
+                        } else if let Some(id) = line.strip_prefix("id: ") {
+                            event_id = id.to_string();
                         }
 
                         buffer.clear();
@@ -347,6 +347,7 @@ impl UdsClient {
 /// Connection pool for efficient UDS communication
 pub struct ConnectionPool {
     connections: Vec<UnixStream>,
+    #[allow(dead_code)]
     timeout: Duration,
 }
 
@@ -450,8 +451,10 @@ impl AdapterOSClient for UdsClient {
         // UDS clients typically don't implement health checks
         // Return a mock response for now
         Ok(HealthResponse {
+            schema_version: "1.0".to_string(),
             status: "healthy".to_string(),
             version: "1.0.0".to_string(),
+            models: None,
         })
     }
 
@@ -459,9 +462,12 @@ impl AdapterOSClient for UdsClient {
         // UDS clients don't implement authentication
         // Return a mock response for now
         Ok(LoginResponse {
+            schema_version: "1.0".to_string(),
             token: "uds-token".to_string(),
             user_id: "uds-user".to_string(),
+            tenant_id: "default".to_string(),
             role: "admin".to_string(),
+            expires_in: 28800, // 8 hours
         })
     }
 
@@ -473,6 +479,7 @@ impl AdapterOSClient for UdsClient {
     async fn me(&self) -> Result<UserInfoResponse> {
         // UDS clients don't implement user info
         Ok(UserInfoResponse {
+            schema_version: "1.0".to_string(),
             user_id: "uds-user".to_string(),
             email: "uds@example.com".to_string(),
             role: "admin".to_string(),
@@ -484,6 +491,7 @@ impl AdapterOSClient for UdsClient {
     async fn list_tenants(&self) -> Result<Vec<TenantResponse>> {
         // UDS clients typically work with a single tenant
         Ok(vec![TenantResponse {
+            schema_version: "1.0".to_string(),
             id: "default".to_string(),
             name: "Default Tenant".to_string(),
             itar_flag: false,

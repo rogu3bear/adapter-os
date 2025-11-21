@@ -181,7 +181,7 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       // Apply updated policy
       await apiClient.applyPolicy({
         cpid: policies[0].cpid,
-        policy_json: JSON.stringify(updatedPolicy)
+        content: JSON.stringify(updatedPolicy)
       });
 
       setHasUnsavedChanges(false);
@@ -222,7 +222,13 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
       const result = await apiClient.debugRouting({
         prompt: testPrompt
       });
-      setTestResults(result.selected_adapters);
+      // Transform string[] to AdapterScore[]
+      const adapterScores: AdapterScore[] = result.selected_adapters.map((adapterId, idx) => ({
+        adapter_id: adapterId,
+        score: result.all_scores[adapterId] || 0,
+        gate_value: result.gate_values[idx]
+      }));
+      setTestResults(adapterScores);
       logger.info('Router test completed', {
         component: 'RouterConfigPage',
         operation: 'testRouterConfig',

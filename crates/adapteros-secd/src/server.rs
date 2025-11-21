@@ -127,12 +127,11 @@ async fn process_request(
             };
 
             let hash_hex = hex::encode(&data_bytes[..32.min(data_bytes.len())]);
-            let _label = key_label.as_deref().unwrap_or("aos_bundle_signing"); // TODO: Implement key labeling in future iteration
+            let label = key_label.as_deref().unwrap_or("aos_bundle_signing");
             let mut enclave = enclave.lock().await;
 
-            // For signing, we need to use the correct key
-            // Currently sign_bundle uses a hardcoded label internally
-            match enclave.sign_bundle(&data_bytes) {
+            // Sign using the specified key label for key selection
+            match enclave.sign_with_label(label, &data_bytes) {
                 Ok(signature) => {
                     audit_logger.log_success("sign", Some(&hash_hex)).await;
                     Response::ok(signature)

@@ -40,7 +40,7 @@ describe('Diff Utilities', () => {
       const current = 'hello world';
 
       const result = tokenDiff(golden, current);
-      expect(result).toHaveLength(2); // "hello", " ", "world"
+      expect(result).toHaveLength(3); // "hello", " ", "world"
       expect(result.every((r) => r.type === 'unchanged')).toBe(true);
     });
 

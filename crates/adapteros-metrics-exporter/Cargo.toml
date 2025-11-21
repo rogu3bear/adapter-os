@@ -15,6 +15,7 @@ adapteros-db = { path = "../adapteros-db" }
 anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 

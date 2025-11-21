@@ -4,6 +4,7 @@ import type { Tenant } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { BookmarkProvider } from '../contexts/BookmarkContext';
 import { ModalProvider } from '../contexts/ModalContext';
+import { HistoryProvider } from '../contexts/HistoryContext';
 
 // Tenant Context
 interface TenantContextValue {
@@ -125,9 +126,11 @@ export function FeatureProviders({ children }: { children: ReactNode }) {
   return (
     <BookmarkProvider>
       <ModalProvider>
-        <TenantProvider>
-          {children}
-        </TenantProvider>
+        <HistoryProvider>
+          <TenantProvider>
+            {children}
+          </TenantProvider>
+        </HistoryProvider>
       </ModalProvider>
     </BookmarkProvider>
   );

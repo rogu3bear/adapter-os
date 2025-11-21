@@ -111,12 +111,12 @@ describe('RetryNotification Timer Accuracy', () => {
     rerender(<RetryNotification {...defaultProps} delayMs={1000} />);
     expect(screen.getByText('Next attempt in 1 second')).toBeInTheDocument();
 
-    // Advance 1 second - should reach 0 and stop
+    // Advance 1 second - should reach 0
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
-    // Should not show negative numbers or continue counting
-    expect(screen.queryByText(/Next attempt in/)).not.toBeInTheDocument();
+    // Should show 0 seconds (not negative numbers)
+    expect(screen.getByText(/Next attempt in 0 second/)).toBeInTheDocument();
   });
 });

@@ -4,12 +4,12 @@
 //! and multi-index search capabilities.
 
 use crate::{
-    chunking::{CodeChunker, Language, SymbolNode},
+    chunking::CodeChunker,
     fts_index::{DocIndexImpl, IndexedDoc, IndexedTest, SymbolIndexImpl, TestIndexImpl},
     retrieval::{EvidenceSpan, EvidenceType},
     DocMetadata, TenantIndex,
 };
-// use adapteros_codegraph::types::{Language, SymbolNode};
+use adapteros_codegraph::types::{Language, SymbolNode};
 use adapteros_core::{B3Hash, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -145,32 +145,158 @@ impl EvidenceIndexManager {
         &self,
         query: &str,
         evidence_types: &[EvidenceType],
-        _repo_id: Option<&str>,
+        repo_id: Option<&str>,
         max_results: usize,
     ) -> Result<Vec<EvidenceSpan>> {
-        let mut all_spans = Vec::new();
+        use adapteros_core::B3Hash;
+        use std::collections::HashMap as StdHashMap;
 
-        // Search sequentially across different index types
-        // TODO: Optimize with parallel searches in the future
-        for evidence_type in evidence_types {
-            match evidence_type {
-                EvidenceType::Symbol
-                | EvidenceType::Test
-                | EvidenceType::Doc
-                | EvidenceType::Framework => {
-                    // For now, skip FTS5 searches
-                    // TODO: Implement conversion from IndexedSymbol/Test/Doc to EvidenceSpan
+        // Determine which searches to run
+        let search_symbols = evidence_types.contains(&EvidenceType::Symbol);
+        let search_tests = evidence_types.contains(&EvidenceType::Test);
+        let search_docs = evidence_types.contains(&EvidenceType::Doc)
+            || evidence_types.contains(&EvidenceType::Framework);
+        let search_code = evidence_types.contains(&EvidenceType::Code);
+
+        // Run searches in parallel using tokio::join!
+        let (symbol_results, test_results, doc_results, code_results) = tokio::join!(
+            async {
+                if search_symbols {
+                    let symbol_index = self.symbol_index.read().await;
+                    symbol_index.search(query, repo_id, max_results).await
+                } else {
+                    Ok(Vec::new())
                 }
-                EvidenceType::Code => {
-                    // Vector search for code chunks
+            },
+            async {
+                if search_tests {
+                    let test_index = self.test_index.read().await;
+                    test_index.search(query, repo_id, max_results).await
+                } else {
+                    Ok(Vec::new())
+                }
+            },
+            async {
+                if search_docs {
+                    let doc_index = self.doc_index.read().await;
+                    doc_index.search(query, repo_id, max_results).await
+                } else {
+                    Ok(Vec::new())
+                }
+            },
+            async {
+                if search_code {
                     if let Some(ref embedding_model) = self.embedding_model {
                         let embedding = embedding_model.encode_text(query)?;
                         let vector_index = self.vector_index.read().await;
-                        let results = vector_index.retrieve(&embedding, max_results)?;
-                        all_spans.extend(results);
+                        vector_index.retrieve(&embedding, max_results)
+                    } else {
+                        Ok(Vec::new())
                     }
+                } else {
+                    Ok(Vec::new())
                 }
             }
+        );
+
+        let mut all_spans = Vec::new();
+
+        // Convert IndexedSymbol to EvidenceSpan
+        if let Ok(symbols) = symbol_results {
+            for symbol in symbols {
+                let text = if let Some(ref sig) = symbol.signature {
+                    format!("{} {}", symbol.name, sig)
+                } else {
+                    symbol.name.clone()
+                };
+                let span_hash = B3Hash::hash(format!("{}:{}", symbol.symbol_id, symbol.commit_sha).as_bytes());
+
+                let mut metadata = StdHashMap::new();
+                metadata.insert("kind".to_string(), symbol.kind.clone());
+                metadata.insert("visibility".to_string(), symbol.visibility.clone());
+                metadata.insert("module_path".to_string(), symbol.module_path.clone());
+                if let Some(ref docstring) = symbol.docstring {
+                    metadata.insert("docstring".to_string(), docstring.clone());
+                }
+
+                all_spans.push(EvidenceSpan {
+                    doc_id: symbol.symbol_id,
+                    rev: symbol.commit_sha,
+                    text,
+                    score: 1.0, // FTS5 rank normalized
+                    span_hash,
+                    superseded: None,
+                    evidence_type: Some(EvidenceType::Symbol),
+                    file_path: Some(symbol.file_path),
+                    start_line: Some(symbol.start_line as usize),
+                    end_line: Some(symbol.end_line as usize),
+                    metadata,
+                });
+            }
+        }
+
+        // Convert IndexedTest to EvidenceSpan
+        if let Ok(tests) = test_results {
+            for test in tests {
+                let text = if let Some(ref target) = test.target_function {
+                    format!("{} -> {}", test.test_name, target)
+                } else {
+                    test.test_name.clone()
+                };
+                let span_hash = B3Hash::hash(format!("{}:{}", test.test_id, test.commit_sha).as_bytes());
+
+                let mut metadata = StdHashMap::new();
+                if let Some(ref target_id) = test.target_symbol_id {
+                    metadata.insert("target_symbol_id".to_string(), target_id.clone());
+                }
+                if let Some(ref target_fn) = test.target_function {
+                    metadata.insert("target_function".to_string(), target_fn.clone());
+                }
+
+                all_spans.push(EvidenceSpan {
+                    doc_id: test.test_id,
+                    rev: test.commit_sha,
+                    text,
+                    score: 1.0,
+                    span_hash,
+                    superseded: None,
+                    evidence_type: Some(EvidenceType::Test),
+                    file_path: Some(test.file_path),
+                    start_line: Some(test.start_line as usize),
+                    end_line: Some(test.end_line as usize),
+                    metadata,
+                });
+            }
+        }
+
+        // Convert IndexedDoc to EvidenceSpan
+        if let Ok(docs) = doc_results {
+            for doc in docs {
+                let span_hash = B3Hash::hash(format!("{}:{}", doc.doc_id, doc.commit_sha).as_bytes());
+
+                let mut metadata = StdHashMap::new();
+                metadata.insert("doc_type".to_string(), doc.doc_type.clone());
+                metadata.insert("title".to_string(), doc.title.clone());
+
+                all_spans.push(EvidenceSpan {
+                    doc_id: doc.doc_id,
+                    rev: doc.commit_sha,
+                    text: doc.content,
+                    score: 1.0,
+                    span_hash,
+                    superseded: None,
+                    evidence_type: Some(EvidenceType::Doc),
+                    file_path: Some(doc.file_path),
+                    start_line: doc.start_line.map(|l| l as usize),
+                    end_line: doc.end_line.map(|l| l as usize),
+                    metadata,
+                });
+            }
+        }
+
+        // Add code results (already EvidenceSpan)
+        if let Ok(code_spans) = code_results {
+            all_spans.extend(code_spans);
         }
 
         // Apply deterministic ordering: (score desc, doc_id asc)
@@ -213,7 +339,7 @@ impl EvidenceIndexManager {
 
         // For now, we'll use a simplified parsing approach
         // In production, integrate with adapteros-codegraph parser
-        let symbols = self.extract_symbols_from_file(file_path, &content).await?;
+        let symbols: Vec<SymbolNode> = self.extract_symbols_from_file(file_path, &content).await?;
 
         // Index symbols
         if !symbols.is_empty() {

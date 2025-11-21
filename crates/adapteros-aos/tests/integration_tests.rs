@@ -1,4 +1,8 @@
 //! Integration tests for adapteros-aos
+//!
+//! These tests require the `mmap` feature to be enabled.
+
+#![cfg(feature = "mmap")]
 
 use adapteros_aos::{AosManager, MmapAdapterLoader};
 use std::path::PathBuf;

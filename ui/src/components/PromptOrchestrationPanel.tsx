@@ -79,60 +79,10 @@ export default function PromptOrchestrationPanel() {
     fallbackStrategy: 'adaptive'
   });
 
-  const [metrics, setMetrics] = useState<OrchestrationMetrics>({
-    totalRequests: 1247,
-    baseModelOnly: 423,
-    adapterUsed: 824,
-    analysisTimeMs: 23.5,
-    cacheHits: 892,
-    cacheMisses: 355,
-    lastUpdated: new Date().toISOString()
-  });
+  const [metrics, setMetrics] = useState<OrchestrationMetrics | null>(null);
 
-  const [sampleAnalyses, setSampleAnalyses] = useState<PromptAnalysis[]>([
-    {
-      prompt: "Write a simple hello world function in Python",
-      complexityScore: 0.15,
-      recommendedStrategy: 'base_model',
-      analysisTimeMs: 12,
-      features: {
-        language: 'python',
-        frameworks: [],
-        symbols: 2,
-        tokens: 8,
-        verb: 'write'
-      },
-      timestamp: new Date(Date.now() - 300000).toISOString()
-    },
-    {
-      prompt: "Implement a Django REST API with authentication and database models",
-      complexityScore: 0.78,
-      recommendedStrategy: 'adapters',
-      analysisTimeMs: 34,
-      features: {
-        language: 'python',
-        frameworks: ['django', 'rest_framework'],
-        symbols: 15,
-        tokens: 12,
-        verb: 'implement'
-      },
-      timestamp: new Date(Date.now() - 180000).toISOString()
-    },
-    {
-      prompt: "Debug this Rust compilation error in my async tokio code",
-      complexityScore: 0.65,
-      recommendedStrategy: 'adapters',
-      analysisTimeMs: 28,
-      features: {
-        language: 'rust',
-        frameworks: ['tokio'],
-        symbols: 8,
-        tokens: 10,
-        verb: 'debug'
-      },
-      timestamp: new Date(Date.now() - 60000).toISOString()
-    }
-  ]);
+  const [recentAnalyses, setRecentAnalyses] = useState<PromptAnalysis[]>([]);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [testPrompt, setTestPrompt] = useState('');
@@ -207,25 +157,20 @@ export default function PromptOrchestrationPanel() {
   // Load metrics periodically
   useEffect(() => {
     loadConfig();
-    const interval = setInterval(() => {
-      // In a real implementation, this would fetch updated metrics
-      setMetrics(prev => ({
-        ...prev,
-        totalRequests: prev.totalRequests + Math.floor(Math.random() * 5),
-        lastUpdated: new Date().toISOString()
-      }));
-    }, 5000);
-
-    return () => clearInterval(interval);
+    // Metrics loading - backend endpoint not yet available
+    setIsLoadingMetrics(false);
+    // TODO: Implement apiClient.getOrchestrationMetrics() when backend is ready
+    // const interval = setInterval(() => { ... }, 5000);
+    // return () => clearInterval(interval);
   }, [loadConfig]);
 
-  const baseModelPercentage = metrics.totalRequests > 0
+  const baseModelPercentage = metrics && metrics.totalRequests > 0
     ? (metrics.baseModelOnly / metrics.totalRequests) * 100
     : 0;
-  const adapterPercentage = metrics.totalRequests > 0
+  const adapterPercentage = metrics && metrics.totalRequests > 0
     ? (metrics.adapterUsed / metrics.totalRequests) * 100
     : 0;
-  const cacheHitRate = (metrics.cacheHits + metrics.cacheMisses) > 0
+  const cacheHitRate = metrics && (metrics.cacheHits + metrics.cacheMisses) > 0
     ? (metrics.cacheHits / (metrics.cacheHits + metrics.cacheMisses)) * 100
     : 0;
 
@@ -259,58 +204,80 @@ export default function PromptOrchestrationPanel() {
 
         <TabsContent value="overview" className="space-y-4">
           {/* Status Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <Activity className="h-4 w-4 text-blue-600" />
-                  <div className="ml-4 space-y-1">
-                    <p className="text-sm font-medium text-gray-600">Total Requests</p>
-                    <p className="text-2xl font-bold text-gray-900">{metrics.totalRequests.toLocaleString()}</p>
+          {isLoadingMetrics ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                      <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : !metrics ? (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Orchestration metrics not available. The backend endpoint is under development.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <Activity className="h-4 w-4 text-blue-600" />
+                    <div className="ml-4 space-y-1">
+                      <p className="text-sm font-medium text-gray-600">Total Requests</p>
+                      <p className="text-2xl font-bold text-gray-900">{metrics.totalRequests.toLocaleString()}</p>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <MessageSquare className="h-4 w-4 text-green-600" />
-                  <div className="ml-4 space-y-1">
-                    <p className="text-sm font-medium text-gray-600">Base Model Only</p>
-                    <p className="text-2xl font-bold text-gray-900">{metrics.baseModelOnly.toLocaleString()}</p>
-                    <p className="text-xs text-gray-500">{baseModelPercentage.toFixed(1)}%</p>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <MessageSquare className="h-4 w-4 text-green-600" />
+                    <div className="ml-4 space-y-1">
+                      <p className="text-sm font-medium text-gray-600">Base Model Only</p>
+                      <p className="text-2xl font-bold text-gray-900">{metrics.baseModelOnly.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">{baseModelPercentage.toFixed(1)}%</p>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <Zap className="h-4 w-4 text-purple-600" />
-                  <div className="ml-4 space-y-1">
-                    <p className="text-sm font-medium text-gray-600">Adapters Used</p>
-                    <p className="text-2xl font-bold text-gray-900">{metrics.adapterUsed.toLocaleString()}</p>
-                    <p className="text-xs text-gray-500">{adapterPercentage.toFixed(1)}%</p>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <Zap className="h-4 w-4 text-purple-600" />
+                    <div className="ml-4 space-y-1">
+                      <p className="text-sm font-medium text-gray-600">Adapters Used</p>
+                      <p className="text-2xl font-bold text-gray-900">{metrics.adapterUsed.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">{adapterPercentage.toFixed(1)}%</p>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <TrendingUp className="h-4 w-4 text-orange-600" />
-                  <div className="ml-4 space-y-1">
-                    <p className="text-sm font-medium text-gray-600">Avg Analysis Time</p>
-                    <p className="text-2xl font-bold text-gray-900">{metrics.analysisTimeMs.toFixed(1)}ms</p>
-                    <p className="text-xs text-gray-500">Cache hit rate: {cacheHitRate.toFixed(1)}%</p>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <TrendingUp className="h-4 w-4 text-orange-600" />
+                    <div className="ml-4 space-y-1">
+                      <p className="text-sm font-medium text-gray-600">Avg Analysis Time</p>
+                      <p className="text-2xl font-bold text-gray-900">{metrics.analysisTimeMs.toFixed(1)}ms</p>
+                      <p className="text-xs text-gray-500">Cache hit rate: {cacheHitRate.toFixed(1)}%</p>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Recent Analyses */}
           <Card>
@@ -321,41 +288,51 @@ export default function PromptOrchestrationPanel() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {sampleAnalyses.map((analysis, index) => (
-                  <div key={index} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900 line-clamp-2">
-                          {analysis.prompt}
-                        </p>
-                        <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                          <span>Score: {analysis.complexityScore.toFixed(2)}</span>
-                          <span>Time: {analysis.analysisTimeMs}ms</span>
-                          <Badge variant={
-                            analysis.recommendedStrategy === 'base_model' ? 'secondary' :
-                            analysis.recommendedStrategy === 'adapters' ? 'default' : 'outline'
-                          }>
-                            {analysis.recommendedStrategy.replace('_', ' ')}
-                          </Badge>
+              {recentAnalyses.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Brain className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                  <p className="font-medium">No recent analyses</p>
+                  <p className="text-sm mt-1">
+                    Use the Testing tab to analyze prompts, or wait for backend API integration.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {recentAnalyses.map((analysis, index) => (
+                    <div key={index} className="border rounded-lg p-4 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900 line-clamp-2">
+                            {analysis.prompt}
+                          </p>
+                          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                            <span>Score: {analysis.complexityScore.toFixed(2)}</span>
+                            <span>Time: {analysis.analysisTimeMs}ms</span>
+                            <Badge variant={
+                              analysis.recommendedStrategy === 'base_model' ? 'secondary' :
+                              analysis.recommendedStrategy === 'adapters' ? 'default' : 'outline'
+                            }>
+                              {analysis.recommendedStrategy.replace('_', ' ')}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {new Date(analysis.timestamp).toLocaleTimeString()}
                         </div>
                       </div>
-                      <div className="text-xs text-gray-400">
-                        {new Date(analysis.timestamp).toLocaleTimeString()}
+
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{analysis.features.language}</Badge>
+                        {analysis.features.frameworks.map(fw => (
+                          <Badge key={fw} variant="outline">{fw}</Badge>
+                        ))}
+                        <Badge variant="outline">{analysis.features.symbols} symbols</Badge>
+                        <Badge variant="outline">{analysis.features.verb}</Badge>
                       </div>
                     </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">{analysis.features.language}</Badge>
-                      {analysis.features.frameworks.map(fw => (
-                        <Badge key={fw} variant="outline">{fw}</Badge>
-                      ))}
-                      <Badge variant="outline">{analysis.features.symbols} symbols</Badge>
-                      <Badge variant="outline">{analysis.features.verb}</Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -592,68 +569,78 @@ export default function PromptOrchestrationPanel() {
           <Alert>
             <BarChart3 className="h-4 w-4" />
             <AlertDescription>
-              Advanced analytics and performance monitoring coming soon. Current metrics show real-time orchestration performance.
+              Analytics and performance monitoring coming soon. Backend API endpoints are under development.
             </AlertDescription>
           </Alert>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Strategy Distribution</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Base Model Only</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-green-600 h-2 rounded-full"
-                          style={{ width: `${baseModelPercentage}%` }}
-                        />
+          {metrics ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Strategy Distribution</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Base Model Only</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-green-600 h-2 rounded-full"
+                            style={{ width: `${baseModelPercentage}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium">{baseModelPercentage.toFixed(1)}%</span>
                       </div>
-                      <span className="text-sm font-medium">{baseModelPercentage.toFixed(1)}%</span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Adapters Used</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-purple-600 h-2 rounded-full"
+                            style={{ width: `${adapterPercentage}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium">{adapterPercentage.toFixed(1)}%</span>
+                      </div>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
 
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Adapters Used</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-purple-600 h-2 rounded-full"
-                          style={{ width: `${adapterPercentage}%` }}
-                        />
-                      </div>
-                      <span className="text-sm font-medium">{adapterPercentage.toFixed(1)}%</span>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Cache Performance</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Cache Hit Rate</span>
+                      <span className="text-sm font-medium">{cacheHitRate.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Cache Hits</span>
+                      <span className="text-sm font-medium">{metrics.cacheHits.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Cache Misses</span>
+                      <span className="text-sm font-medium">{metrics.cacheMisses.toLocaleString()}</span>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Cache Performance</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Cache Hit Rate</span>
-                    <span className="text-sm font-medium">{cacheHitRate.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Cache Hits</span>
-                    <span className="text-sm font-medium">{metrics.cacheHits.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Cache Misses</span>
-                    <span className="text-sm font-medium">{metrics.cacheMisses.toLocaleString()}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p className="font-medium">No analytics data available</p>
+              <p className="text-sm mt-1">
+                Analytics will be displayed once the backend API is implemented.
+              </p>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

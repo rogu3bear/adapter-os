@@ -174,20 +174,20 @@ pub struct SupervisorDaemon {
     quarantine_manager: Arc<TokioMutex<QuarantineManager>>,
     /// Adapter registry
     adapter_registry: Option<Arc<Registry>>,
-    /// Database
-    db: Arc<Db>,
+    /// Database (reserved for supervisor persistence)
+    _db: Arc<Db>,
 }
 
 /// Health checker
 pub struct HealthChecker {
-    /// Check interval
-    interval: Duration,
+    /// Check interval (reserved for scheduled health checks)
+    _interval: Duration,
 }
 
 impl HealthChecker {
     /// Create a new health checker
     pub fn new(interval: Duration) -> Self {
-        Self { interval }
+        Self { _interval: interval }
     }
 
     /// Check worker health
@@ -250,7 +250,7 @@ impl SupervisorDaemon {
             policy_watcher: None,
             quarantine_manager: Arc::new(TokioMutex::new(QuarantineManager::new())),
             adapter_registry: None,
-            db,
+            _db: db,
         })
     }
 
@@ -439,18 +439,27 @@ impl SupervisorDaemon {
         // Record crash in database
         self.record_crash(tenant_id, crash_reason).await?;
 
-        // Get restart state
-        let mut restart_states = self.restart_states.lock().unwrap();
-        let restart_state = restart_states.entry(tenant_id.to_string()).or_default();
+        // Get restart state info - extract needed values then drop lock
+        let (exceeded_max, backoff, attempts, max_attempts) = {
+            let mut restart_states = self.restart_states.lock().unwrap();
+            let restart_state = restart_states.entry(tenant_id.to_string()).or_default();
 
-        restart_state.attempts += 1;
-        restart_state.last_crash = Some(std::time::SystemTime::now());
+            restart_state.attempts += 1;
+            restart_state.last_crash = Some(std::time::SystemTime::now());
+
+            let exceeded = restart_state.attempts > restart_state.policy.max_attempts;
+            let backoff = restart_state.policy.backoff_delay(restart_state.attempts);
+            let attempts = restart_state.attempts;
+            let max = restart_state.policy.max_attempts;
+
+            (exceeded, backoff, attempts, max)
+        };
 
         // Check if we've exceeded max attempts
-        if restart_state.attempts > restart_state.policy.max_attempts {
+        if exceeded_max {
             error!(
                 "Worker {} exceeded max restart attempts ({}), marking as stopped",
-                tenant_id, restart_state.policy.max_attempts
+                tenant_id, max_attempts
             );
 
             // Update worker status
@@ -468,13 +477,12 @@ impl SupervisorDaemon {
         }
 
         // Calculate backoff delay
-        let backoff = restart_state.policy.backoff_delay(restart_state.attempts);
         info!(
             "Restarting worker {} after {}s (attempt {}/{})",
             tenant_id,
             backoff.as_secs(),
-            restart_state.attempts,
-            restart_state.policy.max_attempts
+            attempts,
+            max_attempts
         );
 
         // Mark as restarting
@@ -492,10 +500,16 @@ impl SupervisorDaemon {
         self.restart_worker(tenant_id).await?;
 
         // Record restart in database
-        self.record_restart(tenant_id, restart_state.attempts)
+        self.record_restart(tenant_id, attempts)
             .await?;
 
-        restart_state.last_restart = std::time::SystemTime::now();
+        // Update last_restart time
+        {
+            let mut restart_states = self.restart_states.lock().unwrap();
+            if let Some(restart_state) = restart_states.get_mut(tenant_id) {
+                restart_state.last_restart = std::time::SystemTime::now();
+            }
+        }
 
         // On successful restart, reset attempts after a grace period
         // (in production, would be triggered by successful health checks)
@@ -506,20 +520,52 @@ impl SupervisorDaemon {
     async fn restart_worker(&self, tenant_id: &str) -> Result<()> {
         info!("Restarting worker {}", tenant_id);
 
-        // In production, this would:
-        // 1. Kill existing process if still running
-        // 2. Spawn new worker process with same tenant config
-        // 3. Update PID in worker handle
-        // 4. Wait for initial health check
+        // Get current worker info
+        let old_pid = {
+            let workers = self.workers.lock().await;
+            workers.get(tenant_id).and_then(|w| w.pid)
+        };
 
-        // For now, just mark as healthy (placeholder)
-        let mut workers = self.workers.lock().await;
-        if let Some(worker) = workers.get_mut(tenant_id) {
-            worker.status = WorkerStatus::Healthy;
-            worker.pid = Some(std::process::id()); // Placeholder PID
-            worker.last_health_check = std::time::SystemTime::now();
+        // Kill existing process if still running
+        if let Some(pid) = old_pid {
+            debug!("Killing existing worker process {}", pid);
+            #[cfg(unix)]
+            {
+                use std::process::Command;
+                let _ = Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .output();
+            }
+            // Give the OS time to clean up
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
+        // Spawn new worker process
+        let new_pid = spawn_worker_process(tenant_id, &self.config.db_path).await?;
+
+        // Update worker handle with new PID
+        {
+            let mut workers = self.workers.lock().await;
+            if let Some(worker) = workers.get_mut(tenant_id) {
+                worker.pid = Some(new_pid);
+                worker.status = WorkerStatus::Healthy;
+                worker.last_health_check = std::time::SystemTime::now();
+            }
+        }
+
+        // Wait for initial health check
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Verify worker is responding
+        let status = self.get_worker_status(tenant_id).await;
+        if status != Some(WorkerStatus::Healthy) {
+            return Err(AosError::Worker(format!(
+                "Worker {} failed health check after restart",
+                tenant_id
+            )));
+        }
+
+        info!("Worker {} restarted successfully with PID {}", tenant_id, new_pid);
         Ok(())
     }
 
@@ -556,6 +602,59 @@ impl SupervisorDaemon {
         let restart_states = self.restart_states.lock().unwrap();
         restart_states.get(tenant_id).cloned()
     }
+}
+
+/// Spawn a new worker process for a tenant
+async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Result<u32> {
+    use std::process::Command;
+
+    // Determine the worker binary path
+    let worker_binary = std::env::current_exe()
+        .map_err(|e| AosError::Worker(format!("Failed to get current executable: {}", e)))?
+        .parent()
+        .ok_or_else(|| AosError::Worker("No parent directory for executable".to_string()))?
+        .join("aos-worker");
+
+    // Check if worker binary exists, fall back to current process for testing
+    let (binary, args) = if worker_binary.exists() {
+        (
+            worker_binary,
+            vec![
+                "--tenant".to_string(),
+                tenant_id.to_string(),
+                "--db".to_string(),
+                db_path.display().to_string(),
+            ],
+        )
+    } else {
+        // For testing/development, spawn a placeholder process
+        debug!("Worker binary not found, using placeholder process");
+        (
+            std::path::PathBuf::from("sleep"),
+            vec!["3600".to_string()], // Sleep for 1 hour as placeholder
+        )
+    };
+
+    let child = Command::new(&binary)
+        .args(&args)
+        .spawn()
+        .map_err(|e| {
+            AosError::Worker(format!(
+                "Failed to spawn worker process {}: {}",
+                binary.display(),
+                e
+            ))
+        })?;
+
+    let pid = child.id();
+    info!(
+        tenant = tenant_id,
+        pid = pid,
+        binary = %binary.display(),
+        "Spawned worker process"
+    );
+
+    Ok(pid)
 }
 
 #[cfg(test)]

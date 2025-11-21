@@ -10,6 +10,7 @@ use adapteros_core::Result;
 use adapteros_db::Db;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 /// Dashboard configuration service
 pub struct DashboardService {
@@ -23,7 +24,7 @@ struct DashboardConfigRow {
 }
 
 /// Dashboard configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardConfig {
     pub widgets: Vec<DashboardWidget>,
     pub refresh_interval: u64,
@@ -33,7 +34,7 @@ pub struct DashboardConfig {
 }
 
 /// Dashboard layout configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardLayout {
     pub columns: usize,
     pub rows: usize,
@@ -42,7 +43,7 @@ pub struct DashboardLayout {
 }
 
 /// Dashboard theme configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardTheme {
     pub name: String,
     pub colors: ThemeColors,
@@ -50,7 +51,7 @@ pub struct DashboardTheme {
 }
 
 /// Theme colors
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ThemeColors {
     pub primary: String,
     pub secondary: String,
@@ -65,7 +66,7 @@ pub struct ThemeColors {
 }
 
 /// Theme fonts
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ThemeFonts {
     pub primary: String,
     pub secondary: String,

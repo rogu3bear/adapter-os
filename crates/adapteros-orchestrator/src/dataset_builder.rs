@@ -42,8 +42,10 @@ pub fn build_from_directory(
             "directory root must be absolute".into(),
         ));
     }
-    let analysis = analyze_directory(root, rel)
-        .map_err(|e| AosError::Validation(format!("directory analysis failed: {}", e)))?;
+
+    // Analyze the directory to get symbols and metadata
+    let target_path = root.join(rel);
+    let analysis = analyze_directory(&target_path)?;
 
     info!(
         path = %analysis.path.display(),
@@ -57,8 +59,7 @@ pub fn build_from_directory(
     // Treat each file as a self-modification (old == new) to seed examples
     // via sliding windows. This yields deterministic pairs without diffs.
     let mut patches: Vec<FilePatch> = Vec::new();
-    let target_dir = root.join(&analysis.path);
-    for entry in WalkDir::new(&target_dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(&analysis.path).into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() {
             continue;
         }

@@ -266,7 +266,7 @@ AdapterOS already implements:
 - Deterministic execution (HKDF seeds, canonical JSON, fixed kernels)
 - Permissions (policy packs, ACLs)
 - System APIs (`aosctl`, server API)
-- Device interfaces (Metal GPU kernels, Keychain)
+- Device interfaces (CoreML/ANE, MLX, Metal GPU kernels, Keychain)
 - Program lifecycle (adapter registry, promotion service, CPID)
 
 This covers approximately 70% of an OS's fundamental responsibilities.
@@ -339,16 +339,30 @@ Define a controlled interface for allowed operations, such as:
 
 This establishes a secure syscall surface for the inference environment.
 
-### 5. UMA + Metal: Enabling OS-Like Capabilities
+### 5. UMA + Apple Silicon Backends: Enabling OS-Like Capabilities
 
-Unified Memory Architecture (UMA) combined with Metal provides:
+Unified Memory Architecture (UMA) combined with Apple Silicon compute backends provides:
 
-- Unified address space across CPU and GPU
+- Unified address space across CPU, GPU, and Neural Engine
 - Deterministic memory allocation
 - No VRAM segmentation or PCIe latency
 - Consistent scheduling across devices
+- Power-efficient inference via ANE (Apple Neural Engine)
 
-This allows treating GPU compute as a privileged subsystem, a hallmark of OS design.
+**Backend Hierarchy:**
+
+| Priority | Backend | Engine | Use Case | Determinism |
+|----------|---------|--------|----------|-------------|
+| **Primary** | CoreML | ANE | Production inference, power-efficient | Guaranteed on ANE |
+| **Secondary** | MLX | GPU/CPU | Research, training, prototyping | HKDF-seeded |
+| **Fallback** | Metal | GPU | Legacy systems, non-ANE hardware | Guaranteed |
+
+**Selection Rationale:**
+- **CoreML/ANE** — Primary for production: 50% power reduction, deterministic on Neural Engine, optimized for sustained inference workloads
+- **MLX** — Secondary for research: flexible, rapid iteration, training support, cross-platform potential
+- **Metal** — Fallback for compatibility: guaranteed determinism, supports older Apple Silicon without ANE optimization
+
+This allows treating GPU/ANE compute as a privileged subsystem, a hallmark of OS design.
 
 ### 6. Feasibility and Next Steps
 
@@ -404,9 +418,10 @@ Mediates all client communication.
 - **Concurrency Model** — Tokio runtime pinned to deterministic worker threads; no work-stealing  
 
 #### **Inference Engine**
-- **Base LLM** — `Qwen2.5-7B-Instruct` (int4, Metal kernels)  
-- **Adapter Loader** — Loads LoRA deltas from registry, verifies BLAKE3 signatures  
-- **Kernel Pipeline** — Fused Metal operations (matmul, layernorm, softmax) for identical results across runs  
+- **Base LLM** — `Qwen2.5-7B-Instruct` (int4, CoreML/ANE for power efficiency)
+- **Adapter Loader** — Loads LoRA deltas from registry, verifies BLAKE3 signatures
+- **Compute Backends** — CoreML (primary, ANE), MLX (research/training), Metal (fallback)
+- **Kernel Pipeline** — Fused operations (matmul, layernorm, softmax) for identical results across runs  
 
 #### **Data Services**
 - **RAG Engine** — Deterministic vector search with `pgvector` backend  
@@ -532,9 +547,10 @@ Status icons:
 ---
 
 ## 9. Future Extensions
-- **Federated Adapters** — Cross-tenant synchronization via signed bundles  
-- **Metal MLX Support** — Full fused attention kernels  
-- **Replay Studio** — GUI for replay and trace comparison  
+- **Federated Adapters** — Cross-tenant synchronization via signed bundles
+- **Enhanced ANE Optimization** — Full CoreML model compilation for maximum Neural Engine utilization
+- **MLX Training Pipeline** — Integrated fine-tuning with automatic CoreML export
+- **Replay Studio** — GUI for replay and trace comparison
 - **Auto-Promotion** — Continuous deterministic validation loop  
 
 ---

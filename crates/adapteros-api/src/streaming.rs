@@ -3,7 +3,7 @@
 //! Provides token-by-token streaming responses for chat completions and text generation
 //! using a chat-style chunked response format.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::Result;
 use adapteros_lora_kernel_api::FusedKernels;
 use axum::{
     extract::State,
@@ -264,7 +264,7 @@ pub async fn streaming_inference_handler<K: FusedKernels + Send + Sync + 'static
 /// - Resource waste if client disconnects during generation
 ///
 /// **Future improvement:** Implement true token-by-token streaming at the kernel level.
-async fn generate_streaming_response<K: FusedKernels + Send + Sync>(
+async fn generate_streaming_response<K: FusedKernels + Send + Sync + 'static>(
     state: Arc<ApiState<K>>,
     request: StreamingInferenceRequest,
     tx: mpsc::Sender<StreamEvent>,
@@ -375,7 +375,7 @@ pub struct Usage {
 }
 
 /// Non-streaming inference handler (returns complete response)
-pub async fn completion_handler<K: FusedKernels + Send + Sync>(
+pub async fn completion_handler<K: FusedKernels + Send + Sync + 'static>(
     State(state): State<Arc<ApiState<K>>>,
     Json(request): Json<StreamingInferenceRequest>,
 ) -> std::result::Result<Json<CompletionResponse>, ApiError> {

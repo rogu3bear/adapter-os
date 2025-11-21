@@ -429,26 +429,84 @@ impl SecurityVerifier {
     async fn run_dependency_analysis(&self) -> Result<DependencyResults> {
         debug!("Running dependency analysis");
 
-        // Analyze Cargo.toml files for dependencies
         let mut dependencies = Vec::new();
-        let license_issues = Vec::new();
+        let mut license_issues = Vec::new();
+        let mut vulnerable_count = 0u32;
+        let mut outdated_count = 0u32;
 
-        // For now, return mock data. In a real implementation, this would
-        // parse Cargo.toml files and analyze dependencies
-        dependencies.push(DependencyInfo {
-            name: "serde".to_string(),
-            version: "1.0.0".to_string(),
-            latest_version: Some("1.0.200".to_string()),
-            license: Some("MIT OR Apache-2.0".to_string()),
-            security_status: "secure".to_string(),
-            vulnerability_count: 0,
-        });
+        // Parse Cargo.lock to get actual dependencies
+        let cargo_lock_path = self.workspace_root.join("Cargo.lock");
+        if let Ok(content) = std::fs::read_to_string(&cargo_lock_path) {
+            if let Ok(lock_file) = toml::from_str::<toml::Value>(&content) {
+                if let Some(packages) = lock_file.get("package").and_then(|p| p.as_array()) {
+                    for package in packages {
+                        let name = package.get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let version = package.get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("0.0.0")
+                            .to_string();
+
+                        // Check for known problematic patterns
+                        let is_vulnerable = name.contains("unmaintained") ||
+                            version.starts_with("0.0.") ||
+                            (name == "ring" && version.starts_with("0.16")); // Example
+
+                        let is_outdated = version.starts_with("0.") &&
+                            !version.starts_with("0.9") &&
+                            !name.contains("sys");
+
+                        if is_vulnerable {
+                            vulnerable_count += 1;
+                        }
+                        if is_outdated {
+                            outdated_count += 1;
+                        }
+
+                        // Check for problematic licenses
+                        let license = match name.as_str() {
+                            n if n.contains("gpl") => {
+                                license_issues.push(LicenseIssue {
+                                    package: name.clone(),
+                                    license: "GPL".to_string(),
+                                    description: "Copyleft license may have compatibility issues".to_string(),
+                                    severity: "medium".to_string(),
+                                });
+                                Some("GPL".to_string())
+                            }
+                            _ => Some("MIT OR Apache-2.0".to_string()),
+                        };
+
+                        // Add to results (limit to 100 for performance)
+                        if dependencies.len() < 100 {
+                            dependencies.push(DependencyInfo {
+                                name,
+                                version,
+                                latest_version: None, // Would need crates.io API for this
+                                license,
+                                security_status: if is_vulnerable { "vulnerable" } else { "secure" }.to_string(),
+                                vulnerability_count: if is_vulnerable { 1 } else { 0 },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let total_dependencies = dependencies.len() as u32;
+
+        // Calculate insecure based on vulnerability status
+        let insecure_count = dependencies.iter()
+            .filter(|d| d.security_status == "vulnerable")
+            .count() as u32;
 
         Ok(DependencyResults {
-            total_dependencies: 150,
-            vulnerable_dependencies: 2,
-            outdated_dependencies: 15,
-            insecure_dependencies: 1,
+            total_dependencies,
+            vulnerable_dependencies: vulnerable_count,
+            outdated_dependencies: outdated_count,
+            insecure_dependencies: insecure_count,
             dependencies,
             license_issues,
         })
@@ -458,28 +516,118 @@ impl SecurityVerifier {
     async fn run_code_security_analysis(&self) -> Result<CodeSecurityResults> {
         debug!("Running code security analysis");
 
-        // For now, return mock data. In a real implementation, this would
-        // analyze the codebase for security issues
+        let mut security_issues = Vec::new();
+        let mut security_patterns = Vec::new();
+        let mut unsafe_code_count = 0u32;
+        let mut score = 100.0f64;
+
+        // Analyze Rust source files for security patterns
+        for entry in walkdir::WalkDir::new(&self.workspace_root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| !e.path().to_string_lossy().contains("/target/"))
+        {
+            let path = entry.path();
+            let relative_path = path
+                .strip_prefix(&self.workspace_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string();
+
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for (line_num, line) in content.lines().enumerate() {
+                    let trimmed = line.trim();
+
+                    // Check for unsafe blocks
+                    if trimmed.contains("unsafe {") || trimmed.starts_with("unsafe ") {
+                        unsafe_code_count += 1;
+                        security_issues.push(CodeSecurityIssue {
+                            issue_type: "unsafe_code".to_string(),
+                            severity: "medium".to_string(),
+                            description: "Use of unsafe code block".to_string(),
+                            file: relative_path.clone(),
+                            line: (line_num + 1) as u32,
+                            column: (trimmed.find("unsafe").unwrap_or(0) + 1) as u32,
+                            suggestion: Some("Ensure unsafe code is necessary and properly audited".to_string()),
+                        });
+                        score -= 2.0;
+                    }
+
+                    // Check for hardcoded secrets patterns
+                    if (trimmed.contains("password") || trimmed.contains("secret") || trimmed.contains("api_key"))
+                        && trimmed.contains("\"")
+                        && !trimmed.starts_with("//")
+                    {
+                        security_issues.push(CodeSecurityIssue {
+                            issue_type: "hardcoded_secret".to_string(),
+                            severity: "high".to_string(),
+                            description: "Potential hardcoded secret detected".to_string(),
+                            file: relative_path.clone(),
+                            line: (line_num + 1) as u32,
+                            column: 1,
+                            suggestion: Some("Use environment variables or secure secret management".to_string()),
+                        });
+                        score -= 10.0;
+                    }
+
+                    // Check for SQL injection patterns
+                    if trimmed.contains("format!(") &&
+                       (trimmed.contains("SELECT") || trimmed.contains("INSERT") || trimmed.contains("UPDATE") || trimmed.contains("DELETE"))
+                    {
+                        security_issues.push(CodeSecurityIssue {
+                            issue_type: "sql_injection".to_string(),
+                            severity: "high".to_string(),
+                            description: "Potential SQL injection vulnerability - use parameterized queries".to_string(),
+                            file: relative_path.clone(),
+                            line: (line_num + 1) as u32,
+                            column: 1,
+                            suggestion: Some("Use query builder with bound parameters".to_string()),
+                        });
+                        score -= 15.0;
+                    }
+
+                    // Check for unwrap() calls (can cause panics)
+                    let unwrap_count = trimmed.matches(".unwrap()").count();
+                    if unwrap_count > 0 && !relative_path.contains("test") {
+                        score -= 0.5 * unwrap_count as f64;
+                    }
+
+                    // Detect good security patterns
+                    if trimmed.contains("rand::thread_rng") || trimmed.contains("OsRng") {
+                        security_patterns.push(SecurityPattern {
+                            name: "secure_random".to_string(),
+                            pattern_type: "good_practice".to_string(),
+                            description: "Secure random number generation".to_string(),
+                            file: relative_path.clone(),
+                            line: (line_num + 1) as u32,
+                            confidence: 0.95,
+                        });
+                    }
+
+                    if trimmed.contains("bcrypt") || trimmed.contains("argon2") || trimmed.contains("scrypt") {
+                        security_patterns.push(SecurityPattern {
+                            name: "secure_hashing".to_string(),
+                            pattern_type: "good_practice".to_string(),
+                            description: "Secure password hashing algorithm".to_string(),
+                            file: relative_path.clone(),
+                            line: (line_num + 1) as u32,
+                            confidence: 0.98,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Limit issues and patterns
+        security_issues.truncate(50);
+        security_patterns.truncate(20);
+
         Ok(CodeSecurityResults {
-            unsafe_code_count: 5,
-            security_issues: vec![CodeSecurityIssue {
-                issue_type: "unsafe_code".to_string(),
-                severity: "medium".to_string(),
-                description: "Use of unsafe code detected".to_string(),
-                file: "src/unsafe.rs".to_string(),
-                line: 42,
-                column: 10,
-                suggestion: Some("Consider using safe alternatives".to_string()),
-            }],
-            security_patterns: vec![SecurityPattern {
-                name: "secure_random".to_string(),
-                pattern_type: "good_practice".to_string(),
-                description: "Secure random number generation detected".to_string(),
-                file: "src/crypto.rs".to_string(),
-                line: 15,
-                confidence: 0.95,
-            }],
-            score: 85.0,
+            unsafe_code_count,
+            security_issues,
+            security_patterns,
+            score: score.max(0.0).min(100.0),
         })
     }
 
@@ -487,24 +635,144 @@ impl SecurityVerifier {
     async fn run_compliance_checks(&self, standards: &[String]) -> Result<ComplianceResults> {
         debug!("Running compliance checks for standards: {:?}", standards);
 
-        // For now, return mock data. In a real implementation, this would
-        // check compliance against specified standards
+        let mut violations = Vec::new();
+        let mut recommendations = Vec::new();
+        let mut score = 100.0f64;
+
+        // Check for common compliance requirements
+
+        // 1. Check for LICENSE file
+        let license_exists = self.workspace_root.join("LICENSE").exists()
+            || self.workspace_root.join("LICENSE.md").exists()
+            || self.workspace_root.join("LICENSE.txt").exists();
+
+        if !license_exists {
+            violations.push(ComplianceViolation {
+                id: "COMP-001".to_string(),
+                description: "Missing LICENSE file".to_string(),
+                severity: "medium".to_string(),
+                requirement: "Projects must include a LICENSE file".to_string(),
+                file: None,
+                line: None,
+            });
+            score -= 10.0;
+            recommendations.push("Add a LICENSE file to clarify usage terms".to_string());
+        }
+
+        // 2. Check for README
+        let readme_exists = self.workspace_root.join("README.md").exists()
+            || self.workspace_root.join("README.txt").exists();
+
+        if !readme_exists {
+            violations.push(ComplianceViolation {
+                id: "COMP-002".to_string(),
+                description: "Missing README documentation".to_string(),
+                severity: "low".to_string(),
+                requirement: "Projects should include a README file".to_string(),
+                file: None,
+                line: None,
+            });
+            score -= 5.0;
+            recommendations.push("Add a README.md with project documentation".to_string());
+        }
+
+        // 3. Check for security policy
+        let security_policy_exists = self.workspace_root.join("SECURITY.md").exists()
+            || self.workspace_root.join(".github/SECURITY.md").exists();
+
+        if !security_policy_exists && standards.iter().any(|s| s.contains("security") || s.contains("SOC2")) {
+            violations.push(ComplianceViolation {
+                id: "COMP-003".to_string(),
+                description: "Missing security policy".to_string(),
+                severity: "medium".to_string(),
+                requirement: "Security-focused projects should have a SECURITY.md".to_string(),
+                file: None,
+                line: None,
+            });
+            score -= 10.0;
+            recommendations.push("Add SECURITY.md with vulnerability disclosure process".to_string());
+        }
+
+        // 4. Check for dependency lockfile
+        let cargo_lock_exists = self.workspace_root.join("Cargo.lock").exists();
+        if !cargo_lock_exists {
+            violations.push(ComplianceViolation {
+                id: "COMP-004".to_string(),
+                description: "Missing Cargo.lock file".to_string(),
+                severity: "medium".to_string(),
+                requirement: "Dependencies should be locked for reproducible builds".to_string(),
+                file: None,
+                line: None,
+            });
+            score -= 10.0;
+            recommendations.push("Commit Cargo.lock to ensure reproducible builds".to_string());
+        }
+
+        // 5. Check for CI configuration
+        let ci_exists = self.workspace_root.join(".github/workflows").exists()
+            || self.workspace_root.join(".gitlab-ci.yml").exists()
+            || self.workspace_root.join(".circleci").exists();
+
+        if !ci_exists && standards.iter().any(|s| s.contains("CI") || s.contains("automation")) {
+            violations.push(ComplianceViolation {
+                id: "COMP-005".to_string(),
+                description: "Missing CI/CD configuration".to_string(),
+                severity: "low".to_string(),
+                requirement: "Projects should have automated testing via CI/CD".to_string(),
+                file: None,
+                line: None,
+            });
+            score -= 5.0;
+            recommendations.push("Set up CI/CD pipelines for automated testing".to_string());
+        }
+
+        // 6. Check Cargo.toml metadata
+        let cargo_toml_path = self.workspace_root.join("Cargo.toml");
+        if let Ok(content) = std::fs::read_to_string(&cargo_toml_path) {
+            if let Ok(cargo_toml) = toml::from_str::<toml::Value>(&content) {
+                // Check for package metadata
+                if let Some(package) = cargo_toml.get("package") {
+                    if package.get("description").is_none() {
+                        violations.push(ComplianceViolation {
+                            id: "COMP-006".to_string(),
+                            description: "Missing package description in Cargo.toml".to_string(),
+                            severity: "low".to_string(),
+                            requirement: "Packages should have a description".to_string(),
+                            file: Some("Cargo.toml".to_string()),
+                            line: None,
+                        });
+                        score -= 2.0;
+                    }
+                    if package.get("license").is_none() && package.get("license-file").is_none() {
+                        violations.push(ComplianceViolation {
+                            id: "COMP-007".to_string(),
+                            description: "Missing license field in Cargo.toml".to_string(),
+                            severity: "medium".to_string(),
+                            requirement: "Packages must specify a license".to_string(),
+                            file: Some("Cargo.toml".to_string()),
+                            line: None,
+                        });
+                        score -= 8.0;
+                    }
+                }
+            }
+        }
+
+        // Determine status
+        let status = if score >= 90.0 {
+            "compliant"
+        } else if score >= 70.0 {
+            "partially_compliant"
+        } else {
+            "non_compliant"
+        };
+
         Ok(ComplianceResults {
             standard: standards.join(", "),
-            score: 92.0,
-            status: "compliant".to_string(),
-            violations: vec![ComplianceViolation {
-                id: "COMP-001".to_string(),
-                description: "Missing security documentation".to_string(),
-                severity: "low".to_string(),
-                requirement: "Security documentation required".to_string(),
-                file: Some("README.md".to_string()),
-                line: Some(1),
-            }],
-            recommendations: vec![
-                "Add security documentation".to_string(),
-                "Implement security training".to_string(),
-            ],
+            score: score.max(0.0).min(100.0),
+            status: status.to_string(),
+            violations,
+            recommendations,
         })
     }
 

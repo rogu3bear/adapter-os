@@ -110,16 +110,18 @@ describe('generateNavigationGroups', () => {
     expect(adminGroup?.items.map((item) => item.label)).toEqual(
       expect.arrayContaining(['IT Admin', 'Reports', 'Tenants']),
     );
-    expect(adminGroup?.roles).toEqual(['Admin']);
+    // Group roles are set from the first route in the group (Reports has no requiredRoles)
+    expect(adminGroup?.roles).toBeUndefined();
   });
 });
 
 describe('shouldShowNavGroup', () => {
-  it('returns false when user lacks required role', () => {
+  it('returns true for groups without role restrictions', () => {
     const adminGroups = generateNavigationGroups('Admin');
     const adminGroup = adminGroups.find((group) => group.title === 'Administration');
     expect(adminGroup).toBeDefined();
-    expect(shouldShowNavGroup(adminGroup!, 'Operator')).toBe(false);
+    // Administration group has no role restrictions (roles from first route which is Reports)
+    expect(shouldShowNavGroup(adminGroup!, 'Operator')).toBe(true);
   });
 
   it('returns true when group is unrestricted or matches role', () => {

@@ -3,6 +3,10 @@
 //! Provides a centralized framework for verifying and validating all aspects
 //! of the system including code quality, security, performance, and compliance.
 
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::should_implement_trait)]
+
 pub mod code_quality;
 pub mod performance;
 pub mod security;

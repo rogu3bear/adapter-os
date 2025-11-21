@@ -27,12 +27,13 @@ adapteros-db = { path = "../adapteros-db" }
 adapteros-federation = { path = "../adapteros-federation" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-registry = { path = "../adapteros-registry" }
-# adapteros-codegraph = { path = "../adapteros-codegraph" }  # Disabled due to tree-sitter conflict
+adapteros-codegraph = { path = "../adapteros-codegraph" }
 bincode = "1.3"
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 blake3 = "1.5"
 tokenizers = { workspace = true }
+git2 = "0.18"
 
 # Database
 sqlx = { workspace = true }

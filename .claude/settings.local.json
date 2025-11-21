@@ -6,7 +6,8 @@
       "WebFetch(domain:github.com)",
       "Bash(./test_cli_integration.sh:*)",
       "Bash(/Users/star/Dev/:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "WebFetch(domain:tanstack.com)"
     ],
     "deny": [],
     "ask": []

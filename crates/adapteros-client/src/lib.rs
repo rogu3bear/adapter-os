@@ -1,3 +1,5 @@
+#![allow(async_fn_in_trait)]
+
 pub mod types;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -11,6 +13,9 @@ pub mod wasm;
 
 use anyhow::Result;
 pub use types::*;
+
+// Re-export telemetry types needed by trait
+pub use adapteros_api_types::telemetry::{TelemetryBundleResponse, ApiTelemetryEvent as TelemetryEvent};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::NativeClient as DefaultClient;

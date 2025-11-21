@@ -19,7 +19,7 @@ use tracing::{error, info, warn};
 /// Notification service
 pub struct NotificationService {
     db: Arc<Db>,
-    telemetry_writer: TelemetryWriter,
+    telemetry_writer: Arc<TelemetryWriter>,
     config: NotificationConfig,
     http_client: Client,
 }
@@ -106,7 +106,7 @@ impl crate::alerting::NotificationSender for NotificationSenderImpl {
 
 impl NotificationService {
     /// Create a new notification service
-    pub fn new(db: Arc<Db>, telemetry_writer: TelemetryWriter, config: NotificationConfig) -> Self {
+    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: NotificationConfig) -> Self {
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
             .build()
@@ -599,8 +599,8 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-            .expect("Failed to create telemetry writer");
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
+            .expect("Failed to create telemetry writer"));
 
         let config = NotificationConfig::default();
         let service = NotificationService::new(db, telemetry_writer, config);

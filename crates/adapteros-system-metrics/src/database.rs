@@ -16,8 +16,8 @@ pub struct SystemMetricsDb {
 }
 
 // Migrations are available via embedded macro
-#[allow(dead_code)] // TODO: Implement database migrations in future iteration
-const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+// Reserved: Will be used when system metrics storage is consolidated with main database
+const _MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 impl SystemMetricsDb {
     /// Create a new system metrics database
@@ -36,9 +36,10 @@ impl SystemMetricsDb {
             r#"
             INSERT INTO system_metrics (
                 timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
-                uptime_seconds, process_count, load_1min, load_5min, load_15min
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(metrics.timestamp)
@@ -46,10 +47,15 @@ impl SystemMetricsDb {
         .bind(metrics.memory_usage)
         .bind(metrics.disk_read_bytes)
         .bind(metrics.disk_write_bytes)
+        .bind(metrics.disk_usage_percent)
         .bind(metrics.network_rx_bytes)
         .bind(metrics.network_tx_bytes)
+        .bind(metrics.network_rx_packets)
+        .bind(metrics.network_tx_packets)
+        .bind(metrics.network_bandwidth_mbps)
         .bind(metrics.gpu_utilization)
         .bind(metrics.gpu_memory_used)
+        .bind(metrics.gpu_memory_total)
         .bind(metrics.uptime_seconds)
         .bind(metrics.process_count)
         .bind(metrics.load_1min)
@@ -80,8 +86,9 @@ impl SystemMetricsDb {
         let rows = sqlx::query(
             r#"
             SELECT id, timestamp, cpu_usage, memory_usage, disk_read_bytes, disk_write_bytes,
-                   network_rx_bytes, network_tx_bytes, gpu_utilization, gpu_memory_used,
-                   uptime_seconds, process_count, load_1min, load_5min, load_15min
+                   disk_usage_percent, network_rx_bytes, network_tx_bytes, network_rx_packets,
+                   network_tx_packets, network_bandwidth_mbps, gpu_utilization, gpu_memory_used,
+                   gpu_memory_total, uptime_seconds, process_count, load_1min, load_5min, load_15min
             FROM system_metrics
             WHERE timestamp >= ?
             ORDER BY timestamp DESC
@@ -104,15 +111,15 @@ impl SystemMetricsDb {
                 memory_usage: row.get("memory_usage"),
                 disk_read_bytes: row.get("disk_read_bytes"),
                 disk_write_bytes: row.get("disk_write_bytes"),
-                disk_usage_percent: 0.0, // Not stored in DB yet, TODO: add to schema
+                disk_usage_percent: row.get("disk_usage_percent"),
                 network_rx_bytes: row.get("network_rx_bytes"),
                 network_tx_bytes: row.get("network_tx_bytes"),
-                network_rx_packets: 0, // Not stored in DB yet, TODO: add to schema
-                network_tx_packets: 0, // Not stored in DB yet, TODO: add to schema
-                network_bandwidth_mbps: 0.0, // Not stored in DB yet, TODO: add to schema
+                network_rx_packets: row.get("network_rx_packets"),
+                network_tx_packets: row.get("network_tx_packets"),
+                network_bandwidth_mbps: row.get("network_bandwidth_mbps"),
                 gpu_utilization: row.get("gpu_utilization"),
                 gpu_memory_used: row.get("gpu_memory_used"),
-                gpu_memory_total: None, // Not stored in DB yet, TODO: add to schema
+                gpu_memory_total: row.get("gpu_memory_total"),
                 uptime_seconds: row.get("uptime_seconds"),
                 process_count: row.get::<i64, _>("process_count") as i32,
                 load_1min: row.get("load_1min"),

@@ -56,12 +56,10 @@ export function AdapterOperationsWithHistory() {
         undo: async () => {
           // Remove the adapter
           setAdapters((prev) => prev.filter((a) => a.id !== adapterId));
-          console.log(`Undo: Adapter ${adapterId} removed`);
         },
         redo: async () => {
           // Re-add the adapter
           setAdapters((prev) => [...prev, newAdapter]);
-          console.log(`Redo: Adapter ${adapterId} created`);
         },
         tags: ['adapter-creation', name],
         userId: 'user-123',
@@ -98,8 +96,6 @@ export function AdapterOperationsWithHistory() {
         userId: 'user-123',
         tenantId: 'default',
       });
-
-      console.log(`Created adapter: ${name}`);
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

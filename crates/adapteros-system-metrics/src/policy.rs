@@ -12,8 +12,8 @@ use adapteros_policy::PolicyEngine;
 /// System metrics policy enforcer
 pub struct SystemMetricsPolicy {
     thresholds: ThresholdsConfig,
-    #[allow(dead_code)]
-    policy_engine: Option<PolicyEngine>,
+    /// Policy engine for advanced policy enforcement (reserved for policy-driven alerts)
+    _policy_engine: Option<PolicyEngine>,
 }
 
 impl SystemMetricsPolicy {
@@ -21,7 +21,7 @@ impl SystemMetricsPolicy {
     pub fn new(thresholds: ThresholdsConfig) -> Self {
         Self {
             thresholds,
-            policy_engine: None,
+            _policy_engine: None,
         }
     }
 
@@ -29,7 +29,7 @@ impl SystemMetricsPolicy {
     pub fn with_policy_engine(thresholds: ThresholdsConfig, policy_engine: PolicyEngine) -> Self {
         Self {
             thresholds,
-            policy_engine: Some(policy_engine),
+            _policy_engine: Some(policy_engine),
         }
     }
 

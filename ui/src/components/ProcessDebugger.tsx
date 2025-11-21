@@ -168,10 +168,15 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       // Citation: ui/src/api/client.ts L758-L760
       const data = await apiClient.getProcessCrashes(workerId);
       // Convert ProcessCrash to ProcessCrashDump
-      const crashes = data.map(crash => ({
-        ...crash,
-        crash_timestamp: crash.timestamp,
+      const crashes: ProcessCrashDump[] = data.map(crash => ({
+        id: crash.id,
+        worker_id: crash.worker_id,
+        crash_type: crash.crash_type,
         stack_trace: crash.stack_trace,
+        memory_snapshot_json: crash.memory_snapshot_json,
+        crash_timestamp: crash.crash_timestamp,
+        recovery_action: crash.recovery_action,
+        recovered_at: crash.recovered_at,
       }));
       setCrashes(crashes);
       setStatusMessage(null);
@@ -203,6 +208,9 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       // Convert DebugSession to ProcessDebugSession
       const session: ProcessDebugSession = {
         ...data,
+        id: data.session_id,
+        worker_id: workerId,
+        status: 'active',
         session_type: data.config.session_type as string,
         config_json: JSON.stringify(data.config),
         started_at: data.created_at,
@@ -230,8 +238,10 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
     try {
       // Citation: ui/src/api/client.ts L769-L774
       const data = await apiClient.runTroubleshootingStep(workerId, {
+        worker_id: workerId,
+        step_name: 'Memory Analysis',
         step_type: 'memory_analysis',
-        parameters: { threshold: 0.8 }
+        command: 'analyze_memory --threshold 0.8'
       });
 
       // Convert TroubleshootingResult to ProcessTroubleshootingStep

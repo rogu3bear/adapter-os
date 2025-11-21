@@ -4,6 +4,9 @@
 //! Provides foundation model (Qwen2.5-7B-Instruct) integration with
 //! deterministic execution guarantees.
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_trace::Event;

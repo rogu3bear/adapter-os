@@ -43,6 +43,7 @@ pub struct BundleMetadata {
     /// Sequence number within tenant/cpid
     pub sequence_no: Option<u64>,
     /// Bundle creation timestamp
+    #[cfg_attr(feature = "utoipa", schema(value_type = u64, example = 1700000000))]
     pub created_at: SystemTime,
     /// Previous bundle hash for chain verification
     pub prev_bundle_hash: Option<B3Hash>,

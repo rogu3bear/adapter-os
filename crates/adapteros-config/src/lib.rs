@@ -11,7 +11,7 @@ pub mod loader;
 pub mod precedence;
 pub mod types;
 
-pub use guards::ConfigGuards;
+pub use guards::{ConfigGuards, FeatureFlags};
 pub use loader::ConfigLoader;
 pub use precedence::DeterministicConfig;
 pub use types::*;

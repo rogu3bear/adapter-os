@@ -6,6 +6,7 @@
 
 use crate::{Gate, OrchestratorConfig};
 use adapteros_crypto::signature::{PublicKey, Signature};
+use adapteros_db::Db;
 use adapteros_telemetry::bundle::SignatureMetadata;
 use anyhow::{Context, Result};
 use std::fs;
@@ -24,6 +25,9 @@ impl Gate for TelemetryGate {
     async fn check(&self, config: &OrchestratorConfig) -> Result<()> {
         tracing::debug!("Verifying telemetry chain");
 
+        // Connect to database for signature verification
+        let db = Db::connect(&config.db_path).await?;
+
         // Load bundles for this CPID
         let bundle_dir = Path::new("var/telemetry").join(&config.cpid);
 
@@ -37,7 +41,7 @@ impl Gate for TelemetryGate {
             anyhow::bail!("No telemetry bundles found in: {}", bundle_dir.display());
         }
 
-        verify_chain(&bundles)?;
+        verify_chain(&bundles, &db, &config.cpid).await?;
 
         tracing::info!(bundle_count = bundles.len(), "Telemetry chain verified");
         Ok(())
@@ -46,8 +50,8 @@ impl Gate for TelemetryGate {
 
 /// Bundle information
 struct BundleInfo {
-    #[allow(dead_code)]
-    path: PathBuf,
+    /// Path to the bundle file (reserved for bundle content loading)
+    _path: PathBuf,
     sig_path: PathBuf,
     timestamp: u64,
 }
@@ -68,33 +72,36 @@ fn discover_bundles(dir: &Path) -> Result<Vec<BundleInfo>> {
                 anyhow::bail!("Bundle missing signature: {}", path.display());
             }
 
-            // Load metadata to get timestamp for sorting
-            let _metadata = load_signature_metadata(&sig_path)?; // TODO: Implement metadata handling in future iteration
+            // Load metadata to get sequence number for sorting
+            let metadata = load_signature_metadata(&sig_path)?;
 
             bundles.push(BundleInfo {
-                path,
+                _path: path,
                 sig_path,
-                timestamp: chrono::Utc::now().timestamp() as u64,
+                timestamp: metadata.sequence_no,
             });
         }
     }
 
-    // Sort by timestamp (chronological order)
+    // Sort by sequence number (chronological order)
     bundles.sort_by_key(|b| b.timestamp);
 
     Ok(bundles)
 }
 
 /// Verify the complete bundle chain
-fn verify_chain(bundles: &[BundleInfo]) -> Result<()> {
+async fn verify_chain(bundles: &[BundleInfo], db: &Db, cpid: &str) -> Result<()> {
     let mut prev_hash: Option<String> = None;
 
     for (i, bundle_info) in bundles.iter().enumerate() {
-        // Load signature metadata
+        // Load signature metadata from file
         let metadata = load_signature_metadata(&bundle_info.sig_path)?;
 
-        // Verify signature
+        // Verify signature cryptographically
         verify_signature(&metadata)?;
+
+        // Verify signature against database record
+        verify_signature_against_db(&metadata, db, cpid).await?;
 
         // Verify chain link
         if let Some(expected_prev) = &prev_hash {
@@ -126,6 +133,63 @@ fn verify_chain(bundles: &[BundleInfo]) -> Result<()> {
         }
 
         prev_hash = Some(metadata.merkle_root.clone());
+    }
+
+    Ok(())
+}
+
+/// Verify signature metadata against database record
+async fn verify_signature_against_db(metadata: &SignatureMetadata, db: &Db, cpid: &str) -> Result<()> {
+    // Look up stored signature by merkle root (bundle hash)
+    let stored_sig = db
+        .get_bundle_signature(&metadata.merkle_root)
+        .await
+        .context("Failed to query bundle signature from database")?;
+
+    match stored_sig {
+        Some(db_sig) => {
+            // Verify CPID matches
+            if db_sig.cpid != cpid {
+                anyhow::bail!(
+                    "Bundle CPID mismatch: expected '{}', database has '{}'",
+                    cpid,
+                    db_sig.cpid
+                );
+            }
+
+            // Verify signature matches database record
+            if db_sig.signature_hex != metadata.signature {
+                anyhow::bail!(
+                    "Signature mismatch for bundle {}:\n  File: {}\n  Database: {}",
+                    metadata.merkle_root,
+                    metadata.signature,
+                    db_sig.signature_hex
+                );
+            }
+
+            // Verify public key matches database record
+            if db_sig.public_key_hex != metadata.public_key {
+                anyhow::bail!(
+                    "Public key mismatch for bundle {}:\n  File: {}\n  Database: {}",
+                    metadata.merkle_root,
+                    metadata.public_key,
+                    db_sig.public_key_hex
+                );
+            }
+
+            tracing::debug!(
+                bundle_hash = %metadata.merkle_root,
+                "Bundle signature verified against database"
+            );
+        }
+        None => {
+            // No database record - this is an error for promotion gates
+            anyhow::bail!(
+                "Bundle signature not found in database: {}. \
+                 All bundles must be registered before promotion.",
+                metadata.merkle_root
+            );
+        }
     }
 
     Ok(())

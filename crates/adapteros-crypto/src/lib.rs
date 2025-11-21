@@ -19,3 +19,6 @@ pub use key_provider::{
 pub use providers::keychain::KeychainProvider;
 pub use secret::{KeyMaterial, SecretKey, SensitiveData};
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
+
+// Re-export ed25519-dalek types for node agent
+pub use ed25519_dalek::SigningKey;

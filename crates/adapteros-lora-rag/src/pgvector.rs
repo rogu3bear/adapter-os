@@ -79,6 +79,7 @@ impl PgVectorIndex {
     /// Stores document text, embedding, and metadata.
     /// - PostgreSQL: Uses pgvector's `vector` type for native similarity search
     /// - SQLite: Stores embedding as JSON array for development
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_document(
         &self,
         tenant_id: &str,
@@ -129,6 +130,7 @@ impl PgVectorIndex {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn add_document_postgres(
         &self,
         tenant_id: &str,
@@ -188,6 +190,7 @@ impl PgVectorIndex {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn add_document_sqlite(
         &self,
         tenant_id: &str,

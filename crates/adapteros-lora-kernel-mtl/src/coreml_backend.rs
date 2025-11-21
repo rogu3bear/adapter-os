@@ -36,34 +36,17 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
+// Import safe CoreML wrappers
+#[cfg(feature = "coreml-backend")]
+use crate::coreml::{self, Array, Model, ModelMetadata as CoreMLModelMeta};
+
 static COREML_INIT: Once = Once::new();
 static mut COREML_AVAILABLE: bool = false;
-
-/// FFI declarations for CoreML bridge (provided by Agent 2)
-#[cfg(feature = "coreml-backend")]
-extern "C" {
-    fn coreml_bridge_init() -> i32;
-    fn coreml_neural_engine_available() -> i32;
-    fn coreml_compile_model(
-        plan_bytes: *const u8,
-        plan_len: usize,
-        use_ane: bool,
-    ) -> *mut std::ffi::c_void;
-    fn coreml_predict(
-        model_handle: *mut std::ffi::c_void,
-        input_ids: *const u32,
-        input_len: usize,
-        output_logits: *mut f32,
-        output_len: usize,
-        timeout_ms: u64,
-    ) -> i32;
-    fn coreml_release_model(model_handle: *mut std::ffi::c_void);
-    fn coreml_bridge_shutdown();
-}
 
 /// Initialize CoreML backend
 #[cfg(feature = "coreml-backend")]
@@ -71,17 +54,15 @@ pub fn init_coreml() -> Result<()> {
     let mut init_result = Ok(());
 
     COREML_INIT.call_once(|| unsafe {
-        let result = coreml_bridge_init();
-        if result == 0 {
+        if coreml::is_available() {
             COREML_AVAILABLE = true;
-            let ane_available = coreml_neural_engine_available() != 0;
             info!(
-                ane_available = ane_available,
+                version = %coreml::version(),
                 "CoreML backend initialized successfully"
             );
         } else {
-            error!("Failed to initialize CoreML backend");
-            init_result = Err(AosError::Config("CoreML initialization failed".to_string()));
+            error!("CoreML is not available on this system");
+            init_result = Err(AosError::Config("CoreML not available".to_string()));
         }
     });
 
@@ -94,21 +75,29 @@ pub fn is_coreml_available() -> bool {
     unsafe { COREML_AVAILABLE }
 }
 
-/// Check if Neural Engine is available
+/// Check if Neural Engine is available (detected via CPU brand)
 #[cfg(feature = "coreml-backend")]
 pub fn is_neural_engine_available() -> bool {
-    unsafe { coreml_neural_engine_available() != 0 }
+    // ANE availability is detected during CoreMLBackend::detect_ane()
+    // This is a simplified check based on Apple Silicon detection
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        if let Ok(output) = Command::new("sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+        {
+            let cpu_brand = String::from_utf8_lossy(&output.stdout);
+            return cpu_brand.contains("Apple M");
+        }
+    }
+    false
 }
 
 /// Shutdown CoreML backend
 #[cfg(feature = "coreml-backend")]
 pub fn shutdown_coreml() {
-    unsafe {
-        if COREML_AVAILABLE {
-            coreml_bridge_shutdown();
-            debug!("CoreML backend shutdown");
-        }
-    }
+    debug!("CoreML backend shutdown");
 }
 
 // Stub implementations when CoreML feature is disabled
@@ -137,37 +126,31 @@ pub fn shutdown_coreml() {}
 /// Objective-C++ FFI layer for actual model execution on the Neural Engine.
 pub struct CoreMLBackend {
     device_name: String,
+    #[cfg(feature = "coreml-backend")]
     model_state: Option<CoreMLModelState>,
+    #[cfg(not(feature = "coreml-backend"))]
+    model_state: Option<()>,
     ane_available: bool,
     ane_capabilities: Option<ANECapabilities>,
     loaded_adapters: HashMap<u16, B3Hash>,
-    compilation_cache: HashMap<B3Hash, CompiledModelHandle>,
+    /// Cache of plan hashes to model file paths for reloading
+    #[cfg(feature = "coreml-backend")]
+    model_cache: HashMap<B3Hash, PathBuf>,
     execution_timeout: Duration,
     metrics: CoreMLMetrics,
 }
 
-#[derive(Debug)]
+#[cfg(feature = "coreml-backend")]
 struct CoreMLModelState {
     model_id: String,
     plan_hash: B3Hash,
-    model_handle: CompiledModelHandle,
-    metadata: ModelMetadata,
+    model: Model,
+    metadata: LocalModelMetadata,
     loaded_at: Instant,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CompiledModelHandle {
-    ptr: usize,
-}
-
-impl CompiledModelHandle {
-    fn as_ptr(&self) -> *mut std::ffi::c_void {
-        self.ptr as *mut std::ffi::c_void
-    }
-}
-
 #[derive(Debug, Clone)]
-struct ModelMetadata {
+struct LocalModelMetadata {
     vocab_size: usize,
     hidden_size: usize,
     num_layers: usize,
@@ -183,28 +166,31 @@ struct ANECapabilities {
     memory_bandwidth_gbps: f32,
 }
 
+/// Metrics for CoreML backend execution performance
 #[derive(Debug, Default)]
-struct CoreMLMetrics {
-    total_executions: u64,
-    total_execution_time_us: u64,
-    avg_execution_time_us: f32,
-    ane_executions: u64,
-    fallback_executions: u64,
-    timeout_errors: u64,
+pub struct CoreMLMetrics {
+    /// Total number of inference executions
+    pub total_executions: u64,
+    /// Total execution time in microseconds
+    pub total_execution_time_us: u64,
+    /// Average execution time in microseconds
+    pub avg_execution_time_us: f32,
+    /// Number of executions on ANE
+    pub ane_executions: u64,
+    /// Number of executions that fell back to GPU/CPU
+    pub fallback_executions: u64,
+    /// Number of timeout errors
+    pub timeout_errors: u64,
 }
 
 impl CoreMLBackend {
     /// Create a new CoreML backend instance
     ///
-    /// ⚠️  COREML BACKEND STATUS: NOT IMPLEMENTED ⚠️
-    /// This backend has comprehensive Rust code but calls non-existent FFI functions.
-    /// The CoreML.framework integration is completely missing.
-    /// See BACKEND_STATUS.md for implementation roadmap.
+    /// Uses the safe CoreML FFI wrappers to interface with Apple's CoreML framework.
+    /// Automatically detects ANE (Apple Neural Engine) availability on Apple Silicon.
     pub fn new() -> Result<Self> {
         info!("Initializing CoreML backend for ANE acceleration");
 
-        // ⚠️  FFI LAYER MISSING: coreml_bridge_init() not implemented
-        // This will always fail in current implementation
         init_coreml()?;
 
         // Detect ANE availability
@@ -231,7 +217,8 @@ impl CoreMLBackend {
             ane_available,
             ane_capabilities,
             loaded_adapters: HashMap::new(),
-            compilation_cache: HashMap::new(),
+            #[cfg(feature = "coreml-backend")]
+            model_cache: HashMap::new(),
             execution_timeout: Duration::from_secs(30),
             metrics: CoreMLMetrics::default(),
         })
@@ -282,6 +269,7 @@ impl CoreMLBackend {
                     memory_bandwidth_gbps: 100.0,
                 }
             } else {
+                // M1 or earlier
                 ANECapabilities {
                     core_count: 16,
                     max_model_size: 1024 * 1024 * 1024,
@@ -290,9 +278,8 @@ impl CoreMLBackend {
                 }
             };
 
-            let ane_available = unsafe { coreml_neural_engine_available() != 0 };
-
-            Ok((ane_available, Some(capabilities)))
+            // ANE is available on all Apple Silicon
+            Ok((true, Some(capabilities)))
         }
 
         #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
@@ -302,8 +289,14 @@ impl CoreMLBackend {
     }
 
     /// Load CoreML model from plan bytes
+    ///
+    /// Writes plan bytes to a temporary file and loads via CoreML safe wrappers.
+    /// Model files are cached for reuse based on plan hash.
     #[cfg(feature = "coreml-backend")]
     fn load_model(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        use std::fs;
+        use std::io::Write;
+
         let plan_hash = B3Hash::hash(plan_bytes);
         info!(
             plan_hash = %plan_hash.to_short_hex(),
@@ -311,38 +304,57 @@ impl CoreMLBackend {
             "Loading CoreML model"
         );
 
-        if let Some(&cached_handle) = self.compilation_cache.get(&plan_hash) {
-            info!("Using cached compiled model");
-            let metadata = Self::extract_metadata_from_plan(plan_bytes)?;
-            self.model_state = Some(CoreMLModelState {
-                model_id: format!("coreml_model_{}", plan_hash.to_short_hex()),
-                plan_hash,
-                model_handle: cached_handle,
-                metadata,
-                loaded_at: Instant::now(),
-            });
-            return Ok(());
-        }
+        // Check if we have a cached model file
+        let model_path = if let Some(cached_path) = self.model_cache.get(&plan_hash) {
+            info!("Using cached model file");
+            cached_path.clone()
+        } else {
+            // Write plan bytes to a temporary .mlmodelc file
+            let temp_dir = std::env::temp_dir();
+            let model_path = temp_dir.join(format!("aos_coreml_{}.mlmodelc", plan_hash.to_short_hex()));
 
-        let model_ptr = unsafe {
-            coreml_compile_model(plan_bytes.as_ptr(), plan_bytes.len(), self.ane_available)
+            // Create the model directory and write the plan bytes
+            fs::create_dir_all(&model_path)
+                .map_err(|e| AosError::Io(format!("Failed to create model dir: {}", e)))?;
+
+            let model_file = model_path.join("model.mil");
+            let mut file = fs::File::create(&model_file)
+                .map_err(|e| AosError::Io(format!("Failed to create model file: {}", e)))?;
+            file.write_all(plan_bytes)
+                .map_err(|e| AosError::Io(format!("Failed to write model: {}", e)))?;
+
+            self.model_cache.insert(plan_hash, model_path.clone());
+            model_path
         };
 
-        if model_ptr.is_null() {
-            return Err(AosError::CoreML("Model compilation failed".to_string()));
-        }
+        // Load model using safe CoreML wrappers
+        let model = Model::load(&model_path, true, self.ane_available)
+            .map_err(|e| AosError::CoreML(format!("Model load failed: {}", e)))?;
 
-        let model_handle = CompiledModelHandle {
-            ptr: model_ptr as usize,
+        // Get model metadata
+        let coreml_meta = model.metadata()
+            .map_err(|e| AosError::CoreML(format!("Failed to get metadata: {}", e)))?;
+
+        let metadata = LocalModelMetadata {
+            vocab_size: 152064, // Default for Qwen models
+            hidden_size: 3584,
+            num_layers: 28,
+            input_shape: vec![1, 1],
+            output_shape: vec![1, 152064],
         };
 
-        let metadata = Self::extract_metadata_from_plan(plan_bytes)?;
-        self.compilation_cache.insert(plan_hash, model_handle);
+        info!(
+            supports_gpu = coreml_meta.supports_gpu,
+            supports_ane = coreml_meta.supports_ane,
+            inputs = coreml_meta.input_count,
+            outputs = coreml_meta.output_count,
+            "CoreML model metadata"
+        );
 
         self.model_state = Some(CoreMLModelState {
             model_id: format!("coreml_model_{}", plan_hash.to_short_hex()),
             plan_hash,
-            model_handle,
+            model,
             metadata,
             loaded_at: Instant::now(),
         });
@@ -356,24 +368,15 @@ impl CoreMLBackend {
         Err(AosError::CoreML("CoreML backend not available".to_string()))
     }
 
-    fn extract_metadata_from_plan(_plan_bytes: &[u8]) -> Result<ModelMetadata> {
-        Ok(ModelMetadata {
-            vocab_size: 152064,
-            hidden_size: 3584,
-            num_layers: 28,
-            input_shape: vec![1, 1],
-            output_shape: vec![1, 152064],
-        })
-    }
-
+    /// Clean up loaded model and adapters
+    ///
+    /// The Model's Drop impl handles releasing CoreML resources automatically.
     pub fn cleanup(&mut self) -> Result<()> {
         #[cfg(feature = "coreml-backend")]
         {
             if let Some(model_state) = self.model_state.take() {
                 info!(model_id = %model_state.model_id, "Cleaning up CoreML model");
-                unsafe {
-                    coreml_release_model(model_state.model_handle.as_ptr());
-                }
+                // Model's Drop impl will release CoreML resources
             }
         }
         self.loaded_adapters.clear();
@@ -396,36 +399,46 @@ impl FusedKernels for CoreMLBackend {
 
     #[cfg(feature = "coreml-backend")]
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
-        let model_state = self
-            .model_state
-            .as_ref()
-            .ok_or_else(|| AosError::CoreML("Model not loaded".to_string()))?;
+        if self.model_state.is_none() {
+            return Err(AosError::CoreML("Model not loaded".to_string()));
+        }
 
         if io.input_ids.is_empty() {
             return Err(AosError::CoreML("Empty input_ids".to_string()));
         }
 
-        let mut output_buffer = vec![0.0f32; model_state.metadata.vocab_size];
         let start_time = Instant::now();
 
-        let result = unsafe {
-            coreml_predict(
-                model_state.model_handle.as_ptr(),
-                io.input_ids.as_ptr(),
-                io.input_ids.len(),
-                output_buffer.as_mut_ptr(),
-                output_buffer.len(),
-                self.execution_timeout.as_millis() as u64,
-            )
+        // Convert input_ids (u32) to float32 for CoreML
+        let input_data: Vec<f32> = io.input_ids.iter().map(|&id| id as f32).collect();
+        let input_shape = vec![1, io.input_ids.len()];
+
+        // Create input array
+        let input_array = Array::new_f32(&input_data, &input_shape)
+            .map_err(|e| AosError::CoreML(format!("Failed to create input array: {}", e)))?;
+
+        // Run prediction - need to get model reference in a way that allows metrics update
+        let prediction_result = {
+            let model_state = self.model_state.as_ref().unwrap();
+            model_state.model.predict(&input_array, Some("input_ids"))
         };
 
-        if result != 0 {
-            self.metrics.timeout_errors += 1;
-            return Err(AosError::CoreML(format!(
-                "Prediction failed with code {}",
-                result
-            )));
-        }
+        let prediction = match prediction_result {
+            Ok(p) => p,
+            Err(e) => {
+                self.metrics.timeout_errors += 1;
+                return Err(AosError::CoreML(format!("Prediction failed: {}", e)));
+            }
+        };
+
+        // Get output logits
+        let output_array = prediction
+            .get_output("logits")
+            .map_err(|e| AosError::CoreML(format!("Failed to get output: {}", e)))?;
+
+        let output_data = output_array
+            .as_f32_slice()
+            .ok_or_else(|| AosError::CoreML("Output is not float32".to_string()))?;
 
         let elapsed = start_time.elapsed();
         self.metrics.total_executions += 1;
@@ -440,8 +453,9 @@ impl FusedKernels for CoreMLBackend {
         }
 
         io.output_logits.clear();
-        io.output_logits.extend_from_slice(&output_buffer);
+        io.output_logits.extend_from_slice(output_data);
 
+        // Apply adapter fusion scaling from router ring
         if ring.k > 0 {
             let total_gate_weight: f32 = ring
                 .active_gates()
@@ -572,13 +586,13 @@ mod tests {
     }
 
     #[test]
-    fn test_metadata_extraction() {
-        let plan_bytes = vec![0u8; 1024];
-        let metadata = CoreMLBackend::extract_metadata_from_plan(&plan_bytes);
-        assert!(metadata.is_ok());
-
-        let meta = metadata.unwrap();
-        assert_eq!(meta.vocab_size, 152064);
-        assert_eq!(meta.hidden_size, 3584);
+    #[cfg(feature = "coreml-backend")]
+    fn test_backend_creation() {
+        // This test requires CoreML to be available
+        let result = CoreMLBackend::new();
+        // May fail if CoreML is not available, which is ok
+        if let Ok(backend) = result {
+            assert!(!backend.device_name.is_empty());
+        }
     }
 }

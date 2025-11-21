@@ -8,112 +8,24 @@ use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
 };
-use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-/// Training job state
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TrainingJobStatus {
-    Pending,
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-impl std::fmt::Display for TrainingJobStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TrainingJobStatus::Pending => write!(f, "pending"),
-            TrainingJobStatus::Running => write!(f, "running"),
-            TrainingJobStatus::Completed => write!(f, "completed"),
-            TrainingJobStatus::Failed => write!(f, "failed"),
-            TrainingJobStatus::Cancelled => write!(f, "cancelled"),
-        }
-    }
-}
-
-/// Training job information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingJob {
-    pub id: String,
-    pub adapter_name: String,
-    pub template_id: Option<String>,
-    pub repo_id: Option<String>,
-    pub dataset_id: Option<String>,
-    pub status: TrainingJobStatus,
-    pub progress_pct: f32,
-    pub current_epoch: u32,
-    pub total_epochs: u32,
-    pub current_loss: f32,
-    pub learning_rate: f32,
-    pub tokens_per_second: f32,
-    pub created_at: String,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub error_message: Option<String>,
-    pub config: TrainingConfig,
-}
-
-/// Training configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingConfig {
-    pub rank: u32,
-    pub alpha: u32,
-    pub targets: Vec<String>,
-    pub epochs: u32,
-    pub learning_rate: f32,
-    pub batch_size: u32,
-    pub warmup_steps: Option<u32>,
-    pub max_seq_length: Option<u32>,
-    pub gradient_accumulation_steps: Option<u32>,
-}
-
-impl Default for TrainingConfig {
-    fn default() -> Self {
-        Self {
-            rank: 16,
-            alpha: 32,
-            targets: vec![
-                "q_proj".to_string(),
-                "k_proj".to_string(),
-                "v_proj".to_string(),
-                "o_proj".to_string(),
-                "gate_proj".to_string(),
-                "up_proj".to_string(),
-                "down_proj".to_string(),
-            ],
-            epochs: 3,
-            learning_rate: 0.001,
-            batch_size: 32,
-            warmup_steps: Some(100),
-            max_seq_length: Some(2048),
-            gradient_accumulation_steps: Some(4),
-        }
-    }
-}
-
-/// Training template
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingTemplate {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub category: String,
-    pub config: TrainingConfig,
-}
+// Re-export canonical types from adapteros_types
+pub use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 
 /// Training service for managing jobs
 pub struct TrainingService {
     jobs: Arc<RwLock<HashMap<String, TrainingJob>>>,
     templates: Arc<RwLock<HashMap<String, TrainingTemplate>>>,
+    /// Database connection for dataset loading
+    db: Option<adapteros_db::Db>,
+    /// Storage root for dataset files
+    storage_root: Option<PathBuf>,
 }
 
 impl TrainingService {
@@ -197,7 +109,27 @@ impl TrainingService {
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             templates: Arc::new(RwLock::new(templates)),
+            db: None,
+            storage_root: None,
         }
+    }
+
+    /// Create a new training service with database and storage configuration
+    pub fn with_db(db: adapteros_db::Db, storage_root: PathBuf) -> Self {
+        let mut service = Self::new();
+        service.db = Some(db);
+        service.storage_root = Some(storage_root);
+        service
+    }
+
+    /// Set database connection
+    pub fn set_db(&mut self, db: adapteros_db::Db) {
+        self.db = Some(db);
+    }
+
+    /// Set storage root
+    pub fn set_storage_root(&mut self, path: PathBuf) {
+        self.storage_root = Some(path);
     }
 
     /// List all training jobs
@@ -224,27 +156,11 @@ impl TrainingService {
         dataset_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().to_rfc3339();
 
-        let job = TrainingJob {
-            id: job_id.clone(),
-            adapter_name,
-            template_id,
-            repo_id,
-            dataset_id,
-            status: TrainingJobStatus::Pending,
-            progress_pct: 0.0,
-            current_epoch: 0,
-            total_epochs: config.epochs,
-            current_loss: 0.0,
-            learning_rate: config.learning_rate,
-            tokens_per_second: 0.0,
-            created_at: now,
-            started_at: None,
-            completed_at: None,
-            error_message: None,
-            config: config.clone(),
-        };
+        let mut job = TrainingJob::new(job_id.clone(), adapter_name, config.clone());
+        job.template_id = template_id;
+        job.repo_id = repo_id;
+        job.dataset_id = dataset_id;
 
         {
             let mut jobs = self.jobs.write().await;
@@ -256,16 +172,16 @@ impl TrainingService {
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
         let dataset_id_for_run = job.dataset_id.clone();
-        // Note: For now, we don't have db/storage_root in TrainingService
-        // These should be added as fields when integrating with the full system
+        let db_for_run = self.db.clone();
+        let storage_for_run = self.storage_root.clone();
         tokio::spawn(async move {
             if let Err(e) = run_training_job(
                 jobs_ref,
                 job_id_for_run.clone(),
                 cfg_for_run,
                 dataset_id_for_run,
-                None, // db - TODO: add to TrainingService
-                None, // storage_root - TODO: add to TrainingService
+                db_for_run,
+                storage_for_run,
             )
             .await
             {
@@ -353,18 +269,52 @@ impl TrainingService {
         }
     }
 
-    /// Get training logs (placeholder)
+    /// Get training logs
+    ///
+    /// Returns logs for the specified training job. Currently returns
+    /// in-memory progress logs. For production use, integrate with
+    /// a persistent log store by adding a database connection to TrainingService.
     pub async fn get_logs(&self, job_id: &str) -> Result<Vec<String>> {
-        // Verify job exists
-        let _ = self.get_job(job_id).await?;
+        // Verify job exists and get current state
+        let job = self.get_job(job_id).await?;
 
-        // TODO: Fetch actual logs from persistent storage
-        Ok(vec![
-            format!("Training job {} started", job_id),
-            "Loading model and adapters...".to_string(),
-            "Preparing training data...".to_string(),
-            "Starting epoch 1/3...".to_string(),
-        ])
+        // Build logs from job state
+        let mut logs = vec![format!("Training job {} created", job_id)];
+
+        if let Some(started) = &job.started_at {
+            logs.push(format!("Training started at {}", started));
+            logs.push(format!("Configuration: rank={}, alpha={}, epochs={}",
+                job.config.rank, job.config.alpha, job.total_epochs));
+        }
+
+        if job.current_epoch > 0 {
+            for epoch in 1..=job.current_epoch {
+                logs.push(format!("Epoch {}/{} completed", epoch, job.total_epochs));
+            }
+            logs.push(format!("Current loss: {:.4}", job.current_loss));
+            if job.tokens_per_second > 0.0 {
+                logs.push(format!("Throughput: {:.1} tokens/sec", job.tokens_per_second));
+            }
+        }
+
+        match job.status {
+            TrainingJobStatus::Completed => {
+                if let Some(completed) = &job.completed_at {
+                    logs.push(format!("Training completed at {}", completed));
+                }
+            }
+            TrainingJobStatus::Failed => {
+                if let Some(error) = &job.error_message {
+                    logs.push(format!("Training failed: {}", error));
+                }
+            }
+            TrainingJobStatus::Cancelled => {
+                logs.push("Training was cancelled".to_string());
+            }
+            _ => {}
+        }
+
+        Ok(logs)
     }
 
     /// List all training templates

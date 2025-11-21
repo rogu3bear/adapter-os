@@ -90,10 +90,84 @@ impl MploraKernel {
     }
 }
 
+/// Execution plan for MPLORA kernels
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct MploraExecutionPlan {
+    /// Hidden size of the model
+    pub hidden_size: usize,
+    /// Shared rank for downsample operations
+    pub shared_rank: usize,
+    /// Number of adapters to support
+    pub adapter_count: usize,
+    /// MPLORA configuration
+    pub config: MploraConfig,
+}
+
 impl FusedKernels for MploraKernel {
     /// Load plan and initialize MPLORA kernels
-    fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
-        // TODO: Implement plan loading for MPLORA
+    fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        tracing::debug!(
+            plan_size = plan_bytes.len(),
+            "Loading MPLORA execution plan"
+        );
+
+        // Parse execution plan from bytes
+        let plan: MploraExecutionPlan = serde_json::from_slice(plan_bytes).map_err(|e| {
+            AosError::Config(format!("Failed to parse MPLORA execution plan: {}", e))
+        })?;
+
+        // Validate plan parameters
+        if plan.hidden_size == 0 {
+            return Err(AosError::Validation("hidden_size must be > 0".into()));
+        }
+        if plan.shared_rank == 0 {
+            return Err(AosError::Validation("shared_rank must be > 0".into()));
+        }
+        if plan.adapter_count == 0 {
+            return Err(AosError::Validation("adapter_count must be > 0".into()));
+        }
+
+        // Initialize shared downsample buffer if enabled
+        if plan.config.shared_downsample {
+            self.init_shared_downsample_buffer(plan.shared_rank, plan.hidden_size)?;
+            tracing::debug!(
+                shared_rank = plan.shared_rank,
+                hidden_size = plan.hidden_size,
+                "Initialized shared downsample buffer"
+            );
+        }
+
+        // Initialize orthogonal history buffer if enabled
+        if plan.config.orthogonal_constraints {
+            self.init_orthogonal_history_buffer(plan.config.history_window, plan.adapter_count)?;
+            tracing::debug!(
+                history_window = plan.config.history_window,
+                adapter_count = plan.adapter_count,
+                "Initialized orthogonal history buffer"
+            );
+        }
+
+        // Initialize compression buffer based on compression ratio
+        let compressed_size = (plan.hidden_size as f32 * plan.config.compression_ratio) as usize;
+        if compressed_size > 0 {
+            self.init_compression_buffer(compressed_size)?;
+            tracing::debug!(
+                original_size = plan.hidden_size,
+                compressed_size = compressed_size,
+                compression_ratio = plan.config.compression_ratio,
+                "Initialized compression buffer"
+            );
+        }
+
+        tracing::info!(
+            hidden_size = plan.hidden_size,
+            shared_rank = plan.shared_rank,
+            adapter_count = plan.adapter_count,
+            shared_downsample = plan.config.shared_downsample,
+            orthogonal_constraints = plan.config.orthogonal_constraints,
+            "MPLORA execution plan loaded successfully"
+        );
+
         Ok(())
     }
 
@@ -359,5 +433,33 @@ mod tests {
         );
         assert_eq!(config.penalty_weight, deserialized.penalty_weight);
         assert_eq!(config.history_window, deserialized.history_window);
+    }
+
+    #[test]
+    fn test_mplora_execution_plan_serialization() {
+        let plan = MploraExecutionPlan {
+            hidden_size: 4096,
+            shared_rank: 16,
+            adapter_count: 8,
+            config: MploraConfig {
+                shared_downsample: true,
+                compression_ratio: 0.8,
+                orthogonal_constraints: true,
+                similarity_threshold: 0.7,
+                penalty_weight: 0.1,
+                history_window: 10,
+            },
+        };
+
+        let serialized = serde_json::to_vec(&plan).unwrap();
+        let deserialized: MploraExecutionPlan = serde_json::from_slice(&serialized).unwrap();
+
+        assert_eq!(plan.hidden_size, deserialized.hidden_size);
+        assert_eq!(plan.shared_rank, deserialized.shared_rank);
+        assert_eq!(plan.adapter_count, deserialized.adapter_count);
+        assert_eq!(
+            plan.config.shared_downsample,
+            deserialized.config.shared_downsample
+        );
     }
 }

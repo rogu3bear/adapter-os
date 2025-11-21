@@ -8,6 +8,7 @@ use crate::SystemMetrics;
 use adapteros_core::Result;
 use adapteros_telemetry::TelemetryWriter;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// System metrics telemetry event
@@ -37,14 +38,14 @@ pub struct LoadAverageTelemetry {
 
 /// System metrics telemetry collector
 pub struct SystemMetricsTelemetry {
-    telemetry_writer: TelemetryWriter,
+    telemetry_writer: Arc<TelemetryWriter>,
     sampling_rate: f32,
     last_sample_time: SystemTime,
 }
 
 impl SystemMetricsTelemetry {
     /// Create a new system metrics telemetry collector
-    pub fn new(telemetry_writer: TelemetryWriter, sampling_rate: f32) -> Self {
+    pub fn new(telemetry_writer: Arc<TelemetryWriter>, sampling_rate: f32) -> Self {
         Self {
             telemetry_writer,
             sampling_rate,

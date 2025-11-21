@@ -50,6 +50,45 @@ pub struct ConfigFreezeError {
     pub stack_trace: Option<String>,
 }
 
+/// Feature flag definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureFlag {
+    /// Unique identifier for the feature
+    pub name: String,
+    /// Whether the feature is enabled
+    pub enabled: bool,
+    /// Description of the feature
+    pub description: Option<String>,
+    /// Conditions for automatic enablement
+    pub conditions: Option<FeatureFlagConditions>,
+}
+
+/// Conditions for automatic feature flag enablement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureFlagConditions {
+    /// Enable only in specific environments
+    pub environments: Option<Vec<String>>,
+    /// Enable for specific tenant IDs
+    pub tenant_ids: Option<Vec<String>>,
+    /// Enable after a specific date (ISO 8601)
+    pub enabled_after: Option<String>,
+    /// Enable before a specific date (ISO 8601)
+    pub enabled_before: Option<String>,
+    /// Percentage rollout (0-100)
+    pub rollout_percentage: Option<u8>,
+}
+
+impl Default for FeatureFlag {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            enabled: false,
+            description: None,
+            conditions: None,
+        }
+    }
+}
+
 /// Configuration loader options
 #[derive(Debug, Clone)]
 pub struct LoaderOptions {

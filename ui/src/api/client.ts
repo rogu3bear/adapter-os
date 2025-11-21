@@ -54,6 +54,10 @@ class ApiClient {
     this.token = token;
   }
 
+  getToken(): string | undefined {
+    return this.token;
+  }
+
   private async computeRequestId(method: string, path: string, body: string): Promise<string> {
     const canonical = `${method}:${path}:${body}`;
     const encoder = new TextEncoder();
@@ -128,7 +132,7 @@ class ApiClient {
     if (result.success) {
       return result.value;
     } else {
-      throw result.error;
+      throw (result as { success: false; error: any; attempts: number }).error;
     }
   }
 
@@ -740,6 +744,75 @@ class ApiClient {
     return this.request<types.TrainingTemplate>(`/v1/training/templates/${templateId}`);
   }
 
+  // Dataset endpoints
+  async createDataset(request: trainingTypes.CreateDatasetRequest): Promise<trainingTypes.DatasetResponse> {
+    // Use FormData for file uploads
+    const formData = new FormData();
+    formData.append('name', request.name);
+    formData.append('source_type', request.source_type);
+    if (request.language) formData.append('language', request.language);
+    if (request.framework) formData.append('framework', request.framework);
+    if (request.repository_url) formData.append('repository_url', request.repository_url);
+    if (request.branch) formData.append('branch', request.branch);
+    if (request.commit_hash) formData.append('commit_hash', request.commit_hash);
+    if (request.files) {
+      request.files.forEach((file, index) => {
+        formData.append(`files[${index}]`, file);
+      });
+    }
+
+    const url = `${this.baseUrl}/v1/datasets`;
+    const requestId = await this.computeRequestId('POST', '/v1/datasets', request.name);
+    this.logRequest(requestId, 'POST', '/v1/datasets');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'X-Request-ID': requestId,
+        ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      },
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const error = await response.json();
+        errorMessage = error.error || errorMessage;
+      } catch {
+        // Use status text
+      }
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  }
+
+  async listDatasets(params?: { page?: number; page_size?: number }): Promise<trainingTypes.ListDatasetsResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.append('page', String(params.page));
+    if (params?.page_size) queryParams.append('page_size', String(params.page_size));
+    const query = queryParams.toString();
+    return this.request<trainingTypes.ListDatasetsResponse>(`/v1/datasets${query ? `?${query}` : ''}`);
+  }
+
+  async getDataset(datasetId: string): Promise<trainingTypes.Dataset> {
+    return this.request<trainingTypes.Dataset>(`/v1/datasets/${datasetId}`);
+  }
+
+  async validateDataset(datasetId: string): Promise<trainingTypes.DatasetValidationResult> {
+    return this.request<trainingTypes.DatasetValidationResult>(`/v1/datasets/${datasetId}/validate`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteDataset(datasetId: string): Promise<void> {
+    return this.request<void>(`/v1/datasets/${datasetId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Adapter lifecycle management
   // Supports both boolean and advanced pinning modes
   async pinAdapter(adapterId: string, pinnedOrTtlHours: boolean | number, reason?: string): Promise<void> {
@@ -954,7 +1027,7 @@ class ApiClient {
       operation: 'batchInfer',
       batchSize: data.requests.length,
     });
-    return this.request<types.BatchInferResponse>('/api/batch/infer', {
+    return this.request<types.BatchInferResponse>('/v1/infer/batch', {
       method: 'POST',
       body: JSON.stringify(data),
     }, false, cancelToken);
@@ -1393,11 +1466,11 @@ class ApiClient {
     if (params?.end_time_ns) queryParams.append('end_time_ns', params.end_time_ns.toString());
 
     const queryString = queryParams.toString();
-    return this.request<string[]>(`/api/traces/search${queryString ? `?${queryString}` : ''}`);
+    return this.request<string[]>(`/v1/traces/search${queryString ? `?${queryString}` : ''}`);
   }
 
   async getTrace(traceId: string): Promise<types.Trace | null> {
-    return this.request<types.Trace | null>(`/api/traces/${traceId}`);
+    return this.request<types.Trace | null>(`/v1/traces/${traceId}`);
   }
 
   // Audit export API method
@@ -1437,6 +1510,41 @@ class ApiClient {
     return this.request<types.ComplianceAuditResponse>('/v1/audit/compliance');
   }
 
+  // Query audit logs with filters
+  async queryAuditLogs(filters?: types.AuditLogFilters): Promise<types.AuditLog[]> {
+    const params = new URLSearchParams();
+    if (filters?.action) params.append('action', filters.action);
+    if (filters?.user_id) params.append('user_id', filters.user_id);
+    if (filters?.resource) params.append('resource', filters.resource);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.start_time) params.append('start_time', filters.start_time);
+    if (filters?.end_time) params.append('end_time', filters.end_time);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.offset) params.append('offset', filters.offset.toString());
+    if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<types.AuditLog[]>(`/v1/audit/logs${query}`);
+  }
+
+  // Run tenant isolation test
+  async runIsolationTest(scenarioId: string, tenantId: string): Promise<types.IsolationTestResult> {
+    return this.request<types.IsolationTestResult>('/v1/security/isolation/test', {
+      method: 'POST',
+      body: JSON.stringify({ scenario_id: scenarioId, tenant_id: tenantId }),
+    });
+  }
+
+  // Get anomaly detection status
+  async getAnomalyDetectionStatus(): Promise<types.AnomalyDetectionStatus> {
+    return this.request<types.AnomalyDetectionStatus>('/v1/security/anomaly/status');
+  }
+
+  // Get access patterns for visualization
+  async getAccessPatterns(tenantId?: string): Promise<types.AccessPattern[]> {
+    const query = tenantId ? `?tenant_id=${tenantId}` : '';
+    return this.request<types.AccessPattern[]>(`/v1/security/access-patterns${query}`);
+  }
+
   // Process debugging methods
   async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
     const params = new URLSearchParams();
@@ -1469,27 +1577,32 @@ class ApiClient {
   // Routing methods
   async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.TransformedRoutingDecision[]> {
     const params = new URLSearchParams();
-    // Backend requires 'tenant' parameter in query struct (even though handler uses claims.tenant_id)
-    // Always send tenant parameter - use provided value or 'default' as fallback
-    const tenant = filters?.tenant || 'default';
-    params.append('tenant', tenant);
-    
+    // Backend requires 'tenant_id' parameter in query struct
+    // Always send tenant_id parameter - use provided value or 'default' as fallback
+    const tenantId = filters?.tenant_id || 'default';
+    params.append('tenant_id', tenantId);
+
     if (filters?.limit) {
       params.append('limit', filters.limit.toString());
     }
     // Note: adapter_id is not in the backend query struct, so we skip it
-    if (filters?.start_time) {
-      params.append('since', filters.start_time);
+    if (filters?.since) {
+      params.append('since', filters.since);
     }
-    // Note: end_time is not supported by backend query struct
-    
+    if (filters?.until) {
+      params.append('until', filters.until);
+    }
+    if (filters?.min_entropy !== undefined) {
+      params.append('min_entropy', filters.min_entropy.toString());
+    }
+
     const query = `?${params.toString()}`;
-    
+
     logger.debug('Fetching routing decisions', {
       component: 'ApiClient',
       operation: 'getRoutingDecisions',
       query,
-      tenant,
+      tenant_id: tenantId,
     });
     
     // Backend returns RoutingDecisionsResponse with 'items' field
@@ -1509,18 +1622,48 @@ class ApiClient {
     const response = await this.request<BackendRoutingDecisionsResponse>(`/v1/routing/decisions${query}`);
     
     // Transform backend format to frontend format
-    return response.items.map((item, index) => ({
-      id: item.trace_id || `decision-${index}`,
-      timestamp: item.ts,
-      prompt_hash: item.trace_id || '',
-      input_hash: item.trace_id ? item.trace_id.slice(0, 16) : undefined,
-      adapters: item.adapters_used,
-      gates: item.activations,
-      total_score: item.activations.reduce((sum, val) => sum + val, 0) / item.activations.length,
-      k_value: item.adapters_used.length,
-      entropy: this.calculateEntropy(item.activations),
-      trace_id: item.trace_id,
-    }));
+    // Must satisfy TransformedRoutingDecision which extends RoutingDecision
+    return response.items.map((item, index) => {
+      const scores: Record<string, number> = {};
+      item.adapters_used.forEach((adapter, i) => {
+        scores[adapter] = item.activations[i] || 0;
+      });
+
+      // Transform candidates into RouterCandidateInfo objects
+      const candidates: types.RouterCandidateInfo[] = item.adapters_used.map((adapter, i) => ({
+        adapter_id: adapter,
+        adapter_idx: i,
+        gate_q15: Math.round((item.activations[i] || 0) * 32767), // Convert float to Q15
+        gate_float: item.activations[i] || 0,
+        raw_score: item.activations[i] || 0,
+        selected: true, // All adapters_used are selected
+      }));
+
+      return {
+        // Required TransformedRoutingDecision fields
+        id: item.trace_id || `decision-${index}`,
+        request_id: item.trace_id || `decision-${index}`,
+        selected_adapters: item.adapters_used,
+        scores,
+        timestamp: item.ts,
+        latency_ms: 0, // Not provided by backend
+
+        // Additional TransformedRoutingDecision fields
+        transformed: true,
+        display_adapters: item.adapters_used,
+
+        // Routing inspector fields
+        entropy: this.calculateEntropy(item.activations),
+        k_value: item.adapters_used.length,
+        router_latency_us: undefined, // Not provided by backend
+        candidates,
+
+        // Optional fields
+        tau: 1.0,
+        entropy_floor: 0.0,
+        step: index,
+      };
+    });
   }
   
   private calculateEntropy(values: number[]): number {

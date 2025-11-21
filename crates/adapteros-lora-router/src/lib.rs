@@ -1,5 +1,10 @@
 //! Top-K sparse router with Q15 gate quantization
 
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::useless_vec)]
+
 pub mod calibration;
 pub mod code_features;
 pub mod features;
@@ -151,9 +156,8 @@ pub struct Router {
     tau: f32,
     /// Entropy floor to prevent collapse
     eps: f32,
-    /// Token counter for sampling
-    #[allow(dead_code)]
-    token_count: usize,
+    /// Token counter for sampling (reserved for token-level telemetry)
+    _token_count: usize,
     /// Log first N tokens fully (default: 128 per Telemetry Ruleset #9)
     full_log_tokens: usize,
 
@@ -191,7 +195,7 @@ impl Router {
             k,
             tau,
             eps,
-            token_count: 0,
+            _token_count: 0,
             full_log_tokens: 128, // Per Telemetry Ruleset #9
             orthogonal_constraints: None,
             orthogonal_enabled: false,
@@ -391,9 +395,8 @@ impl Router {
         }
     }
 
-    /// Check if an adapter is in the active stack
-    #[allow(dead_code)]
-    fn is_in_active_stack(&self, adapter_id: &str) -> bool {
+    /// Check if an adapter is in the active stack (reserved for stack-based filtering)
+    fn _is_in_active_stack(&self, adapter_id: &str) -> bool {
         match &self.active_stack_adapter_ids {
             Some(allowed_ids) => allowed_ids.contains(&adapter_id.to_string()),
             None => true, // No stack = all adapters allowed

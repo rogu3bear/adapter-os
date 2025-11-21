@@ -72,19 +72,15 @@ pub enum WeightGroupType {
 
 /// Compression level for .aos packaging
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum CompressionLevel {
     /// No compression (fastest)
     Store,
     /// Fast compression (default for most files)
+    #[default]
     Fast,
     /// Best compression (slowest, smallest)
     Best,
-}
-
-impl Default for CompressionLevel {
-    fn default() -> Self {
-        Self::Fast
-    }
 }
 
 impl CompressionLevel {

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import {
   Zap,
   Rocket,
-  Flask,
+  FlaskConical,
   GitCompare,
   Layers,
   Wrench,
@@ -31,7 +31,7 @@ interface WorkflowTemplatesProps {
 const CATEGORY_ICONS: Record<WorkflowCategory, React.ComponentType<any>> = {
   training: Zap,
   deployment: Rocket,
-  experimental: Flask,
+  experimental: FlaskConical,
   comparison: GitCompare,
   stack: Layers,
   maintenance: Wrench,

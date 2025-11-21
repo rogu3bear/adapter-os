@@ -12,6 +12,10 @@
 //! - All keys stored in Secure Enclave
 //! - No network access (UDS only)
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::collapsible_match)]
+
 pub mod audit;
 pub mod enclave;
 pub mod heartbeat;

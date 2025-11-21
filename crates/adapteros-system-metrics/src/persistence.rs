@@ -18,7 +18,7 @@ use tracing::{debug, error, info, warn};
 /// Metrics persistence service
 pub struct MetricsPersistenceService {
     db: Arc<Db>,
-    telemetry_writer: TelemetryWriter,
+    telemetry_writer: Arc<TelemetryWriter>,
     config: PersistenceConfig,
     is_running: Arc<RwLock<bool>>,
     last_cleanup: Arc<RwLock<SystemTime>>,
@@ -51,7 +51,7 @@ impl Default for PersistenceConfig {
 
 impl MetricsPersistenceService {
     /// Create a new metrics persistence service
-    pub fn new(db: Arc<Db>, telemetry_writer: TelemetryWriter, config: PersistenceConfig) -> Self {
+    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: PersistenceConfig) -> Self {
         Self {
             db,
             telemetry_writer,
@@ -528,8 +528,8 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let telemetry_writer = TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-            .expect("Failed to create telemetry writer");
+        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
+            .expect("Failed to create telemetry writer"));
 
         let config = PersistenceConfig::default();
         let service = MetricsPersistenceService::new(db, telemetry_writer, config);

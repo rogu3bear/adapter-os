@@ -12,7 +12,14 @@
 //! - Canonical input/output ordering
 //! - All operations logged into BLAKE3 trace
 //! - Numerical drift (ε) reported in trace metadata
-//!
+
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+#![allow(dead_code)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::collapsible_if)]
+
 //! # Architecture
 //!
 //! ```text

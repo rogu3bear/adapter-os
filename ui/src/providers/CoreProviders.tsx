@@ -200,7 +200,7 @@ function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const applyTheme = () => {
       const root = document.documentElement;
-      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)')?.matches);
       
       if (isDark) {
         root.classList.add('dark');
@@ -212,15 +212,17 @@ function ThemeProvider({ children }: { children: ReactNode }) {
     applyTheme();
 
     // Listen to system preference changes when theme is 'system'
-    if (theme === 'system') {
+    if (theme === 'system' && typeof window !== 'undefined' && window.matchMedia) {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      if (!mediaQuery) return;
+
       const handleChange = () => applyTheme();
-      
+
       // Modern browsers
       if (mediaQuery.addEventListener) {
         mediaQuery.addEventListener('change', handleChange);
         return () => mediaQuery.removeEventListener('change', handleChange);
-      } 
+      }
       // Fallback for older browsers
       else if (mediaQuery.addListener) {
         mediaQuery.addListener(handleChange);

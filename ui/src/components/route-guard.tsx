@@ -1,8 +1,35 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
+import { ErrorBoundary } from 'react-error-boundary';
+import { AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/providers/CoreProviders';
 import type { RouteConfig } from '@/config/routes';
 import { canAccessRoute } from '@/config/routes';
+import { PageSkeleton } from '@/components/ui/page-skeleton';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+
+interface ErrorFallbackProps {
+  error: Error;
+  resetErrorBoundary: () => void;
+}
+
+function ErrorFallback({ error, resetErrorBoundary }: ErrorFallbackProps) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <Card className="max-w-md w-full p-6 text-center">
+        <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+        <h2 className="text-lg font-semibold mb-2">Failed to load page</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          {error.message || 'An unexpected error occurred while loading this page.'}
+        </p>
+        <Button onClick={resetErrorBoundary}>
+          Try Again
+        </Button>
+      </Card>
+    </div>
+  );
+}
 
 interface RouteGuardProps {
   route: RouteConfig;
@@ -21,7 +48,7 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
   if (requiresAuth && isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div role="status" aria-label="Loading" className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -41,7 +68,13 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
     return <>{children}</>;
   }
 
-  return <Component />;
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <Suspense fallback={<PageSkeleton variant={route.skeletonVariant || 'default'} />}>
+        <Component />
+      </Suspense>
+    </ErrorBoundary>
+  );
 }
 
 /**

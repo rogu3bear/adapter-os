@@ -139,7 +139,7 @@ impl TokenStream {
     }
 }
 
-impl futures::Stream for TokenStream {
+impl futures_util::Stream for TokenStream {
     type Item = StreamEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -276,7 +276,7 @@ impl StopSequenceDetector {
     ///
     /// Returns true if a stop sequence is detected.
     pub fn check(&mut self, text: &str) -> bool {
-        // Add characters to sliding window
+        // Add characters to sliding window and check after each
         for ch in text.chars() {
             self.window.push_back(ch);
 
@@ -284,14 +284,14 @@ impl StopSequenceDetector {
             while self.window.len() > self.max_len {
                 self.window.pop_front();
             }
-        }
 
-        // Check each stop sequence
-        let window_str: String = self.window.iter().collect();
-        for seq in &self.sequences {
-            if window_str.contains(seq) {
-                debug!(sequence = %seq, "Stop sequence detected");
-                return true;
+            // Check each stop sequence after adding each character
+            let window_str: String = self.window.iter().collect();
+            for seq in &self.sequences {
+                if window_str.contains(seq) {
+                    debug!(sequence = %seq, "Stop sequence detected");
+                    return true;
+                }
             }
         }
 
@@ -389,10 +389,21 @@ pub struct MLXStreamingGenerator {
 
 impl MLXStreamingGenerator {
     /// Create new streaming generator
-    pub fn new(config: StreamingConfig, base_seed: B3Hash, num_layers: usize) -> Self {
+    ///
+    /// # Arguments
+    /// * `config` - Streaming configuration
+    /// * `base_seed` - Base seed for deterministic generation
+    /// * `num_layers` - Number of transformer layers (for KV cache)
+    /// * `hidden_dim` - Hidden dimension size (for KV cache)
+    pub fn new(
+        config: StreamingConfig,
+        base_seed: B3Hash,
+        num_layers: usize,
+        hidden_dim: usize,
+    ) -> Self {
         let healer = UTF8TokenHealer::new(config.enable_utf8_healing);
         let stop_detector = StopSequenceDetector::new(config.stop_sequences.clone());
-        let kv_cache = KVCacheManager::new(num_layers, 4096); // TODO: get hidden_dim from config
+        let kv_cache = KVCacheManager::new(num_layers, hidden_dim);
 
         let now = Instant::now();
 
@@ -406,6 +417,22 @@ impl MLXStreamingGenerator {
             tokens_generated: 0,
             base_seed,
         }
+    }
+
+    /// Create streaming generator from model config
+    ///
+    /// Convenience constructor that extracts parameters from ModelConfig.
+    pub fn from_model_config(
+        config: StreamingConfig,
+        base_seed: B3Hash,
+        model_config: &crate::ModelConfig,
+    ) -> Self {
+        Self::new(
+            config,
+            base_seed,
+            model_config.num_hidden_layers,
+            model_config.hidden_size,
+        )
     }
 
     /// Generate streaming tokens
@@ -629,14 +656,14 @@ impl MLXStreamingGenerator {
         &mut self,
         prompt: &str,
         tokenizer: &crate::tokenizer::MLXTokenizer,
-        mut generate_fn: F,
+        generate_fn: F,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()>
     where
         F: FnMut(usize, &B3Hash) -> Result<(u32, Vec<u8>)>,
     {
-        // Encode prompt to tokens
-        let prompt_tokens = tokenizer.encode(prompt)?;
+        // Encode prompt to tokens (validates the prompt is encodable)
+        let _prompt_tokens = tokenizer.encode(prompt)?;
 
         // Run streaming generation
         self.generate(generate_fn, tx).await

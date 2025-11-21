@@ -564,16 +564,22 @@ mod tests {
         let metadata = StoredBundleMetadata {
             bundle_hash: B3Hash::hash(b"test"),
             cpid: Some("cpid-001".to_string()),
-            tenant_id: "tenant-001".to_string(),
+            tenant_id: Some("tenant-001".to_string()),
             event_count: 100,
-            sequence_no: 1,
+            sequence_no: Some(1),
             merkle_root: B3Hash::hash(b"merkle"),
             signature: "test_sig".to_string(),
+            public_key: "test_pubkey".to_string(),
+            key_id: "test_key_id".to_string(),
+            schema_version: 1,
+            signed_at_us: 0,
             created_at: std::time::SystemTime::now(),
             prev_bundle_hash: None,
             is_incident_bundle: false,
             is_promotion_bundle: false,
             tags: vec![],
+            stack_id: None,
+            stack_version: None,
         };
 
         let sig = manager.sign_bundle(&metadata).await?;

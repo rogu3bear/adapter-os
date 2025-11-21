@@ -10,15 +10,18 @@
 //! - Using content-based seeds for training
 //! - Sorting all extracted data consistently
 //! - Using BLAKE3 hashing for reproducibility
-//!
-//! NOTE: CodeGraph support is currently disabled due to tree-sitter conflict.
 
-// use adapteros_codegraph::{CodeGraph, DirectoryAnalysis, DirectorySymbolKind, Visibility};  // Disabled
+use adapteros_codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
-use adapteros_lora_worker::training::TrainingConfig;
+use adapteros_lora_worker::tokenizer::QwenTokenizer;
+use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use tracing::info;
+use std::time::Instant;
+use tokio::fs;
+use tracing::{debug, info};
 
 /// Configuration for codebase ingestion
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,403 +93,86 @@ pub struct IngestionResult {
     pub content_hash: String,
 }
 
-/// Codebase ingestion pipeline (stub - codegraph disabled)
+/// Codebase ingestion pipeline
 pub struct CodebaseIngestion {
     config: IngestionConfig,
 }
 
 impl CodebaseIngestion {
-    /// Create a new ingestion pipeline (stub - codegraph disabled)
+    /// Create a new ingestion pipeline
     pub fn new(config: IngestionConfig) -> Result<Self> {
-        info!("CodebaseIngestion created (CodeGraph support disabled)");
+        info!("CodebaseIngestion pipeline initialized");
         Ok(Self { config })
     }
 
-    /// Run the full ingestion pipeline (stub - codegraph disabled)
+    /// Run the full ingestion pipeline
     pub async fn ingest_and_train(
         &self,
         repo_path: &Path,
         adapter_id: &str,
-        _adapters_root: &Path,
+        adapters_root: &Path,
     ) -> Result<IngestionResult> {
         info!(
-            "Codebase ingestion requested for repository: {} (adapter: {})",
+            "Starting codebase ingestion for repository: {} (adapter: {})",
             repo_path.display(),
             adapter_id
         );
 
-        Err(AosError::Internal(
-            "CodeGraph support is disabled due to tree-sitter conflict. Use code_ingestion.rs pipeline instead.".to_string(),
-        ))
-    }
-}
+        let start_time = Instant::now();
 
-    /// Generate training dataset from extracted code symbols
-    fn generate_training_dataset(
-        &self,
-        code_graph: &CodeGraph,
-        dir_analysis: &DirectoryAnalysis,
-        repo_path: &Path,
-    ) -> Result<Vec<TrainingExample>> {
-        info!("Generating training dataset from extracted symbols");
+        // Build CodeGraph from the repository
+        let graph = CodeGraph::from_directory(repo_path, None).await?;
 
-        let mut examples = Vec::new();
+        let symbols_count = graph.symbols.len();
+        info!(symbols = symbols_count, "Extracted symbols from repository");
 
-        // Process each symbol in the code graph
-        // Use BTreeMap iteration for deterministic ordering
-        for (_symbol_id, symbol) in &code_graph.symbols {
-            // Skip private symbols unless configured otherwise
-            // FIXED: Use == instead of is_public() method
-            if !self.config.include_private && symbol.visibility != Visibility::Public {
-                continue;
-            }
+        // Get git commit SHA if available
+        let commit_sha = get_commit_sha(repo_path);
 
-            // Generate Q&A pairs for this symbol
-            let symbol_examples = self.generate_symbol_examples(symbol, repo_path)?;
-            examples.extend(symbol_examples);
+        // Generate Q&A training pairs from symbols
+        let samples = self.generate_qa_pairs(&graph, repo_path)?;
+        if samples.is_empty() {
+            return Err(AosError::Training(
+                "No training samples generated from codebase".to_string(),
+            ));
         }
 
-        // Generate examples from directory-level documentation (README, etc.)
-        let doc_examples = self.generate_documentation_examples(dir_analysis, repo_path)?;
-        examples.extend(doc_examples);
-
-        // Generate negative examples if configured
-        if self.config.generate_negative_examples {
-            let negative_examples = self.generate_negative_examples(code_graph)?;
-            examples.extend(negative_examples);
-        }
-
-        // Sort examples deterministically by input tokens (for reproducibility)
-        examples.sort_by(|a, b| a.input.cmp(&b.input));
-
-        info!(
-            "Generated {} total training examples ({} positive, {} negative)",
-            examples.len(),
-            examples.iter().filter(|e| e.weight > 0.0).count(),
-            examples.iter().filter(|e| e.weight < 0.0).count()
+        // Compute content hash for reproducibility
+        let content_hash = compute_samples_hash(&samples);
+        debug!(
+            samples = samples.len(),
+            hash = %content_hash,
+            "Generated training samples"
         );
 
-        Ok(examples)
-    }
-
-    /// Generate training examples for a single symbol
-    /// FIXED: Added repo_path parameter for better error context
-    fn generate_symbol_examples(
-        &self,
-        symbol: &adapteros_codegraph::SymbolNode,
-        repo_path: &Path,
-    ) -> Result<Vec<TrainingExample>> {
-        let mut examples = Vec::new();
-
-        // Skip if no documentation
-        if symbol.docstring.is_none()
-            || symbol.docstring.as_ref().unwrap().len() < self.config.min_doc_length
-        {
-            return Ok(examples);
-        }
-
-        let doc = symbol.docstring.as_ref().unwrap();
-
-        // Get relative file path for better error messages
-        let file_rel_path = symbol
-            .file_path
-            .strip_prefix(repo_path.to_string_lossy().as_ref())
-            .unwrap_or(&symbol.file_path);
-
-        // Example 1: "What does function/struct X do?"
-        let prompt_what = format!(
-            "What does {} '{}' do in this codebase?",
-            symbol.kind.to_string().to_lowercase(),
-            symbol.name
-        );
-
-        let response_what = format!(
-            "{} '{}' (in {}): {}",
-            symbol.kind.to_string(),
-            symbol.name,
-            file_rel_path,
-            doc
-        );
-
-        if let Some(example) = self.create_training_example(
-            &prompt_what,
-            &response_what,
-            1.0,
-            &symbol.name,
-            &symbol.file_path,
-        )? {
-            examples.push(example);
-        }
-
-        // Example 2: "How do I use X?"
-        if matches!(
-            symbol.kind,
-            adapteros_codegraph::SymbolKind::Function | adapteros_codegraph::SymbolKind::Method
-        ) {
-            let prompt_how = format!("How do I use the function '{}'?", symbol.name);
-            let response_how = if let Some(ref type_ann) = symbol.type_annotation {
-                format!(
-                    "Function '{}' has signature: {}. {}",
-                    symbol.name, type_ann, doc
-                )
-            } else if let Some(ref signature) = symbol.signature {
-                format!(
-                    "Function '{}' signature: {}. {}",
-                    symbol.name, signature, doc
-                )
-            } else {
-                format!("Function '{}': {}", symbol.name, doc)
-            };
-
-            if let Some(example) = self.create_training_example(
-                &prompt_how,
-                &response_how,
-                1.0,
-                &symbol.name,
-                &symbol.file_path,
-            )? {
-                examples.push(example);
-            }
-        }
-
-        // Example 3: Type/signature query
-        if let Some(ref type_ann) = symbol.type_annotation {
-            let prompt_sig = format!("What is the signature of '{}'?", symbol.name);
-            let response_sig = format!("{}", type_ann);
-
-            if let Some(example) = self.create_training_example(
-                &prompt_sig,
-                &response_sig,
-                1.0,
-                &symbol.name,
-                &symbol.file_path,
-            )? {
-                examples.push(example);
-            }
-        }
-
-        // Limit to max_pairs_per_symbol
-        examples.truncate(self.config.max_pairs_per_symbol);
-
-        Ok(examples)
-    }
-
-    /// Generate examples from repository-level documentation
-    fn generate_documentation_examples(
-        &self,
-        dir_analysis: &DirectoryAnalysis,
-        repo_path: &Path,
-    ) -> Result<Vec<TrainingExample>> {
-        let mut examples = Vec::new();
-
-        // Look for README files
-        for symbol in &dir_analysis.symbols {
-            if matches!(symbol.kind, DirectorySymbolKind::Documentation) {
-                // Read the documentation file
-                let doc_path = repo_path.join(&symbol.name);
-                if let Ok(content) = std::fs::read_to_string(&doc_path) {
-                    // Generate general Q&A about the project
-                    if content.len() >= self.config.min_doc_length {
-                        let prompt = "What is this project about?";
-                        let response = &content[..content.len().min(500)]; // Take first 500 chars
-
-                        if let Some(example) = self.create_training_example(
-                            prompt,
-                            response,
-                            1.0,
-                            "project_documentation",
-                            &symbol.name,
-                        )? {
-                            examples.push(example);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(examples)
-    }
-
-    /// Generate negative examples for abstention training
-    fn generate_negative_examples(&self, code_graph: &CodeGraph) -> Result<Vec<TrainingExample>> {
-        let mut examples = Vec::new();
-
-        // Negative example 1: Hallucinated function
-        let prompt_hallucinated = "What does the function 'nonexistent_magic_function' do?";
-        let response_hallucinated = "I don't have information about a function called 'nonexistent_magic_function' in this codebase.";
-
-        if let Some(example) = self.create_training_example(
-            prompt_hallucinated,
-            response_hallucinated,
-            -1.0,
-            "negative_hallucination",
-            "n/a",
-        )? {
-            examples.push(example);
-        }
-
-        // Negative example 2: Undocumented code
-        if let Some((_, symbol)) = code_graph
-            .symbols
-            .iter()
-            .find(|(_, s)| s.docstring.is_none())
-        {
-            let prompt_undoc = format!("Explain the implementation details of '{}'", symbol.name);
-            let response_undoc = format!(
-                "I don't have detailed documentation for '{}'. I recommend reviewing the source code directly.",
-                symbol.name
-            );
-
-            if let Some(example) = self.create_training_example(
-                &prompt_undoc,
-                &response_undoc,
-                -0.5,
-                &symbol.name,
-                &symbol.file_path,
-            )? {
-                examples.push(example);
-            }
-        }
-
-        Ok(examples)
-    }
-
-    /// Create a training example from prompt/response pair
-    /// FIXED: Added symbol_name and file_path for better error context
-    fn create_training_example(
-        &self,
-        prompt: &str,
-        response: &str,
-        weight: f32,
-        symbol_name: &str,
-        file_path: &str,
-    ) -> Result<Option<TrainingExample>> {
-        // Tokenize prompt and response
-        let prompt_tokens = self.tokenizer.encode(prompt, false).map_err(|e| {
+        // Load tokenizer and encode samples
+        let tokenizer_path = self.config.tokenizer_path.clone().unwrap_or_else(|| {
+            PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json")
+        });
+        let tokenizer = QwenTokenizer::from_file(&tokenizer_path).map_err(|e| {
             AosError::Training(format!(
-                "Failed to tokenize prompt for symbol '{}' in {}: {}",
-                symbol_name, file_path, e
+                "Failed to load tokenizer {}: {}",
+                tokenizer_path.display(),
+                e
             ))
         })?;
 
-        let response_tokens = self.tokenizer.encode(response, false).map_err(|e| {
-            AosError::Training(format!(
-                "Failed to tokenize response for symbol '{}' in {}: {}",
-                symbol_name, file_path, e
-            ))
-        })?;
+        let training_examples = encode_qa_samples(&tokenizer, &samples)?;
+        let examples_count = training_examples.len();
 
-        // Skip if tokenization resulted in empty sequences
-        if prompt_tokens.is_empty() || response_tokens.is_empty() {
-            warn!(
-                "Skipping example with empty tokens for symbol '{}' in {}",
-                symbol_name, file_path
-            );
-            return Ok(None);
-        }
-
-        let mut metadata = HashMap::new();
-        metadata.insert("type".to_string(), "codebase_ingestion".to_string());
-        metadata.insert(
-            "weight_sign".to_string(),
-            if weight >= 0.0 {
-                "positive".to_string()
-            } else {
-                "negative".to_string()
-            },
-        );
-        metadata.insert("symbol_name".to_string(), symbol_name.to_string());
-        metadata.insert("file_path".to_string(), file_path.to_string());
-
-        Ok(Some(TrainingExample {
-            input: prompt_tokens.get_ids().to_vec(),
-            target: response_tokens.get_ids().to_vec(),
-            metadata,
-            weight,
-        }))
-    }
-
-    /// Compute content hash for reproducibility
-    fn compute_content_hash(&self, code_graph: &CodeGraph, examples: &[TrainingExample]) -> String {
-        let mut hasher = blake3::Hasher::new();
-
-        // Hash code graph content
-        hasher.update(code_graph.content_hash.as_bytes());
-
-        // Hash all training examples in deterministic order
-        for example in examples {
-            for token in &example.input {
-                hasher.update(&token.to_le_bytes());
-            }
-            for token in &example.target {
-                hasher.update(&token.to_le_bytes());
-            }
-            hasher.update(&example.weight.to_le_bytes());
-        }
-
-        // Hash configuration
-        if let Ok(config_json) = serde_json::to_string(&self.config.training_config) {
-            hasher.update(config_json.as_bytes());
-        }
-
-        let hash = hasher.finalize();
-        B3Hash::from_bytes(*hash.as_bytes()).to_hex()
-    }
-
-    /// Train the adapter with deterministic seed
-    async fn train_adapter(
-        &self,
-        examples: &[TrainingExample],
-        content_hash: &str,
-    ) -> Result<adapteros_lora_worker::training::TrainingResult> {
-        info!("Training adapter with {} examples", examples.len());
-
+        // Train the LoRA adapter
         let mut trainer = MicroLoRATrainer::new(self.config.training_config.clone())?;
 
-        // Use content hash to derive deterministic seed
-        let seed_bytes = blake3::hash(content_hash.as_bytes());
-        let seed = u64::from_le_bytes([
-            seed_bytes.as_bytes()[0],
-            seed_bytes.as_bytes()[1],
-            seed_bytes.as_bytes()[2],
-            seed_bytes.as_bytes()[3],
-            seed_bytes.as_bytes()[4],
-            seed_bytes.as_bytes()[5],
-            seed_bytes.as_bytes()[6],
-            seed_bytes.as_bytes()[7],
-        ]);
-
+        // Derive deterministic seed from content
+        let seed = derive_training_seed(&content_hash, commit_sha.as_deref());
         trainer.override_training_seed(seed)?;
-        info!("Using deterministic training seed: {}", seed);
+        info!(seed = seed, "Using deterministic training seed");
 
-        // Train the adapter
-        let result = trainer.train(examples).await?;
+        let training_result = trainer.train(&training_examples, adapter_id).await?;
+        let final_loss = training_result.final_loss;
 
-        info!(
-            "Training completed: adapter_id={}, final_loss={:.4}, time={}ms",
-            result.adapter_id, result.final_loss, result.training_time_ms
-        );
-
-        Ok(result)
-    }
-
-    /// Package the trained adapter
-    async fn package_adapter(
-        &self,
-        adapter_id: &str,
-        weights: &adapteros_lora_worker::training::LoRAWeights,
-        adapters_root: &Path,
-        content_hash: &str,
-    ) -> Result<adapteros_lora_worker::training::PackagedAdapter> {
-        info!("Packaging adapter: {}", adapter_id);
-
-        // Quantize weights to Q15
-        let quantized = LoRAQuantizer::quantize_to_q15(weights);
-        let mse = LoRAQuantizer::calculate_error(weights, &quantized);
-        debug!("Quantization MSE: {:.6}", mse);
-
-        // Create adapters root directory
-        std::fs::create_dir_all(adapters_root).map_err(|e| {
+        // Package the adapter as .aos file
+        fs::create_dir_all(adapters_root).await.map_err(|e| {
             AosError::Io(format!(
                 "Failed to create adapters directory {}: {}",
                 adapters_root.display(),
@@ -494,149 +180,344 @@ impl CodebaseIngestion {
             ))
         })?;
 
-        // Package the adapter
-        let packager = AdapterPackager::new(adapters_root);
-        let packaged = packager
-            .package(
-                adapter_id,
-                &quantized,
-                &self.config.training_config,
-                &self.config.base_model,
-            )
-            .await
-            .map_err(|e| AosError::Training(format!("Packaging failed: {}", e)))?;
+        let aos_path = adapters_root.join(format!("{}.aos", adapter_id));
+        let mut metadata = HashMap::new();
+        metadata.insert("repo_path".to_string(), repo_path.display().to_string());
+        metadata.insert("symbols_count".to_string(), symbols_count.to_string());
+        metadata.insert("examples_count".to_string(), examples_count.to_string());
+        metadata.insert("content_hash".to_string(), content_hash.clone());
+        if let Some(sha) = &commit_sha {
+            metadata.insert("commit_sha".to_string(), sha.clone());
+        }
+        metadata.insert("generator".to_string(), "codebase_ingestion".to_string());
+
+        trainer
+            .save_as_aos_package_with_metadata(&training_result, &aos_path, &metadata)
+            .await?;
+
+        // Compute adapter hash
+        let aos_bytes = fs::read(&aos_path).await.map_err(|e| {
+            AosError::Io(format!("Failed to read {}: {}", aos_path.display(), e))
+        })?;
+        let adapter_hash = blake3::hash(&aos_bytes).to_hex().to_string();
+
+        let training_time_ms = start_time.elapsed().as_millis() as u64;
 
         info!(
-            "Packaged adapter at {} (hash_b3={}, content_hash={})",
-            adapters_root.join(adapter_id).display(),
-            packaged.hash_b3,
-            content_hash
+            adapter_id = adapter_id,
+            hash = %adapter_hash,
+            examples = examples_count,
+            loss = final_loss,
+            time_ms = training_time_ms,
+            "Codebase ingestion completed"
         );
 
-        Ok(packaged)
+        Ok(IngestionResult {
+            adapter_id: adapter_id.to_string(),
+            adapter_hash,
+            repo_path: repo_path.display().to_string(),
+            commit_sha,
+            symbols_count,
+            examples_count,
+            final_loss,
+            training_time_ms,
+            content_hash,
+        })
     }
 
-    /// Get git commit SHA if repository is a git repo
-    fn get_commit_sha(&self, repo_path: &Path) -> Option<String> {
-        use std::process::Command;
+    /// Generate Q&A training pairs from CodeGraph symbols
+    fn generate_qa_pairs(&self, graph: &CodeGraph, repo_path: &Path) -> Result<Vec<QAPair>> {
+        let mut pairs = Vec::new();
 
-        let output = Command::new("git")
-            .args(&["rev-parse", "HEAD"])
-            .current_dir(repo_path)
-            .output()
-            .ok()?;
+        // Select and sort symbols for deterministic ordering
+        let mut symbols: Vec<&SymbolNode> = graph
+            .symbols
+            .values()
+            .filter(|s| self.should_include_symbol(s))
+            .collect();
+        symbols.sort_by(|a, b| a.qualified_name().cmp(&b.qualified_name()));
 
-        if output.status.success() {
-            let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !sha.is_empty() {
-                info!("Found git commit SHA: {}", sha);
-                return Some(sha);
+        for symbol in symbols {
+            // Generate positive examples (knowledge)
+            let positive_pairs = self.generate_positive_pairs(symbol, repo_path);
+            pairs.extend(positive_pairs);
+
+            // Generate negative examples (abstention) for undocumented symbols
+            if self.config.generate_negative_examples {
+                if symbol.docstring.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                    if let Some(negative) = self.generate_negative_pair(symbol, repo_path) {
+                        pairs.push(negative);
+                    }
+                }
             }
         }
 
-        warn!(
-            "Unable to determine git commit SHA for {}",
-            repo_path.display()
+        Ok(pairs)
+    }
+
+    /// Check if symbol should be included based on config
+    fn should_include_symbol(&self, symbol: &SymbolNode) -> bool {
+        // Filter by symbol kind
+        let valid_kind = matches!(
+            symbol.kind,
+            SymbolKind::Function
+                | SymbolKind::Method
+                | SymbolKind::Struct
+                | SymbolKind::Class
+                | SymbolKind::Trait
+                | SymbolKind::Enum
         );
-        None
+
+        // Filter by visibility
+        let visible = self.config.include_private
+            || matches!(symbol.visibility, Visibility::Public);
+
+        valid_kind && visible
+    }
+
+    /// Generate positive Q&A pairs for a symbol
+    fn generate_positive_pairs(&self, symbol: &SymbolNode, repo_path: &Path) -> Vec<QAPair> {
+        let mut pairs = Vec::new();
+        let rel_path = relative_path(repo_path, &symbol.file_path);
+        let kind_label = symbol_kind_label(&symbol.kind);
+
+        // Basic "what does X do" question
+        let question = format!(
+            "What does the {} `{}` in {} do?",
+            kind_label,
+            symbol.qualified_name(),
+            rel_path
+        );
+
+        let mut answer = format!(
+            "`{}` is a {} defined in `{}` (lines {}-{}).",
+            symbol.qualified_name(),
+            kind_label,
+            rel_path,
+            symbol.span.start_line,
+            symbol.span.end_line,
+        );
+
+        // Add signature if available
+        if let Some(sig) = &symbol.signature {
+            answer.push_str(&format!(" Signature: {}.", sig.trim()));
+        }
+
+        // Add return type if available
+        if let Some(type_ann) = &symbol.type_annotation {
+            if let Some(ret) = &type_ann.return_type {
+                answer.push_str(&format!(" Returns `{}`.", ret));
+            }
+        }
+
+        // Add documentation if available and meets minimum length
+        if let Some(doc) = symbol.docstring.as_ref().filter(|s| {
+            s.trim().len() >= self.config.min_doc_length
+        }) {
+            answer.push_str(&format!(" Documentation: {}", sanitize_whitespace(doc)));
+        }
+
+        answer.push_str(&format!(" Visibility: {}.", visibility_label(&symbol.visibility)));
+
+        let mut metadata = BTreeMap::new();
+        metadata.insert("symbol_kind".to_string(), kind_label.to_string());
+        metadata.insert("language".to_string(), symbol.language.to_string());
+        metadata.insert("file_path".to_string(), rel_path.clone());
+        metadata.insert("sample_role".to_string(), "positive".to_string());
+
+        pairs.push(QAPair {
+            question,
+            answer,
+            metadata,
+            weight: 1.0,
+        });
+
+        // Generate additional pairs up to max_pairs_per_symbol
+        if pairs.len() < self.config.max_pairs_per_symbol {
+            // "Where is X defined" question
+            let where_q = format!("Where is `{}` defined?", symbol.qualified_name());
+            let where_a = format!(
+                "`{}` is defined in `{}` at lines {}-{}.",
+                symbol.qualified_name(),
+                rel_path,
+                symbol.span.start_line,
+                symbol.span.end_line
+            );
+
+            let mut meta = metadata.clone();
+            meta.insert("question_type".to_string(), "location".to_string());
+
+            pairs.push(QAPair {
+                question: where_q,
+                answer: where_a,
+                metadata: meta,
+                weight: 1.0,
+            });
+        }
+
+        pairs.truncate(self.config.max_pairs_per_symbol);
+        pairs
+    }
+
+    /// Generate negative Q&A pair for abstention training
+    fn generate_negative_pair(&self, symbol: &SymbolNode, repo_path: &Path) -> Option<QAPair> {
+        let rel_path = relative_path(repo_path, &symbol.file_path);
+        let kind_label = symbol_kind_label(&symbol.kind);
+
+        let question = format!(
+            "Explain the undocumented {} `{}` in {}.",
+            kind_label,
+            symbol.qualified_name(),
+            rel_path
+        );
+
+        let answer = format!(
+            "I don't know. `{}` at `{}` lacks documentation, so I won't speculate about its behavior.",
+            symbol.qualified_name(),
+            rel_path
+        );
+
+        let mut metadata = BTreeMap::new();
+        metadata.insert("symbol_kind".to_string(), kind_label.to_string());
+        metadata.insert("language".to_string(), symbol.language.to_string());
+        metadata.insert("file_path".to_string(), rel_path);
+        metadata.insert("sample_role".to_string(), "negative".to_string());
+        metadata.insert("reason".to_string(), "missing_docstring".to_string());
+
+        Some(QAPair {
+            question,
+            answer,
+            metadata,
+            weight: -0.5,
+        })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::TempDir;
+/// Q&A training pair
+#[derive(Debug, Clone)]
+struct QAPair {
+    question: String,
+    answer: String,
+    metadata: BTreeMap<String, String>,
+    weight: f32,
+}
 
-    #[tokio::test]
-    async fn test_ingestion_pipeline() {
-        // Create a temporary repository with some Rust code
-        let temp_dir = TempDir::new().unwrap();
-        let repo_path = temp_dir.path();
+/// Get git commit SHA from repository
+fn get_commit_sha(repo_path: &Path) -> Option<String> {
+    git2::Repository::discover(repo_path)
+        .ok()
+        .and_then(|repo| repo.head().ok())
+        .and_then(|head| head.peel_to_commit().ok())
+        .map(|commit| commit.id().to_string())
+}
 
-        // Create a simple Rust file with documentation
-        let src_dir = repo_path.join("src");
-        std::fs::create_dir_all(&src_dir).unwrap();
-
-        let lib_rs = src_dir.join("lib.rs");
-        let mut file = std::fs::File::create(&lib_rs).unwrap();
-        writeln!(
-            file,
-            r#"
-/// Add two numbers together
-///
-/// This function takes two integers and returns their sum.
-pub fn add(a: i32, b: i32) -> i32 {{
-    a + b
-}}
-
-/// Multiply two numbers
-///
-/// Returns the product of two integers.
-pub fn multiply(x: i32, y: i32) -> i32 {{
-    x * y
-}}
-"#
-        )
-        .unwrap();
-
-        // Note: This test will be skipped if tokenizer is not available
-        let config = IngestionConfig {
-            training_config: TrainingConfig {
-                rank: 4,
-                alpha: 16.0,
-                learning_rate: 0.0001,
-                batch_size: 1,
-                epochs: 1,
-                hidden_dim: 768,
-                weight_group_config: Default::default(),
-            },
-            max_pairs_per_symbol: 2,
-            include_private: false,
-            min_doc_length: 10,
-            generate_negative_examples: false,
-            base_model: "qwen2.5-7b".to_string(),
-            tokenizer_path: Some(PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json")),
-        };
-
-        // Only run if tokenizer exists
-        if !config.tokenizer_path.as_ref().unwrap().exists() {
-            eprintln!("Skipping test: tokenizer not found");
-            return;
+/// Compute hash of training samples for reproducibility
+fn compute_samples_hash(samples: &[QAPair]) -> String {
+    let mut hasher = Hasher::new();
+    for sample in samples {
+        hasher.update(sample.question.as_bytes());
+        hasher.update(sample.answer.as_bytes());
+        hasher.update(&sample.weight.to_le_bytes());
+        for (k, v) in &sample.metadata {
+            hasher.update(k.as_bytes());
+            hasher.update(v.as_bytes());
         }
-
-        let ingestion = CodebaseIngestion::new(config).unwrap();
-
-        // Test code extraction
-        let (code_graph, _) = ingestion.extract_code_knowledge(repo_path).await.unwrap();
-        assert!(!code_graph.symbols.is_empty(), "Should extract symbols");
-
-        println!("Extracted {} symbols", code_graph.symbols.len());
     }
+    hasher.finalize().to_hex().to_string()
+}
 
-    #[test]
-    fn test_content_hash_determinism() {
-        // Verify that same content produces same hash
-        let _config = IngestionConfig::default();
-
-        // Create two identical example sets
-        let examples1 = vec![TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
-
-        let examples2 = vec![TrainingExample {
-            input: vec![1, 2, 3],
-            target: vec![4, 5, 6],
-            metadata: HashMap::new(),
-            weight: 1.0,
-        }];
-
-        // Verify examples are identical
-        assert_eq!(examples1[0].input, examples2[0].input);
-        assert_eq!(examples1[0].target, examples2[0].target);
-        assert_eq!(examples1[0].weight, examples2[0].weight);
+/// Derive deterministic training seed
+fn derive_training_seed(content_hash: &str, commit_sha: Option<&str>) -> u64 {
+    let mut hasher = Hasher::new();
+    hasher.update(content_hash.as_bytes());
+    if let Some(sha) = commit_sha {
+        hasher.update(sha.as_bytes());
     }
+    let digest = hasher.finalize();
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&digest.as_bytes()[..8]);
+    u64::from_le_bytes(bytes)
+}
+
+/// Encode Q&A samples to training examples
+fn encode_qa_samples(
+    tokenizer: &QwenTokenizer,
+    samples: &[QAPair],
+) -> Result<Vec<TrainingExample>> {
+    let mut examples = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let input = tokenizer.encode(&sample.question)?;
+        let target = tokenizer.encode(&sample.answer)?;
+        if input.is_empty() || target.is_empty() {
+            continue;
+        }
+        let metadata: HashMap<String, String> = sample
+            .metadata
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        examples.push(TrainingExample {
+            input,
+            target,
+            metadata,
+            weight: sample.weight,
+        });
+    }
+    if examples.is_empty() {
+        return Err(AosError::Training(
+            "No encodable training samples produced".to_string(),
+        ));
+    }
+    Ok(examples)
+}
+
+/// Get relative path string
+fn relative_path(root: &Path, file_path: &str) -> String {
+    let input = PathBuf::from(file_path);
+    if input.is_absolute() {
+        if let Ok(stripped) = input.strip_prefix(root) {
+            return stripped.to_string_lossy().replace('\\', "/");
+        }
+    }
+    input.to_string_lossy().replace('\\', "/")
+}
+
+/// Symbol kind to human-readable label
+fn symbol_kind_label(kind: &SymbolKind) -> &'static str {
+    match kind {
+        SymbolKind::Function => "function",
+        SymbolKind::Method => "method",
+        SymbolKind::Struct => "struct",
+        SymbolKind::Class => "class",
+        SymbolKind::Trait => "trait",
+        SymbolKind::Enum => "enum",
+        SymbolKind::Impl => "impl block",
+        SymbolKind::Type => "type",
+        SymbolKind::Const => "const",
+        SymbolKind::Static => "static",
+        SymbolKind::Macro => "macro",
+        SymbolKind::Module => "module",
+        SymbolKind::Field => "field",
+        SymbolKind::Variant => "variant",
+        SymbolKind::AssociatedType => "associated type",
+        SymbolKind::AssociatedConst => "associated const",
+    }
+}
+
+/// Visibility to human-readable label
+fn visibility_label(vis: &Visibility) -> &'static str {
+    match vis {
+        Visibility::Public => "public",
+        Visibility::Private => "private",
+    }
+}
+
+/// Sanitize whitespace in documentation
+fn sanitize_whitespace(input: &str) -> String {
+    input
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }

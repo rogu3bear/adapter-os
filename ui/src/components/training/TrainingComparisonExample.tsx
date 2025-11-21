@@ -27,7 +27,7 @@ export function TrainingComparisonExample() {
       setError(null);
       
       // Fetch all training jobs from API
-      const response = await apiClient.getTrainingJobs();
+      const response = await apiClient.listTrainingJobs();
       setJobs(response);
       
       logger.info('Loaded training jobs for comparison', { count: response.length });
@@ -71,7 +71,6 @@ export function TrainingComparisonExample() {
       jobs={jobs}
       onClose={() => {
         // Handle close action (e.g., navigate back)
-        console.log('Comparison closed');
       }}
     />
   );

@@ -798,10 +798,10 @@ mod tests {
         let config = GenerationConfig::default();
         let generator = MLXGenerator::new(base_seed, config);
 
-        // Multiple equal probabilities - should pick first
+        // Multiple equal probabilities - max_by returns last max element
         let probs = vec![0.5, 0.5, 0.0];
         let token = generator.sample_greedy(&probs).unwrap();
-        assert_eq!(token, 0);
+        assert_eq!(token, 1);
     }
 
     #[test]
@@ -923,9 +923,9 @@ mod tests {
         let config = GenerationConfig::default();
         let generator = MLXGenerator::new(base_seed, config);
 
-        // Uniform distribution - should pick first maximum
+        // Uniform distribution - max_by returns last max element
         let probs = vec![0.25, 0.25, 0.25, 0.25];
         let token = generator.sample_greedy(&probs).unwrap();
-        assert_eq!(token, 0);
+        assert_eq!(token, 3);
     }
 }

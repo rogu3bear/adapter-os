@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use safetensors::SafeTensors;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::info;
 
 /// AOS 2.0 Format Loader
 ///
@@ -71,30 +71,28 @@ impl AOS2Loader {
 
         // 3. Parse safetensors weights (from offset)
         let weights_offset = manifest.weights_offset as usize;
-        let safetensors_file = unsafe {
-            safetensors::MmapedFile::from_slice(&mmap[weights_offset..])
-                .map_err(|e| AosError::Other(format!("Invalid safetensors: {}", e)))?
-        };
+        let weights_data = &mmap[weights_offset..];
+        let safetensors = SafeTensors::deserialize(weights_data)
+            .map_err(|e| AosError::Other(format!("Invalid safetensors: {}", e)))?;
 
-        let tensors = safetensors_file.tensors();
-        let mut buffers = HashMap::new();
+        let mut buffers: HashMap<String, metal::Buffer> = HashMap::new();
 
         // 4. Transfer tensor data to Metal buffers
-        for (name, info) in tensors {
-            let data = safetensors_file.tensor(info)?;
+        for (name, tensor) in safetensors.tensors() {
+            let data = tensor.data();
             let buffer = self.device.new_buffer_with_data(
                 data.as_ptr() as *const std::ffi::c_void,
-                data.len(),
+                data.len() as u64,
                 metal::MTLResourceOptions::CPUCacheModeDefaultCache
                     | metal::MTLResourceOptions::StorageModeShared,
             );
 
-            buffers.insert(name.clone(), buffer);
+            buffers.insert(name.to_string(), buffer);
         }
 
         // 5. Deterministic post-load with HKDF-seeded RNG
         let loader_seed = derive_seed(&self.global_seed, "aos_loader");
-        let mut rng = ChaCha20Rng::from_seed(loader_seed);
+        let _rng = ChaCha20Rng::from_seed(loader_seed);
 
         info!(
             global_seed_hash = %hex::encode(&self.global_seed.as_bytes()[..8]),
@@ -110,7 +108,7 @@ impl AOS2Loader {
 #[derive(Debug)]
 pub struct LoadedAdapter {
     pub manifest: AOS2Manifest,
-    pub buffers: HashMap<String, metal::BufferRef>,
+    pub buffers: HashMap<String, metal::Buffer>,
 }
 
 /// AOS 2.0 Manifest Structure

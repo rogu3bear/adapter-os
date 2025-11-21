@@ -10,7 +10,7 @@ export type { PolicyDetailsProps } from './PolicyDetails';
 export { PolicyOverride } from './PolicyOverride';
 export type { PolicyOverrideProps } from './PolicyOverride';
 
-export { usePolicyChecks } from '../hooks/usePolicyChecks';
+export { usePolicyChecks } from '../../hooks/usePolicyChecks';
 
 // Diff Visualization Components
 export { DiffVisualization } from './DiffVisualization';

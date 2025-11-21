@@ -1,15 +1,16 @@
-///! Code intelligence job orchestration
-///!
-///! Handles:
-///! - Repository scanning and CodeGraph construction
-///! - Commit delta pack (CDP) generation
-///! - Index updates
-///! - Integration with CAS artifact storage
-// use adapteros_codegraph::CodeGraph;  // Disabled due to tree-sitter conflict
+//! Code intelligence job orchestration
+//!
+//! Handles:
+//! - Repository scanning and CodeGraph construction
+//! - Commit delta pack (CDP) generation
+//! - Index updates
+//! - Integration with CAS artifact storage
+
+use adapteros_codegraph::CodeGraph;
 use adapteros_core::{AosError, Result};
 use adapteros_db::{repositories::ScanJob, Db};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -17,12 +18,15 @@ use tracing::{error, info, warn};
 /// Code job manager
 #[derive(Clone)]
 pub struct CodeJobManager {
-    db: Db,
-    artifact_store: Arc<RwLock<ArtifactStore>>,
+    /// Database handle for job persistence
+    _db: Db,
+    /// Artifact storage for job outputs
+    _artifact_store: Arc<RwLock<ArtifactStore>>,
 }
 
 /// Simple artifact store abstraction
 pub struct ArtifactStore {
+    /// Base path for artifact storage (used in store_codegraph)
     base_path: PathBuf,
 }
 
@@ -31,19 +35,45 @@ impl ArtifactStore {
         Self { base_path }
     }
 
-    /// Store CodeGraph artifact (stub - codegraph disabled)
+    /// Store CodeGraph artifact
     pub async fn store_codegraph(
         &self,
-        _graph: &serde_json::Value,
-        _repo_id: &str,
-        _commit_sha: &str,
+        graph: &CodeGraph,
+        repo_id: &str,
+        commit_sha: &str,
     ) -> Result<String> {
-        Err(AosError::Internal("CodeGraph support is disabled".to_string()))
+        let artifact_path = self
+            .base_path
+            .join(repo_id)
+            .join(format!("{}.codegraph.json", commit_sha));
+
+        if let Some(parent) = artifact_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                AosError::Io(format!("Failed to create artifact directory: {}", e))
+            })?;
+        }
+
+        let json = serde_json::to_string(graph).map_err(AosError::Serialization)?;
+
+        tokio::fs::write(&artifact_path, json).await.map_err(|e| {
+            AosError::Io(format!("Failed to write CodeGraph artifact: {}", e))
+        })?;
+
+        Ok(artifact_path.to_string_lossy().to_string())
     }
 
-    /// Load CodeGraph artifact (stub - codegraph disabled)
-    pub async fn load_codegraph(&self, _repo_id: &str, _commit_sha: &str) -> Result<serde_json::Value> {
-        Err(AosError::Internal("CodeGraph support is disabled".to_string()))
+    /// Load CodeGraph artifact
+    pub async fn load_codegraph(&self, repo_id: &str, commit_sha: &str) -> Result<CodeGraph> {
+        let artifact_path = self
+            .base_path
+            .join(repo_id)
+            .join(format!("{}.codegraph.json", commit_sha));
+
+        let json = tokio::fs::read_to_string(&artifact_path).await.map_err(|e| {
+            AosError::Io(format!("Failed to read CodeGraph artifact: {}", e))
+        })?;
+
+        serde_json::from_str(&json).map_err(AosError::Serialization)
     }
 }
 
@@ -74,12 +104,12 @@ impl CodeJobManager {
     /// Create new code job manager
     pub fn new(db: Db, artifact_base_path: PathBuf) -> Self {
         Self {
-            db,
-            artifact_store: Arc::new(RwLock::new(ArtifactStore::new(artifact_base_path))),
+            _db: db,
+            _artifact_store: Arc::new(RwLock::new(ArtifactStore::new(artifact_base_path))),
         }
     }
 
-    /// Execute repository scan job (stub - codegraph disabled)
+    /// Execute repository scan job
     pub async fn execute_scan_job(&self, job: ScanRepositoryJob) -> Result<()> {
         info!(
             "Starting scan job for repo={} commit={}",
@@ -88,23 +118,60 @@ impl CodeJobManager {
 
         // Create job record
         let job_id = self
-            .db
+            ._db
             .create_scan_job(&job.repo_id, &job.commit_sha)
             .await?;
 
-        // CodeGraph is disabled - fail the job
-        error!("CodeGraph support is disabled due to tree-sitter conflict");
-        self.db
+        // Update status to running
+        self._db
+            .update_scan_job_progress(&job_id, "running", None, 0, None)
+            .await?;
+
+        // Build CodeGraph from repository
+        // For now, we assume the repo_id is a path. In production, this would resolve to actual repo location.
+        let repo_path = std::path::PathBuf::from(&job.repo_id);
+
+        let graph = match CodeGraph::from_directory(&repo_path, None).await {
+            Ok(g) => g,
+            Err(e) => {
+                error!(error = %e, "Failed to build CodeGraph");
+                self._db
+                    .update_scan_job_progress(
+                        &job_id,
+                        "failed",
+                        None,
+                        0,
+                        Some(&e.to_string()),
+                    )
+                    .await?;
+                return Err(e);
+            }
+        };
+
+        // Store the artifact
+        let store = self._artifact_store.read().await;
+        let artifact_path = store
+            .store_codegraph(&graph, &job.repo_id, &job.commit_sha)
+            .await?;
+
+        info!(
+            symbols = graph.symbols.len(),
+            artifact = %artifact_path,
+            "CodeGraph scan completed"
+        );
+
+        // Update job as completed
+        self._db
             .update_scan_job_progress(
                 &job_id,
-                "failed",
+                "completed",
+                Some(&artifact_path),
+                100,
                 None,
-                0,
-                Some("CodeGraph support is disabled"),
             )
             .await?;
 
-        Err(AosError::Internal("CodeGraph support is disabled".to_string()))
+        Ok(())
     }
 
     /// Execute commit delta job
@@ -148,7 +215,7 @@ impl CodeJobManager {
 
     /// Get scan job status
     pub async fn get_scan_job_status(&self, job_id: &str) -> Result<Option<ScanJob>> {
-        self.db
+        self._db
             .get_scan_job(job_id)
             .await
             .map_err(|e| AosError::Database(e.to_string()))
@@ -156,7 +223,7 @@ impl CodeJobManager {
 
     /// List scan jobs for repository
     pub async fn list_scan_jobs(&self, repo_id: &str, limit: i32) -> Result<Vec<ScanJob>> {
-        self.db
+        self._db
             .list_scan_jobs(repo_id, limit)
             .await
             .map_err(|e| AosError::Database(e.to_string()))
@@ -168,17 +235,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_artifact_store_disabled() {
+    async fn test_artifact_store_roundtrip() {
         let temp_dir = tempfile::tempdir().unwrap();
         let store = ArtifactStore::new(temp_dir.path().to_path_buf());
 
-        // CodeGraph is disabled - operations should return errors
-        let result = store
-            .store_codegraph(&serde_json::json!({}), "test/repo", "abc123")
-            .await;
-        assert!(result.is_err());
+        // Create a new CodeGraph
+        let graph = CodeGraph::new();
 
-        let result = store.load_codegraph("test/repo", "abc123").await;
-        assert!(result.is_err());
+        // Store it
+        let result = store
+            .store_codegraph(&graph, "test/repo", "abc123")
+            .await;
+        assert!(result.is_ok());
+
+        // Load it back
+        let loaded = store.load_codegraph("test/repo", "abc123").await;
+        assert!(loaded.is_ok());
+        let loaded_graph = loaded.unwrap();
+        assert_eq!(loaded_graph.symbols.len(), graph.symbols.len());
     }
 }

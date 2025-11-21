@@ -470,6 +470,6 @@ export function WorkflowHistory({
 
 // Helper component for relative timestamps
 function RelativeTime({ timestamp }: { timestamp: string }) {
-  const { relativeTime } = useTimestamp();
-  return <span className="text-sm">{relativeTime(timestamp)}</span>;
+  const formatted = useTimestamp(timestamp);
+  return <span className="text-sm">{formatted}</span>;
 }

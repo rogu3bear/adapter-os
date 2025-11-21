@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { HelpTooltip } from './ui/help-tooltip';
-import { RoutingDecision, RouterCandidateInfo } from '../api/types';
+import { TransformedRoutingDecision, RouterCandidateInfo } from '../api/types';
 import apiClient from '../api/client';
 import { useTenant } from '../providers/FeatureProviders';
 import { useRBAC } from '@/hooks/useRBAC';
@@ -20,7 +20,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   const [limit, setLimit] = useState(50);
   const [filter, setFilter] = useState('all');
   const [searchHash, setSearchHash] = useState('');
-  const [selectedDecision, setSelectedDecision] = useState<RoutingDecision | null>(null);
+  const [selectedDecision, setSelectedDecision] = useState<TransformedRoutingDecision | null>(null);
   const { selectedTenant } = useTenant();
   const { can, userRole } = useRBAC();
 
@@ -29,7 +29,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
     queryFn: async () => {
       return apiClient.getRoutingDecisions({
         limit,
-        tenant: selectedTenant || 'default',
+        tenant_id: selectedTenant || 'default',
         anomalies_only: filter === 'anomalies',
       });
     },
@@ -38,7 +38,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
     retryDelay: 1000,
   });
 
-  const decisions = data?.items || [];
+  const decisions = data || [];
 
   // Filter decisions based on search hash
   const filteredDecisions = searchHash

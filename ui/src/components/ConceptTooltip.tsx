@@ -27,6 +27,7 @@ export function ConceptTooltip({ concept, className = '' }: ConceptTooltipProps)
   const tooltip = getConceptTooltip(concept);
 
   if (!tooltip) {
+    // eslint-disable-next-line no-console
     console.warn(`ConceptTooltip: No tooltip found for concept "${concept}"`);
     return null;
   }

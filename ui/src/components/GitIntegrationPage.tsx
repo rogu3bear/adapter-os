@@ -202,8 +202,8 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
     setIsLoading(true);
     try {
       await apiClient.registerRepository({
-        url: newRepoUrl,
-        branch: newRepoBranch || 'main'
+        repo_id: newRepoUrl.split('/').pop()?.replace('.git', '') || 'repository',
+        path: newRepoUrl
       });
 
       showStatus('Repository registered successfully.', 'success');
@@ -516,7 +516,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
                           {commit.diff_stats && (
                             <div className="flex items-center gap-3 mt-2 text-xs">
                               <Badge variant="outline" className="text-green-600">
-                                +{commit.diff_stats.insertions}
+                                +{commit.diff_stats.additions}
                               </Badge>
                               <Badge variant="outline" className="text-red-600">
                                 -{commit.diff_stats.deletions}

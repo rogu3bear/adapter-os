@@ -35,7 +35,6 @@ use axum::{
 };
 use hyper_util::rt::TokioExecutor;
 use hyper_util::server::conn::auto::Builder;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::net::UnixListener;
@@ -109,11 +108,10 @@ pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: A
 
     // Create router with middleware
     let app = Router::new()
-        .route("/inference", post(inference_handler))
-        .route("/v1/completions", post(completion_handler))
-        .route("/v1/chat/completions", post(streaming_inference_handler))
+        .route("/inference", post(inference_handler::<K>))
+        .route("/v1/completions", post(completion_handler::<K>))
+        .route("/v1/chat/completions", post(streaming_inference_handler::<K>))
         .route("/health", get(health_handler))
-        .route("/adapter", post(adapter_command_handler))
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
@@ -175,7 +173,7 @@ pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: A
 }
 
 /// Inference endpoint handler
-async fn inference_handler<K: FusedKernels + Send + Sync>(
+async fn inference_handler<K: FusedKernels + Send + Sync + 'static>(
     State(state): State<Arc<ApiState<K>>>,
     Json(request): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, ApiError> {
@@ -198,10 +196,14 @@ async fn health_handler() -> impl IntoResponse {
 }
 
 /// Adapter command endpoint
-async fn adapter_command_handler<K: FusedKernels + Send + Sync>(
+///
+/// Reserved: Currently disabled due to axum Handler trait bound issues with generic enum types.
+/// The AdapterCommand enum contains B3Hash which may require special handling.
+/// Will be enabled when axum generic handler compatibility is resolved.
+async fn _adapter_command_handler<K: FusedKernels + Send + Sync + 'static>(
     State(state): State<Arc<ApiState<K>>>,
     Json(command): Json<adapteros_lora_worker::AdapterCommand>,
-) -> Result<Json<adapteros_lora_worker::AdapterCommandResult>, ApiError> {
+) -> std::result::Result<Json<adapteros_lora_worker::AdapterCommandResult>, ApiError> {
     // Forward command to worker
     let mut worker = state.worker.lock().await;
     let result = worker

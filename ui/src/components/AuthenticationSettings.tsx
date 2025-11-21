@@ -57,7 +57,12 @@ export function AuthenticationSettings() {
         apiClient.getAuthConfig(),
         apiClient.listSessions()
       ]);
-      setConfig(configResponse);
+      setConfig({
+        production_mode: configResponse.production_mode,
+        dev_token_enabled: configResponse.dev_token_enabled,
+        jwt_mode: configResponse.jwt_mode,
+        token_expiry_hours: configResponse.token_expiry_hours,
+      });
       setSessions(sessionsResponse);
     } catch (error) {
       logger.error('Failed to load auth data', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));

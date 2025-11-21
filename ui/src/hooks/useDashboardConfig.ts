@@ -39,7 +39,27 @@ export function useDashboardConfig(userId?: string): UseDashboardConfigReturn {
     try {
       // Try to load from backend first
       const config = await apiClient.getDashboardConfig();
-      setWidgets(config.widgets);
+      // Backend returns widget IDs as strings; fetch full widget configs or use IDs to filter
+      // For now, if backend returns DashboardWidgetConfig[], use directly; otherwise create minimal configs
+      const widgetConfigs: DashboardWidgetConfig[] = Array.isArray(config.widgets)
+        ? config.widgets.map((widget, index) => {
+            if (typeof widget === 'string') {
+              // Widget is an ID string - create a minimal config
+              return {
+                id: widget,
+                user_id: userId || '',
+                widget_id: widget,
+                enabled: true,
+                position: index,
+                created_at: config.created_at || new Date().toISOString(),
+                updated_at: config.updated_at || new Date().toISOString(),
+              };
+            }
+            // Widget is already a full config object
+            return widget as DashboardWidgetConfig;
+          })
+        : [];
+      setWidgets(widgetConfigs);
 
       // Save to localStorage as backup
       try {

@@ -158,14 +158,14 @@ export function GitFolderPicker({ onFolderSelect, onCancel }: GitFolderPickerPro
         name: repoName,
         branch: gitInfo.branch as string,
         commitCount: gitInfo.commit_count,
-        languages: analysis.languages.map((lang: types.LanguageInfo) => lang.name),
-        frameworks: analysis.frameworks.map((fw: types.FrameworkInfo) => fw.name),
+        languages: analysis.languages.map((lang: string) => lang),
+        frameworks: analysis.frameworks.map((fw: string) => fw),
         // Note: last_commit is the commit message/summary, not a timestamp
         // The backend GitInfo struct (git_repository.rs:92-97) only provides
         // the commit message. If timestamp is needed, backend would need to be
         // updated to include last_commit_timestamp field.
         lastCommit: gitInfo.last_commit as string,
-        isValid: response.status === 'success' || response.status === 'registered',
+        isValid: response.status === 'synced',
       };
       
       setRepoInfo(repoInfo);

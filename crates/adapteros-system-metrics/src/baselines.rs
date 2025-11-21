@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 /// Baseline calculation service
 pub struct BaselineService {
     db: Arc<Db>,
-    telemetry_writer: TelemetryWriter,
+    telemetry_writer: Arc<TelemetryWriter>,
     config: BaselineConfig,
 }
 
@@ -91,7 +91,7 @@ pub struct StatisticalMeasures {
 
 impl BaselineService {
     /// Create a new baseline service
-    pub fn new(db: Arc<Db>, telemetry_writer: TelemetryWriter, config: BaselineConfig) -> Self {
+    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: BaselineConfig) -> Self {
         Self {
             db,
             telemetry_writer,
@@ -771,7 +771,7 @@ mod tests {
     async fn test_statistical_calculations() {
         let service = BaselineService::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             BaselineConfig::default(),
         );
 
@@ -796,7 +796,7 @@ mod tests {
     async fn test_percentile_calculation() {
         let service = BaselineService::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             BaselineConfig::default(),
         );
 
@@ -817,7 +817,7 @@ mod tests {
     async fn test_mode_calculation() {
         let service = BaselineService::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             BaselineConfig::default(),
         );
 
@@ -835,7 +835,7 @@ mod tests {
     async fn test_skewness_and_kurtosis() {
         let service = BaselineService::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap(),
+            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
             BaselineConfig::default(),
         );
 

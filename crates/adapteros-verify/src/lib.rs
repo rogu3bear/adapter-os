@@ -109,22 +109,17 @@ pub enum VerifyError {
 pub type VerifyResult<T> = std::result::Result<T, VerifyError>;
 
 /// Verification strictness levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 #[serde(rename_all = "kebab-case")]
 pub enum StrictnessLevel {
     /// Bit-for-bit identical (no floating-point tolerance)
     Bitwise,
     /// Epsilon tolerance for floating-point (default: 1e-6)
+    #[default]
     EpsilonTolerant,
     /// Relaxed for statistical sampling (default: 1e-4)
     Statistical,
-}
-
-impl Default for StrictnessLevel {
-    fn default() -> Self {
-        Self::EpsilonTolerant
-    }
 }
 
 impl StrictnessLevel {

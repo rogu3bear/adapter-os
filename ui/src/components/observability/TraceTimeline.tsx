@@ -9,12 +9,16 @@ import { usePolling } from '../../hooks/usePolling';
 interface Span {
   span_id: string;
   trace_id: string;
-  parent_id: string | null;
+  parent_id: string;
   name: string;
   start_ns: number;
-  end_ns: number | null;
-  attributes: Record<string, any>;
-  status: 'ok' | 'error' | 'unset';
+  end_ns: number;
+  attributes?: Record<string, any>;
+  status: string;
+  start_time?: string;
+  end_time?: string;
+  service_name?: string;
+  kind?: string;
 }
 
 interface Trace {

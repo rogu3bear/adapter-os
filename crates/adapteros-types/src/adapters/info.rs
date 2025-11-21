@@ -70,7 +70,7 @@ impl Default for AdapterInfo {
             tier: "tier_0".to_string(),
             rank: 0,
             version: None,
-            activation_rate: 0.0,
+            activation_pct: 0.0,
             memory_mb: None,
             loaded: false,
             framework: None,
@@ -115,9 +115,9 @@ impl AdapterInfo {
         self
     }
 
-    /// Set activation rate
-    pub fn with_activation_rate(mut self, rate: f32) -> Self {
-        self.activation_rate = rate;
+    /// Set activation percentage
+    pub fn with_activation_pct(mut self, pct: f32) -> Self {
+        self.activation_pct = pct;
         self
     }
 

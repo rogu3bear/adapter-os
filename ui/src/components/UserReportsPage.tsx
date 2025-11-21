@@ -168,7 +168,7 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics?.tokens_per_sec?.toFixed(1) || '0'}
+              {metrics?.tokens_per_second?.toFixed(1) || '0'}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               tokens/second

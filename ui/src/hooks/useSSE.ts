@@ -23,12 +23,19 @@ export interface UseSSEOptions<T = unknown> {
 export function useSSE<T = unknown>(
   endpoint: string,
   options: UseSSEOptions<T> = {}
-): { data: T | null; error: string | null; connected: boolean } {
+): { data: T | null; error: string | null; connected: boolean; reconnect: () => void } {
   const { enabled = true, onError, onMessage } = options;
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRef = useRef<(() => void) | null>(null);
+
+  const MAX_RECONNECT_ATTEMPTS = 10;
+  const INITIAL_BACKOFF_MS = 1000;
+  const MAX_BACKOFF_MS = 30000;
 
   useEffect(() => {
     if (!enabled) {
@@ -47,14 +54,22 @@ export function useSSE<T = unknown>(
     // Note: SSE authentication requires token in query string since EventSource doesn't support Authorization headers
     // Server-side handlers must extract and validate the token from query parameters
 
-    try {
-      const eventSource = new EventSource(url);
-      eventSourceRef.current = eventSource;
+    const connect = () => {
+      try {
+        // Close existing connection if any
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
+        }
 
-      eventSource.onopen = () => {
-        setConnected(true);
-        setError(null);
-      };
+        const eventSource = new EventSource(url);
+        eventSourceRef.current = eventSource;
+
+        eventSource.onopen = () => {
+          setConnected(true);
+          setError(null);
+          reconnectAttemptsRef.current = 0; // Reset attempts on successful connection
+        };
 
       eventSource.onmessage = (event) => {
         try {
@@ -111,7 +126,6 @@ export function useSSE<T = unknown>(
 
       eventSource.onerror = (event) => {
         setConnected(false);
-        setError('SSE connection error');
         if (onError) {
           onError(event);
         }
@@ -119,11 +133,31 @@ export function useSSE<T = unknown>(
           component: 'useSSE',
           endpoint,
         }, new Error('SSE connection error'));
-      };
 
-      return () => {
+        // Close current connection before reconnecting
         eventSource.close();
         eventSourceRef.current = null;
+
+        // Attempt reconnection with exponential backoff
+        if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          const backoffMs = Math.min(
+            INITIAL_BACKOFF_MS * Math.pow(2, reconnectAttemptsRef.current),
+            MAX_BACKOFF_MS
+          );
+          reconnectAttemptsRef.current += 1;
+          setError(`SSE connection error. Reconnecting in ${backoffMs / 1000}s (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, backoffMs);
+        } else {
+          setError(`SSE connection failed after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+          logger.error('SSE max reconnection attempts exceeded', {
+            component: 'useSSE',
+            endpoint,
+            attempts: MAX_RECONNECT_ATTEMPTS,
+          }, new Error('Max reconnection attempts exceeded'));
+        }
       };
     } catch (e) {
       setError('Failed to initialize SSE connection');
@@ -132,9 +166,40 @@ export function useSSE<T = unknown>(
         endpoint,
       }, toError(e));
     }
+    };
+
+    // Store connect function for manual reconnection
+    connectRef.current = connect;
+
+    connect();
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      reconnectAttemptsRef.current = 0;
+    };
     // Note: onError and onMessage are intentionally in dependencies.
     // If callers want to avoid reconnections, they should memoize these callbacks.
   }, [endpoint, enabled, onError, onMessage]);
 
-  return { data, error, connected };
+  // Manual reconnect function - resets attempts and reconnects
+  const reconnect = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+    setError(null);
+    if (connectRef.current && enabled) {
+      connectRef.current();
+    }
+  };
+
+  return { data, error, connected, reconnect };
 }

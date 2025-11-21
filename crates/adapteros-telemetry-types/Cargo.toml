@@ -15,9 +15,9 @@ adapteros-types = { path = "../adapteros-types" }
 
 [features]
 default = []
-utoipa = ["dep:utoipa"]
+utoipa = ["dep:utoipa", "adapteros-core/utoipa"]
 
 [dependencies.utoipa]
-version = "4.2"
+version = "5.4"
 features = ["axum_extras"]
 optional = true

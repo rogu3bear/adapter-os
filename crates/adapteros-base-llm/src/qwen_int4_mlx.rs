@@ -170,6 +170,159 @@ impl Qwen25Int4Mlx {
 
         Ok(dequantized)
     }
+
+    /// Load all dequantized weights from manifest
+    ///
+    /// Pre-dequantizes all int4 tensors from disk into f32 format.
+    /// This optimizes memory by doing dequantization once at load time.
+    fn load_all_dequantized_weights(&self) -> Result<BTreeMap<String, Vec<f32>>> {
+        let manifest = self.manifest.as_ref().ok_or_else(|| {
+            AosError::Config("Manifest not loaded. Call load_int4_weights first.".to_string())
+        })?;
+
+        let manifest_dir = self.manifest_dir.as_ref().ok_or_else(|| {
+            AosError::Config("Manifest directory not set.".to_string())
+        })?;
+
+        let mut dequantized_weights = BTreeMap::new();
+
+        for (tensor_name, tensor_info) in &manifest.tensors {
+            let dequantized = self.dequantize_tensor(tensor_info, manifest_dir)?;
+            dequantized_weights.insert(tensor_name.clone(), dequantized);
+        }
+
+        info!(
+            tensors = dequantized_weights.len(),
+            total_elements = dequantized_weights.values().map(|v| v.len()).sum::<usize>(),
+            "Pre-dequantized all int4 weights to f32"
+        );
+
+        Ok(dequantized_weights)
+    }
+
+    /// Create MLX model from pre-dequantized weights
+    ///
+    /// Constructs an MLXFFIModel by passing dequantized f32 weights directly
+    /// to the MLX FFI layer, avoiding the need for a separate model load.
+    fn create_model_from_dequantized_weights(
+        &self,
+        weights: &BTreeMap<String, Vec<f32>>,
+    ) -> Result<MLXFFIModel> {
+        use adapteros_lora_mlx_ffi::ModelConfig;
+
+        let manifest = self.manifest.as_ref().ok_or_else(|| {
+            AosError::Config("Manifest not loaded.".to_string())
+        })?;
+
+        // Infer model config from weight shapes (Qwen 2.5 7B defaults)
+        let hidden_size = weights
+            .get("model.layers.0.self_attn.q_proj.weight")
+            .map(|w| {
+                // For 2D weight [out_features, in_features], hidden_size = in_features
+                let info = manifest.tensors.get("model.layers.0.self_attn.q_proj.weight");
+                info.map(|i| i.shape.get(1).copied().unwrap_or(4096)).unwrap_or(4096)
+            })
+            .unwrap_or(4096);
+
+        let num_layers = manifest
+            .tensors
+            .keys()
+            .filter(|k| k.contains("model.layers.") && k.contains(".self_attn.q_proj"))
+            .count();
+
+        let config = ModelConfig {
+            hidden_size,
+            num_hidden_layers: if num_layers > 0 { num_layers } else { 28 }, // Qwen 2.5 7B default
+            num_attention_heads: 28,
+            num_key_value_heads: 4, // GQA
+            intermediate_size: 18944, // Qwen 2.5 7B
+            vocab_size: 152064, // Qwen 2.5
+            max_position_embeddings: 131072, // Qwen 2.5 7B
+            rope_theta: 1000000.0, // Qwen 2.5
+        };
+
+        // Create model with pre-loaded weights via FFI
+        // The weights are passed as a flattened buffer with metadata
+        let weight_buffer = self.serialize_weights_for_ffi(weights)?;
+        let model = self.load_model_from_buffer(&config, &weight_buffer)?;
+
+        info!(
+            hidden_size = config.hidden_size,
+            num_layers = config.num_hidden_layers,
+            vocab_size = config.vocab_size,
+            "Created MLX model from pre-dequantized int4 weights"
+        );
+
+        Ok(model)
+    }
+
+    /// Serialize weights for FFI transfer
+    ///
+    /// Creates a contiguous buffer with weight data and metadata
+    /// that can be passed to MLX FFI for model construction.
+    fn serialize_weights_for_ffi(
+        &self,
+        weights: &BTreeMap<String, Vec<f32>>,
+    ) -> Result<Vec<u8>> {
+        let manifest = self.manifest.as_ref().ok_or_else(|| {
+            AosError::Config("Manifest not loaded.".to_string())
+        })?;
+
+        // Calculate total buffer size
+        let total_floats: usize = weights.values().map(|v| v.len()).sum();
+        let mut buffer = Vec::with_capacity(total_floats * 4 + 4096); // Extra for headers
+
+        // Write header: number of tensors
+        buffer.extend_from_slice(&(weights.len() as u32).to_le_bytes());
+
+        // Write each tensor with metadata
+        for (name, data) in weights {
+            // Tensor name length + name
+            let name_bytes = name.as_bytes();
+            buffer.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+            buffer.extend_from_slice(name_bytes);
+
+            // Shape info from manifest
+            if let Some(info) = manifest.tensors.get(name) {
+                buffer.extend_from_slice(&(info.shape.len() as u32).to_le_bytes());
+                for &dim in &info.shape {
+                    buffer.extend_from_slice(&(dim as u32).to_le_bytes());
+                }
+            } else {
+                // Infer 1D shape
+                buffer.extend_from_slice(&1u32.to_le_bytes());
+                buffer.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            }
+
+            // Data length + data
+            buffer.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            for &val in data {
+                buffer.extend_from_slice(&val.to_le_bytes());
+            }
+        }
+
+        Ok(buffer)
+    }
+
+    /// Load MLX model from serialized weight buffer via FFI
+    ///
+    /// Creates a model using the pre-dequantized weights buffer.
+    /// Uses the MLX FFI to load weights directly into the model.
+    fn load_model_from_buffer(
+        &self,
+        config: &adapteros_lora_mlx_ffi::ModelConfig,
+        buffer: &[u8],
+    ) -> Result<MLXFFIModel> {
+        // Safety: Check buffer validity
+        if buffer.len() < 4 {
+            return Err(AosError::Parse("Weight buffer too small".to_string()));
+        }
+
+        // Load model via FFI from pre-dequantized weight buffer
+        let model = MLXFFIModel::load_from_buffer(buffer, config.clone())?;
+
+        Ok(model)
+    }
 }
 
 impl BaseLLM for Qwen25Int4Mlx {
@@ -195,22 +348,25 @@ impl BaseLLM for Qwen25Int4Mlx {
 
         self.load_int4_weights(&manifest_dir)?;
 
-        // For now, we still need to load a base MLX model for inference infrastructure
-        // The int4 weights will be used in a custom forward pass later.
-        // TODO: Extend MLX FFI to accept pre-loaded int4 dequantized weights.
-        let model_path = std::env::var("AOS_MLX_FFI_MODEL").ok().ok_or_else(|| {
-            AosError::Config(
-                "AOS_MLX_FFI_MODEL must be set (path to base MLX model for infrastructure)"
-                    .to_string(),
-            )
-        })?;
+        // Load model via MLX FFI - supports both standard load and pre-dequantized int4 weights
+        let model_path = std::env::var("AOS_MLX_FFI_MODEL").ok();
 
-        let model = MLXFFIModel::load(&model_path)?;
-        let backend = MLXFFIBackend::new(model);
-        let backend_arc = Arc::new(RwLock::new(backend));
+        let (model, backend_arc) = if let Some(ref path) = model_path {
+            // Standard path: load from MLX format
+            let model = MLXFFIModel::load(path)?;
+            let backend = MLXFFIBackend::new(model);
+            (None, Arc::new(RwLock::new(backend)))
+        } else {
+            // Optimized path: use pre-dequantized int4 weights directly
+            // This avoids re-dequantization by passing weights to MLX FFI
+            let dequantized_weights = self.load_all_dequantized_weights()?;
+            let model = self.create_model_from_dequantized_weights(&dequantized_weights)?;
+            let backend = MLXFFIBackend::new(model);
+            (None, Arc::new(RwLock::new(backend)))
+        };
 
         // Keep model reference for direct access when needed
-        self.model = None; // We'll use backend.model internally
+        self.model = model;
         self.backend = Some(backend_arc.clone());
 
         info!(

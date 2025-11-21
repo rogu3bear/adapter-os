@@ -1,19 +1,10 @@
 //! Model loader and validation for AdapterOS
 
-use adapteros_chat::ChatTemplateProcessor;
+use adapteros_chat::{ChatTemplate, ChatTemplateProcessor, SpecialTokens};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_quant::BlockQuantizer;
 use std::path::Path;
-
-/// Mock model record for testing
-struct MockModelRecord {
-    _name: String,
-    config_json: String,
-    quant_type: String,
-    group_size: Option<u32>,
-    bits: Option<u8>,
-    _tokenizer_cfg_path: std::path::PathBuf,
-}
+use tracing::{debug, info, warn};
 
 /// Model loader for building plans
 pub struct ModelLoader {
@@ -32,42 +23,73 @@ impl ModelLoader {
     ///
     /// NOTE: Only MLX format models are supported. MLX provides optimized memory layout
     /// for K-sparse LoRA routing and better adapter integration on Apple Silicon.
-    pub fn load_from_registry<P: AsRef<Path>>(model_name: &str, _registry_path: P) -> Result<Self> {
-        // TODO: Load model record from registry when registry is fixed
-        // For now, create a mock model record
-        let model_record = MockModelRecord {
-            _name: model_name.to_string(),
-            config_json: r#"{"name":"qwen2.5-7b","arch":"qwen2","vocab_size":32000,"hidden_size":4096,"intermediate_size":11008,"num_hidden_layers":32,"num_attention_heads":32,"num_key_value_heads":4,"rope_theta":1000000.0,"max_position_embeddings":32768}"#.to_string(),
-            quant_type: "int4_block".to_string(),
-            group_size: Some(128),
-            bits: Some(4),
-            _tokenizer_cfg_path: "mock_tokenizer_config.json".into(),
-        };
+    pub fn load_from_registry<P: AsRef<Path>>(model_name: &str, registry_path: P) -> Result<Self> {
+        let registry_path = registry_path.as_ref();
+        info!(model_name = %model_name, registry_path = %registry_path.display(), "Loading model from registry");
 
-        // Load and parse model config
-        let config = crate::config::ModelConfig::from_json(&model_record.config_json)?;
+        // Open registry connection
+        let conn = rusqlite::Connection::open(registry_path).map_err(|e| {
+            AosError::Registry(format!(
+                "Failed to open registry at {}: {}",
+                registry_path.display(),
+                e
+            ))
+        })?;
 
-        // Validate GQA configuration
+        let model_registry = adapteros_registry::models::ModelRegistry::new(conn);
+
+        // Load model record from registry
+        let model_record = model_registry
+            .get_model(model_name)?
+            .ok_or_else(|| AosError::NotFound(format!("Model '{}' not found in registry", model_name)))?;
+
+        debug!(
+            model_name = %model_name,
+            config_hash = %model_record.config_hash,
+            "Found model record in registry"
+        );
+
+        // Load config.json from model directory
+        let model_dir = registry_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("models")
+            .join(model_name);
+
+        let config_path = model_dir.join("config.json");
+        let config_json = std::fs::read_to_string(&config_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read model config at {}: {}",
+                config_path.display(),
+                e
+            ))
+        })?;
+
+        // Parse and validate model config
+        let config = crate::config::ModelConfig::from_json(&config_json)?;
         config.validate_gqa()?;
 
-        // Load chat template (mock for now)
-        let chat_template_config = adapteros_chat::ChatTemplate {
-            name: "qwen".to_string(),
-            template: "{% for message in messages %}{{ '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>\\n' }}{% endfor %}".to_string(),
-            special_tokens: adapteros_chat::SpecialTokens {
-                bos: "<|im_start|>".to_string(),
-                eos: "<|im_end|>".to_string(),
-                unk: "<|unk|>".to_string(),
-                pad: "<|endoftext|>".to_string(),
-            },
-        };
-        let chat_template = ChatTemplateProcessor::new(chat_template_config);
+        debug!(
+            model_name = %config.name,
+            architecture = %config.architecture,
+            hidden_size = config.hidden_size,
+            num_layers = config.num_hidden_layers,
+            "Parsed model configuration"
+        );
 
-        // Create quantizer based on model quantization
-        let quantizer = BlockQuantizer::new(
-            model_record.quant_type.clone(),
-            model_record.group_size.unwrap_or(128),
-            model_record.bits.unwrap_or(4),
+        // Load chat template from tokenizer_config.json
+        let chat_template = Self::load_chat_template(&model_dir, &config.architecture)?;
+
+        // Determine quantization from model metadata or config
+        let (quant_type, group_size, bits) = Self::detect_quantization(&model_dir)?;
+
+        // Create quantizer
+        let quantizer = BlockQuantizer::new(quant_type, group_size, bits);
+
+        info!(
+            model_name = %model_name,
+            architecture = %config.architecture,
+            "Successfully loaded model from registry"
         );
 
         Ok(Self {
@@ -75,6 +97,196 @@ impl ModelLoader {
             chat_template,
             quantizer,
         })
+    }
+
+    /// Load chat template from tokenizer_config.json or use architecture defaults
+    fn load_chat_template(model_dir: &Path, architecture: &str) -> Result<ChatTemplateProcessor> {
+        let tokenizer_config_path = model_dir.join("tokenizer_config.json");
+
+        if tokenizer_config_path.exists() {
+            debug!(path = %tokenizer_config_path.display(), "Loading chat template from tokenizer_config.json");
+
+            let content = std::fs::read_to_string(&tokenizer_config_path).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read tokenizer config at {}: {}",
+                    tokenizer_config_path.display(),
+                    e
+                ))
+            })?;
+
+            // Parse tokenizer_config.json
+            let tokenizer_cfg: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+                AosError::Config(format!("Invalid tokenizer config JSON: {}", e))
+            })?;
+
+            // Extract chat_template if present
+            let template_str = tokenizer_cfg
+                .get("chat_template")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            // Extract special tokens
+            let bos = tokenizer_cfg
+                .get("bos_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<|im_start|>")
+                .to_string();
+
+            let eos = tokenizer_cfg
+                .get("eos_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<|im_end|>")
+                .to_string();
+
+            let unk = tokenizer_cfg
+                .get("unk_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<|unk|>")
+                .to_string();
+
+            let pad = tokenizer_cfg
+                .get("pad_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<|endoftext|>")
+                .to_string();
+
+            let chat_template_config = ChatTemplate {
+                name: architecture.to_string(),
+                template: template_str.unwrap_or_else(|| Self::default_template_for_arch(architecture)),
+                special_tokens: SpecialTokens { bos, eos, unk, pad },
+            };
+
+            debug!(
+                architecture = %architecture,
+                bos = %chat_template_config.special_tokens.bos,
+                eos = %chat_template_config.special_tokens.eos,
+                "Loaded chat template configuration"
+            );
+
+            Ok(ChatTemplateProcessor::new(chat_template_config))
+        } else {
+            warn!(
+                path = %tokenizer_config_path.display(),
+                architecture = %architecture,
+                "tokenizer_config.json not found, using architecture defaults"
+            );
+
+            Ok(ChatTemplateProcessor::new(Self::default_chat_template(architecture)))
+        }
+    }
+
+    /// Get default chat template based on model architecture
+    fn default_chat_template(architecture: &str) -> ChatTemplate {
+        let (name, template, special_tokens) = match architecture {
+            "qwen2" | "qwen" => (
+                "qwen".to_string(),
+                Self::default_template_for_arch(architecture),
+                SpecialTokens {
+                    bos: "<|im_start|>".to_string(),
+                    eos: "<|im_end|>".to_string(),
+                    unk: "<|unk|>".to_string(),
+                    pad: "<|endoftext|>".to_string(),
+                },
+            ),
+            "llama" | "llama2" => (
+                "llama".to_string(),
+                Self::default_template_for_arch(architecture),
+                SpecialTokens {
+                    bos: "<s>".to_string(),
+                    eos: "</s>".to_string(),
+                    unk: "<unk>".to_string(),
+                    pad: "<pad>".to_string(),
+                },
+            ),
+            "mistral" => (
+                "mistral".to_string(),
+                Self::default_template_for_arch(architecture),
+                SpecialTokens {
+                    bos: "<s>".to_string(),
+                    eos: "</s>".to_string(),
+                    unk: "<unk>".to_string(),
+                    pad: "<pad>".to_string(),
+                },
+            ),
+            _ => (
+                "chatml".to_string(),
+                Self::default_template_for_arch("chatml"),
+                SpecialTokens::default(),
+            ),
+        };
+
+        ChatTemplate {
+            name,
+            template,
+            special_tokens,
+        }
+    }
+
+    /// Get default template string for architecture
+    fn default_template_for_arch(architecture: &str) -> String {
+        match architecture {
+            "qwen2" | "qwen" | "chatml" => {
+                "{% for message in messages %}{{ '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>\\n' }}{% endfor %}".to_string()
+            }
+            "llama" | "llama2" => {
+                "{% for message in messages %}{% if message['role'] == 'system' %}<<SYS>>\\n{{ message['content'] }}\\n<</SYS>>\\n\\n{% elif message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% else %}{{ message['content'] }}{% endif %}{% endfor %}".to_string()
+            }
+            "mistral" => {
+                "{% for message in messages %}{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% else %}{{ message['content'] }}{% endif %}{% endfor %}".to_string()
+            }
+            _ => ChatTemplate::default().template,
+        }
+    }
+
+    /// Detect quantization settings from model directory
+    fn detect_quantization(model_dir: &Path) -> Result<(String, u32, u8)> {
+        // Try to read quantization info from config.json or weights
+        let config_path = model_dir.join("config.json");
+
+        if config_path.exists() {
+            let content = std::fs::read_to_string(&config_path).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to read config for quantization detection: {}",
+                    e
+                ))
+            })?;
+
+            let config: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+                AosError::Config(format!("Invalid config JSON: {}", e))
+            })?;
+
+            // Check for quantization config
+            if let Some(quant_config) = config.get("quantization_config") {
+                let quant_type = quant_config
+                    .get("quant_method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("int4_block")
+                    .to_string();
+
+                let group_size = quant_config
+                    .get("group_size")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(128) as u32;
+
+                let bits = quant_config
+                    .get("bits")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(4) as u8;
+
+                debug!(
+                    quant_type = %quant_type,
+                    group_size = group_size,
+                    bits = bits,
+                    "Detected quantization from config"
+                );
+
+                return Ok((quant_type, group_size, bits));
+            }
+        }
+
+        // Default to int4 block quantization (most common for MLX models)
+        debug!("Using default quantization: int4_block, group_size=128, bits=4");
+        Ok(("int4_block".to_string(), 128, 4))
     }
 
     /// Validate model configuration against manifest

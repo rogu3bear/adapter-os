@@ -32,6 +32,7 @@ impl MockMLXFFIModel {
     }
 
     /// Mock forward with hidden states
+    #[allow(clippy::type_complexity)]
     pub fn forward_with_hidden_states(
         &self,
         token_ids: &[u32],

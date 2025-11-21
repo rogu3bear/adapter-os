@@ -64,6 +64,7 @@ export {
   FinishReasonSchema,
   RouterCandidateSchema,
   RouterDecisionSchema,
+  EvidenceSpanSchema,
   InferenceTraceSchema,
   InferencePresets,
   InferenceUtils,
@@ -72,6 +73,7 @@ export {
   type FinishReason,
   type RouterCandidate,
   type RouterDecision,
+  type EvidenceSpan,
   type InferenceTrace,
 } from './inference.schema';
 

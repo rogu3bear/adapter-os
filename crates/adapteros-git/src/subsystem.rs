@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
-use tracing::info;
+use tracing::{debug, error, info, warn};
 
 use crate::branch_manager::{BranchManager, BranchManagerConfig};
 
@@ -72,25 +72,137 @@ pub struct GitBranchInfo {
     pub behind: u32,
 }
 
-pub struct GitWatcher;
+/// File system watcher for Git repository changes
+pub struct GitWatcher {
+    config: WatcherConfig,
+    db: Db,
+    tx: mpsc::Sender<()>,
+    watch_handle: Option<JoinHandle<()>>,
+    is_running: bool,
+}
 
 impl GitWatcher {
-    pub async fn new(_config: WatcherConfig, _db: Db, _tx: mpsc::Sender<()>) -> Result<Self> {
-        Ok(Self)
+    /// Create a new GitWatcher instance
+    pub async fn new(config: WatcherConfig, db: Db, tx: mpsc::Sender<()>) -> Result<Self> {
+        info!(debounce_ms = config.debounce_ms, "Initializing Git watcher");
+
+        Ok(Self {
+            config,
+            db,
+            tx,
+            watch_handle: None,
+            is_running: false,
+        })
     }
 
+    /// Start watching for Git repository changes
     pub async fn start(&mut self) -> Result<()> {
+        if self.is_running {
+            debug!("Git watcher already running");
+            return Ok(());
+        }
+
+        info!("Starting Git watcher");
+
+        // Get repositories to watch
+        let repos = self.db.list_git_repositories().await.map_err(|e| {
+            AosError::Git(format!("Failed to list repositories for watching: {}", e))
+        })?;
+
+        if repos.is_empty() {
+            warn!("No repositories configured for Git watcher");
+            self.is_running = true;
+            return Ok(());
+        }
+
+        let debounce_duration = Duration::from_millis(self.config.debounce_ms);
+        let tx = self.tx.clone();
+        let repo_paths: Vec<PathBuf> = repos.iter().map(|r| PathBuf::from(&r.path)).collect();
+
+        // Spawn watcher task
+        let handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(debounce_duration);
+
+            loop {
+                interval.tick().await;
+
+                // Check each repository for changes using spawn_blocking for git2
+                let paths = repo_paths.clone();
+                let changes = task::spawn_blocking(move || {
+                    let mut changed_repos = Vec::new();
+                    for repo_path in &paths {
+                        if let Ok(repo) = git2::Repository::open(repo_path) {
+                            if let Ok(statuses) = repo.statuses(None) {
+                                if !statuses.is_empty() {
+                                    changed_repos.push((repo_path.clone(), statuses.len()));
+                                }
+                            }
+                        }
+                    }
+                    changed_repos
+                })
+                .await;
+
+                if let Ok(changed_repos) = changes {
+                    for (path, count) in changed_repos {
+                        debug!(path = %path.display(), changes = count, "Detected changes in repository");
+                        if let Err(e) = tx.send(()).await {
+                            error!(error = %e, "Failed to send change notification");
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        self.watch_handle = Some(handle);
+        self.is_running = true;
+
+        info!(repo_count = repos.len(), "Git watcher started successfully");
         Ok(())
     }
 
-    pub async fn stop(&self) -> Result<()> {
+    /// Stop watching for changes and cleanup resources
+    pub async fn stop(&mut self) -> Result<()> {
+        if !self.is_running {
+            debug!("Git watcher not running");
+            return Ok(());
+        }
+
+        info!("Stopping Git watcher");
+
+        // Abort the watch task
+        if let Some(handle) = self.watch_handle.take() {
+            handle.abort();
+            // Wait for task to complete
+            match handle.await {
+                Ok(()) => debug!("Git watcher task completed"),
+                Err(e) if e.is_cancelled() => debug!("Git watcher task cancelled"),
+                Err(e) => warn!(error = %e, "Git watcher task failed"),
+            }
+        }
+
+        self.is_running = false;
+        info!("Git watcher stopped");
         Ok(())
+    }
+
+    /// Check if the watcher is currently running
+    pub fn is_running(&self) -> bool {
+        self.is_running
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WatcherConfig {
+    /// Debounce interval in milliseconds for change detection
     pub debounce_ms: u64,
+}
+
+impl Default for WatcherConfig {
+    fn default() -> Self {
+        Self { debounce_ms: 500 }
+    }
 }
 
 /// Git subsystem manager
@@ -99,8 +211,8 @@ pub struct GitSubsystem {
     pub db: Db,
     branch_manager: BranchManager,
     pub enabled_tenants: Arc<RwLock<HashSet<String>>>,
-    watcher: Option<()>,
-    daemon_handle: Option<()>,
+    watcher: Option<GitWatcher>,
+    daemon_handle: Option<JoinHandle<()>>,
     pub is_polling: bool,
 }
 
@@ -293,11 +405,10 @@ impl GitSubsystem {
         let repositories = self.db.list_git_repositories().await.unwrap_or_default();
         let repositories_tracked = repositories.len() as u32;
 
-        // Find the most recent created_at timestamp across all repositories
-        // TODO: Add last_scan field to GitRepository schema if needed
+        // Find the most recent last_scan timestamp across all repositories
         let last_scan = repositories
             .iter()
-            .map(|repo| &repo.created_at)
+            .filter_map(|repo| repo.last_scan.as_ref())
             .max()
             .cloned();
 
@@ -442,63 +553,92 @@ impl GitSubsystem {
 
     pub async fn start_polling(&mut self) -> Result<()> {
         if self.is_polling {
+            debug!("Git polling already active");
             return Ok(());
         }
 
         if self.enabled_tenants.read().await.is_empty() {
+            debug!("No tenants enabled for Git polling");
             return Ok(());
         }
 
+        info!("Starting Git polling");
+
         // Start watcher
         let config = WatcherConfig { debounce_ms: 500 };
-        let (tx, _) = mpsc::channel::<()>(1024);
-        // let mut watcher = GitWatcher::new(config, self.db.clone(), tx).await?;
-        // watcher.start().await?;
-        // self.watcher = Some(watcher);
+        let (tx, mut rx) = mpsc::channel::<()>(1024);
+        let mut watcher = GitWatcher::new(config, self.db.clone(), tx).await?;
+        watcher.start().await?;
+        self.watcher = Some(watcher);
 
-        self.watcher = Some(());
+        // Start daemon to process change notifications
+        let enabled_tenants = self.enabled_tenants.clone();
+        let db = self.db.clone();
+        let daemon_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
 
-        // Start daemon
-        // let enabled_tenants = self.enabled_tenants.clone();
-        // let db = self.db.clone();
-        // let daemon_handle = tokio::spawn(async move {
-        //     let mut interval = tokio::time::interval(Duration::from_secs(60));
-        //     loop {
-        //         interval.tick().await;
-        //         let tenants: Vec<_> = enabled_tenants.read().await.iter().cloned().collect();
-        //         if tenants.is_empty() { continue; }
-        //         if let Ok(repos) = db.list_git_repositories_for_tenants(&tenants).await {
-        //             for repo in repos {
-        //                 // Poll for changes
-        //                 if let Some(new_commit) = poll_new_commits(&repo).await.ok() {
-        //                     // Process event
-        //                     info!("New commit in repo {}: {}", repo.repo_id, new_commit.sha);
-        //                 }
-        //             }
-        //         }
-        //     }
-        // });
-        // self.daemon_handle = Some(daemon_handle);
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Periodic check
+                        let tenants: Vec<_> = enabled_tenants.read().await.iter().cloned().collect();
+                        if tenants.is_empty() {
+                            continue;
+                        }
 
-        self.daemon_handle = Some(());
+                        debug!(tenant_count = tenants.len(), "Periodic Git repository check");
+
+                        // List repositories for enabled tenants
+                        match db.list_git_repositories().await {
+                            Ok(repos) => {
+                                for repo in repos {
+                                    debug!(repo_id = %repo.repo_id, "Checking repository for updates");
+                                }
+                            }
+                            Err(e) => {
+                                error!(error = %e, "Failed to list Git repositories");
+                            }
+                        }
+                    }
+                    Some(()) = rx.recv() => {
+                        // Change notification received
+                        debug!("Received Git change notification");
+                    }
+                }
+            }
+        });
+        self.daemon_handle = Some(daemon_handle);
 
         self.is_polling = true;
+        info!("Git polling started");
         Ok(())
     }
 
     pub async fn stop_polling(&mut self) -> Result<()> {
-        // Stop watcher
-        if let Some(w) = &self.watcher {
-            // w.stop().await?;
+        if !self.is_polling {
+            debug!("Git polling not active");
+            return Ok(());
         }
-        self.watcher = None;
+
+        info!("Stopping Git polling");
+
+        // Stop watcher
+        if let Some(mut watcher) = self.watcher.take() {
+            watcher.stop().await?;
+        }
 
         // Abort daemon
-        if let Some(h) = self.daemon_handle.take() {
-            // h.abort();
+        if let Some(handle) = self.daemon_handle.take() {
+            handle.abort();
+            match handle.await {
+                Ok(()) => debug!("Git daemon task completed"),
+                Err(e) if e.is_cancelled() => debug!("Git daemon task cancelled"),
+                Err(e) => warn!(error = %e, "Git daemon task failed"),
+            }
         }
 
         self.is_polling = false;
+        info!("Git polling stopped");
         Ok(())
     }
 }

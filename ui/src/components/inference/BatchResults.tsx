@@ -157,8 +157,8 @@ export function BatchResults({
                     <TableCell className="text-sm">{truncate(prompt, 60)}</TableCell>
                     <TableCell>{getStatusBadge(result)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {result.response ? truncate(result.response.text, 80) :
-                       result.error ? truncate(result.error.error, 80) :
+                      {result.response ? truncate(result.response, 80) :
+                       result.error ? truncate(result.error, 80) :
                        '-'}
                     </TableCell>
                     <TableCell>
@@ -167,7 +167,7 @@ export function BatchResults({
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleCopy(result.response!.text)}
+                            onClick={() => handleCopy(result.response!)}
                             className="h-7 px-2"
                           >
                             <Copy className="h-3 w-3" />
@@ -201,21 +201,17 @@ export function BatchResults({
                               <div>
                                 <div className="text-sm font-medium mb-2">Full Response:</div>
                                 <pre className="text-xs bg-background p-3 rounded border overflow-x-auto whitespace-pre-wrap">
-                                  {result.response.text}
+                                  {result.response}
                                 </pre>
                               </div>
                               <div className="grid grid-cols-3 gap-4 text-sm">
                                 <div>
                                   <span className="font-medium">Token Count:</span>{' '}
-                                  {result.response.token_count || 0}
+                                  {result.tokens || 0}
                                 </div>
                                 <div>
                                   <span className="font-medium">Latency:</span>{' '}
-                                  {result.response.latency_ms || 0}ms
-                                </div>
-                                <div>
-                                  <span className="font-medium">Finish Reason:</span>{' '}
-                                  {result.response.finish_reason || 'unknown'}
+                                  {result.latency_ms || 0}ms
                                 </div>
                               </div>
                             </>

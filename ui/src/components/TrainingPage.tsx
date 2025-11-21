@@ -43,7 +43,7 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
       },
       onSuccess: (jobs) => {
         // Update polling speed based on active jobs
-        const active = jobs?.some(j => j.status === 'running' || j.status === 'queued');
+        const active = (jobs as Array<{ status: string }>)?.some(j => j.status === 'running' || j.status === 'queued');
         setHasActiveJobs(active || false);
       }
     }
@@ -87,6 +87,9 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
     setIsWizardOpen(true);
   };
 
+  const [pausingJobs, setPausingJobs] = useState<Set<string>>(new Set()); // Track jobs being paused
+  const [resumingJobs, setResumingJobs] = useState<Set<string>>(new Set()); // Track jobs being resumed
+
   const handleJobAction = async (jobId: string, action: 'pause' | 'stop' | 'resume') => {
     clearError('job-action');
     try {
@@ -110,13 +113,50 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
 
         // Refresh to get updated status
         refreshData();
-      } else {
-        // Not supported - show info, not error
-        addError('job-action', `${action} is not supported yet`);
+      } else if (action === 'pause') {
+        // Track pausing state
+        setPausingJobs(prev => new Set(prev).add(jobId));
+
+        await apiClient.pauseTrainingSession(jobId);
+
+        // Success - remove from pausing set
+        setPausingJobs(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(jobId);
+          return newSet;
+        });
+
+        // Refresh to get updated status
+        refreshData();
+      } else if (action === 'resume') {
+        // Track resuming state
+        setResumingJobs(prev => new Set(prev).add(jobId));
+
+        await apiClient.resumeTrainingSession(jobId);
+
+        // Success - remove from resuming set
+        setResumingJobs(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(jobId);
+          return newSet;
+        });
+
+        // Refresh to get updated status
+        refreshData();
       }
     } catch (err) {
-      // Remove from cancelling set on error
+      // Remove from all tracking sets on error
       setCancellingJobs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(jobId);
+        return newSet;
+      });
+      setPausingJobs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(jobId);
+        return newSet;
+      });
+      setResumingJobs(prev => {
         const newSet = new Set(prev);
         newSet.delete(jobId);
         return newSet;
@@ -272,19 +312,55 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
                                 <>
                                   <Button
                                     size="sm"
-                                    variant="outline"
+                                    variant={pausingJobs.has(jobTyped.id) ? "secondary" : "outline"}
                                     onClick={() => handleJobAction(jobTyped.id, 'pause')}
-                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id)}
+                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id) || pausingJobs.has(jobTyped.id)}
                                     title={!can('training:cancel') ? 'Requires training:cancel permission' : `Pause ${jobTyped.adapter_name}`}
                                     aria-label={`Pause ${jobTyped.adapter_name}`}
                                   >
-                                    <Pause className="h-4 w-4" />
+                                    {pausingJobs.has(jobTyped.id) ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Pause className="h-4 w-4" />
+                                    )}
                                   </Button>
                                   <Button
                                     size="sm"
                                     variant={cancellingJobs.has(jobTyped.id) ? "secondary" : "destructive"}
                                     onClick={() => handleJobAction(jobTyped.id, 'stop')}
-                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id)}
+                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id) || pausingJobs.has(jobTyped.id)}
+                                    title={!can('training:cancel') ? 'Requires training:cancel permission' : `Stop ${jobTyped.adapter_name}`}
+                                    aria-label={`Stop ${jobTyped.adapter_name}`}
+                                  >
+                                    {cancellingJobs.has(jobTyped.id) ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Square className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </>
+                              )}
+                              {jobTyped.status === 'paused' && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant={resumingJobs.has(jobTyped.id) ? "secondary" : "default"}
+                                    onClick={() => handleJobAction(jobTyped.id, 'resume')}
+                                    disabled={!can('training:start') || resumingJobs.has(jobTyped.id)}
+                                    title={!can('training:start') ? 'Requires training:start permission' : `Resume ${jobTyped.adapter_name}`}
+                                    aria-label={`Resume ${jobTyped.adapter_name}`}
+                                  >
+                                    {resumingJobs.has(jobTyped.id) ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Play className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant={cancellingJobs.has(jobTyped.id) ? "secondary" : "destructive"}
+                                    onClick={() => handleJobAction(jobTyped.id, 'stop')}
+                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id) || resumingJobs.has(jobTyped.id)}
                                     title={!can('training:cancel') ? 'Requires training:cancel permission' : `Stop ${jobTyped.adapter_name}`}
                                     aria-label={`Stop ${jobTyped.adapter_name}`}
                                   >

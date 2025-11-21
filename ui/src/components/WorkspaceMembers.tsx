@@ -78,7 +78,9 @@ export function WorkspaceMembers({ workspaceId }: WorkspaceMembersProps) {
   const handleAddMember = async (data: { user_id: string; role: string }) => {
     try {
       await addWorkspaceMember(workspaceId, {
-        ...data,
+        user_id: data.user_id,
+        role: data.role as 'admin' | 'member' | 'viewer',
+        workspace_id: workspaceId,
         tenant_id: user?.tenant_id || '',
       });
       await loadMembers(); // Refresh the list

@@ -86,3 +86,4 @@ pub use adapters::{
 /// These domain-agnostic types form the foundation for all domain-specific types.
 pub use core::*;
 pub use routing::{RouterCandidate, RouterDecision};
+pub use telemetry::{EventType, LogLevel, TelemetryBundle, TelemetryEvent, TelemetryFilters};

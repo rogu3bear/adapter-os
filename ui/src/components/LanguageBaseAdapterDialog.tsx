@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, Brain } from 'lucide-react';
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
-import { StartTrainingRequest, TrainingConfig } from '../api/types';
+import { StartTrainingRequest, TrainingConfigRequest } from '../api/types';
 
 interface LanguageBaseAdapterDialogProps {
   open: boolean;
@@ -95,7 +95,7 @@ export function LanguageBaseAdapterDialog({
     setIsSubmitting(true);
     setError(null);
     try {
-      const config: TrainingConfig = {
+      const config: TrainingConfigRequest = {
         rank,
         alpha,
         targets: ['q_proj', 'v_proj'],
@@ -104,17 +104,14 @@ export function LanguageBaseAdapterDialog({
         batch_size: batchSize,
       };
 
-      // Compose request. Note: `language` is currently a UI-only field unless server expects it.
+      // Compose request - only include fields that exist in backend
+      // UI-only fields (directory_root, directory_path, tenant_id, package, adapters_root, category, language)
+      // are not sent to backend as they don't exist in StartTrainingRequest
       const req: StartTrainingRequest = {
         adapter_name: adapterName,
         config,
-        directory_root: directoryRoot,
-        directory_path: directoryPath || '.',
-        tenant_id: tenantId || undefined,
-        package: packaging || undefined,
-        adapters_root: packaging ? adaptersRoot : undefined,
-        category: 'code',
-        language: language,
+        // Optional backend fields can be added here:
+        // template_id, repo_id, dataset_id
       };
 
       const job = await apiClient.startTraining(req);

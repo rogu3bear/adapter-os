@@ -33,6 +33,8 @@ import { logger, toError } from '@/utils/logger';
 import { ErrorRecovery } from '../ui/error-recovery';
 import { useInformationDensity } from '@/hooks/useInformationDensity';
 import { DatasetConfigSchema, formatValidationError } from '@/schemas';
+import { apiClient } from '@/api/client';
+import { CreateDatasetRequest, DatasetValidationResult } from '@/api/training-types';
 
 // File upload state
 interface UploadedFile {
@@ -297,6 +299,27 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
     return errors;
   };
 
+  // Validation state
+  const [validationResult, setValidationResult] = useState<DatasetValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // Validate dataset on backend
+  const validateOnBackend = async (datasetId: string) => {
+    setIsValidating(true);
+    try {
+      const result = await apiClient.validateDataset(datasetId);
+      setValidationResult(result);
+      logger.info('Dataset validated', { component: 'DatasetBuilder', datasetId, status: result.status });
+      return result;
+    } catch (error) {
+      const err = toError(error);
+      logger.error('Dataset validation failed', { component: 'DatasetBuilder' }, err);
+      throw err;
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   // Create dataset
   const createDataset = async () => {
     // Validate using Zod schema
@@ -319,11 +342,30 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
 
     setIsProcessing(true);
     try {
-      // In real implementation, call API to create dataset
-      // const datasetId = await apiClient.createDataset({ config, files });
+      // Create dataset via API
+      const request: CreateDatasetRequest = {
+        name: config.name,
+        source_type: 'uploaded_files',
+        files: files.map(f => f.file),
+      };
 
-      const datasetId = `dataset-${Date.now()}`;
+      const response = await apiClient.createDataset(request);
+      const datasetId = response.dataset.id;
+
       logger.info('Dataset created', { component: 'DatasetBuilder', datasetId });
+
+      // Trigger backend validation
+      try {
+        const validation = await validateOnBackend(datasetId);
+        if (validation.status === 'invalid' || validation.status === 'failed') {
+          const errorMsg = validation.errors?.join('\n') || 'Dataset validation failed';
+          setUploadError(new Error(errorMsg));
+          return;
+        }
+      } catch (validationError) {
+        // Log but don't block - validation can be retried later
+        logger.warn('Backend validation failed, dataset created anyway', { component: 'DatasetBuilder', datasetId });
+      }
 
       // Clear draft
       localStorage.removeItem('dataset-builder-draft');
@@ -693,6 +735,52 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
                 </div>
               </div>
 
+              {/* Backend validation results */}
+              {validationResult && (
+                <div className="mt-4 p-4 border rounded-lg">
+                  <h4 className="font-medium mb-2">Backend Validation</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      {validationResult.status === 'valid' ? (
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                      ) : validationResult.status === 'validating' ? (
+                        <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-500" />
+                      )}
+                      <span>Status: {validationResult.status}</span>
+                    </div>
+                    {validationResult.stats && (
+                      <div className="text-sm text-muted-foreground">
+                        <p>Total files: {validationResult.stats.total_files}</p>
+                        <p>Valid files: {validationResult.stats.valid_files}</p>
+                        <p>Total tokens: {validationResult.stats.total_tokens.toLocaleString()}</p>
+                      </div>
+                    )}
+                    {validationResult.errors && validationResult.errors.length > 0 && (
+                      <div className="text-sm text-red-500">
+                        <p className="font-medium">Errors:</p>
+                        <ul className="list-disc list-inside">
+                          {validationResult.errors.map((err, i) => (
+                            <li key={i}>{err}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {validationResult.warnings && validationResult.warnings.length > 0 && (
+                      <div className="text-sm text-yellow-600">
+                        <p className="font-medium">Warnings:</p>
+                        <ul className="list-disc list-inside">
+                          {validationResult.warnings.map((warn, i) => (
+                            <li key={i}>{warn}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {uploadError && (
                 <ErrorRecovery
                   error={uploadError.message}
@@ -706,13 +794,13 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
                 </Button>
                 <Button
                   onClick={createDataset}
-                  disabled={isProcessing || validateConfig().length > 0}
+                  disabled={isProcessing || isValidating || validateConfig().length > 0}
                   className="flex-1"
                 >
-                  {isProcessing ? (
+                  {isProcessing || isValidating ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating Dataset...
+                      {isValidating ? 'Validating...' : 'Creating Dataset...'}
                     </>
                   ) : (
                     <>

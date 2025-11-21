@@ -33,15 +33,87 @@ impl MLXTokenizer {
     ///
     /// # Returns
     /// Loaded tokenizer ready for encoding/decoding
+    ///
+    /// # Notes
+    /// Attempts to auto-detect BOS/EOS tokens from the tokenizer configuration.
+    /// Falls back to common defaults if not found.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let tokenizer = Tokenizer::from_file(path)
-            .map_err(|e| AosError::Worker(format!("Failed to load tokenizer: {}", e)))?;
+        let path = path.as_ref();
+        let tokenizer = Tokenizer::from_file(path).map_err(|e| {
+            AosError::Worker(format!(
+                "Failed to load tokenizer from {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        // Try to extract special token IDs from the tokenizer
+        let mut bos_token_id = None;
+        let mut eos_token_id = 151645; // Default Qwen2.5 EOS
+
+        // Check for common EOS tokens
+        let eos_candidates = [
+            "<|endoftext|>",
+            "<|im_end|>",
+            "</s>",
+            "<eos>",
+            "[EOS]",
+            "<|end|>",
+        ];
+        for token in &eos_candidates {
+            if let Some(id) = tokenizer.token_to_id(token) {
+                eos_token_id = id;
+                tracing::debug!(token = token, id = id, "Found EOS token");
+                break;
+            }
+        }
+
+        // Check for common BOS tokens
+        let bos_candidates = ["<|startoftext|>", "<|im_start|>", "<s>", "<bos>", "[BOS]"];
+        for token in &bos_candidates {
+            if let Some(id) = tokenizer.token_to_id(token) {
+                bos_token_id = Some(id);
+                tracing::debug!(token = token, id = id, "Found BOS token");
+                break;
+            }
+        }
+
+        tracing::info!(
+            vocab_size = tokenizer.get_vocab_size(false),
+            eos_token_id = eos_token_id,
+            bos_token_id = ?bos_token_id,
+            path = %path.display(),
+            "Tokenizer loaded successfully"
+        );
 
         Ok(Self {
             tokenizer,
-            bos_token_id: None,
-            eos_token_id: 151645, // Default Qwen2.5 EOS
+            bos_token_id,
+            eos_token_id,
         })
+    }
+
+    /// Load tokenizer from a model directory
+    ///
+    /// Looks for tokenizer.json in the given directory.
+    ///
+    /// # Arguments
+    /// * `model_dir` - Path to model directory containing tokenizer.json
+    ///
+    /// # Returns
+    /// Loaded tokenizer ready for encoding/decoding
+    pub fn from_model_dir<P: AsRef<Path>>(model_dir: P) -> Result<Self> {
+        let model_dir = model_dir.as_ref();
+        let tokenizer_path = model_dir.join("tokenizer.json");
+
+        if !tokenizer_path.exists() {
+            return Err(AosError::NotFound(format!(
+                "tokenizer.json not found in model directory: {}",
+                model_dir.display()
+            )));
+        }
+
+        Self::from_file(&tokenizer_path)
     }
 
     /// Create tokenizer with custom EOS token ID

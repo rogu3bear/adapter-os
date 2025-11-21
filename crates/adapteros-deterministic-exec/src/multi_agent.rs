@@ -59,6 +59,8 @@ pub struct AgentBarrier {
     dead_agents: Arc<Mutex<HashSet<String>>>,
     /// Telemetry writer for barrier events
     telemetry: Option<Arc<TelemetryWriter>>,
+    /// Tenant ID for telemetry identity
+    tenant_id: String,
 }
 
 impl std::fmt::Debug for AgentBarrier {
@@ -80,6 +82,15 @@ impl AgentBarrier {
 
     /// Create a new agent barrier with telemetry
     pub fn with_telemetry(agent_ids: Vec<String>, telemetry: Option<Arc<TelemetryWriter>>) -> Self {
+        Self::with_config(agent_ids, telemetry, "default".to_string())
+    }
+
+    /// Create a new agent barrier with full configuration
+    pub fn with_config(
+        agent_ids: Vec<String>,
+        telemetry: Option<Arc<TelemetryWriter>>,
+        tenant_id: String,
+    ) -> Self {
         info!(
             "Creating agent barrier with {} agents: {:?}",
             agent_ids.len(),
@@ -99,6 +110,7 @@ impl AgentBarrier {
             failed: Arc::new(AtomicBool::new(false)),
             dead_agents: Arc::new(Mutex::new(HashSet::new())),
             telemetry,
+            tenant_id,
         }
     }
 
@@ -151,7 +163,7 @@ impl AgentBarrier {
         // Emit barrier.agent_removed telemetry (Phase 3)
         if let Some(ref telemetry) = self.telemetry {
             let identity = IdentityEnvelope::new(
-                "default".to_string(), // TODO: from config
+                self.tenant_id.clone(),
                 "multi-agent".to_string(),
                 "barrier".to_string(),
                 IdentityEnvelope::default_revision(),
@@ -218,7 +230,7 @@ impl AgentBarrier {
         // Emit barrier.wait_start telemetry
         if let Some(ref telemetry) = self.telemetry {
             let identity = IdentityEnvelope::new(
-                "default".to_string(),
+                self.tenant_id.clone(),
                 "multi-agent".to_string(),
                 "barrier".to_string(),
                 IdentityEnvelope::default_revision(),
@@ -277,7 +289,7 @@ impl AgentBarrier {
                 // Emit barrier.timeout telemetry
                 if let Some(ref telemetry) = self.telemetry {
                     let identity = IdentityEnvelope::new(
-                        "default".to_string(),
+                        self.tenant_id.clone(),
                         "multi-agent".to_string(),
                         "barrier".to_string(),
                         IdentityEnvelope::default_revision(),
@@ -353,7 +365,7 @@ impl AgentBarrier {
                             let dead_count = self.dead_agents.lock().len();
                             let living_count = self.agent_ids.len() - dead_count;
                             let cas_identity = IdentityEnvelope::new(
-                                "default".to_string(),
+                                self.tenant_id.clone(),
                                 "multi-agent".to_string(),
                                 "cas".to_string(),
                                 IdentityEnvelope::default_revision(),
@@ -400,7 +412,7 @@ impl AgentBarrier {
                             // Emit barrier.cas_loser_proceed telemetry
                             if let Some(ref telemetry) = self.telemetry {
                                 let identity = IdentityEnvelope::new(
-                                    "default".to_string(),
+                                    self.tenant_id.clone(),
                                     "multi-agent".to_string(),
                                     "cas".to_string(),
                                     IdentityEnvelope::default_revision(),

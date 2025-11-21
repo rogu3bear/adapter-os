@@ -612,7 +612,7 @@ async fn start_ui(pid_file: &str, cli: &Cli) -> Result<()> {
         .map_err(|e| AosError::Io(format!("Failed to clone UI log file: {}", e)))?;
 
     let mut cmd = Command::new("pnpm");
-    cmd.args(&["dev", "--host", "0.0.0.0", "--port", "3200"])
+    cmd.args(["dev", "--host", "0.0.0.0", "--port", "3200"])
         .current_dir("ui")
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_clone));

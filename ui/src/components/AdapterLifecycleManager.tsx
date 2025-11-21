@@ -224,7 +224,8 @@ export function AdapterLifecycleManager({
         category: adapter.category,
         scope: adapter.scope,
         last_activated: adapter.last_activated,
-        activation_count: adapter.activation_count
+        activation_count: adapter.activation_count,
+        timestamp: adapter.last_activated || new Date().toISOString()
       }));
       setStateRecords(records);
     } catch (err) {
@@ -313,7 +314,9 @@ export function AdapterLifecycleManager({
             : record
           )));
       }
-      onAdapterUpdate(adapterId, { current_state: newState });
+      if (newState !== 'loading') {
+        onAdapterUpdate(adapterId, { current_state: newState });
+      }
       setErrorRecovery(null);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update adapter state';
@@ -877,7 +880,7 @@ function AdapterDetailsView({
     
     setIsUpdatingCategory(true);
     try {
-      await apiClient.updateAdapterPolicy(adapter.adapter_id, { category: newCategory });
+      await apiClient.updateAdapterPolicy(adapter.adapter_id, { adapter_id: adapter.adapter_id, policy_ids: [], category: newCategory });
       setCategory(newCategory);
       onAdapterUpdate(adapter.adapter_id, { category: newCategory });
       logger.info('Adapter category updated', {

@@ -14,6 +14,7 @@ pub use ed25519_dalek::{
 pub const SIG_SCHEMA_VERSION: u8 = 1;
 
 /// Keypair for signing
+#[derive(Clone)]
 pub struct Keypair {
     signing_key: SigningKey,
 }

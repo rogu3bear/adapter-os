@@ -16,8 +16,9 @@ members = [
     "crates/adapteros-artifacts",
     "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
+    "crates/adapteros-lora-kernel-coreml",
     "crates/adapteros-types",
-    # "crates/adapteros-lora-kernel-mtl",  # Metal kernels - excluded for stable main merge
+    "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
     # system-metrics - requires DATABASE_URL for sqlx macros
     # TODO PRD-12: Set up sqlx offline mode or provide test database
     "crates/adapteros-system-metrics",
@@ -27,7 +28,7 @@ members = [
     "crates/adapteros-lora-router",
     "crates/adapteros-lora-rag",
     "crates/adapteros-ingest-docs",
-    # "crates/adapteros-lora-worker",  # Temporarily disabled due to compilation errors
+    "crates/adapteros-lora-worker",  # Re-enabled for MVP
     "crates/adapteros-telemetry",
     "crates/adapteros-policy",
     "crates/adapteros-config",
@@ -142,7 +143,7 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # Temporarily disabled for core stability
+adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # Re-enabled for MVP
 
 [workspace.dependencies]
 # Core
@@ -164,6 +165,7 @@ rand_core = "0.6"
 schemars = "0.8"
 serde_jcs = "0.1"
 serde_cbor = "0.11"
+toml = "0.8"
 
 # Database
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -184,10 +186,10 @@ parking_lot = "0.12"
 
 # HTTP & API
 axum = { version = "0.8", features = ["tokio", "macros"] }
-tower = "0.4"
+tower = "0.5"
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = "0.1"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 reqwest = { version = "0.12", features = ["json"] }
 
 # CLI
@@ -238,7 +240,7 @@ jsonwebtoken = "9.2"
 
 # API
 utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
-utoipa-swagger-ui = { version = "6.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 
 # Observability
 tracing = "0.1"
@@ -346,7 +348,7 @@ tempfile = "3.0"
 tracing-subscriber = { workspace = true }
 anyhow = "1.0"
 axum = "0.8"
-tower = "0.4"
+tower = "0.5"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }

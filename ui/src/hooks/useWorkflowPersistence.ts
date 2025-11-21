@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { SavedWorkflowState, WorkflowExecution } from '../components/workflows/types';
+import { logger } from '../utils/logger';
 
 interface UseWorkflowPersistenceOptions {
   storageKey: string;
@@ -20,18 +21,6 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
     loadExecutions();
   }, [storageKey]);
 
-  // Auto-save interval
-  useEffect(() => {
-    if (!autoSave) return;
-
-    const interval = setInterval(() => {
-      // Auto-save is handled by individual workflow components
-      // This hook provides centralized management
-    }, saveInterval);
-
-    return () => clearInterval(interval);
-  }, [autoSave, saveInterval]);
-
   const loadSavedState = useCallback(() => {
     try {
       const saved = localStorage.getItem(`workflow-state-${storageKey}`);
@@ -41,7 +30,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
         return state;
       }
     } catch (error) {
-      console.error('Failed to load saved workflow state:', error);
+      logger.error('Failed to load saved workflow state', { error, component: 'useWorkflowPersistence' });
     }
     return null;
   }, [storageKey]);
@@ -52,7 +41,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
         localStorage.setItem(`workflow-state-${storageKey}`, JSON.stringify(state));
         setSavedState(state);
       } catch (error) {
-        console.error('Failed to save workflow state:', error);
+        logger.error('Failed to save workflow state', { error, component: 'useWorkflowPersistence' });
       }
     },
     [storageKey]
@@ -63,7 +52,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
       localStorage.removeItem(`workflow-state-${storageKey}`);
       setSavedState(null);
     } catch (error) {
-      console.error('Failed to clear workflow state:', error);
+      logger.error('Failed to clear workflow state', { error, component: 'useWorkflowPersistence' });
     }
   }, [storageKey]);
 
@@ -76,7 +65,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
         return execs;
       }
     } catch (error) {
-      console.error('Failed to load workflow executions:', error);
+      logger.error('Failed to load workflow executions', { error, component: 'useWorkflowPersistence' });
     }
     return [];
   }, []);
@@ -95,7 +84,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
       localStorage.setItem(`workflow-executions`, JSON.stringify(trimmed));
       setExecutions(trimmed);
     } catch (error) {
-      console.error('Failed to save workflow execution:', error);
+      logger.error('Failed to save workflow execution', { error, component: 'useWorkflowPersistence' });
     }
   }, []);
 
@@ -109,7 +98,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
         setExecutions(filtered);
       }
     } catch (error) {
-      console.error('Failed to delete workflow execution:', error);
+      logger.error('Failed to delete workflow execution', { error, component: 'useWorkflowPersistence' });
     }
   }, []);
 
@@ -118,7 +107,7 @@ export function useWorkflowPersistence(options: UseWorkflowPersistenceOptions) {
       localStorage.removeItem(`workflow-executions`);
       setExecutions([]);
     } catch (error) {
-      console.error('Failed to clear workflow executions:', error);
+      logger.error('Failed to clear workflow executions', { error, component: 'useWorkflowPersistence' });
     }
   }, []);
 

@@ -197,6 +197,12 @@ export const RouterDecisionSchema = z.object({
     .min(0, 'Step must be non-negative')
     .describe('Generation step'),
 
+  token_idx: z.number()
+    .int('Token index must be an integer')
+    .min(0, 'Token index must be non-negative')
+    .optional()
+    .describe('Token index in sequence'),
+
   input_token_id: z.number()
     .int('Token ID must be an integer')
     .optional()
@@ -204,6 +210,10 @@ export const RouterDecisionSchema = z.object({
 
   candidate_adapters: z.array(RouterCandidateSchema)
     .describe('Candidate adapters'),
+
+  gates: z.array(z.number())
+    .optional()
+    .describe('Gate values for each adapter'),
 
   entropy: z.number()
     .min(0, 'Entropy must be non-negative')
@@ -225,6 +235,35 @@ export const RouterDecisionSchema = z.object({
 export type RouterDecision = z.infer<typeof RouterDecisionSchema>;
 
 /**
+ * Evidence span schema (for audit trail)
+ *
+ * Maps to: adapteros-api-types/src/inference.rs::EvidenceSpan
+ */
+export const EvidenceSpanSchema = z.object({
+  doc_id: z.string()
+    .min(1, 'Document ID is required')
+    .describe('Source document ID'),
+
+  span_hash: z.string()
+    .min(1, 'Span hash is required')
+    .describe('BLAKE3 hash of the span content'),
+
+  relevance_score: z.number()
+    .min(0, 'Relevance score must be non-negative')
+    .max(1, 'Relevance score must not exceed 1.0')
+    .optional()
+    .describe('Relevance score (0-1)'),
+
+  confidence: z.number()
+    .min(0, 'Confidence must be non-negative')
+    .max(1, 'Confidence must not exceed 1.0')
+    .optional()
+    .describe('Confidence score (0-1)'),
+});
+
+export type EvidenceSpan = z.infer<typeof EvidenceSpanSchema>;
+
+/**
  * Inference trace schema (for observability)
  *
  * Maps to: adapteros-api-types/src/inference.rs::InferenceTrace
@@ -236,6 +275,10 @@ export const InferenceTraceSchema = z.object({
 
   router_decisions: z.array(RouterDecisionSchema)
     .describe('Router decisions at each step'),
+
+  evidence_spans: z.array(EvidenceSpanSchema)
+    .optional()
+    .describe('Evidence spans for audit trail'),
 
   latency_ms: z.number()
     .int('Latency must be an integer')

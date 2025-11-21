@@ -92,9 +92,23 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
 
   return (
     <>
+      {/* Skip Links for Accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
+      <a
+        href="#navigation"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-48 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:shadow-lg"
+      >
+        Skip to navigation
+      </a>
+
       {/* Sidebar */}
       <Sidebar>
-        <SidebarContent className="pt-4">
+        <SidebarContent id="navigation" className="pt-4" role="navigation" aria-label="Main navigation">
           {navigationGroups.filter(group => shouldShowNavGroup(group, user.role)).map((group) => {
             const isCollapsed = collapsedGroups[group.title];
             return (
@@ -197,7 +211,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-4 md:p-6">
+        <main id="main-content" className="flex-1 p-4 md:p-6" role="main" tabIndex={-1}>
           <div className="mx-auto max-w-[1440px]">
             <Outlet />
           </div>

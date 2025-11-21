@@ -1,7 +1,7 @@
 # CoreML Integration Guide for AdapterOS
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-01-19
+**Last Updated:** 2025-11-21
 **Purpose:** Complete guide to CoreML backend integration for ANE acceleration
 
 ---
@@ -10,12 +10,17 @@
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [Model Preparation](#model-preparation)
-4. [CoreML Backend Implementation](#coreml-backend-implementation)
-5. [ANE Optimization](#ane-optimization)
-6. [Determinism Guarantees](#determinism-guarantees)
-7. [Performance Benchmarking](#performance-benchmarking)
-8. [Troubleshooting](#troubleshooting)
+3. [MLTensor API (macOS 15+)](#mltensor-api-macos-15)
+4. [Swift Bridge Architecture](#swift-bridge-architecture)
+5. [Async Prediction API](#async-prediction-api)
+6. [Memory Management](#memory-management)
+7. [Version Compatibility](#version-compatibility)
+8. [Model Preparation](#model-preparation)
+9. [CoreML Backend Implementation](#coreml-backend-implementation)
+10. [ANE Optimization](#ane-optimization)
+11. [Determinism Guarantees](#determinism-guarantees)
+12. [Performance Benchmarking](#performance-benchmarking)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -88,6 +93,638 @@ The CoreML backend enables **Apple Neural Engine (ANE)** acceleration for LoRA i
    ↓
 6. Attestation: Report determinism (ANE=deterministic, GPU=conditional)
 ```
+
+---
+
+## Swift Bridge Architecture (MLTensor - macOS 15+)
+
+The CoreML backend includes a Swift bridge for the modern MLTensor API, providing GPU-accelerated tensor operations.
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────┐
+│ Rust (lib.rs)                               │
+│  - CoreMLBackend                            │
+│  - Runtime version detection                │
+└─────────────────┬───────────────────────────┘
+                  │ extern "C" FFI
+                  ↓
+┌─────────────────────────────────────────────┐
+│ Swift Bridge (CoreMLBridge.swift)           │
+│  - swift_coreml_supports_mltensor()         │
+│  - swift_coreml_create_tensor_f32()         │
+│  - swift_coreml_tensor_free()               │
+│  - swift_coreml_tensor_shape()              │
+│  - swift_coreml_tensor_scalar_count()       │
+└─────────────────┬───────────────────────────┘
+                  │ @available(macOS 15.0, *)
+                  ↓
+┌─────────────────────────────────────────────┐
+│ CoreML MLTensor API                         │
+│  - GPU/ANE tensor operations                │
+│  - Built-in softmax, matmul, etc.           │
+│  - 2x performance vs MLMultiArray           │
+└─────────────────────────────────────────────┘
+```
+
+### Build Requirements
+
+**Required:**
+- macOS 13+ (runtime)
+- Xcode 15+ (build time)
+- `swiftc` compiler in PATH
+
+**Build Process:**
+```bash
+# Automatic during cargo build
+# 1. Compile coreml_bridge.mm (Objective-C++)
+# 2. Compile CoreMLBridge.swift → CoreMLSwiftBridge.o
+# 3. Archive to libCoreMLSwiftBridge.a
+# 4. Link with Swift runtime (swiftCore)
+```
+
+**Manual Verification:**
+```bash
+# Check swiftc availability
+which swiftc
+swiftc --version
+
+# Install if missing
+xcode-select --install
+```
+
+### Runtime Dispatch Behavior
+
+The backend automatically selects the optimal code path based on OS version:
+
+```
+┌─────────────────┐
+│ Backend Init    │
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐     ┌──────────────────────┐
+│ macOS 15+?      │ Yes │ MLTensor Path        │
+│ (Sequoia)       ├────→│ - GPU tensor ops     │
+└────────┬────────┘     │ - Built-in softmax   │
+         │ No           │ - 2x speedup         │
+         ↓              └──────────────────────┘
+┌─────────────────────────┐
+│ MLMultiArray Fallback   │
+│ - CPU-based operations  │
+│ - Manual pointer access │
+└─────────────────────────┘
+```
+
+**Detection at Runtime:**
+```rust
+// In Rust FFI (ffi.rs)
+extern "C" {
+    pub fn swift_coreml_supports_mltensor() -> bool;
+}
+
+// Usage
+let supports_mltensor = unsafe { swift_coreml_supports_mltensor() };
+if supports_mltensor {
+    // Use MLTensor path
+} else {
+    // Fall back to MLMultiArray
+}
+```
+
+### Performance Expectations
+
+| Operation | MLMultiArray (CPU) | MLTensor (GPU/ANE) | Speedup |
+|-----------|--------------------|--------------------|---------|
+| Inference (2K tokens) | 45ms | 22ms | 2x |
+| LoRA delta application | 8ms | 3ms | 2.7x |
+| Softmax (8K logits) | 1.2ms | 0.4ms | 3x |
+
+**Note:** MLTensor requires macOS 15+ (Sequoia). On older systems, the backend automatically falls back to MLMultiArray with no code changes required.
+
+### FFI Functions
+
+| Function | Purpose | Availability |
+|----------|---------|--------------|
+| `swift_coreml_supports_mltensor()` | Check MLTensor API availability | All macOS |
+| `swift_coreml_create_tensor_f32()` | Create tensor from float array | macOS 15+ |
+| `swift_coreml_tensor_free()` | Release tensor memory | macOS 15+ |
+| `swift_coreml_tensor_shape()` | Get tensor dimensions | macOS 15+ |
+| `swift_coreml_tensor_scalar_count()` | Get total element count | macOS 15+ |
+
+---
+
+## MLTensor API (macOS 15+)
+
+The MLTensor API provides GPU-accelerated tensor operations introduced in macOS 15 (Sequoia). This is the preferred path for high-performance inference.
+
+### Tensor Creation
+
+```swift
+// Create tensor from raw float array
+@_cdecl("swift_coreml_create_tensor_f32")
+public func swift_coreml_create_tensor_f32(
+    _ data: UnsafePointer<Float>,
+    _ shape: UnsafePointer<Int>,
+    _ rank: Int
+) -> UnsafeMutableRawPointer? {
+    if #available(macOS 15.0, *) {
+        let shapeArray = Array(UnsafeBufferPointer(start: shape, count: rank))
+        let count = shapeArray.reduce(1, *)
+        let dataArray = Array(UnsafeBufferPointer(start: data, count: count))
+
+        let tensor = MLTensor(shape: shapeArray, scalars: dataArray, scalarType: Float.self)
+        let wrapper = TensorWrapper(tensor: tensor)
+        return Unmanaged.passRetained(wrapper).toOpaque()
+    }
+    return nil
+}
+```
+
+### Core Operations
+
+```swift
+// Matrix multiplication
+@_cdecl("swift_coreml_tensor_matmul")
+public func swift_coreml_tensor_matmul(
+    _ a: UnsafeMutableRawPointer,
+    _ b: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer? {
+    if #available(macOS 15.0, *) {
+        let wrapperA = Unmanaged<TensorWrapper>.fromOpaque(a).takeUnretainedValue()
+        let wrapperB = Unmanaged<TensorWrapper>.fromOpaque(b).takeUnretainedValue()
+
+        let result = wrapperA.tensor.matmul(wrapperB.tensor)
+        return Unmanaged.passRetained(TensorWrapper(tensor: result)).toOpaque()
+    }
+    return nil
+}
+
+// Softmax along axis
+@_cdecl("swift_coreml_tensor_softmax")
+public func swift_coreml_tensor_softmax(
+    _ ptr: UnsafeMutableRawPointer,
+    _ axis: Int
+) -> UnsafeMutableRawPointer? {
+    if #available(macOS 15.0, *) {
+        let wrapper = Unmanaged<TensorWrapper>.fromOpaque(ptr).takeUnretainedValue()
+        let result = wrapper.tensor.softmax(alongAxis: axis)
+        return Unmanaged.passRetained(TensorWrapper(tensor: result)).toOpaque()
+    }
+    return nil
+}
+
+// Element-wise addition
+@_cdecl("swift_coreml_tensor_add")
+public func swift_coreml_tensor_add(
+    _ a: UnsafeMutableRawPointer,
+    _ b: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer? {
+    if #available(macOS 15.0, *) {
+        let wrapperA = Unmanaged<TensorWrapper>.fromOpaque(a).takeUnretainedValue()
+        let wrapperB = Unmanaged<TensorWrapper>.fromOpaque(b).takeUnretainedValue()
+
+        let result = wrapperA.tensor + wrapperB.tensor
+        return Unmanaged.passRetained(TensorWrapper(tensor: result)).toOpaque()
+    }
+    return nil
+}
+```
+
+### Materialization (GPU → CPU)
+
+MLTensor operations are lazy - data stays on GPU until explicitly materialized:
+
+```swift
+// Materialize tensor to CPU memory
+@_cdecl("swift_coreml_tensor_materialize")
+public func swift_coreml_tensor_materialize(
+    _ ptr: UnsafeMutableRawPointer,
+    _ output: UnsafeMutablePointer<Float>,
+    _ maxLen: Int
+) -> Int {
+    if #available(macOS 15.0, *) {
+        let wrapper = Unmanaged<TensorWrapper>.fromOpaque(ptr).takeUnretainedValue()
+
+        // shapedArray() triggers GPU computation and copies to CPU
+        let shaped = wrapper.tensor.shapedArray(of: Float.self)
+        let scalars = shaped.scalars
+        let copyLen = min(scalars.count, maxLen)
+
+        for i in 0..<copyLen {
+            output[i] = scalars[i]
+        }
+        return copyLen
+    }
+    return 0
+}
+```
+
+**Performance Note:** Minimize materializations - chain operations on GPU before copying back.
+
+### Available Operations
+
+| Operation | Function | Description |
+|-----------|----------|-------------|
+| `matmul` | `tensor.matmul(other)` | Matrix multiplication |
+| `softmax` | `tensor.softmax(alongAxis:)` | Softmax normalization |
+| `+`, `-`, `*`, `/` | Operators | Element-wise arithmetic |
+| `transpose` | `tensor.transposed()` | Transpose dimensions |
+| `reshape` | `MLTensor(reshaping:to:)` | Change tensor shape |
+| `concatenate` | `MLTensor.concatenating()` | Join tensors |
+
+---
+
+## Swift Bridge Architecture
+
+### TensorWrapper Pattern
+
+The TensorWrapper class provides safe memory management for MLTensor objects across the FFI boundary:
+
+```swift
+// TensorWrapper - Bridges MLTensor to C/Rust via opaque pointer
+@available(macOS 15.0, *)
+final class TensorWrapper {
+    let tensor: MLTensor
+
+    init(tensor: MLTensor) {
+        self.tensor = tensor
+    }
+}
+```
+
+### Memory Lifecycle
+
+```
+Rust                    FFI Boundary              Swift
+─────────────────────────────────────────────────────────
+
+create_tensor_f32() ──────────────────→ TensorWrapper created
+     ↓                                  (passRetained - RC=1)
+  raw_ptr: *mut c_void
+     │
+     ↓
+tensor_matmul(ptr) ────────────────────→ takeUnretainedValue()
+     ↓                                  (borrow, no RC change)
+  result_ptr
+     │
+     ↓
+tensor_free(ptr) ──────────────────────→ takeRetainedValue()
+                                        (RC=0, deallocated)
+```
+
+### Ownership Rules
+
+1. **Creation functions** (`create_tensor_*`): Call `passRetained()` - Rust owns the reference
+2. **Operation functions** (`tensor_matmul`, etc.): Call `takeUnretainedValue()` - borrows, no ownership transfer
+3. **Free function** (`tensor_free`): Call `takeRetainedValue()` - transfers ownership back, allows deallocation
+4. **Result tensors**: New wrappers created with `passRetained()` - Rust owns new tensor
+
+### Complete Bridge API
+
+```swift
+// CoreMLBridge.swift - Full API surface
+
+// Availability check
+@_cdecl("swift_coreml_supports_mltensor")
+public func swift_coreml_supports_mltensor() -> Bool
+
+// Tensor lifecycle
+@_cdecl("swift_coreml_create_tensor_f32")
+public func swift_coreml_create_tensor_f32(data, shape, rank) -> UnsafeMutableRawPointer?
+
+@_cdecl("swift_coreml_tensor_free")
+public func swift_coreml_tensor_free(_ ptr: UnsafeMutableRawPointer)
+
+// Tensor info
+@_cdecl("swift_coreml_tensor_shape")
+public func swift_coreml_tensor_shape(ptr, out, maxDims) -> Int
+
+@_cdecl("swift_coreml_tensor_scalar_count")
+public func swift_coreml_tensor_scalar_count(_ ptr: UnsafeMutableRawPointer) -> Int
+
+// Operations
+@_cdecl("swift_coreml_tensor_matmul")
+public func swift_coreml_tensor_matmul(a, b) -> UnsafeMutableRawPointer?
+
+@_cdecl("swift_coreml_tensor_softmax")
+public func swift_coreml_tensor_softmax(ptr, axis) -> UnsafeMutableRawPointer?
+
+@_cdecl("swift_coreml_tensor_add")
+public func swift_coreml_tensor_add(a, b) -> UnsafeMutableRawPointer?
+
+// Materialization
+@_cdecl("swift_coreml_tensor_materialize")
+public func swift_coreml_tensor_materialize(ptr, output, maxLen) -> Int
+```
+
+---
+
+## Async Prediction API
+
+### Callback-Based Async Predictions
+
+For long-running inference, use the async prediction API to avoid blocking:
+
+```swift
+// Async prediction with callback
+@_cdecl("swift_coreml_predict_async")
+public func swift_coreml_predict_async(
+    _ modelPtr: UnsafeMutableRawPointer,
+    _ inputPtr: UnsafeMutableRawPointer,
+    _ callback: @escaping @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void,
+    _ context: UnsafeMutableRawPointer?
+) {
+    if #available(macOS 15.0, *) {
+        let model = Unmanaged<MLModelWrapper>.fromOpaque(modelPtr).takeUnretainedValue()
+        let input = Unmanaged<TensorWrapper>.fromOpaque(inputPtr).takeUnretainedValue()
+
+        Task {
+            do {
+                // Perform prediction asynchronously
+                let output = try await model.model.prediction(from: input.toFeatureProvider())
+
+                // Convert output to tensor
+                let resultTensor = TensorWrapper(from: output)
+                let resultPtr = Unmanaged.passRetained(resultTensor).toOpaque()
+
+                // Call back to Rust with result
+                callback(resultPtr, 0) // 0 = success
+            } catch {
+                callback(nil, -1) // -1 = error
+            }
+        }
+    }
+}
+```
+
+### Rust FFI for Async
+
+```rust
+// ffi.rs - Async prediction declarations
+
+type AsyncCallback = extern "C" fn(*mut c_void, i32);
+
+extern "C" {
+    pub fn swift_coreml_predict_async(
+        model_ptr: *mut c_void,
+        input_ptr: *mut c_void,
+        callback: AsyncCallback,
+        context: *mut c_void,
+    );
+}
+
+// Usage with tokio channel
+pub async fn predict_async(
+    model_ptr: *mut c_void,
+    input_ptr: *mut c_void,
+) -> Result<*mut c_void> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let tx = Box::into_raw(Box::new(tx));
+
+    extern "C" fn callback(result: *mut c_void, status: i32) {
+        // Reconstruct sender and send result
+        unsafe {
+            let tx = Box::from_raw(tx as *mut tokio::sync::oneshot::Sender<_>);
+            let _ = tx.send((result, status));
+        }
+    }
+
+    unsafe {
+        swift_coreml_predict_async(model_ptr, input_ptr, callback, tx as *mut c_void);
+    }
+
+    let (result, status) = rx.await.map_err(|_| AosError::Kernel("Async cancelled".into()))?;
+
+    if status != 0 {
+        return Err(AosError::Kernel("Async prediction failed".into()));
+    }
+
+    Ok(result)
+}
+```
+
+### Cancellation Support
+
+```swift
+// Async prediction with cancellation
+@_cdecl("swift_coreml_predict_cancellable")
+public func swift_coreml_predict_cancellable(
+    _ modelPtr: UnsafeMutableRawPointer,
+    _ inputPtr: UnsafeMutableRawPointer,
+    _ callback: @escaping @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void,
+    _ cancelFlag: UnsafePointer<Int32>
+) {
+    if #available(macOS 15.0, *) {
+        Task {
+            // Check cancellation flag periodically
+            while cancelFlag.pointee == 0 {
+                // Perform prediction step
+                // ...
+            }
+
+            if cancelFlag.pointee != 0 {
+                callback(nil, -2) // -2 = cancelled
+            }
+        }
+    }
+}
+```
+
+---
+
+## Memory Management
+
+### Ownership Summary
+
+| Component | Owner | Lifetime | Free Method |
+|-----------|-------|----------|-------------|
+| **MLModel** | Rust (CoreMLBackend) | Backend lifetime | `coreml_release_model()` |
+| **TensorWrapper** | Rust (via opaque ptr) | Until `tensor_free()` | `swift_coreml_tensor_free()` |
+| **MLMultiArray** | ObjC++ (autoreleasepool) | Request scope | Automatic (ARC) |
+| **Intermediate tensors** | Swift (operation results) | Until `tensor_free()` | `swift_coreml_tensor_free()` |
+
+### Memory Leak Prevention
+
+**Rule 1:** Every `create_*` must have a matching `*_free`:
+
+```rust
+// Rust usage pattern
+let tensor = unsafe { swift_coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), rank) };
+// ... use tensor ...
+unsafe { swift_coreml_tensor_free(tensor); }
+```
+
+**Rule 2:** Free intermediate results from operations:
+
+```rust
+let a = create_tensor(...);
+let b = create_tensor(...);
+let result = tensor_matmul(a, b);
+
+// Free inputs after operation
+unsafe {
+    swift_coreml_tensor_free(a);
+    swift_coreml_tensor_free(b);
+}
+
+// Use result...
+unsafe { swift_coreml_tensor_free(result); }
+```
+
+**Rule 3:** Use RAII wrapper in Rust:
+
+```rust
+struct ManagedTensor(*mut c_void);
+
+impl Drop for ManagedTensor {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { swift_coreml_tensor_free(self.0); }
+        }
+    }
+}
+```
+
+### Memory Pressure Handling
+
+```rust
+impl CoreMLBackend {
+    /// Check memory usage and evict if needed
+    pub fn handle_memory_pressure(&mut self) -> Result<()> {
+        let usage = self.get_memory_usage()?;
+
+        if usage > 0.85 {
+            // Materialize and free unused tensors
+            self.flush_tensor_cache()?;
+
+            // Force garbage collection
+            unsafe { swift_coreml_flush_cache(); }
+        }
+
+        Ok(())
+    }
+}
+```
+
+---
+
+## Version Compatibility
+
+### macOS Version Matrix
+
+| macOS Version | MLTensor | Async API | MLState | Notes |
+|---------------|----------|-----------|---------|-------|
+| macOS 13 (Ventura) | No | No | No | MLMultiArray only |
+| macOS 14 (Sonoma) | No | No | No | MLMultiArray only |
+| **macOS 15 (Sequoia)** | **Yes** | **Yes** | No | Full MLTensor support |
+| macOS 26+ | Yes | Yes | Yes | MLState for KV cache |
+
+### Runtime Detection
+
+```rust
+// Rust side - version detection
+pub fn get_coreml_capabilities() -> CoreMLCapabilities {
+    let supports_mltensor = unsafe { swift_coreml_supports_mltensor() };
+    let supports_async = unsafe { swift_coreml_supports_async() };
+    let supports_state = unsafe { swift_coreml_supports_mlstate() };
+
+    CoreMLCapabilities {
+        mltensor: supports_mltensor,
+        async_prediction: supports_async,
+        ml_state: supports_state,
+        min_macos: if supports_mltensor { "15.0" } else { "13.0" },
+    }
+}
+```
+
+```swift
+// Swift side - availability checks
+@_cdecl("swift_coreml_supports_mltensor")
+public func swift_coreml_supports_mltensor() -> Bool {
+    if #available(macOS 15.0, *) {
+        return true
+    }
+    return false
+}
+
+@_cdecl("swift_coreml_supports_async")
+public func swift_coreml_supports_async() -> Bool {
+    if #available(macOS 15.0, *) {
+        return true
+    }
+    return false
+}
+
+@_cdecl("swift_coreml_supports_mlstate")
+public func swift_coreml_supports_mlstate() -> Bool {
+    if #available(macOS 26.0, *) {
+        return true
+    }
+    return false
+}
+```
+
+### Fallback Behavior
+
+The backend implements a three-tier fallback chain:
+
+```
+┌─────────────────┐
+│ API Request     │
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐     ┌──────────────────────┐
+│ macOS 15+?      │ Yes │ Swift/MLTensor Path  │
+│                 ├────→│ - GPU tensor ops     │
+└────────┬────────┘     │ - Async predictions  │
+         │ No           │ - 2-3x speedup       │
+         ↓              └──────────────────────┘
+┌─────────────────┐     ┌──────────────────────┐
+│ ObjC++ avail?   │ Yes │ ObjC++/MLMultiArray  │
+│                 ├────→│ - CPU operations     │
+└────────┬────────┘     │ - Synchronous only   │
+         │ No           └──────────────────────┘
+         ↓
+┌─────────────────────────┐
+│ Error: CoreML unavail   │
+│ - Suggest Metal backend │
+└─────────────────────────┘
+```
+
+**Implementation:**
+
+```rust
+impl CoreMLBackend {
+    pub fn predict(&mut self, input: &[f32]) -> Result<Vec<f32>> {
+        // Try Swift/MLTensor first (macOS 15+)
+        if unsafe { swift_coreml_supports_mltensor() } {
+            return self.predict_mltensor(input);
+        }
+
+        // Fall back to ObjC++/MLMultiArray
+        if unsafe { coreml_is_available() } {
+            return self.predict_mlmultiarray(input);
+        }
+
+        // No CoreML support
+        Err(AosError::Kernel(
+            "CoreML not available. Use Metal backend instead.".into()
+        ))
+    }
+}
+```
+
+### Feature Degradation
+
+| Feature | macOS 15+ | macOS 13-14 | Fallback |
+|---------|-----------|-------------|----------|
+| Tensor ops | GPU-accelerated | N/A | MLMultiArray (CPU) |
+| Softmax | Built-in | Manual loop | 3x slower |
+| Async predict | Yes | No | Sync blocking |
+| KV cache | MLState (26+) | Manual | Disk/memory |
 
 ---
 
@@ -262,7 +899,7 @@ crates/adapteros-lora-kernel-coreml/
 ├── src/
 │   ├── lib.rs                  # CoreMLBackend struct
 │   ├── ffi.rs                  # Rust FFI declarations
-│   └── coreml_backend.mm       # Objective-C++ implementation
+│   └── coreml_bridge.mm        # Objective-C++ implementation
 └── tests/
     └── coreml_determinism.rs   # Determinism tests
 ```
@@ -864,7 +1501,7 @@ spec = model.get_spec()
 # Check for custom ops
 for layer in spec.neuralNetwork.layers:
     if layer.WhichOneof('layer') == 'custom':
-        print(f"⚠️ Custom op (GPU fallback): {layer.name}")
+        print(f"Custom op (GPU fallback): {layer.name}")
 ```
 
 ---
@@ -896,6 +1533,296 @@ mlmodel = ct.convert(
 
 ---
 
+### Issue 4: MLTensor Functions Return Null
+
+**Symptom:**
+```rust
+let tensor = unsafe { swift_coreml_create_tensor_f32(...) };
+// tensor is null
+```
+
+**Causes:**
+- macOS < 15.0 (MLTensor not available)
+- Invalid shape or data pointer
+- Memory allocation failure
+
+**Solution:**
+```rust
+// Always check availability first
+if !unsafe { swift_coreml_supports_mltensor() } {
+    // Fall back to MLMultiArray path
+    return self.predict_mlmultiarray(input);
+}
+
+// Check return value
+let tensor = unsafe { swift_coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), rank) };
+if tensor.is_null() {
+    return Err(AosError::Kernel("Failed to create MLTensor".into()));
+}
+```
+
+---
+
+### Issue 5: Memory Leak in Tensor Operations
+
+**Symptom:**
+```
+Memory usage grows continuously during inference
+```
+
+**Causes:**
+- Missing `tensor_free()` calls
+- Intermediate tensors not freed
+- RAII wrappers not used
+
+**Solution:**
+```rust
+// Use RAII wrapper to ensure cleanup
+struct ManagedTensor(*mut c_void);
+
+impl ManagedTensor {
+    fn new(ptr: *mut c_void) -> Option<Self> {
+        if ptr.is_null() { None } else { Some(Self(ptr)) }
+    }
+}
+
+impl Drop for ManagedTensor {
+    fn drop(&mut self) {
+        unsafe { swift_coreml_tensor_free(self.0); }
+    }
+}
+
+// Usage
+let a = ManagedTensor::new(create_tensor(...))?;
+let b = ManagedTensor::new(create_tensor(...))?;
+let result = ManagedTensor::new(tensor_matmul(a.0, b.0))?;
+// All tensors automatically freed when dropped
+```
+
+---
+
+### Issue 6: Async Callback Never Called
+
+**Symptom:**
+```rust
+let result = predict_async(model, input).await;
+// Hangs forever
+```
+
+**Causes:**
+- Swift Task not executing
+- Callback function signature mismatch
+- Model prediction error not handled
+
+**Solution:**
+```rust
+// Add timeout to async operations
+use tokio::time::timeout;
+
+let result = timeout(
+    Duration::from_secs(30),
+    predict_async(model, input)
+).await.map_err(|_| AosError::Kernel("Prediction timeout".into()))??;
+```
+
+```swift
+// Ensure errors call callback
+Task {
+    do {
+        let output = try await model.prediction(...)
+        callback(resultPtr, 0)
+    } catch {
+        // Always call callback on error
+        callback(nil, -1)
+    }
+}
+```
+
+---
+
+### Issue 7: Swift Bridge Linking Errors
+
+**Symptom:**
+```
+Undefined symbols for architecture arm64:
+  "_swift_coreml_create_tensor_f32", referenced from...
+```
+
+**Causes:**
+- Swift library not linked
+- Missing Swift runtime
+- Build script not executed
+
+**Solution:**
+```rust
+// build.rs - ensure proper linking
+fn main() {
+    // Compile Swift
+    let status = std::process::Command::new("swiftc")
+        .args([
+            "-emit-library",
+            "-o", "libCoreMLSwiftBridge.a",
+            "-emit-object",
+            "src/CoreMLBridge.swift",
+        ])
+        .status()
+        .expect("Failed to compile Swift");
+
+    if !status.success() {
+        panic!("Swift compilation failed");
+    }
+
+    // Link Swift runtime
+    println!("cargo:rustc-link-lib=static=CoreMLSwiftBridge");
+    println!("cargo:rustc-link-lib=dylib=swiftCore");
+    println!("cargo:rustc-link-search=/usr/lib/swift");
+}
+```
+
+---
+
+### Issue 8: Version Mismatch Between Compile and Runtime
+
+**Symptom:**
+```
+swift_coreml_supports_mltensor() returns true but operations fail
+```
+
+**Causes:**
+- Compiled on macOS 15+ but running on macOS 14
+- Dynamic library version mismatch
+
+**Solution:**
+```rust
+// Check actual runtime version, not just API availability
+pub fn verify_runtime_compatibility() -> Result<()> {
+    let compile_supports = unsafe { swift_coreml_supports_mltensor() };
+
+    // Try a simple operation to verify runtime support
+    if compile_supports {
+        let test_data = [1.0f32];
+        let test_shape = [1i64];
+        let tensor = unsafe {
+            swift_coreml_create_tensor_f32(
+                test_data.as_ptr(),
+                test_shape.as_ptr() as *const _,
+                1
+            )
+        };
+
+        if tensor.is_null() {
+            return Err(AosError::Kernel(
+                "MLTensor API available but not functional - runtime version mismatch".into()
+            ));
+        }
+
+        unsafe { swift_coreml_tensor_free(tensor); }
+    }
+
+    Ok(())
+}
+```
+
+---
+
+### Issue 9: Determinism Violation in Production
+
+**Symptom:**
+```
+PolicyViolation: Non-deterministic output detected
+```
+
+**Causes:**
+- GPU fallback instead of ANE
+- Floating-point precision differences
+- Non-seeded randomness in model
+
+**Solution:**
+```rust
+// Enforce ANE requirement in production
+let backend = CoreMLBackend::new(model_path)?;
+let report = backend.attest_determinism()?;
+
+if config.production_mode {
+    if !report.deterministic {
+        return Err(AosError::PolicyViolation(format!(
+            "Production requires deterministic execution. Backend: {:?}, ANE: {}",
+            report.backend_type,
+            backend.is_ane_available()
+        )));
+    }
+}
+```
+
+---
+
+### Issue 10: Build Fails on CI/CD (No GPU)
+
+**Symptom:**
+```
+error: CoreML framework not available
+```
+
+**Causes:**
+- CI runner is Linux or non-macOS
+- Headless Mac without GPU access
+
+**Solution:**
+```rust
+// Cargo.toml - make CoreML optional
+[target.'cfg(target_os = "macos")'.dependencies]
+adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
+
+[features]
+coreml = ["adapteros-lora-kernel-coreml"]
+```
+
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  build-macos:
+    runs-on: macos-14  # Apple Silicon runner
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with CoreML
+        run: cargo build --features coreml
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build without CoreML
+        run: cargo build  # CoreML feature disabled
+```
+
+---
+
+### Performance Optimization Checklist
+
+- [ ] **Model Preparation**
+  - [ ] Batch size = 1
+  - [ ] Sequence length multiple of 8
+  - [ ] FP16 precision
+  - [ ] No custom ops
+
+- [ ] **Runtime**
+  - [ ] ANE available (`is_ane_available() == true`)
+  - [ ] MLTensor path used (macOS 15+)
+  - [ ] Minimal materializations
+  - [ ] Tensor cache management
+
+- [ ] **Memory**
+  - [ ] All tensors freed
+  - [ ] RAII wrappers used
+  - [ ] Memory pressure handling enabled
+
+- [ ] **Determinism**
+  - [ ] ANE execution confirmed
+  - [ ] Attestation report verified
+  - [ ] Production guards in place
+
+---
+
 ## References
 
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
@@ -907,4 +1834,4 @@ mlmodel = ct.convert(
 ---
 
 **Signed:** James KC Auchterlonie
-**Date:** 2025-01-19
+**Date:** 2025-11-21

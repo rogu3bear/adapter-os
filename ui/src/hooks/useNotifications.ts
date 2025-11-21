@@ -320,6 +320,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
             setSummary({
               total_count: data.notifications.length,
               unread_count: data.count,
+              by_type: {},
             });
             setError(null);
             reconnectAttempts = 0;

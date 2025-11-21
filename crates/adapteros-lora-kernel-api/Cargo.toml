@@ -9,3 +9,4 @@ license.workspace = true
 adapteros-core = { path = "../adapteros-core" }
 thiserror = { workspace = true }
 serde = { workspace = true }
+tracing = { workspace = true }

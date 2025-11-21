@@ -5,20 +5,21 @@
 
 export interface TrainingJob {
   id: string;
-  dataset_id: string;
-  adapter_id: string;
-  adapter_name: string;
-  config: TrainingConfig;
+  dataset_id?: string;
+  adapter_id?: string;
+  adapter_name?: string;
+  template_id?: string;
+  config?: TrainingConfig;
   status: TrainingStatus;
   progress_pct?: number;
   loss?: number;
   current_loss?: number;
   current_epoch?: number;
   total_epochs?: number;
-  tokens_per_sec?: number;
+  tokens_per_second?: number;
   eta_seconds?: number;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
   started_at?: string;
   completed_at?: string;
   error_message?: string;
@@ -31,7 +32,7 @@ export interface TrainingJob {
   learning_rate?: number;
 }
 
-export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 
 export interface TrainingConfig {
   adapter_id?: string;
@@ -44,6 +45,8 @@ export interface TrainingConfig {
   warmup_steps?: number;
   weight_decay?: number;
   gradient_clip?: number;
+  max_seq_length?: number;
+  gradient_accumulation_steps?: number;
   save_steps?: number;
   eval_steps?: number;
   logging_steps?: number;
@@ -57,8 +60,44 @@ export interface TrainingConfig {
 }
 
 export interface StartTrainingRequest {
-  config: TrainingConfig;
-  adapter_name?: string;
+  // Required fields (match backend)
+  adapter_name: string;           // REQUIRED - semantic name format
+  config: TrainingConfigRequest;  // REQUIRED - training configuration
+
+  // Optional fields (match backend)
+  template_id?: string;
+  repo_id?: string;
+  dataset_id?: string;
+}
+
+// TrainingConfigRequest matches backend TrainingConfigRequest
+export interface TrainingConfigRequest {
+  learning_rate: number;
+  epochs: number;
+  batch_size: number;
+  rank: number;
+  alpha: number;
+  warmup_steps?: number;
+  weight_decay?: number;
+  gradient_clip?: number;
+  max_seq_length?: number;
+  gradient_accumulation_steps?: number;
+  save_steps?: number;
+  eval_steps?: number;
+  logging_steps?: number;
+  targets?: string[];
+}
+
+// UI-only fields for StartTrainingRequest (not sent to backend)
+export interface StartTrainingRequestUIExtras {
+  directory_root?: string;
+  directory_path?: string;
+  adapters_root?: string;
+  dataset_path?: string;
+  tenant_id?: string;
+  package?: string;
+  category?: string;
+  language?: string;
 }
 
 export interface TrainingResponse {
@@ -73,14 +112,15 @@ export interface ListTrainingJobsResponse {
 }
 
 export interface TrainingMetrics {
-  step: number;
-  loss: number;
-  learning_rate: number;
-  epoch: number;
-  tokens_processed: number;
-  tokens_per_sec: number;
-  time_elapsed: number;
-  eta_seconds: number;
+  step?: number;
+  loss?: number;
+  learning_rate?: number;
+  epoch?: number;
+  tokens_processed?: number;
+  tokens_per_second?: number;
+  time_elapsed?: number;
+  eta_seconds?: number;
+  progress_pct?: number;
   memory_usage?: number;
   gpu_utilization?: number;
   current_epoch?: number;
@@ -273,6 +313,7 @@ export interface GoldenCompareRequest {
   verify_signature?: boolean;
   verify_device?: boolean;
   threshold?: number;
+  epsilon_tolerance?: number;
 }
 
 export interface VerificationReport {
@@ -310,9 +351,9 @@ export interface TrainingTemplate {
   id: string;
   name: string;
   description?: string;
-  config: TrainingConfig;
-  target_modules: string[];
-  created_at: string;
+  config?: TrainingConfig;
+  target_modules?: string[];
+  created_at?: string;
   category?: string;
   default_epochs?: number;
   default_batch_size?: number;
@@ -341,5 +382,29 @@ export interface LayerDivergence {
   };
   threshold: number;
   passed: boolean;
+}
+
+// Training session for real-time monitoring
+export interface TrainingSession {
+  session_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+  adapter_id?: string;
+  adapter_name?: string;
+  dataset_id?: string;
+  repository_path?: string;
+  created_at: string;
+  updated_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  progress?: number;
+  progress_pct?: number;
+  current_epoch?: number;
+  total_epochs?: number;
+  current_loss?: number;
+  tokens_per_second?: number;
+  eta_seconds?: number;
+  error_message?: string;
+  config?: TrainingConfig;
+  metrics?: TrainingMetrics;
 }
 

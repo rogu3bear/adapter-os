@@ -33,7 +33,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       try {
         const list = await apiClient.listModels();
         if (mounted) {
-          const modelsWithValidation: ModelInfo[] = list.map(m => ({ ...m }));
+          const modelsWithValidation: ModelInfo[] = list.map(m => ({ id: m.id, name: m.id, loaded: false }));
           setModels(modelsWithValidation);
 
           // Mark all as validating
@@ -56,7 +56,8 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
                 modelId: model.id,
                 validation: {
                   model_id: model.id,
-                  model_name: model.id,
+                  valid: false,
+                  issues: [],
                   can_load: false,
                   reason: 'Validation failed - unable to check model status'
                 } as ModelValidationResponse,

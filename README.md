@@ -20,10 +20,10 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 <details>
-<summary>📊 AdapterOS Architecture</summary>
+<summary>AdapterOS Architecture</summary>
 
 ```mermaid
 graph TB
@@ -83,7 +83,7 @@ graph TB
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: Graphical Installer (Recommended)
 
@@ -124,8 +124,9 @@ cd adapter-os
 # Build the workspace
 cargo build --release
 
-# Note: Metal backend is the primary production backend (default)
-# MLX backend is available for development/experimentation but currently disabled due to PyO3 linker issues
+# Note: CoreML backend is the primary production backend (ANE acceleration)
+# MLX backend is available for research/training
+# Metal backend serves as fallback for legacy systems
 
 # Initialize the database
 ./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
@@ -291,7 +292,7 @@ cargo clippy --workspace -- -D warnings
 
 ---
 
-## 📊 Performance
+## Performance
 
 Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.01-1:
 
@@ -305,7 +306,7 @@ Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.01-1:
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 Example `configs/cp.toml`:
 

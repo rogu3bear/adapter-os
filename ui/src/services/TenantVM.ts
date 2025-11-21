@@ -1,5 +1,5 @@
 import type { StatusTenantRecord } from '@/api/status';
-import { hasRoleLevel, type User, type UserRole } from '@/lib/rbac';
+import { hasRoleLevel, type User, type UserRole } from '@/utils/rbac';
 
 const ROLE_SEMAPHORE: Array<{ role: UserRole; commands: string[] }> = [
   { role: 'viewer', commands: ['render'] },

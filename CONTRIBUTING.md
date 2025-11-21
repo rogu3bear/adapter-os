@@ -141,7 +141,7 @@ cargo bench
 - Add tests for new functionality
 
 #### Policy Compliance
-- All changes must comply with the 20 canonical policy packs
+- All changes must comply with the 23 canonical policy packs
 - Security-sensitive code requires review
 - Performance changes need benchmarks
 - Breaking changes need migration guides
@@ -309,7 +309,7 @@ Brief description of changes
 - [ ] Performance benchmarks updated (if applicable)
 
 ## Policy Compliance
-- [ ] Changes comply with all 20 canonical policy packs
+- [ ] Changes comply with all 23 canonical policy packs
 - [ ] Security implications reviewed
 - [ ] Performance impact assessed
 - [ ] Breaking changes documented
@@ -428,20 +428,20 @@ For security vulnerabilities:
 
 ### Development Priorities
 
-#### Immediate (Next 2 weeks)
+#### Phase 1: Core Stability
 1. Fix server API compilation issues
 2. Complete integration test suite
 3. Add missing documentation
 4. Resolve known bugs
 
-#### Short Term (Next month)
+#### Phase 2: Enhancement
 1. Performance optimization
 2. Security hardening
 3. Monitoring and observability
 4. Deployment automation
 5. Menu bar app integration improvements
 
-#### Long Term (Next quarter)
+#### Phase 3: Advanced Features
 1. Enterprise features
 2. Advanced policy customization
 3. Multi-tenant improvements

@@ -13,18 +13,18 @@ use sysinfo::System;
 /// System metrics collector
 pub struct SystemMetricsCollector {
     sys: System,
-    #[allow(dead_code)]
-    last_cpu_time: u64,
-    #[allow(dead_code)]
-    last_cpu_count: usize,
-    #[allow(dead_code)]
-    last_disk_read: u64,
-    #[allow(dead_code)]
-    last_disk_write: u64,
-    #[allow(dead_code)]
-    last_network_rx: u64,
-    #[allow(dead_code)]
-    last_network_tx: u64,
+    /// Tracks previous CPU time for delta calculations (reserved for rate metrics)
+    _last_cpu_time: u64,
+    /// Tracks CPU count for per-core metrics (reserved for per-core breakdown)
+    _last_cpu_count: usize,
+    /// Tracks previous disk read bytes for rate calculation (reserved for disk I/O rates)
+    _last_disk_read: u64,
+    /// Tracks previous disk write bytes for rate calculation (reserved for disk I/O rates)
+    _last_disk_write: u64,
+    /// Tracks previous network RX bytes for bandwidth calculation (reserved for network rates)
+    _last_network_rx: u64,
+    /// Tracks previous network TX bytes for bandwidth calculation (reserved for network rates)
+    _last_network_tx: u64,
     last_collection: SystemTime,
 }
 
@@ -35,12 +35,12 @@ impl SystemMetricsCollector {
         sys.refresh_all();
 
         Self {
-            last_cpu_time: 0,
-            last_cpu_count: sys.cpus().len(),
-            last_disk_read: 0,
-            last_disk_write: 0,
-            last_network_rx: 0,
-            last_network_tx: 0,
+            _last_cpu_time: 0,
+            _last_cpu_count: sys.cpus().len(),
+            _last_disk_read: 0,
+            _last_disk_write: 0,
+            _last_network_rx: 0,
+            _last_network_tx: 0,
             last_collection: SystemTime::now(),
             sys,
         }

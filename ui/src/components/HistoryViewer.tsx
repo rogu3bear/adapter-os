@@ -21,7 +21,8 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ScrollArea } from './ui/scroll-area';
-import { Empty } from './ui/empty-state';
+import { EmptyState } from './ui/empty-state';
+import { Inbox } from 'lucide-react';
 import { ExportDialog, ExportOptions } from './ui/export-dialog';
 import { ConfirmationDialog } from './ui/confirmation-dialog';
 import {
@@ -112,7 +113,7 @@ export function HistoryViewer({
         includeMetadata: true,
       });
 
-      const filename = `history-${Date.now()}.${options.format === 'markdown' ? 'md' : options.format}`;
+      const filename = `history-${Date.now()}.${options.format === 'markdown' as string ? 'md' : options.format}`;
       const element = document.createElement('a');
       element.setAttribute('href', `data:text/plain;charset=utf-8,${encodeURIComponent(data)}`);
       element.setAttribute('download', filename);
@@ -407,7 +408,8 @@ export function HistoryViewer({
         {/* Timeline View */}
         <TabsContent value="timeline" className="space-y-4">
           {paginatedActions.length === 0 ? (
-            <Empty
+            <EmptyState
+              icon={Inbox}
               title="No actions yet"
               description="Actions will appear here as you interact with the system"
             />
@@ -476,7 +478,8 @@ export function HistoryViewer({
         {/* List View */}
         <TabsContent value="list">
           {paginatedActions.length === 0 ? (
-            <Empty
+            <EmptyState
+              icon={Inbox}
               title="No actions found"
               description="Try adjusting your filters or search query"
             />
@@ -592,20 +595,23 @@ export function HistoryViewer({
       <ConfirmationDialog
         open={showReplayConfirm}
         onOpenChange={setShowReplayConfirm}
-        title="Replay Action"
-        description="This will execute the action again. Are you sure?"
         onConfirm={confirmReplayAction}
-        isLoading={isReplaying}
+        options={{
+          title: "Replay Action",
+          description: "This will execute the action again. Are you sure?",
+        }}
       />
 
       {/* Clear History Confirmation */}
       <ConfirmationDialog
         open={showClearConfirm}
         onOpenChange={setShowClearConfirm}
-        title="Clear History"
-        description="This will permanently delete all action history. This cannot be undone."
         onConfirm={handleClearHistory}
-        isDangerous
+        options={{
+          title: "Clear History",
+          description: "This will permanently delete all action history. This cannot be undone.",
+          variant: "destructive",
+        }}
       />
     </div>
   );

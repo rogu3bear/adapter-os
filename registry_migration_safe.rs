@@ -4,7 +4,7 @@
 //! backup/recovery, and error handling following AdapterOS standards.
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_registry::Registry;
+use adapteros_registry::{ModelRecord, ModelRegistry, Registry};
 use clap::Parser;
 use registry_migration_analysis::{SchemaAnalysis, MigrationRisk};
 use rusqlite::Connection;
@@ -298,7 +298,7 @@ impl MigrationEngine {
         self.migrate_adapters(&old_conn, &registry, max_errors).await?;
 
         // Migrate models
-        self.migrate_models(&old_conn, &registry, max_errors).await?;
+        self.migrate_models(&old_conn, new_db_path, max_errors).await?;
 
         let duration = start.elapsed();
         let mut stats = self.stats.lock().await;
@@ -531,12 +531,192 @@ impl MigrationEngine {
 
     async fn migrate_models(
         &self,
-        _old_conn: &Connection,
-        _registry: &Registry,
-        _max_errors: usize
+        old_conn: &Connection,
+        new_db_path: &Path,
+        max_errors: usize
     ) -> Result<()> {
-        // TODO: Implement model migration once registry supports model operations
-        warn!("Model migration not yet implemented");
+        // Check if models table exists in source database
+        let table_exists: bool = old_conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='models')",
+            [],
+            |row| row.get(0)
+        ).unwrap_or(false);
+
+        if !table_exists {
+            info!("No models table in source database, skipping model migration");
+            return Ok(());
+        }
+
+        let sql = "SELECT name, config_hash, tokenizer_hash, tokenizer_cfg_hash, weights_hash, license_hash, license_text, model_card_hash, created_at FROM models";
+        let mut stmt = match old_conn.prepare(sql) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to prepare models query (table may have different schema): {}", e);
+                return Ok(());
+            }
+        };
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,              // name
+                row.get::<_, String>(1)?,              // config_hash
+                row.get::<_, String>(2)?,              // tokenizer_hash
+                row.get::<_, String>(3)?,              // tokenizer_cfg_hash
+                row.get::<_, String>(4)?,              // weights_hash
+                row.get::<_, String>(5)?,              // license_hash
+                row.get::<_, String>(6)?,              // license_text
+                row.get::<_, Option<String>>(7)?,      // model_card_hash
+                row.get::<_, i64>(8)?,                 // created_at
+            ))
+        })?;
+
+        let mut error_count = 0;
+        let mut stats = self.stats.lock().await;
+
+        for row_result in rows {
+            stats.models_processed += 1;
+
+            let (name, config_hash_hex, tokenizer_hash_hex, tokenizer_cfg_hash_hex,
+                 weights_hash_hex, license_hash_hex, license_text, model_card_hash_hex, created_at) = match row_result {
+                Ok(data) => data,
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration(format!("Too many model errors: {}", e)));
+                    }
+                    continue;
+                }
+            };
+
+            // Parse hashes
+            let config_hash = match B3Hash::from_hex(&config_hash_hex) {
+                Ok(h) => h,
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    let error_msg = format!("Invalid config hash for model {}: {}", name, e);
+                    stats.validation_errors.push(error_msg.clone());
+                    error!("{}", error_msg);
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration("Too many model hash errors".to_string()));
+                    }
+                    continue;
+                }
+            };
+
+            let tokenizer_hash = match B3Hash::from_hex(&tokenizer_hash_hex) {
+                Ok(h) => h,
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    let error_msg = format!("Invalid tokenizer hash for model {}: {}", name, e);
+                    stats.validation_errors.push(error_msg.clone());
+                    error!("{}", error_msg);
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration("Too many model hash errors".to_string()));
+                    }
+                    continue;
+                }
+            };
+
+            let tokenizer_cfg_hash = match B3Hash::from_hex(&tokenizer_cfg_hash_hex) {
+                Ok(h) => h,
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    let error_msg = format!("Invalid tokenizer_cfg hash for model {}: {}", name, e);
+                    stats.validation_errors.push(error_msg.clone());
+                    error!("{}", error_msg);
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration("Too many model hash errors".to_string()));
+                    }
+                    continue;
+                }
+            };
+
+            let weights_hash = match B3Hash::from_hex(&weights_hash_hex) {
+                Ok(h) => h,
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    let error_msg = format!("Invalid weights hash for model {}: {}", name, e);
+                    stats.validation_errors.push(error_msg.clone());
+                    error!("{}", error_msg);
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration("Too many model hash errors".to_string()));
+                    }
+                    continue;
+                }
+            };
+
+            let license_hash = match B3Hash::from_hex(&license_hash_hex) {
+                Ok(h) => h,
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    let error_msg = format!("Invalid license hash for model {}: {}", name, e);
+                    stats.validation_errors.push(error_msg.clone());
+                    error!("{}", error_msg);
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration("Too many model hash errors".to_string()));
+                    }
+                    continue;
+                }
+            };
+
+            let model_card_hash = match model_card_hash_hex {
+                Some(hex) => match B3Hash::from_hex(&hex) {
+                    Ok(h) => Some(h),
+                    Err(e) => {
+                        warn!("Invalid model_card hash for model {}: {}, setting to None", name, e);
+                        None
+                    }
+                },
+                None => None,
+            };
+
+            // Create ModelRecord
+            let model = ModelRecord {
+                name: name.clone(),
+                config_hash,
+                tokenizer_hash,
+                tokenizer_cfg_hash,
+                weights_hash,
+                license_hash,
+                license_text,
+                model_card_hash,
+                created_at,
+            };
+
+            // Register model via ModelRegistry
+            let model_registry = ModelRegistry::new(
+                Connection::open(new_db_path)
+                    .map_err(|e| AosError::Database(format!("Failed to open registry for model migration: {}", e)))?
+            );
+
+            match model_registry.register_model(model) {
+                Ok(_) => {
+                    stats.models_migrated += 1;
+                    info!("Migrated model: {}", name);
+                }
+                Err(e) => {
+                    stats.models_failed += 1;
+                    error_count += 1;
+                    let error_msg = format!("Failed to migrate model {}: {}", name, e);
+                    stats.validation_errors.push(error_msg.clone());
+                    error!("{}", error_msg);
+
+                    if error_count >= max_errors {
+                        return Err(AosError::Migration("Too many model migration errors".to_string()));
+                    }
+                }
+            }
+        }
+
+        info!("Model migration complete: {} processed, {} migrated, {} failed",
+              stats.models_processed, stats.models_migrated, stats.models_failed);
+
         Ok(())
     }
 

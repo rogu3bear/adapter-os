@@ -15,7 +15,6 @@ const queryClient = new QueryClient({
 });
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  console.log("AppProviders rendering");
   return (
     <QueryClientProvider client={queryClient}>
       <CoreProviders>

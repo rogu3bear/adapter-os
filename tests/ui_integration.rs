@@ -1,32 +1,19 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
-=======
->>>>>>> integration-branch
 //! UI Integration Tests
 //!
 //! Tests for the simplified UI navigation structure and component consolidation.
 //! Citation: docs/architecture/MasterPlan.md L86-L197
 
+use adapteros_db::users::Role;
 use adapteros_server_api::routes::build;
 use adapteros_server_api::state::AppState;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
-<<<<<<< HEAD
-    Router as AxumRouter,
 };
-use tower::ServiceExt;
 use std::sync::{Arc, RwLock};
-
-use adapteros_db::users::Role;
-use jsonwebtoken::{encode, EncodingKey, Header};
-use adapteros_server_api::auth::Claims;
-use std::time::{SystemTime, UNIX_EPOCH};
-=======
-};
 use tower::ServiceExt;
->>>>>>> integration-branch
 
 #[tokio::test]
 async fn test_simplified_navigation_structure() {
@@ -147,63 +134,28 @@ async fn test_policy_packs_consolidation() {
 }
 
 async fn create_test_app_state() -> AppState {
-<<<<<<< HEAD
-    use adapteros_api_types::telemetry::LogBuffer;
-    use adapteros_core::AosError;
-    use adapteros_db::Database;
-    use adapteros_lora_router::Router;
+    use adapteros_db::Db;
+    use adapteros_lora_worker::memory::UmaPressureMonitor;
     use adapteros_metrics_exporter::MetricsExporter;
-    use adapteros_orchestrator::TrainingService;
-    use adapteros_policy::PolicyPackManager;
-    use adapteros_server_api::operation_tracker::OperationTracker;
-    use adapteros_telemetry::{MetricsCollector, MetricsRegistry, UnifiedTelemetryEvent};
-    use adapteros_trace::TraceBuffer;
-    use std::collections::HashMap;
-    use tokio::sync::broadcast;
-    use tokio::sync::RwLock as AsyncRwLock;
+    use adapteros_server_api::state::{ApiConfig, MetricsConfig};
+    use adapteros_server_api::telemetry::MetricsRegistry;
+    use adapteros_telemetry::MetricsCollector;
 
     // Create in-memory database for testing
-    let db = Database::new_in_memory()
+    let db = Db::new_in_memory()
         .await
         .expect("Failed to create test database");
 
     // Create test JWT secret
     let jwt_secret = b"test_jwt_secret_key_for_integration_tests_only".to_vec();
 
-    // Create test API config
-    let api_config = Arc::new(RwLock::new(adapteros_server_api::ApiConfig {
-        server: adapteros_server_api::ServerConfig {
-            host: "127.0.0.1".to_string(),
-            port: 8080,
-            uds_socket: Some("/tmp/test_adapteros.sock".to_string()),
-            production_mode: false,
-            require_pf_deny: false,
-        },
-        security: adapteros_server_api::SecurityConfig {
-            jwt_mode: Some("hs256".to_string()),
-            jwt_signing_key_path: None,
-            jwt_public_key_pem: None,
-            require_pf_deny: false,
-        },
-        database: adapteros_server_api::DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
-            max_connections: 5,
-            connection_timeout_secs: 30,
-        },
-        telemetry: adapteros_server_api::TelemetryConfig {
-            enabled: false,
-            buffer_size: 1000,
-            retention_period_secs: 3600,
-        },
-        training: adapteros_server_api::TrainingConfig {
+    // Create test API config matching current AppState structure
+    let api_config = Arc::new(RwLock::new(ApiConfig {
+        metrics: MetricsConfig {
             enabled: true,
-            log_dir: std::env::temp_dir().join("test_training_logs"),
-            max_concurrent_jobs: 2,
+            bearer_token: "test-token".to_string(),
         },
-        operation_tracking: adapteros_server_api::OperationTrackingConfig {
-            default_timeout_secs: 300,
-            cleanup_interval_secs: 60,
-        },
+        directory_analysis_timeout_secs: 120,
     }));
 
     // Create test metrics components
@@ -211,97 +163,35 @@ async fn create_test_app_state() -> AppState {
     let metrics_collector = Arc::new(MetricsCollector::new());
     let metrics_registry = Arc::new(MetricsRegistry::new());
 
-    // Create test telemetry broadcast channel
-    let (telemetry_tx, _) = broadcast::channel::<UnifiedTelemetryEvent>(100);
+    // Create UMA pressure monitor for memory management
+    let uma_monitor = Arc::new(UmaPressureMonitor::new());
 
-    // Create test training service
-    let training_service = Arc::new(TrainingService::new(
-        Arc::clone(&db),
-        std::env::temp_dir().join("test_training_logs"),
-    ));
-
-    // Create test operation progress broadcast channel
-    let (operation_progress_tx, _) = broadcast::channel(100);
-
-    // Create test operation tracker
-    let operation_tracker = Arc::new(OperationTracker::new_with_progress(
-        std::time::Duration::from_secs(300), // 5 minutes timeout
-        operation_progress_tx,
-    ));
-
-    // Create test policy manager
-    let policy_manager =
-        Arc::new(PolicyPackManager::new(vec![]).expect("Failed to create test policy manager"));
-
-    // Create test router
-    let router = Arc::new(Router::new(adapteros_lora_router::RouterConfig {
-        k_sparse: 3,
-        quantization: adapteros_lora_router::QuantizationConfig::Q15,
-        cache_enabled: false,
-        max_cache_size: 100,
-    }));
-
-    // Create test telemetry buffer
-    let telemetry_buffer = Arc::new(LogBuffer::new(1000));
-
-    // Create test telemetry bundles broadcast channel
-    let (telemetry_bundles_tx, _) = broadcast::channel(10);
-
-    // Create test trace buffer
-    let trace_buffer = Arc::new(TraceBuffer::new(100));
-
-    // Create test training sessions cache
-    let training_sessions = Arc::new(AsyncRwLock::new(HashMap::new()));
-
-    // Create basic AppState
-    let mut state = AppState {
+    // Create AppState using the constructor
+    AppState::new(
         db,
-        jwt_secret: Arc::new(jwt_secret),
-        config: api_config,
+        jwt_secret,
+        api_config,
         metrics_exporter,
         metrics_collector,
         metrics_registry,
-        metrics_server: None,
-        training_service,
-        git_subsystem: None,
-        file_change_tx: None,
-        crypto: Arc::new(adapteros_server_api::CryptoState::new()),
-        lifecycle_manager: None,
-        #[cfg(feature = "cdp")]
-        code_job_manager: None,
-        jwt_mode: adapteros_server_api::JwtMode::Hs256,
-        jwt_public_key_pem: None,
-        policy_manager,
-        router,
-        model_runtime: None,
-        training_sessions,
-        telemetry_buffer,
-        telemetry_tx,
-        telemetry_bundles_tx,
-        operation_progress_tx,
-        operation_tracker,
-        trace_buffer,
-    };
-
-    // Initialize database schema for testing
-    if let Err(e) = state.db.run_migrations().await {
-        tracing::warn!("Failed to run migrations in test setup: {}", e);
-        // Continue anyway - some tests might not need the full schema
-    }
-
-    state
+        uma_monitor,
+    )
 }
 
-async fn create_test_app() -> AxumRouter {
+async fn create_test_app() -> axum::Router {
     let state = create_test_app_state().await;
     build(state)
 }
 
 async fn make_request_with_role(
-    app: AxumRouter,
+    app: axum::Router,
     uri: &str,
     role: Role,
 ) -> axum::response::Response {
+    use adapteros_server_api::auth::Claims;
+    use jsonwebtoken::{encode, EncodingKey, Header};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     let iat = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -310,9 +200,13 @@ async fn make_request_with_role(
 
     let claims = Claims {
         sub: "test_user".to_string(),
+        email: "test@example.com".to_string(),
         role: role.to_string(),
-        iat: iat as usize,
-        exp: exp as usize,
+        tenant_id: "default".to_string(),
+        exp: exp as i64,
+        iat: iat as i64,
+        jti: uuid::Uuid::new_v4().to_string(),
+        nbf: iat as i64,
     };
     let token = encode(
         &Header::default(),
@@ -330,11 +224,6 @@ async fn make_request_with_role(
     )
     .await
     .unwrap()
-=======
-    // Create a test app state for integration tests
-    // Note: This is a simplified test setup - in real tests you'd use proper test fixtures
-    todo!("Implement proper test app state creation")
->>>>>>> integration-branch
 }
 
 #[tokio::test]

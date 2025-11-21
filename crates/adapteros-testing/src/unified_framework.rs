@@ -1016,7 +1016,7 @@ impl UnifiedTestingFramework {
         let mut covered_line_numbers = Vec::new();
 
         for line in content.lines() {
-            if line.starts_with("SF:") {
+            if let Some(stripped) = line.strip_prefix("SF:") {
                 // Start of file
                 if !current_file.is_empty() {
                     self.add_file_coverage(
@@ -1029,17 +1029,17 @@ impl UnifiedTestingFramework {
                         &covered_line_numbers,
                     );
                 }
-                current_file = line[3..].to_string();
+                current_file = stripped.to_string();
                 file_lines = 0;
                 file_covered_lines = 0;
                 file_functions = 0;
                 file_covered_functions = 0;
                 covered_line_numbers.clear();
-            } else if line.starts_with("DA:") {
+            } else if let Some(da_stripped) = line.strip_prefix("DA:") {
                 // Line coverage data: DA:<line>,<hits>
-                if let Some(comma_pos) = line[3..].find(',') {
-                    if let Ok(line_num) = line[3..3 + comma_pos].parse::<u32>() {
-                        if let Ok(hits) = line[4 + comma_pos..].parse::<u32>() {
+                if let Some(comma_pos) = da_stripped.find(',') {
+                    if let Ok(line_num) = da_stripped[..comma_pos].parse::<u32>() {
+                        if let Ok(hits) = da_stripped[comma_pos + 1..].parse::<u32>() {
                             file_lines += 1;
                             *total_lines += 1;
                             if hits > 0 {
@@ -1054,10 +1054,10 @@ impl UnifiedTestingFramework {
                 // Function definition
                 file_functions += 1;
                 *total_functions += 1;
-            } else if line.starts_with("FNDA:") {
+            } else if let Some(fnda_stripped) = line.strip_prefix("FNDA:") {
                 // Function coverage: FNDA:<hits>,<name>
-                if let Some(comma_pos) = line[5..].find(',') {
-                    if let Ok(hits) = line[5..5 + comma_pos].parse::<u32>() {
+                if let Some(comma_pos) = fnda_stripped.find(',') {
+                    if let Ok(hits) = fnda_stripped[..comma_pos].parse::<u32>() {
                         if hits > 0 {
                             file_covered_functions += 1;
                             *covered_functions += 1;
@@ -1083,6 +1083,7 @@ impl UnifiedTestingFramework {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_file_coverage(
         &self,
         file_coverage: &mut HashMap<String, FileCoverage>,
@@ -1290,29 +1291,128 @@ impl UnifiedTestingFramework {
         &self,
         step: &TestStep,
         operation: &str,
-        _query: &str,
-        _params: &[serde_json::Value],
+        query: &str,
+        params: &[serde_json::Value],
         result: &mut TestStepResult,
     ) -> Result<()> {
         debug!(
             step_id = %step.id,
             operation = %operation,
+            query = %query,
             "Executing database step"
         );
 
-        // Placeholder implementation
-        // In a real implementation, this would execute database operations
-        match operation.to_lowercase().as_str() {
-            "select" | "insert" | "update" | "delete" => {
-                result.status = TestStatus::Passed;
-                result.output = Some(format!(
-                    "Database operation '{}' executed successfully",
-                    operation
-                ));
+        // Get database path from step parameters or use default test database
+        let db_path = step
+            .parameters
+            .get("db_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or(":memory:");
+
+        // Execute database operation using SQLite
+        match sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&format!("sqlite:{}", db_path))
+            .await
+        {
+            Ok(pool) => {
+                match operation.to_lowercase().as_str() {
+                    "select" => {
+                        // Execute SELECT query and return results
+                        let mut query_builder = sqlx::query(query);
+                        for param in params {
+                            query_builder = match param {
+                                serde_json::Value::String(s) => query_builder.bind(s.clone()),
+                                serde_json::Value::Number(n) => {
+                                    if let Some(i) = n.as_i64() {
+                                        query_builder.bind(i)
+                                    } else if let Some(f) = n.as_f64() {
+                                        query_builder.bind(f)
+                                    } else {
+                                        query_builder
+                                    }
+                                }
+                                serde_json::Value::Bool(b) => query_builder.bind(*b),
+                                serde_json::Value::Null => query_builder.bind(Option::<String>::None),
+                                _ => query_builder.bind(param.to_string()),
+                            };
+                        }
+
+                        match query_builder.fetch_all(&pool).await {
+                            Ok(rows) => {
+                                result.status = TestStatus::Passed;
+                                result.output = Some(format!(
+                                    "SELECT returned {} rows",
+                                    rows.len()
+                                ));
+                            }
+                            Err(e) => {
+                                result.status = TestStatus::Failed;
+                                result.error = Some(format!("SELECT failed: {}", e));
+                            }
+                        }
+                    }
+                    "insert" | "update" | "delete" => {
+                        // Execute mutation query
+                        let mut query_builder = sqlx::query(query);
+                        for param in params {
+                            query_builder = match param {
+                                serde_json::Value::String(s) => query_builder.bind(s.clone()),
+                                serde_json::Value::Number(n) => {
+                                    if let Some(i) = n.as_i64() {
+                                        query_builder.bind(i)
+                                    } else if let Some(f) = n.as_f64() {
+                                        query_builder.bind(f)
+                                    } else {
+                                        query_builder
+                                    }
+                                }
+                                serde_json::Value::Bool(b) => query_builder.bind(*b),
+                                serde_json::Value::Null => query_builder.bind(Option::<String>::None),
+                                _ => query_builder.bind(param.to_string()),
+                            };
+                        }
+
+                        match query_builder.execute(&pool).await {
+                            Ok(query_result) => {
+                                result.status = TestStatus::Passed;
+                                result.output = Some(format!(
+                                    "{} affected {} rows",
+                                    operation.to_uppercase(),
+                                    query_result.rows_affected()
+                                ));
+                            }
+                            Err(e) => {
+                                result.status = TestStatus::Failed;
+                                result.error = Some(format!("{} failed: {}", operation.to_uppercase(), e));
+                            }
+                        }
+                    }
+                    "execute" => {
+                        // Raw execution (for CREATE TABLE, etc.)
+                        match sqlx::query(query).execute(&pool).await {
+                            Ok(_) => {
+                                result.status = TestStatus::Passed;
+                                result.output = Some("Statement executed successfully".to_string());
+                            }
+                            Err(e) => {
+                                result.status = TestStatus::Failed;
+                                result.error = Some(format!("Execution failed: {}", e));
+                            }
+                        }
+                    }
+                    _ => {
+                        result.status = TestStatus::Error;
+                        result.error = Some(format!("Unsupported database operation: {}", operation));
+                    }
+                }
+
+                // Close pool
+                pool.close().await;
             }
-            _ => {
+            Err(e) => {
                 result.status = TestStatus::Error;
-                result.error = Some(format!("Unsupported database operation: {}", operation));
+                result.error = Some(format!("Failed to connect to database: {}", e));
             }
         }
 
@@ -1404,24 +1504,150 @@ impl UnifiedTestingFramework {
         &self,
         step: &TestStep,
         condition: &str,
-        _expected: &serde_json::Value,
+        expected: &serde_json::Value,
         result: &mut TestStepResult,
     ) -> Result<()> {
         debug!(
             step_id = %step.id,
             condition = %condition,
+            expected = ?expected,
             "Executing assertion step"
         );
 
-        // Placeholder assertion logic
-        // In a real implementation, this would evaluate conditions
+        // Get actual value from step parameters
+        let actual = step.parameters.get("actual");
+
         match condition {
-            "equals" | "contains" | "exists" => {
-                result.status = TestStatus::Passed;
-                result.output = Some(format!("Assertion '{}' passed", condition));
+            "equals" => {
+                if let Some(actual_val) = actual {
+                    if actual_val == expected {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("Assertion passed: {:?} equals {:?}", actual_val, expected));
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Assertion failed: expected {:?}, got {:?}", expected, actual_val));
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Missing 'actual' parameter for equals assertion".to_string());
+                }
+            }
+            "not_equals" => {
+                if let Some(actual_val) = actual {
+                    if actual_val != expected {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("Assertion passed: {:?} not equals {:?}", actual_val, expected));
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Assertion failed: values are equal: {:?}", expected));
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Missing 'actual' parameter for not_equals assertion".to_string());
+                }
+            }
+            "contains" => {
+                if let (Some(serde_json::Value::String(haystack)), serde_json::Value::String(needle)) = (actual, expected) {
+                    if haystack.contains(needle) {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("Assertion passed: '{}' contains '{}'", haystack, needle));
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Assertion failed: '{}' does not contain '{}'", haystack, needle));
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Contains assertion requires string parameters".to_string());
+                }
+            }
+            "exists" => {
+                // Check if a file or key exists
+                if let serde_json::Value::String(path) = expected {
+                    if std::path::Path::new(path).exists() {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("Assertion passed: '{}' exists", path));
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Assertion failed: '{}' does not exist", path));
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Exists assertion requires a string path".to_string());
+                }
+            }
+            "greater_than" => {
+                if let (Some(actual_val), Some(expected_num)) = (actual.and_then(|v| v.as_f64()), expected.as_f64()) {
+                    if actual_val > expected_num {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("Assertion passed: {} > {}", actual_val, expected_num));
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Assertion failed: {} is not greater than {}", actual_val, expected_num));
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Greater than assertion requires numeric parameters".to_string());
+                }
+            }
+            "less_than" => {
+                if let (Some(actual_val), Some(expected_num)) = (actual.and_then(|v| v.as_f64()), expected.as_f64()) {
+                    if actual_val < expected_num {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("Assertion passed: {} < {}", actual_val, expected_num));
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Assertion failed: {} is not less than {}", actual_val, expected_num));
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Less than assertion requires numeric parameters".to_string());
+                }
+            }
+            "regex" => {
+                if let (Some(serde_json::Value::String(text)), serde_json::Value::String(pattern)) = (actual, expected) {
+                    match regex::Regex::new(pattern) {
+                        Ok(re) => {
+                            if re.is_match(text) {
+                                result.status = TestStatus::Passed;
+                                result.output = Some(format!("Assertion passed: text matches pattern '{}'", pattern));
+                            } else {
+                                result.status = TestStatus::Failed;
+                                result.error = Some(format!("Assertion failed: text does not match pattern '{}'", pattern));
+                            }
+                        }
+                        Err(e) => {
+                            result.status = TestStatus::Error;
+                            result.error = Some(format!("Invalid regex pattern: {}", e));
+                        }
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Regex assertion requires string parameters".to_string());
+                }
+            }
+            "not_empty" => {
+                if let Some(actual_val) = actual {
+                    let is_empty = match actual_val {
+                        serde_json::Value::String(s) => s.is_empty(),
+                        serde_json::Value::Array(a) => a.is_empty(),
+                        serde_json::Value::Object(o) => o.is_empty(),
+                        serde_json::Value::Null => true,
+                        _ => false,
+                    };
+                    if !is_empty {
+                        result.status = TestStatus::Passed;
+                        result.output = Some("Assertion passed: value is not empty".to_string());
+                    } else {
+                        result.status = TestStatus::Failed;
+                        result.error = Some("Assertion failed: value is empty".to_string());
+                    }
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.error = Some("Missing 'actual' parameter for not_empty assertion".to_string());
+                }
             }
             _ => {
-                result.status = TestStatus::Failed;
+                result.status = TestStatus::Error;
                 result.error = Some(format!("Unsupported assertion condition: {}", condition));
             }
         }
@@ -1433,18 +1659,137 @@ impl UnifiedTestingFramework {
         &self,
         step: &TestStep,
         action_type: &str,
-        _parameters: &HashMap<String, serde_json::Value>,
+        parameters: &HashMap<String, serde_json::Value>,
         result: &mut TestStepResult,
     ) -> Result<()> {
         debug!(
             step_id = %step.id,
             action_type = %action_type,
+            parameters = ?parameters,
             "Executing custom step"
         );
 
-        // Placeholder for custom actions
-        result.status = TestStatus::Passed;
-        result.output = Some(format!("Custom action '{}' executed", action_type));
+        // Extensible custom action handling
+        match action_type {
+            "sleep" => {
+                // Sleep for a specified duration
+                let duration_ms = parameters
+                    .get("duration_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(1000);
+                tokio::time::sleep(tokio::time::Duration::from_millis(duration_ms)).await;
+                result.status = TestStatus::Passed;
+                result.output = Some(format!("Slept for {}ms", duration_ms));
+            }
+            "log" => {
+                // Log a message
+                let message = parameters
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Custom log message");
+                let level = parameters
+                    .get("level")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("info");
+
+                match level {
+                    "debug" => debug!(step_id = %step.id, "{}", message),
+                    "info" => info!(step_id = %step.id, "{}", message),
+                    "warn" => warn!(step_id = %step.id, "{}", message),
+                    _ => info!(step_id = %step.id, "{}", message),
+                }
+
+                result.status = TestStatus::Passed;
+                result.output = Some(format!("Logged: {}", message));
+            }
+            "set_env" => {
+                // Set an environment variable for test context
+                let key = parameters
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AosError::Config("Missing 'key' for set_env action".to_string()))?;
+                let value = parameters
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AosError::Config("Missing 'value' for set_env action".to_string()))?;
+
+                std::env::set_var(key, value);
+                result.status = TestStatus::Passed;
+                result.output = Some(format!("Set env var {}={}", key, value));
+            }
+            "get_env" => {
+                // Get an environment variable
+                let key = parameters
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AosError::Config("Missing 'key' for get_env action".to_string()))?;
+
+                match std::env::var(key) {
+                    Ok(value) => {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(value);
+                    }
+                    Err(_) => {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("Environment variable '{}' not found", key));
+                    }
+                }
+            }
+            "json_parse" => {
+                // Parse and validate JSON
+                let json_str = parameters
+                    .get("json")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AosError::Config("Missing 'json' for json_parse action".to_string()))?;
+
+                match serde_json::from_str::<serde_json::Value>(json_str) {
+                    Ok(parsed) => {
+                        result.status = TestStatus::Passed;
+                        result.output = Some(format!("JSON parsed successfully: {}", parsed));
+                    }
+                    Err(e) => {
+                        result.status = TestStatus::Failed;
+                        result.error = Some(format!("JSON parse error: {}", e));
+                    }
+                }
+            }
+            "timestamp" => {
+                // Generate a timestamp
+                let timestamp = chrono::Utc::now().to_rfc3339();
+                result.status = TestStatus::Passed;
+                result.output = Some(timestamp);
+            }
+            "uuid" => {
+                // Generate a UUID
+                let uuid = uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string();
+                result.status = TestStatus::Passed;
+                result.output = Some(uuid);
+            }
+            "hash" => {
+                // Generate a hash of input data
+                let data = parameters
+                    .get("data")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                data.hash(&mut hasher);
+                let hash = hasher.finish();
+
+                result.status = TestStatus::Passed;
+                result.output = Some(format!("{:x}", hash));
+            }
+            _ => {
+                // Unknown custom action type
+                result.status = TestStatus::Error;
+                result.error = Some(format!(
+                    "Unknown custom action type: '{}'. Supported: sleep, log, set_env, get_env, json_parse, timestamp, uuid, hash",
+                    action_type
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -1709,14 +2054,97 @@ impl UnifiedTestingFramework {
 
     async fn execute_json_path_assertion(
         &self,
-        _assertion: &TestAssertion,
+        assertion: &TestAssertion,
         result: &mut AssertionResult,
     ) -> Result<()> {
-        // Placeholder for JSONPath assertions
-        // In a real implementation, this would use a JSONPath library
-        result.status = TestStatus::Passed;
-        result.message = Some("JSONPath assertion placeholder - not yet implemented".to_string());
+        // Get required parameters
+        let json_data = assertion
+            .parameters
+            .get("json")
+            .ok_or_else(|| {
+                AosError::Config("Missing 'json' parameter for JSONPath assertion".to_string())
+            })?;
+
+        let path = assertion
+            .parameters
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AosError::Config("Missing or invalid 'path' parameter for JSONPath assertion".to_string())
+            })?;
+
+        let expected = assertion.parameters.get("expected");
+
+        // Simple JSONPath implementation supporting basic paths like "$.key", "$.key.subkey", "$.array[0]"
+        let extracted = self.extract_json_path(json_data, path);
+
+        match (extracted, expected) {
+            (Some(value), Some(expected_value)) => {
+                // Compare with expected value
+                if &value == expected_value {
+                    result.status = TestStatus::Passed;
+                    result.message = Some(format!(
+                        "JSONPath '{}' matched expected value: {:?}",
+                        path, value
+                    ));
+                } else {
+                    result.status = TestStatus::Failed;
+                    result.message = Some(format!(
+                        "JSONPath '{}': expected {:?}, got {:?}",
+                        path, expected_value, value
+                    ));
+                }
+            }
+            (Some(value), None) => {
+                // Just check if path exists and return value
+                result.status = TestStatus::Passed;
+                result.message = Some(format!("JSONPath '{}' found: {:?}", path, value));
+                result.details = Some(value);
+            }
+            (None, _) => {
+                result.status = TestStatus::Failed;
+                result.message = Some(format!("JSONPath '{}' not found in JSON data", path));
+            }
+        }
+
         Ok(())
+    }
+
+    /// Extract a value from JSON using a simple JSONPath expression
+    fn extract_json_path(&self, json: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
+        // Handle root reference
+        let path = path.strip_prefix("$.").unwrap_or(path.strip_prefix("$").unwrap_or(path));
+
+        if path.is_empty() {
+            return Some(json.clone());
+        }
+
+        let mut current = json.clone();
+
+        for segment in path.split('.') {
+            // Check for array index: key[0]
+            if let Some(bracket_pos) = segment.find('[') {
+                let key = &segment[..bracket_pos];
+                let index_str = segment[bracket_pos + 1..].trim_end_matches(']');
+
+                // First get the object by key
+                if !key.is_empty() {
+                    current = current.get(key)?.clone();
+                }
+
+                // Then get the array element by index
+                if let Ok(index) = index_str.parse::<usize>() {
+                    current = current.get(index)?.clone();
+                } else {
+                    return None;
+                }
+            } else {
+                // Simple key access
+                current = current.get(segment)?.clone();
+            }
+        }
+
+        Some(current)
     }
 }
 
@@ -1790,16 +2218,75 @@ impl UnifiedTestingFramework {
                     .await?;
             }
             TestAction::NetworkOperation { operation, host, port } => {
-                // Placeholder for network operations
                 debug!(
                     step_id = %step.id,
                     operation = %operation,
                     host = %host,
                     port = port,
-                    "Network operation step (not implemented)"
+                    "Executing network operation"
                 );
-                step_result.status = TestStatus::Passed;
-                step_result.output = Some(format!("Network operation '{}' on {}:{}", operation, host, port));
+
+                match operation.as_str() {
+                    "ping" | "connect" => {
+                        // Test TCP connection
+                        let addr = format!("{}:{}", host, port);
+                        match tokio::time::timeout(
+                            tokio::time::Duration::from_secs(5),
+                            tokio::net::TcpStream::connect(&addr)
+                        ).await {
+                            Ok(Ok(_)) => {
+                                step_result.status = TestStatus::Passed;
+                                step_result.output = Some(format!("Successfully connected to {}", addr));
+                            }
+                            Ok(Err(e)) => {
+                                step_result.status = TestStatus::Failed;
+                                step_result.error = Some(format!("Connection failed to {}: {}", addr, e));
+                            }
+                            Err(_) => {
+                                step_result.status = TestStatus::Timeout;
+                                step_result.error = Some(format!("Connection timeout to {}", addr));
+                            }
+                        }
+                    }
+                    "dns" | "resolve" => {
+                        // DNS resolution
+                        match tokio::net::lookup_host(format!("{}:{}", host, port)).await {
+                            Ok(addrs) => {
+                                let addrs: Vec<_> = addrs.collect();
+                                step_result.status = TestStatus::Passed;
+                                step_result.output = Some(format!("Resolved {} to {} addresses", host, addrs.len()));
+                            }
+                            Err(e) => {
+                                step_result.status = TestStatus::Failed;
+                                step_result.error = Some(format!("DNS resolution failed for {}: {}", host, e));
+                            }
+                        }
+                    }
+                    "port_check" => {
+                        // Check if port is open
+                        let addr = format!("{}:{}", host, port);
+                        match tokio::time::timeout(
+                            tokio::time::Duration::from_secs(2),
+                            tokio::net::TcpStream::connect(&addr)
+                        ).await {
+                            Ok(Ok(_)) => {
+                                step_result.status = TestStatus::Passed;
+                                step_result.output = Some(format!("Port {} is open on {}", port, host));
+                            }
+                            _ => {
+                                step_result.status = TestStatus::Failed;
+                                step_result.error = Some(format!("Port {} is closed on {}", port, host));
+                            }
+                        }
+                    }
+                    _ => {
+                        step_result.status = TestStatus::Error;
+                        step_result.error = Some(format!(
+                            "Unsupported network operation: '{}'. Supported: ping, connect, dns, resolve, port_check",
+                            operation
+                        ));
+                    }
+                }
             }
         }
 
@@ -1886,23 +2373,268 @@ impl UnifiedTestingFramework {
                 }
             }
             AssertionType::DatabaseRecordExists => {
-                // Placeholder for database assertions
-                assertion_result.status = TestStatus::Passed;
-                assertion_result.message = Some("DatabaseRecordExists assertion placeholder".to_string());
+                // Database record existence check
+                let db_path = assertion
+                    .parameters
+                    .get("db_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(":memory:");
+                let table = assertion
+                    .parameters
+                    .get("table")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        AosError::Config("Missing 'table' parameter for DatabaseRecordExists assertion".to_string())
+                    })?;
+                let condition = assertion
+                    .parameters
+                    .get("condition")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("1=1");
+
+                // Connect and query
+                match sqlx::sqlite::SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .connect(&format!("sqlite:{}", db_path))
+                    .await
+                {
+                    Ok(pool) => {
+                        let query = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, condition);
+                        match sqlx::query_scalar::<_, i64>(&query).fetch_one(&pool).await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    assertion_result.status = TestStatus::Passed;
+                                    assertion_result.message = Some(format!(
+                                        "Found {} record(s) in {} where {}",
+                                        count, table, condition
+                                    ));
+                                } else {
+                                    assertion_result.status = TestStatus::Failed;
+                                    assertion_result.message = Some(format!(
+                                        "No records found in {} where {}",
+                                        table, condition
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                assertion_result.status = TestStatus::Error;
+                                assertion_result.message = Some(format!("Database query failed: {}", e));
+                            }
+                        }
+                        pool.close().await;
+                    }
+                    Err(e) => {
+                        assertion_result.status = TestStatus::Error;
+                        assertion_result.message = Some(format!("Database connection failed: {}", e));
+                    }
+                }
             }
             AssertionType::ApiResponse => {
-                // Placeholder for API response assertions
-                assertion_result.status = TestStatus::Passed;
-                assertion_result.message = Some("ApiResponse assertion placeholder".to_string());
+                // API response validation
+                let url = assertion
+                    .parameters
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        AosError::Config("Missing 'url' parameter for ApiResponse assertion".to_string())
+                    })?;
+                let method = assertion
+                    .parameters
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("GET");
+                let expected_status = assertion
+                    .parameters
+                    .get("expected_status")
+                    .and_then(|v| v.as_u64())
+                    .map(|s| s as u16);
+                let expected_body_contains = assertion
+                    .parameters
+                    .get("body_contains")
+                    .and_then(|v| v.as_str());
+
+                let client = reqwest::Client::new();
+                let request = match method.to_uppercase().as_str() {
+                    "GET" => client.get(url),
+                    "POST" => client.post(url),
+                    "PUT" => client.put(url),
+                    "DELETE" => client.delete(url),
+                    _ => {
+                        assertion_result.status = TestStatus::Error;
+                        assertion_result.message = Some(format!("Unsupported HTTP method: {}", method));
+                        return Ok(assertion_result);
+                    }
+                };
+
+                match request.send().await {
+                    Ok(response) => {
+                        let status = response.status().as_u16();
+                        let body = response.text().await.unwrap_or_default();
+
+                        let mut passed = true;
+                        let mut messages = Vec::new();
+
+                        // Check status code
+                        if let Some(expected) = expected_status {
+                            if status == expected {
+                                messages.push(format!("Status {} matches expected", status));
+                            } else {
+                                passed = false;
+                                messages.push(format!("Status {} does not match expected {}", status, expected));
+                            }
+                        } else {
+                            messages.push(format!("Response status: {}", status));
+                        }
+
+                        // Check body content
+                        if let Some(needle) = expected_body_contains {
+                            if body.contains(needle) {
+                                messages.push(format!("Body contains '{}'", needle));
+                            } else {
+                                passed = false;
+                                messages.push(format!("Body does not contain '{}'", needle));
+                            }
+                        }
+
+                        assertion_result.status = if passed { TestStatus::Passed } else { TestStatus::Failed };
+                        assertion_result.message = Some(messages.join("; "));
+                    }
+                    Err(e) => {
+                        assertion_result.status = TestStatus::Error;
+                        assertion_result.message = Some(format!("API request failed: {}", e));
+                    }
+                }
             }
             AssertionType::JsonPath => {
                 self.execute_json_path_assertion(assertion, &mut assertion_result)
                     .await?;
             }
             AssertionType::Custom { assertion_type } => {
-                // Placeholder for custom assertions
-                assertion_result.status = TestStatus::Passed;
-                assertion_result.message = Some(format!("Custom assertion '{}' placeholder", assertion_type));
+                // Extensible custom assertions
+                match assertion_type.as_str() {
+                    "env_var_set" => {
+                        // Check if environment variable is set
+                        let key = assertion
+                            .parameters
+                            .get("key")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AosError::Config("Missing 'key' parameter for env_var_set assertion".to_string())
+                            })?;
+
+                        if std::env::var(key).is_ok() {
+                            assertion_result.status = TestStatus::Passed;
+                            assertion_result.message = Some(format!("Environment variable '{}' is set", key));
+                        } else {
+                            assertion_result.status = TestStatus::Failed;
+                            assertion_result.message = Some(format!("Environment variable '{}' is not set", key));
+                        }
+                    }
+                    "env_var_equals" => {
+                        // Check if environment variable equals expected value
+                        let key = assertion
+                            .parameters
+                            .get("key")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AosError::Config("Missing 'key' parameter for env_var_equals assertion".to_string())
+                            })?;
+                        let expected = assertion
+                            .parameters
+                            .get("expected")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AosError::Config("Missing 'expected' parameter for env_var_equals assertion".to_string())
+                            })?;
+
+                        match std::env::var(key) {
+                            Ok(value) if value == expected => {
+                                assertion_result.status = TestStatus::Passed;
+                                assertion_result.message = Some(format!("{}={} matches expected", key, value));
+                            }
+                            Ok(value) => {
+                                assertion_result.status = TestStatus::Failed;
+                                assertion_result.message = Some(format!("{}={}, expected {}", key, value, expected));
+                            }
+                            Err(_) => {
+                                assertion_result.status = TestStatus::Failed;
+                                assertion_result.message = Some(format!("Environment variable '{}' not set", key));
+                            }
+                        }
+                    }
+                    "directory_exists" => {
+                        let path = assertion
+                            .parameters
+                            .get("path")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AosError::Config("Missing 'path' parameter for directory_exists assertion".to_string())
+                            })?;
+
+                        let p = std::path::Path::new(path);
+                        if p.exists() && p.is_dir() {
+                            assertion_result.status = TestStatus::Passed;
+                            assertion_result.message = Some(format!("Directory exists: {}", path));
+                        } else if p.exists() {
+                            assertion_result.status = TestStatus::Failed;
+                            assertion_result.message = Some(format!("Path exists but is not a directory: {}", path));
+                        } else {
+                            assertion_result.status = TestStatus::Failed;
+                            assertion_result.message = Some(format!("Directory does not exist: {}", path));
+                        }
+                    }
+                    "file_size" => {
+                        let path = assertion
+                            .parameters
+                            .get("path")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                AosError::Config("Missing 'path' parameter for file_size assertion".to_string())
+                            })?;
+                        let min_size = assertion.parameters.get("min_size").and_then(|v| v.as_u64());
+                        let max_size = assertion.parameters.get("max_size").and_then(|v| v.as_u64());
+
+                        match std::fs::metadata(path) {
+                            Ok(meta) => {
+                                let size = meta.len();
+                                let mut passed = true;
+                                let mut messages = Vec::new();
+
+                                if let Some(min) = min_size {
+                                    if size >= min {
+                                        messages.push(format!("Size {} >= min {}", size, min));
+                                    } else {
+                                        passed = false;
+                                        messages.push(format!("Size {} < min {}", size, min));
+                                    }
+                                }
+
+                                if let Some(max) = max_size {
+                                    if size <= max {
+                                        messages.push(format!("Size {} <= max {}", size, max));
+                                    } else {
+                                        passed = false;
+                                        messages.push(format!("Size {} > max {}", size, max));
+                                    }
+                                }
+
+                                assertion_result.status = if passed { TestStatus::Passed } else { TestStatus::Failed };
+                                assertion_result.message = Some(messages.join("; "));
+                            }
+                            Err(e) => {
+                                assertion_result.status = TestStatus::Error;
+                                assertion_result.message = Some(format!("Failed to get file metadata: {}", e));
+                            }
+                        }
+                    }
+                    _ => {
+                        assertion_result.status = TestStatus::Error;
+                        assertion_result.message = Some(format!(
+                            "Unknown custom assertion type: '{}'. Supported: env_var_set, env_var_equals, directory_exists, file_size",
+                            assertion_type
+                        ));
+                    }
+                }
             }
         }
 

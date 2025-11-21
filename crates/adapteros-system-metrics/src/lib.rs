@@ -11,6 +11,10 @@
 //!
 //! Follows AdapterOS patterns for telemetry, policy enforcement, and error handling.
 
+#![allow(clippy::collapsible_match)]
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+
 pub mod alerting;
 pub mod anomaly;
 pub mod baselines;
@@ -37,6 +41,14 @@ pub use notifications::{NotificationConfig, NotificationService};
 pub use persistence::MetricsPersistenceService;
 pub use policy::SystemMetricsPolicy;
 pub use types::{MetricsConfig, ThresholdsConfig};
+
+// Re-export monitoring types from adapteros_db via monitoring_types module
+pub use monitoring_types::{
+    AcknowledgeAlertRequest, AlertFilters, AlertResponse, AlertSeverity, AlertStatus,
+    AnomalyFilters, AnomalyResponse, AnomalyStatus, BaselineResponse, BaselineType,
+    CreateMonitoringRuleApiRequest, DashboardData, MetricFilters, PerformanceBaseline,
+    ProcessAlert, ProcessAnomaly, ProcessHealthMetric, ProcessMonitoringRule,
+};
 
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;

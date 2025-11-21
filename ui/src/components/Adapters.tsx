@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, memo } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -93,6 +93,7 @@ import { logger, toError } from '../utils/logger';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 import { BookmarkButton } from './ui/bookmark-button';
 import { getLifecycleVariant } from '../utils/lifecycle';
+import { SectionErrorBoundary } from './ui/section-error-boundary';
 
 interface AdaptersProps {
   user: User;
@@ -137,10 +138,10 @@ interface TrainingMetrics {
   learning_rate: number;
   gpu_utilization: number;
   memory_usage: number;
-  tokens_per_sec: number;
+  tokens_per_second: number;
 }
 
-export function Adapters({ user, selectedTenant }: AdaptersProps) {
+export const Adapters = memo(function Adapters({ user, selectedTenant }: AdaptersProps) {
   const navigate = useNavigate();
   const { addAction } = useUndoRedoContext();
   const [adapters, setAdapters] = useState<Adapter[]>([]);
@@ -355,13 +356,13 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     });
   }, [adapters]);
 
-  const handleDeleteAdapter = async (adapterId: string) => {
+  const handleDeleteAdapter = useCallback(async (adapterId: string) => {
     try {
       const adapter = adapters.find(a => a.adapter_id === adapterId);
       if (!adapter) return;
 
       const previousAdapter = { ...adapter };
-      
+
       await apiClient.deleteAdapter(adapterId);
       const updatedAdapters = adapters.filter(a => a.adapter_id !== adapterId);
       setAdapters(updatedAdapters);
@@ -408,9 +409,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         />
       );
     }
-  };
+  }, [adapters, addAction, loadAdapters]);
 
-  const handleLoadAdapter = async (adapterId: string) => {
+  const handleLoadAdapter = useCallback(async (adapterId: string) => {
     try {
       const adapter = adapters.find(a => a.adapter_id === adapterId);
       const previousState = adapter?.current_state;
@@ -420,7 +421,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
 
       showStatus('Loading adapter...', 'info');
       await apiClient.loadAdapter(adapterId);
-      
+
       // Record undo action
       if (adapter && previousState) {
         addAction({
@@ -441,7 +442,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           },
         });
       }
-      
+
       setSuccessFeedback(
         successTemplates.adapterLoaded(
           adapter?.name || 'Adapter',
@@ -460,16 +461,16 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       );
       setStatusMessage(null);
     }
-  };
+  }, [adapters, addAction, loadAdapters, selectedTenant, startProgressOperation, transitionTo]);
 
-  const handleUnloadAdapter = async (adapterId: string) => {
+  const handleUnloadAdapter = useCallback(async (adapterId: string) => {
     try {
       const adapter = adapters.find(a => a.adapter_id === adapterId);
       const previousState = adapter?.current_state;
-      
+
       showStatus('Unloading adapter...', 'info');
       await apiClient.unloadAdapter(adapterId);
-      
+
       // Record undo action
       if (adapter && previousState) {
         addAction({
@@ -490,7 +491,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           },
         });
       }
-      
+
       showStatus('Adapter unloaded successfully.', 'success');
       await loadAdapters();
     } catch (err) {
@@ -503,13 +504,13 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       );
       setStatusMessage(null);
     }
-  };
+  }, [adapters, addAction, loadAdapters]);
 
-  const handlePinToggle = async (adapter: Adapter) => {
+  const handlePinToggle = useCallback(async (adapter: Adapter) => {
     try {
       const previousPinned = adapter.pinned;
       const isPinning = !adapter.pinned;
-      
+
       if (adapter.pinned) {
         await apiClient.unpinAdapter(adapter.adapter_id);
         showStatus('Adapter unpinned.', 'success');
@@ -517,7 +518,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         await apiClient.pinAdapter(adapter.adapter_id, true);
         showStatus('Adapter pinned.', 'success');
       }
-      
+
       // Record undo action
       addAction({
         type: isPinning ? 'pin_adapter' : 'unpin_adapter',
@@ -540,7 +541,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           }
         },
       });
-      
+
       await loadAdapters();
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to toggle pin');
@@ -551,9 +552,9 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         />
       );
     }
-  };
+  }, [addAction, loadAdapters]);
 
-  const handlePromoteState = async (adapterId: string) => {
+  const handlePromoteState = useCallback(async (adapterId: string) => {
     try {
       const result = await apiClient.promoteAdapterState(adapterId);
       showStatus(`State promoted: ${result.old_state} → ${result.new_state}`, 'success');
@@ -569,7 +570,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         />
       );
     }
-  };
+  }, []);
 
   // Bulk action handlers
   const handleBulkLoad = async (adapterIds: string[]) => {
@@ -857,7 +858,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
     setConfirmationOpen(true);
   };
 
-  const bulkActions: BulkAction[] = [
+  const bulkActions: BulkAction[] = useMemo(() => [
     {
       id: 'load',
       label: 'Load',
@@ -874,7 +875,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       variant: 'destructive',
       handler: handleBulkDelete
     }
-  ];
+  ], [handleBulkLoad, handleBulkUnload, handleBulkDelete]);
 
   const handleDownloadManifest = async (adapterId: string) => {
     try {
@@ -1018,7 +1019,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
   const [filterValues, setFilterValues] = useState<FilterValues>({});
   
   // Filter configurations for adapters
-  const adapterFilterConfigs: FilterConfig[] = [
+  const adapterFilterConfigs: FilterConfig[] = useMemo(() => [
     {
       id: 'search',
       label: 'Search',
@@ -1082,10 +1083,10 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       label: 'Pinned Only',
       type: 'toggle',
     },
-  ];
+  ], [adapters]);
   
-  // Filter adapters based on filter values
-  const filteredAdapters = adapters.filter(adapter => {
+  // Filter adapters based on filter values - memoized for performance
+  const filteredAdapters = useMemo(() => adapters.filter(adapter => {
     // Search filter
     if (filterValues.search) {
       const searchLower = String(filterValues.search).toLowerCase();
@@ -1097,47 +1098,47 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         return false;
       }
     }
-    
+
     // Category filter
     if (filterValues.category && adapter.category !== filterValues.category) {
       return false;
     }
-    
+
     // Framework filter
     if (filterValues.framework && adapter.framework !== filterValues.framework) {
       return false;
     }
-    
+
     // State filter (multi-select)
     if (filterValues.state && Array.isArray(filterValues.state) && filterValues.state.length > 0) {
       if (!filterValues.state.includes(adapter.current_state)) {
         return false;
       }
     }
-    
+
     // Tier filter (multi-select)
     if (filterValues.tier && Array.isArray(filterValues.tier) && filterValues.tier.length > 0) {
       if (!filterValues.tier.includes(String(adapter.tier))) {
         return false;
       }
     }
-    
+
     // Scope filter (multi-select)
     if (filterValues.scope && Array.isArray(filterValues.scope) && filterValues.scope.length > 0) {
       if (!filterValues.scope.includes(adapter.scope)) {
         return false;
       }
     }
-    
+
     // Pinned filter
     if (filterValues.pinned === true && !adapter.pinned) {
       return false;
     }
-    
-    return true;
-  });
 
-  const handleViewHealth = async (adapterId: string) => {
+    return true;
+  }), [adapters, filterValues]);
+
+  const handleViewHealth = useCallback(async (adapterId: string) => {
     try {
       const health = await apiClient.getAdapterHealth(adapterId);
       setHealthData(health);
@@ -1155,7 +1156,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
         />
       );
     }
-  };
+  }, [adapters]);
 
   const getStateIcon = (state: string) => {
     switch (state) {
@@ -1341,6 +1342,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               </div>
             </CardHeader>
             <CardContent>
+              <SectionErrorBoundary sectionName="Adapter List">
               <div className="max-h-[600px] overflow-auto" data-virtual-container>
               <Table className="border-collapse w-full" role="table" aria-label="Registered adapters">
                 <TableHeader>
@@ -1531,6 +1533,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   </TableBody>
                 </Table>
               </div>
+              </SectionErrorBoundary>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1596,6 +1599,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <TabsTrigger value="path">From Server Path</TabsTrigger>
             </TabsList>
             <TabsContent value="upload" className="space-y-4">
+              <SectionErrorBoundary sectionName="Import Wizard">
               <AdapterImportWizard
                 onComplete={async (adapter) => {
                   setSuccessFeedback(
@@ -1614,6 +1618,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
                   setUploadFile(null);
                 }}
               />
+              </SectionErrorBoundary>
             </TabsContent>
             <TabsContent value="path" className="space-y-4">
               <div className="space-y-3">
@@ -1838,6 +1843,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
           <DialogHeader>
             <DialogTitle>Import Adapter</DialogTitle>
           </DialogHeader>
+          <SectionErrorBoundary sectionName="Import Wizard">
           <AdapterImportWizard
             onComplete={(adapter) => {
               setShowImportDialog(false);
@@ -1846,70 +1852,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
             }}
             onCancel={() => setShowImportDialog(false)}
           />
-        </DialogContent>
-      </Dialog>
-
-      {/* Directory Upsert Dialog */}
-      <Dialog open={upsertOpen} onOpenChange={setUpsertOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Directory Upsert</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="upsert-root">Root Directory</Label>
-              <Input
-                id="upsert-root"
-                value={upsertRoot}
-                onChange={(e) => setUpsertRoot(e.target.value)}
-                placeholder="/path/to/adapters"
-              />
-            </div>
-            <div>
-              <Label htmlFor="upsert-path">Adapter Path (relative to root)</Label>
-              <Input
-                id="upsert-path"
-                value={upsertPath}
-                onChange={(e) => setUpsertPath(e.target.value)}
-                placeholder="my-adapter.aos"
-              />
-            </div>
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="upsert-activate"
-                checked={upsertActivate}
-                onCheckedChange={setUpsertActivate}
-              />
-              <Label htmlFor="upsert-activate">Activate after upsert</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUpsertOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={async () => {
-              try {
-                await apiClient.upsertAdapter({
-                  root: upsertRoot,
-                  path: upsertPath,
-                  activate: upsertActivate,
-                });
-                showStatus('Adapter upserted successfully.', 'success');
-                setUpsertOpen(false);
-                await loadAdapters();
-              } catch (err) {
-                const error = err instanceof Error ? err : new Error('Failed to upsert adapter');
-                setErrorRecovery(
-                  <ErrorRecovery
-                    error={error.message}
-                    onRetry={() => {}}
-                  />
-                );
-              }
-            }}>
-              Upsert
-            </Button>
-          </DialogFooter>
+          </SectionErrorBoundary>
         </DialogContent>
       </Dialog>
 
@@ -1924,7 +1867,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       </ContentSection>
     </div>
   );
-}
+});
 
 // Helper function to get category icon
 function getCategoryIcon(category: string) {
@@ -1991,6 +1934,7 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
   });
 
   return (
+    <SectionErrorBoundary sectionName="Register Form">
     <div className="space-y-4">
       <div>
         <Label htmlFor="name">Adapter Name</Label>
@@ -2080,6 +2024,7 @@ function RegisterAdapterForm({ onClose }: { onClose: () => void }) {
         </Button>
       </div>
     </div>
+    </SectionErrorBoundary>
   );
 }
 

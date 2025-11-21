@@ -128,15 +128,12 @@ export function SingleFileAdapterTrainer() {
       // 3. Start the training job via API
       
       // For now, we'll create a training job with the file content
+      // Note: UI-only fields (dataset_path, adapters_root, package) removed
+      // In production, file upload would create a dataset_id to pass here
       const response = await apiClient.startTraining({
         adapter_name: adapterName,
         config: config,
-        dataset_path: file.name, // This would be a server path in production
-        adapters_root: './adapters',
-        package: true,
-        register: true,
-        adapter_id: adapterName,
-        tier: 1
+        // dataset_id: would be set after file upload creates a dataset
       });
 
       setTrainingJob(response as TrainingJob);
@@ -243,7 +240,11 @@ export function SingleFileAdapterTrainer() {
     } catch (error) {
       logger.error('Inference test failed', { component: 'SingleFileAdapterTrainer', operation: 'testInference' }, toError(error));
       setTestResult({
+        id: 'error',
         text: 'Error: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        tokens_generated: 0,
+        latency_ms: 0,
+        adapters_used: [],
         finish_reason: 'error',
         trace: {
           router_decisions: [],

@@ -1,0 +1,4 @@
+module CoreMLSwiftBridge {
+    header "CoreMLBridge-Swift.h"
+    export *
+}
