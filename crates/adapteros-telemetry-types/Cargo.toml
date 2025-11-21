@@ -10,4 +10,14 @@ description = "Shared telemetry metric types for AdapterOS"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+adapteros-core = { path = "../adapteros-core" }
+adapteros-types = { path = "../adapteros-types" }
 
+[features]
+default = []
+utoipa = ["dep:utoipa"]
+
+[dependencies.utoipa]
+version = "4.2"
+features = ["axum_extras"]
+optional = true

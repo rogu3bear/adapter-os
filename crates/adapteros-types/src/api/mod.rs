@@ -4,10 +4,16 @@
 //! - ErrorResponse
 //! - HealthResponse
 //! - Common request patterns
+//!
+//! NOTE: The canonical ErrorResponse is in adapteros-api-types.
+//! This module re-exports a compatible type for backwards compatibility.
 
 use serde::{Deserialize, Serialize};
 
 /// Common error response structure
+///
+/// NOTE: Prefer using `adapteros_api_types::ErrorResponse` for new code.
+/// This type is kept for backwards compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ErrorResponse {

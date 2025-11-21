@@ -44,7 +44,45 @@ pub mod telemetry;
 /// Common API patterns (requests, responses, streaming)
 pub mod api;
 
-// Re-export commonly used types for convenience
-pub use adapters::{AdapterMetadata, LifecycleState, RegisterAdapterRequest};
+/// Re-exported types for convenience
+///
+/// # Purpose
+///
+/// This re-export strategy provides three import paths:
+///
+/// 1. **Specific imports** (recommended for clarity):
+///    ```ignore
+///    use adapteros_types::adapters::AdapterInfo;
+///    use adapteros_types::core::Uuid;
+///    use adapteros_types::routing::RouterDecision;
+///    ```
+///
+/// 2. **Aggregate imports** (convenience):
+///    ```ignore
+///    use adapteros_types::AdapterInfo;  // From adapters
+///    use adapteros_types::Uuid;         // From core (via pub use core::*)
+///    use adapteros_types::RouterDecision;
+///    ```
+///
+/// 3. **Module imports** (for namespace clarity):
+///    ```ignore
+///    use adapteros_types::{adapters, core, routing};
+///    ```
+///
+/// The `pub use core::*` re-export provides domain-agnostic primitives (identity,
+/// temporal, pagination) at the crate root for ergonomic access. All other modules
+/// use explicit type re-exports to document the public API surface.
+///
+/// # Import Guidelines
+///
+/// - Use path 1 (specific) for new code when type origin matters for clarity
+/// - Use path 2 (aggregate) for existing code to maintain backward compatibility
+/// - Avoid mixing re-export sources in the same file—pick one strategy per file
+pub use adapters::{
+    AdapterInfo, AdapterMetadata, AdapterMetrics, AdapterState, LifecycleState,
+    RegisterAdapterRequest,
+};
+/// Re-export all core primitives (identity, temporal, pagination) for ergonomic access.
+/// These domain-agnostic types form the foundation for all domain-specific types.
 pub use core::*;
 pub use routing::{RouterCandidate, RouterDecision};

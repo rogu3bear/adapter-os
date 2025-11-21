@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Re-export canonical AdapterMetrics from adapteros-types
+pub use adapteros_types::AdapterMetrics;
+
 /// Snapshot of current metrics for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetricsSnapshot {
@@ -60,13 +63,7 @@ pub struct PolicyMetrics {
     pub violations_by_policy: HashMap<String, u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AdapterMetrics {
-    pub activations_total: u64,
-    pub evictions_total: u64,
-    pub active_adapters: f64,
-    pub activations_by_adapter: HashMap<String, u64>,
-}
+// AdapterMetrics is now imported from adapteros_types
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LifecycleMetrics {

@@ -38,13 +38,13 @@ pub struct RouterDecision {
     pub candidate_adapters: Vec<RouterCandidate>,
 
     /// Entropy of the router distribution
-    pub entropy: f32,
+    pub entropy: f64,
 
     /// Temperature parameter (tau)
-    pub tau: f32,
+    pub tau: f64,
 
     /// Entropy floor to prevent single-adapter collapse
-    pub entropy_floor: f32,
+    pub entropy_floor: f64,
 
     /// BLAKE3 hash of the active adapter stack (for verification)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,9 +56,9 @@ impl RouterDecision {
     pub fn new(
         step: usize,
         candidate_adapters: Vec<RouterCandidate>,
-        entropy: f32,
-        tau: f32,
-        entropy_floor: f32,
+        entropy: f64,
+        tau: f64,
+        entropy_floor: f64,
     ) -> Self {
         Self {
             step,
