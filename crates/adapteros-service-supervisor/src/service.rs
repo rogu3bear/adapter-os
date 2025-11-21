@@ -217,7 +217,17 @@ impl ManagedService {
                 }
             }
             crate::config::HealthCheckType::Tcp => {
-                if let Some(port) = self.config.port {
+                // Prefer UDS health check if configured (production mode)
+                if let Some(uds_path) = &self.config.health_check.uds_socket {
+                    match self.check_uds_health(uds_path).await {
+                        Ok(true) => Ok(HealthStatus::Healthy),
+                        Ok(false) => Ok(HealthStatus::Unhealthy),
+                        Err(e) => {
+                            warn!("UDS health check failed for {}: {}", self.config.name, e);
+                            Ok(HealthStatus::Unhealthy)
+                        }
+                    }
+                } else if let Some(port) = self.config.port {
                     match self.check_tcp_health(port).await {
                         Ok(true) => Ok(HealthStatus::Healthy),
                         Ok(false) => Ok(HealthStatus::Unhealthy),
@@ -419,13 +429,26 @@ impl ManagedService {
         Ok(response.status().is_success())
     }
 
-    /// Check TCP connectivity
+    /// Check TCP connectivity (development mode only)
     async fn check_tcp_health(&self, port: u16) -> Result<bool> {
         use tokio::net::TcpStream;
 
         match tokio::time::timeout(
             Duration::from_secs(self.config.health_check.timeout_seconds),
             TcpStream::connect(format!("127.0.0.1:{}", port))
+        ).await {
+            Ok(Ok(_)) => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
+    /// Check UDS connectivity (production mode - egress policy compliant)
+    async fn check_uds_health(&self, uds_path: &std::path::Path) -> Result<bool> {
+        use tokio::net::UnixStream;
+
+        match tokio::time::timeout(
+            Duration::from_secs(self.config.health_check.timeout_seconds),
+            UnixStream::connect(uds_path)
         ).await {
             Ok(Ok(_)) => Ok(true),
             _ => Ok(false),

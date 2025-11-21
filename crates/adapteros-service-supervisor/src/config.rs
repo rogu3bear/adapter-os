@@ -22,6 +22,10 @@ pub struct ServerConfig {
     pub max_connections: usize,
     pub timeout_seconds: u64,
     pub cors_allowed_origins: Vec<String>,
+    /// Unix Domain Socket path for production mode (egress policy compliance)
+    pub uds_socket: Option<PathBuf>,
+    /// Enable production mode (requires UDS, disables TCP)
+    pub production_mode: bool,
 }
 
 /// Authentication configuration
@@ -72,6 +76,8 @@ pub struct HealthCheckConfig {
     pub timeout_seconds: u64,
     pub max_failures: u32,
     pub initial_delay_seconds: u64,
+    /// Unix Domain Socket path for health checks (production mode)
+    pub uds_socket: Option<PathBuf>,
 }
 
 /// Health check types
@@ -145,6 +151,8 @@ impl Default for ServerConfig {
             max_connections: 1000,
             timeout_seconds: 30,
             cors_allowed_origins: vec!["http://localhost:3200".to_string(), "http://localhost:3300".to_string()],
+            uds_socket: None,
+            production_mode: false,
         }
     }
 }
@@ -182,6 +190,7 @@ impl Default for HealthCheckConfig {
             timeout_seconds: 10,
             max_failures: 3,
             initial_delay_seconds: 5,
+            uds_socket: None,
         }
     }
 }

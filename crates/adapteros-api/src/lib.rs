@@ -22,6 +22,7 @@
 //! - Hyper HTTP Server: https://docs.rs/hyper/latest/hyper/
 //! - Axum Web Framework: https://docs.rs/axum/latest/axum/
 
+use adapteros_api_types::ErrorResponse;
 use adapteros_core::AosError;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
@@ -211,13 +212,7 @@ async fn adapter_command_handler<K: FusedKernels + Send + Sync>(
     Ok(Json(result))
 }
 
-/// API error response (matches aos-cp-api pattern)
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ErrorResponse {
-    pub error: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
-}
+// ErrorResponse imported from adapteros_api_types
 
 /// API error type
 #[derive(Debug)]
@@ -257,7 +252,9 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string(), None),
         };
 
-        (status, Json(ErrorResponse { error, details })).into_response()
+        let response = ErrorResponse::new(error)
+            .with_details(serde_json::json!(details));
+        (status, Json(response)).into_response()
     }
 }
 

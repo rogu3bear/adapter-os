@@ -1,5 +1,6 @@
 //! Retry logic with exponential backoff and jitter for resilient operations
 
+use adapteros_core::CircuitState;
 use crate::state::OperationRetryConfig;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -100,13 +101,7 @@ where
     }
 }
 
-/// Circuit breaker state
-#[derive(Debug, Clone)]
-pub enum CircuitState {
-    Closed,   // Normal operation
-    Open,     // Failing, reject requests
-    HalfOpen, // Testing if service recovered
-}
+// CircuitState is imported from adapteros_core::CircuitState
 
 /// Circuit breaker for protecting against cascading failures
 #[derive(Debug)]
@@ -142,7 +137,7 @@ impl CircuitBreaker {
         let state = self.state.read().await.clone();
 
         match state {
-            CircuitState::Open => {
+            CircuitState::Open { .. } => {
                 let next_attempt = *self.next_attempt.read().await;
                 if std::time::Instant::now() < next_attempt {
                     return Err(CircuitBreakerError::CircuitOpen);
@@ -190,7 +185,7 @@ impl CircuitBreaker {
                 // Reset failure count on success
                 *self.failure_count.write().await = 0;
             }
-            CircuitState::Open => {
+            CircuitState::Open { .. } => {
                 // Shouldn't happen, but reset if we get here
                 *state = CircuitState::Closed;
                 *self.failure_count.write().await = 0;
@@ -206,8 +201,9 @@ impl CircuitBreaker {
 
         if *failure_count >= self.failure_threshold {
             debug!("Circuit breaker opened - too many failures");
-            *state = CircuitState::Open;
-            *self.next_attempt.write().await = std::time::Instant::now() + self.timeout;
+            let until = std::time::Instant::now() + self.timeout;
+            *state = CircuitState::Open { until };
+            *self.next_attempt.write().await = until;
         }
     }
 }

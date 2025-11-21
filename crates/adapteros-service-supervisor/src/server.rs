@@ -11,6 +11,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
@@ -28,6 +29,10 @@ pub struct SupervisorServer {
     app: Router,
     host: String,
     port: u16,
+    /// Unix Domain Socket path for production mode
+    uds_socket: Option<PathBuf>,
+    /// Enable production mode (requires UDS)
+    production_mode: bool,
 }
 
 impl SupervisorServer {
@@ -59,16 +64,62 @@ impl SupervisorServer {
             app,
             host: config.host.clone(),
             port: config.port,
+            uds_socket: config.uds_socket.clone(),
+            production_mode: config.production_mode,
         }
     }
 
     /// Start the server
     pub async fn serve(self) -> Result<()> {
-        let addr = format!("{}:{}", self.host, self.port);
-        info!("Starting supervisor server on {}", addr);
+        // Production mode requires UDS socket (egress policy compliance)
+        if self.production_mode {
+            let uds_path = self.uds_socket.as_ref().ok_or_else(|| {
+                SupervisorError::Config(
+                    "Production mode requires uds_socket to be configured".to_string(),
+                )
+            })?;
 
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
-        axum::serve(listener, self.app).await?;
+            // Remove existing socket file if it exists
+            if uds_path.exists() {
+                std::fs::remove_file(uds_path).map_err(|e| {
+                    SupervisorError::Io(format!(
+                        "Failed to remove existing socket {}: {}",
+                        uds_path.display(),
+                        e
+                    ))
+                })?;
+            }
+
+            // Ensure parent directory exists
+            if let Some(parent) = uds_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    SupervisorError::Io(format!(
+                        "Failed to create socket directory {}: {}",
+                        parent.display(),
+                        e
+                    ))
+                })?;
+            }
+
+            info!("Starting supervisor server on UDS: {}", uds_path.display());
+
+            let listener = tokio::net::UnixListener::bind(uds_path).map_err(|e| {
+                SupervisorError::Io(format!(
+                    "Failed to bind UDS {}: {}",
+                    uds_path.display(),
+                    e
+                ))
+            })?;
+
+            axum::serve(listener, self.app).await?;
+        } else {
+            // Development mode: TCP listener
+            let addr = format!("{}:{}", self.host, self.port);
+            info!("Starting supervisor server on {}", addr);
+
+            let listener = tokio::net::TcpListener::bind(&addr).await?;
+            axum::serve(listener, self.app).await?;
+        }
 
         Ok(())
     }

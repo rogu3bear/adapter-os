@@ -143,27 +143,25 @@ impl OperationTracker {
     }
 
     /// Get a reference to the in-memory operations HashMap for read access
-    fn get_operations_read(&self) -> Arc<RwLock<HashMap<(String, String), OngoingOperation>>> {
+    fn get_operations_read(&self) -> Result<Arc<RwLock<HashMap<(String, String), OngoingOperation>>>, AosError> {
         match &self.storage {
-            OperationStorage::InMemory(ops) => ops.clone(),
+            OperationStorage::InMemory(ops) => Ok(ops.clone()),
             #[cfg(feature = "redis")]
             OperationStorage::Redis { .. } => {
-                // Redis implementation not yet complete, fallback to in-memory
-                // This should not happen in practice until Redis is fully implemented
-                panic!("Redis storage not yet implemented")
+                // Redis implementation not yet complete
+                Err(AosError::Config("Redis storage not yet implemented".into()))
             }
         }
     }
 
     /// Get a reference to the in-memory operations HashMap for write access
-    fn get_operations_write(&self) -> Arc<RwLock<HashMap<(String, String), OngoingOperation>>> {
+    fn get_operations_write(&self) -> Result<Arc<RwLock<HashMap<(String, String), OngoingOperation>>>, AosError> {
         match &self.storage {
-            OperationStorage::InMemory(ops) => ops.clone(),
+            OperationStorage::InMemory(ops) => Ok(ops.clone()),
             #[cfg(feature = "redis")]
             OperationStorage::Redis { .. } => {
-                // Redis implementation not yet complete, fallback to in-memory
-                // This should not happen in practice until Redis is fully implemented
-                panic!("Redis storage not yet implemented")
+                // Redis implementation not yet complete
+                Err(AosError::Config("Redis storage not yet implemented".into()))
             }
         }
     }
@@ -202,7 +200,7 @@ impl OperationTracker {
         operation_type: OperationType,
     ) -> Result<(), AosError> {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_write();
+        let operations_lock = self.get_operations_write()?;
         let mut operations = operations_lock.write().await;
 
         // Clean up expired operations first
@@ -313,7 +311,13 @@ impl OperationTracker {
         message: Option<String>,
     ) {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_write();
+        let operations_lock = match self.get_operations_write() {
+            Ok(lock) => lock,
+            Err(e) => {
+                warn!(error = %e, "Failed to get operations lock for progress update");
+                return;
+            }
+        };
         let mut operations = operations_lock.write().await;
 
         if let Some(op) = operations.get_mut(&key) {
@@ -387,7 +391,13 @@ impl OperationTracker {
         success: bool,
     ) {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_write();
+        let operations_lock = match self.get_operations_write() {
+            Ok(lock) => lock,
+            Err(e) => {
+                warn!(error = %e, "Failed to get operations lock for completion");
+                return;
+            }
+        };
         let mut operations = operations_lock.write().await;
 
         if let Some(op) = operations.remove(&key) {
@@ -496,7 +506,7 @@ impl OperationTracker {
         tenant_id: &str,
     ) -> Result<(), OperationCancellationError> {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_write();
+        let operations_lock = self.get_operations_write().map_err(|_| OperationCancellationError::OperationNotFound)?;
         let operations = operations_lock.read().await;
 
         if let Some(op) = operations.get(&key) {
@@ -540,7 +550,7 @@ impl OperationTracker {
     /// Check whether an operation has been cancelled
     pub async fn is_operation_cancelled(&self, resource_id: &str, tenant_id: &str) -> Option<bool> {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_read();
+        let operations_lock = self.get_operations_read().ok()?;
         let operations = operations_lock.read().await;
 
         operations
@@ -571,7 +581,7 @@ impl OperationTracker {
         resource_id: &str,
         tenant_id: &str,
     ) -> Option<OngoingOperation> {
-        let operations_lock = self.get_operations_read();
+        let operations_lock = self.get_operations_read().ok()?;
         let operations = operations_lock.read().await;
         let key = (resource_id.to_string(), tenant_id.to_string());
 
@@ -580,7 +590,10 @@ impl OperationTracker {
 
     /// Get all ongoing operations (for monitoring/debugging)
     pub async fn get_ongoing_operations(&self) -> HashMap<(String, String), OngoingOperation> {
-        let operations_lock = self.get_operations_read();
+        let operations_lock = match self.get_operations_read() {
+            Ok(lock) => lock,
+            Err(_) => return HashMap::new(),
+        };
         let operations = operations_lock.read().await;
         operations.clone()
     }
@@ -609,7 +622,13 @@ impl OperationTracker {
 
     /// Force cleanup of all operations (for testing/emergency use)
     pub async fn force_cleanup(&self) {
-        let operations_lock = self.get_operations_write();
+        let operations_lock = match self.get_operations_write() {
+            Ok(lock) => lock,
+            Err(e) => {
+                warn!(error = %e, "Failed to get operations lock for force cleanup");
+                return;
+            }
+        };
         let mut operations = operations_lock.write().await;
         let count = operations.len();
         operations.clear();
@@ -682,7 +701,7 @@ impl OperationTracker {
         resource_id: &str,
         tenant_id: &str,
     ) -> Option<OperationProgressEvent> {
-        let operations_lock = self.get_operations_read();
+        let operations_lock = self.get_operations_read().ok()?;
         let operations = operations_lock.read().await;
         let key = (resource_id.to_string(), tenant_id.to_string());
 

@@ -6,15 +6,7 @@ use utoipa::ToSchema;
 // Re-export shared API types
 pub use adapteros_api_types::*;
 
-/// API error response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ErrorResponse {
-    pub error: String,
-    #[serde(default = "default_error_code")]
-    pub code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
+// ErrorResponse is imported from adapteros_api_types via the pub use above
 
 /// Single request item within a batch inference call
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -53,34 +45,7 @@ pub struct BatchInferResponse {
     pub responses: Vec<BatchInferItemResponse>,
 }
 
-fn default_error_code() -> String {
-    "INTERNAL_ERROR".to_string()
-}
-
-impl ErrorResponse {
-    pub fn new(error: impl Into<String>) -> Self {
-        Self {
-            error: error.into(),
-            code: "INTERNAL_ERROR".to_string(),
-            details: None,
-        }
-    }
-
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = code.into();
-        self
-    }
-
-    pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.details = Some(details);
-        self
-    }
-
-    pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
-        self.details = Some(serde_json::Value::String(details.into()));
-        self
-    }
-}
+// ErrorResponse methods are implemented in adapteros-api-types
 
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response {

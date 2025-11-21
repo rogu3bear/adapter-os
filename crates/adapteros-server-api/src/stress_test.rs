@@ -171,7 +171,7 @@ impl StressTester {
         config: &StressTestConfig,
     ) -> Result<(), String> {
         // Simulate file validation and import processing time
-        Self::simulate_processing_time(config.memory_pressure);
+        Self::simulate_processing_time(config.memory_pressure).await;
 
         // Simulate occasional failures
         if config.simulate_failures && rand::random::<f64>() < config.failure_rate {
@@ -198,7 +198,7 @@ impl StressTester {
         operation_id: usize,
         config: &StressTestConfig,
     ) -> Result<(), String> {
-        Self::simulate_processing_time(config.memory_pressure);
+        Self::simulate_processing_time(config.memory_pressure).await;
 
         if let Some(ref model_runtime) = state.model_runtime {
             // Test lazy loading under concurrent access
@@ -222,7 +222,7 @@ impl StressTester {
         operation_id: usize,
         config: &StressTestConfig,
     ) -> Result<(), String> {
-        Self::simulate_processing_time(config.memory_pressure);
+        Self::simulate_processing_time(config.memory_pressure).await;
 
         // Simulate adapter loading with potential memory pressure
         let memory_factor = 1.0 + config.memory_pressure;
@@ -242,7 +242,7 @@ impl StressTester {
         operation_id: usize,
         config: &StressTestConfig,
     ) -> Result<(), String> {
-        Self::simulate_processing_time(config.memory_pressure);
+        Self::simulate_processing_time(config.memory_pressure).await;
 
         // Simulate inference time with memory pressure effects
         let memory_factor = 1.0 + config.memory_pressure;
@@ -257,15 +257,13 @@ impl StressTester {
     }
 
     /// Simulate processing time affected by memory pressure
-    fn simulate_processing_time(memory_pressure: f64) {
+    async fn simulate_processing_time(memory_pressure: f64) {
         // Under memory pressure, operations take longer
         let base_delay = Duration::from_millis(10);
         let pressure_factor = 1.0 + memory_pressure * 2.0; // Up to 3x slower
         let delay = Duration::from_millis((base_delay.as_millis() as f64 * pressure_factor) as u64);
 
-        // In real async code, we'd use tokio::time::sleep here
-        // For now, just simulate the timing
-        std::thread::sleep(delay.min(Duration::from_millis(100)));
+        tokio::time::sleep(delay.min(Duration::from_millis(100))).await;
     }
 
     /// Calculate latency percentile
