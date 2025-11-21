@@ -4,7 +4,7 @@
 
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 use super::trainer::TrainingConfig;
-use adapteros_aos::{AOS2Writer, WriteOptions};
+use adapteros_aos::AOS2Writer;
 use adapteros_core::{AosError, Result};
 use safetensors::tensor::TensorView;
 use serde::{Deserialize, Serialize};
@@ -126,6 +126,7 @@ impl AdapterPackager {
         adapter_id: &str,
         weights: &QuantizedLoRAWeights,
         config: &TrainingConfig,
+        base_model: &str,
     ) -> Result<PackagedAdapter> {
         info!("Packaging adapter as .aos archive: {}", adapter_id);
 
@@ -139,7 +140,7 @@ impl AdapterPackager {
         let manifest = AdapterManifest {
             version: "2.0".to_string(), // AOS 2.0 format
             rank: config.rank,
-            base_model: "qwen2.5-7b".to_string(), // TODO: Make configurable
+            base_model: base_model.to_string(),
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),

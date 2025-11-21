@@ -105,7 +105,8 @@ impl MicroLoRATrainer {
     /// Initialize Metal kernels for training
     pub fn init_kernels(&mut self, plan_bytes: &[u8]) -> Result<()> {
         // Try to create Metal backend
-        match crate::backend_factory::create_backend(crate::backend_factory::BackendChoice::Metal) {
+        let backend_result: Result<Box<dyn FusedKernels>> = crate::backend_factory::create_backend(crate::backend_factory::BackendChoice::Metal);
+        match backend_result {
             Ok(mut kernels) => {
                 kernels.load(plan_bytes)?;
                 self.kernels = Some(kernels);
@@ -367,6 +368,7 @@ impl MicroLoRATrainer {
     }
 
     /// Apply LoRA transformation
+    #[allow(clippy::needless_range_loop)]
     fn apply_lora(&self, hidden: &[f32], weights: &LoRAWeights) -> Vec<f32> {
         // Compute: hidden * LoRA_A^T * LoRA_B^T
 

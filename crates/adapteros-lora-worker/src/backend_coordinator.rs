@@ -167,6 +167,16 @@ impl BackendCoordinator {
                     Err(AosError::Config("No suitable fallback for MLX".to_string()))
                 }
             }
+            BackendChoice::Auto => {
+                // Auto should have been resolved already, fall back to Metal
+                if capabilities.has_metal {
+                    Ok(BackendChoice::Metal)
+                } else if capabilities.has_ane {
+                    Ok(BackendChoice::CoreML { model_path: None })
+                } else {
+                    Err(AosError::Config("No suitable fallback for Auto".to_string()))
+                }
+            }
         }
     }
 
@@ -260,7 +270,8 @@ impl BackendCoordinator {
         let primary = self.primary.read().await;
         match primary.health_check() {
             Ok(health) => {
-                *self.primary_health.write().await = health.clone();
+                let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> = self.primary_health.write().await;
+                *guard = health.clone();
                 if !matches!(health, BackendHealth::Healthy) {
                     warn!(health = ?health, "Primary backend health check failed");
                     let mut metrics = self.metrics.write().await;
@@ -271,6 +282,7 @@ impl BackendCoordinator {
                 error!(error = %e, "Primary backend health check error");
                 *self.primary_health.write().await = BackendHealth::Failed {
                     reason: format!("Health check error: {}", e),
+                    recoverable: true,
                 };
                 let mut metrics = self.metrics.write().await;
                 metrics.health_check_failures += 1;
@@ -284,7 +296,8 @@ impl BackendCoordinator {
             if let Some(ref fallback_health_arc) = self.fallback_health {
                 match fallback_backend.health_check() {
                     Ok(health) => {
-                        *fallback_health_arc.write().await = health.clone();
+                        let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> = fallback_health_arc.write().await;
+                        *guard = health.clone();
                         if !matches!(health, BackendHealth::Healthy) {
                             warn!(health = ?health, "Fallback backend health check failed");
                         }
@@ -293,6 +306,7 @@ impl BackendCoordinator {
                         error!(error = %e, "Fallback backend health check error");
                         *fallback_health_arc.write().await = BackendHealth::Failed {
                             reason: format!("Health check error: {}", e),
+                            recoverable: true,
                         };
                     }
                 }

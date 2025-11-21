@@ -3,10 +3,8 @@
 //! Directory adapters allow the router to specialise behaviour for
 //! tightly-scoped parts of a repository.  They are derived from the
 //! directory fingerprints produced by the codegraph crate.
-//!
-//! NOTE: This module is currently stubbed out as adapteros-codegraph is disabled.
 
-// use adapteros_codegraph::DirectoryAnalysis;  // Disabled - codegraph unavailable
+use adapteros_codegraph::DirectoryAnalysis;
 use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,37 +13,6 @@ use std::path::PathBuf;
 use tracing::info;
 
 use crate::training::LoRAWeights;
-
-/// Stub replacement for DirectorySymbolKind from adapteros-codegraph
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DirectorySymbolKind {
-    Function,
-    Class,
-    Module,
-    Variable,
-}
-
-/// Stub replacement for DirectorySymbol from adapteros-codegraph
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DirectorySymbol {
-    pub name: String,
-    pub kind: DirectorySymbolKind,
-    pub file: PathBuf,
-    pub language: String,
-}
-
-/// Stub replacement for DirectoryAnalysis from adapteros-codegraph
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DirectoryAnalysis {
-    pub path: PathBuf,
-    pub symbols: Vec<DirectorySymbol>,
-    pub language_stats: BTreeMap<String, usize>,
-    pub pattern_counts: BTreeMap<String, usize>,
-    pub architectural_styles: BTreeSet<String>,
-    pub fingerprint: B3Hash,
-    pub total_files: usize,
-    pub total_lines: usize,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathActivationRule {
@@ -207,7 +174,7 @@ fn generate_weights(fingerprint: &B3Hash, rank: usize, hidden_dim: usize) -> LoR
     LoRAWeights { lora_a, lora_b }
 }
 
-fn normalize_path(path: &PathBuf) -> String {
+fn normalize_path(path: &std::path::Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 

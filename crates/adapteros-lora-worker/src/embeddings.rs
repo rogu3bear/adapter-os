@@ -16,6 +16,11 @@ pub struct EmbeddingModel {
     dimension: usize,
 }
 
+/// Embedding model type
+///
+/// Currently only TokenAverage is implemented. Dedicated embedding model support
+/// is reserved for future high-performance semantic search capabilities.
+#[allow(dead_code)] // Dedicated variant reserved for future implementation
 enum EmbeddingType {
     /// Simple averaged token embeddings from base model
     TokenAverage { embedding_matrix: Vec<f32> },

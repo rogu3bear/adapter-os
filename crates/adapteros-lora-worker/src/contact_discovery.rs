@@ -28,7 +28,7 @@ pub enum ContactCategory {
 }
 
 impl ContactCategory {
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "user" => Ok(ContactCategory::User),
             "system" => Ok(ContactCategory::System),
@@ -135,7 +135,7 @@ impl ContactDiscoveryHandler {
             }
         };
 
-        let category = ContactCategory::from_str(category_str)?;
+        let category = ContactCategory::parse(category_str)?;
 
         let tenant_id = match payload.get("tenant_id").and_then(|v| v.as_str()) {
             Some(t) => t.to_string(),

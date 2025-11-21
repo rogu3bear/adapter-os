@@ -13,6 +13,8 @@ use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Signal types as defined in Specification §5.1.1
 ///
@@ -377,7 +379,7 @@ pub trait SignalHandler: Send + Sync {
 ///
 /// Citation: docs/llm-interface-specification.md §5.1.2
 pub struct SignalDispatcher {
-    handlers: HashMap<SignalType, Vec<Box<dyn SignalHandler>>>,
+    handlers: HashMap<SignalType, Vec<Arc<Mutex<Box<dyn SignalHandler>>>>>,
 }
 
 impl SignalDispatcher {
@@ -390,19 +392,18 @@ impl SignalDispatcher {
 
     /// Register a signal handler
     ///
-    /// Each handler instance can only be registered once.
-    /// For multiple signal types, the handler must implement all of them.
+    /// Registers the handler for all signal types it declares via `signal_types()`.
+    /// The same handler instance is shared across all its signal types using Arc<Mutex<>>.
     pub fn register_handler<H: SignalHandler + 'static>(&mut self, handler: H) {
         let signal_types = handler.signal_types();
-        let boxed_handler: Box<dyn SignalHandler> = Box::new(handler);
+        let shared_handler = Arc::new(Mutex::new(Box::new(handler) as Box<dyn SignalHandler>));
 
-        // For now, register to first signal type only
-        // TODO: Support multiple signal types per handler instance
-        if let Some(first_type) = signal_types.first() {
+        // Register handler for all signal types it supports
+        for signal_type in signal_types {
             self.handlers
-                .entry(first_type.clone())
+                .entry(signal_type)
                 .or_default()
-                .push(boxed_handler);
+                .push(Arc::clone(&shared_handler));
         }
     }
 
@@ -410,10 +411,11 @@ impl SignalDispatcher {
     ///
     /// If no handlers are registered for a signal type, the signal is logged
     /// but not considered an error (following best practices for extensibility).
-    pub async fn dispatch(&mut self, signal: &Signal) -> Result<()> {
-        if let Some(handlers) = self.handlers.get_mut(&signal.signal_type) {
-            for handler in handlers.iter_mut() {
-                handler.handle_signal(signal).await?;
+    pub async fn dispatch(&self, signal: &Signal) -> Result<()> {
+        if let Some(handlers) = self.handlers.get(&signal.signal_type) {
+            for handler in handlers.iter() {
+                let mut guard = handler.lock().await;
+                guard.handle_signal(signal).await?;
             }
         } else {
             // Log unhandled signal for debugging (follows telemetry patterns)

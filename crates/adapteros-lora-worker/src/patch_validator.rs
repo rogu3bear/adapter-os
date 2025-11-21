@@ -1152,6 +1152,10 @@ mod tests {
                 latency_p95_ms: 24,
                 router_overhead_pct_max: 8,
                 throughput_tokens_per_s_min: 40,
+                max_tokens: 2048,
+                cpu_threshold_pct: 80.0,
+                memory_threshold_pct: 85.0,
+                circuit_breaker_threshold: 5,
             },
             memory: MemoryPolicy {
                 min_headroom_pct: 15u8,
@@ -1335,26 +1339,47 @@ impl PatchValidator {
         let mut violations = Vec::new();
         let mut evidence_spans = Vec::new();
 
-        // Extract evidence spans from patches
-        for _patch in patches {
-            // Mock evidence extraction - in real implementation, this would parse citations
-            // from patch comments and validate against RAG system
-            if let Some(ref _evidence_manager) = self.evidence_manager {
-                // TODO: Implement real evidence validation using EvidenceManager
-                // For now, create mock evidence spans
-                evidence_spans.push(EvidenceSpan {
-                    text: "Mock evidence content".to_string(),
-                    superseded: Some("mock_reason".to_string()),
-                    evidence_type: Some(adapteros_lora_rag::EvidenceType::Code),
-                    file_path: Some("mock_file.rs".to_string()),
-                    start_line: Some(1),
-                    end_line: Some(10),
-                    score: 0.9,
-                    doc_id: "mock_doc_1".to_string(),
-                    metadata: std::collections::HashMap::new(),
-                    rev: "1.0".to_string(),
-                    span_hash: adapteros_core::B3Hash::hash("mock_span_hash".as_bytes()),
-                });
+        // Extract evidence spans from patches by parsing citation comments
+        for patch in patches {
+            // Parse citations from patch comments (e.g., // [source: file.rs L10-L20])
+            let citation_pattern = regex::Regex::new(r"\[source:\s*([^\]]+)\]").unwrap_or_else(|_| {
+                regex::Regex::new(r"source:").unwrap()
+            });
+
+            for hunk in &patch.hunks {
+                for line in &hunk.context_lines {
+                    if let Some(caps) = citation_pattern.captures(line) {
+                        if let Some(citation) = caps.get(1) {
+                            let citation_text = citation.as_str();
+                            // Parse citation format: "file.rs L10-L20"
+                            let parts: Vec<&str> = citation_text.split_whitespace().collect();
+                            let (file_path, start_line, end_line) = if parts.len() >= 2 {
+                                let file = parts[0].to_string();
+                                let line_range = parts.get(1).unwrap_or(&"L1");
+                                let lines: Vec<&str> = line_range.trim_start_matches('L').split('-').collect();
+                                let start = lines.first().and_then(|s| s.parse().ok()).unwrap_or(1);
+                                let end = lines.get(1).and_then(|s| s.parse().ok()).unwrap_or(start + 10);
+                                (Some(file), Some(start), Some(end))
+                            } else {
+                                (Some(citation_text.to_string()), Some(1), Some(10))
+                            };
+
+                            evidence_spans.push(EvidenceSpan {
+                                text: line.clone(),
+                                superseded: None,
+                                evidence_type: Some(adapteros_lora_rag::EvidenceType::Code),
+                                file_path,
+                                start_line,
+                                end_line,
+                                score: 0.8, // Default relevance score
+                                doc_id: format!("citation_{}", evidence_spans.len()),
+                                metadata: std::collections::HashMap::new(),
+                                rev: "1.0".to_string(),
+                                span_hash: adapteros_core::B3Hash::hash(line.as_bytes()),
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -1470,8 +1495,52 @@ impl PatchValidator {
             });
         }
 
-        // Mock vulnerability detection
-        let dependency_security_ok = true; // TODO: Implement real dependency security check
+        // Check dependency security using PolicyEngine
+        let mut dependency_security_ok = true;
+        let mut detected_dependencies = Vec::new();
+
+        // Extract dependencies from patches
+        for patch in patches {
+            for hunk in &patch.hunks {
+                for line in &hunk.modified_lines {
+                    // Detect Rust dependencies
+                    if line.contains("use ") && line.contains("::") {
+                        if let Some(start) = line.find("use ") {
+                            let after_use = &line[start + 4..];
+                            if let Some(end) = after_use.find("::") {
+                                detected_dependencies.push(after_use[..end].trim().to_string());
+                            }
+                        }
+                    }
+                    // Detect Cargo.toml dependencies
+                    if patch.file_path.ends_with("Cargo.toml") && line.contains("=") {
+                        let parts: Vec<&str> = line.split('=').collect();
+                        if let Some(dep_name) = parts.first() {
+                            detected_dependencies.push(dep_name.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate dependencies using policy engine
+        if !detected_dependencies.is_empty() {
+            match self.policy_engine.check_dependency_security(&detected_dependencies) {
+                Ok(_) => {
+                    dependency_security_ok = true;
+                }
+                Err(e) => {
+                    dependency_security_ok = false;
+                    violations.push(SecurityViolation {
+                        violation_type: SecurityViolationType::DependencyInsecure,
+                        severity: ViolationSeverity::High,
+                        description: format!("Dependency security check failed: {}", e),
+                        file_path: None,
+                        line_number: None,
+                    });
+                }
+            }
+        }
 
         let passed = violations.is_empty()
             && egress_policy_compliant

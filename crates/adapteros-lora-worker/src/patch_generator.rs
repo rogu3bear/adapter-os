@@ -220,7 +220,7 @@ impl PatchGenerator {
         };
 
         let confidence = evidence_score * complexity_factor * file_factor;
-        Ok(confidence.min(1.0).max(0.0))
+        Ok(confidence.clamp(0.0, 1.0))
     }
 
     /// Generate unique proposal ID
@@ -275,8 +275,8 @@ impl PatchParser {
                 }
 
                 // Start new file
-                if line.starts_with("+++ ") {
-                    current_file = Some(line[4..].to_string());
+                if let Some(stripped) = line.strip_prefix("+++ ") {
+                    current_file = Some(stripped.to_string());
                     current_hunks.clear();
                     current_lines = 0;
                 }
@@ -288,11 +288,11 @@ impl PatchParser {
             } else if !current_hunks.is_empty() {
                 // Add line to current hunk
                 if let Some(last_hunk) = current_hunks.last_mut() {
-                    if line.starts_with('+') {
-                        last_hunk.modified_lines.push(line[1..].to_string());
+                    if let Some(stripped) = line.strip_prefix('+') {
+                        last_hunk.modified_lines.push(stripped.to_string());
                         last_hunk.hunk_type = HunkType::Addition;
-                    } else if line.starts_with('-') {
-                        last_hunk.modified_lines.push(line[1..].to_string());
+                    } else if let Some(stripped) = line.strip_prefix('-') {
+                        last_hunk.modified_lines.push(stripped.to_string());
                         last_hunk.hunk_type = HunkType::Deletion;
                     } else {
                         last_hunk.context_lines.push(line.to_string());
@@ -433,6 +433,200 @@ impl LlmBackend for MockLlmBackend {
 /// and target file names, without external model calls.
 pub struct RuleBasedLlmBackend;
 
+impl RuleBasedLlmBackend {
+    /// Parse transformation type from description
+    fn parse_transformation(&self, description: &str) -> TransformationType {
+        let desc_lower = description.to_lowercase();
+        if desc_lower.contains("add function") || desc_lower.contains("implement") {
+            TransformationType::AddFunction
+        } else if desc_lower.contains("rename") {
+            TransformationType::Rename
+        } else if desc_lower.contains("add import") || desc_lower.contains("use ") {
+            TransformationType::AddImport
+        } else if desc_lower.contains("add error") || desc_lower.contains("error handling") {
+            TransformationType::AddErrorHandling
+        } else if desc_lower.contains("add test") {
+            TransformationType::AddTest
+        } else if desc_lower.contains("remove") || desc_lower.contains("delete") {
+            TransformationType::Remove
+        } else {
+            TransformationType::Modify
+        }
+    }
+
+    /// Extract function name from description
+    fn extract_function_name(&self, description: &str) -> String {
+        // Look for patterns like "add function foo" or "implement bar"
+        let words: Vec<&str> = description.split_whitespace().collect();
+        for (i, word) in words.iter().enumerate() {
+            if (*word == "function" || *word == "implement" || *word == "method") && i + 1 < words.len() {
+                return words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string();
+            }
+        }
+        "new_function".to_string()
+    }
+
+    /// Extract identifier to rename from description
+    fn extract_rename_target(&self, description: &str) -> (String, String) {
+        // Look for patterns like "rename foo to bar" or "rename foo -> bar"
+        let desc_lower = description.to_lowercase();
+        if let Some(pos) = desc_lower.find("rename ") {
+            let rest = &description[pos + 7..];
+            let parts: Vec<&str> = rest.split(|c| c == ' ' || c == '-' || c == '>').filter(|s| !s.is_empty() && *s != "to").collect();
+            if parts.len() >= 2 {
+                return (parts[0].to_string(), parts[1].to_string());
+            }
+        }
+        ("old_name".to_string(), "new_name".to_string())
+    }
+
+    /// Generate actual code transformation based on type
+    fn generate_transformation(&self, transform_type: &TransformationType, description: &str, file_content: Option<&str>, file_path: &str) -> (String, String, usize, usize) {
+        match transform_type {
+            TransformationType::AddFunction => {
+                let func_name = self.extract_function_name(description);
+                let is_rust = file_path.ends_with(".rs");
+                let is_python = file_path.ends_with(".py");
+
+                let (old_lines, new_lines) = if is_rust {
+                    (
+                        String::new(),
+                        format!(
+                            "/// {}\npub fn {}() -> Result<()> {{\n    // Implementation based on: {}\n    Ok(())\n}}\n",
+                            description, func_name, description
+                        )
+                    )
+                } else if is_python {
+                    (
+                        String::new(),
+                        format!(
+                            "def {}():\n    \"\"\"{}.\"\"\"\n    # Implementation based on: {}\n    pass\n",
+                            func_name, description, description
+                        )
+                    )
+                } else {
+                    (
+                        String::new(),
+                        format!("function {}() {{\n    // {}\n}}\n", func_name, description)
+                    )
+                };
+
+                let line_num = file_content.map(|c| c.lines().count()).unwrap_or(1);
+                (old_lines, new_lines, line_num, line_num)
+            }
+            TransformationType::Rename => {
+                let (old_name, new_name) = self.extract_rename_target(description);
+                if let Some(content) = file_content {
+                    // Find the first occurrence of old_name and replace it
+                    for (i, line) in content.lines().enumerate() {
+                        if line.contains(&old_name) {
+                            let new_line = line.replace(&old_name, &new_name);
+                            return (line.to_string(), new_line, i + 1, i + 1);
+                        }
+                    }
+                }
+                (old_name.clone(), new_name.clone(), 1, 1)
+            }
+            TransformationType::AddImport => {
+                let is_rust = file_path.ends_with(".rs");
+                let new_import = if is_rust {
+                    format!("use {};", description.split_whitespace().last().unwrap_or("std::io"))
+                } else {
+                    format!("import {}", description.split_whitespace().last().unwrap_or("module"))
+                };
+                (String::new(), new_import, 1, 1)
+            }
+            TransformationType::AddErrorHandling => {
+                let is_rust = file_path.ends_with(".rs");
+                if is_rust {
+                    if let Some(content) = file_content {
+                        // Find unwrap() or expect() calls to wrap with proper error handling
+                        for (i, line) in content.lines().enumerate() {
+                            if line.contains(".unwrap()") {
+                                let new_line = line.replace(".unwrap()", ".map_err(|e| AosError::Validation(e.to_string()))?");
+                                return (line.to_string(), new_line, i + 1, i + 1);
+                            }
+                        }
+                    }
+                }
+                (String::new(), "// Error handling added".to_string(), 1, 1)
+            }
+            TransformationType::AddTest => {
+                let func_name = self.extract_function_name(description);
+                let test_code = format!(
+                    "#[test]\nfn test_{}() {{\n    // Test for: {}\n    assert!(true);\n}}\n",
+                    func_name, description
+                );
+                let line_num = file_content.map(|c| c.lines().count()).unwrap_or(1);
+                (String::new(), test_code, line_num, line_num)
+            }
+            TransformationType::Remove => {
+                if let Some(content) = file_content {
+                    // Find line containing the target to remove
+                    let target = description.split_whitespace().last().unwrap_or("");
+                    for (i, line) in content.lines().enumerate() {
+                        if line.contains(target) {
+                            return (line.to_string(), String::new(), i + 1, i + 1);
+                        }
+                    }
+                }
+                ("// removed".to_string(), String::new(), 1, 1)
+            }
+            TransformationType::Modify => {
+                // Generic modification - add a documented change
+                let comment = if file_path.ends_with(".rs") {
+                    format!("// Modified: {}", description)
+                } else if file_path.ends_with(".py") {
+                    format!("# Modified: {}", description)
+                } else {
+                    format!("/* Modified: {} */", description)
+                };
+                (String::new(), comment, 1, 1)
+            }
+        }
+    }
+
+    /// Validate generated code syntax (basic validation)
+    fn validate_syntax(&self, code: &str, file_path: &str) -> Result<()> {
+        let is_rust = file_path.ends_with(".rs");
+
+        if is_rust {
+            // Basic Rust syntax validation
+            let open_braces = code.matches('{').count();
+            let close_braces = code.matches('}').count();
+            if open_braces != close_braces {
+                return Err(AosError::Validation(format!(
+                    "Unbalanced braces: {} open, {} close",
+                    open_braces, close_braces
+                )));
+            }
+
+            let open_parens = code.matches('(').count();
+            let close_parens = code.matches(')').count();
+            if open_parens != close_parens {
+                return Err(AosError::Validation(format!(
+                    "Unbalanced parentheses: {} open, {} close",
+                    open_parens, close_parens
+                )));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Types of code transformations
+#[derive(Debug, Clone)]
+enum TransformationType {
+    AddFunction,
+    Rename,
+    AddImport,
+    AddErrorHandling,
+    AddTest,
+    Remove,
+    Modify,
+}
+
 #[async_trait]
 impl LlmBackend for RuleBasedLlmBackend {
     async fn generate_patch(&self, context: &PatchContext) -> Result<String> {
@@ -443,34 +637,102 @@ impl LlmBackend for RuleBasedLlmBackend {
             .cloned()
             .unwrap_or_else(|| "unknown.txt".to_string());
 
-        // Insert a descriptive comment near the top of the file as a minimal, concrete change.
-        // If we have file context, include a small nearby hunk as context lines.
+        // Parse transformation type from description
+        let transform_type = self.parse_transformation(&context.request.description);
+
+        // Get file content if available
+        let file_content = context.file_contexts.get(&file).map(|s| s.as_str());
+
+        // Generate actual code transformation
+        let (old_code, new_code, start_line, end_line) =
+            self.generate_transformation(&transform_type, &context.request.description, file_content, &file);
+
+        // Validate generated code syntax
+        if !new_code.is_empty() {
+            self.validate_syntax(&new_code, &file)?;
+        }
+
+        // Build unified diff format
         let header = format!("--- a/{}\n+++ b/{}\n", &file, &file);
-        let hunk_header = "@@ 1 2 @@\n"; // simplified header parsable by PatchParser
-        let comment = format!("// TODO: {}", context.request.description);
+        let hunk_header = format!("@@ -{},{} +{},{} @@\n",
+            start_line,
+            if old_code.is_empty() { 0 } else { old_code.lines().count() },
+            start_line,
+            if new_code.is_empty() { 0 } else { new_code.lines().count() }
+        );
 
         let mut body = String::new();
-        if let Some(existing) = context.file_contexts.get(&file) {
-            // Use first line of existing content as context
-            let first_line = existing.lines().next().unwrap_or("");
-            body.push_str(&format!("{}{}\n+{}\n", first_line, "\n", comment));
-        } else {
-            // No context; add comment at file start
-            body.push_str(&format!("+{}\n", comment));
+
+        // Add context lines if available
+        if let Some(content) = file_content {
+            // Add 3 lines of context before the change
+            let lines: Vec<&str> = content.lines().collect();
+            let context_start = start_line.saturating_sub(3);
+            for i in context_start..start_line.saturating_sub(1) {
+                if i < lines.len() {
+                    body.push_str(&format!(" {}\n", lines[i]));
+                }
+            }
+        }
+
+        // Add old lines (deletions)
+        for line in old_code.lines() {
+            body.push_str(&format!("-{}\n", line));
+        }
+
+        // Add new lines (additions)
+        for line in new_code.lines() {
+            body.push_str(&format!("+{}\n", line));
         }
 
         Ok(format!("{}{}{}", header, hunk_header, body))
     }
 
     async fn extract_rationale(&self, patch_text: &str) -> Result<String> {
-        // Produce a brief rationale based on the TODO line
-        let rationale = patch_text
-            .lines()
-            .find(|l| l.starts_with("+// TODO:"))
-            .map(|l| l.trim_start_matches('+'))
-            .unwrap_or("Added minimal change per request description.")
-            .to_string();
-        Ok(rationale)
+        // Extract meaningful rationale from the patch
+        let mut rationale_parts = Vec::new();
+
+        // Count additions and deletions
+        let additions = patch_text.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
+        let deletions = patch_text.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+
+        if additions > 0 && deletions > 0 {
+            rationale_parts.push(format!("Modified {} lines, added {} lines", deletions, additions));
+        } else if additions > 0 {
+            rationale_parts.push(format!("Added {} lines of new code", additions));
+        } else if deletions > 0 {
+            rationale_parts.push(format!("Removed {} lines", deletions));
+        }
+
+        // Extract function names or key identifiers from additions
+        for line in patch_text.lines() {
+            if line.starts_with('+') && !line.starts_with("+++") {
+                let content = line.trim_start_matches('+');
+                if content.contains("fn ") {
+                    if let Some(func_start) = content.find("fn ") {
+                        let func_part = &content[func_start + 3..];
+                        if let Some(paren) = func_part.find('(') {
+                            let func_name = &func_part[..paren].trim();
+                            rationale_parts.push(format!("Implemented function '{}'", func_name));
+                        }
+                    }
+                } else if content.contains("def ") {
+                    if let Some(func_start) = content.find("def ") {
+                        let func_part = &content[func_start + 4..];
+                        if let Some(paren) = func_part.find('(') {
+                            let func_name = &func_part[..paren].trim();
+                            rationale_parts.push(format!("Implemented function '{}'", func_name));
+                        }
+                    }
+                }
+            }
+        }
+
+        if rationale_parts.is_empty() {
+            Ok("Applied code transformation based on request description.".to_string())
+        } else {
+            Ok(rationale_parts.join(". "))
+        }
     }
 }
 

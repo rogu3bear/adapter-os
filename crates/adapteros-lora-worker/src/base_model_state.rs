@@ -34,7 +34,7 @@ impl BaseModelStatus {
     }
 
     /// Parse from string
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse(s: &str) -> Result<Self> {
         match s {
             "loading" => Ok(Self::Loading),
             "loaded" => Ok(Self::Loaded),
@@ -208,7 +208,7 @@ impl BaseModelState {
     /// Load status from database
     pub async fn load_from_db(&mut self) -> Result<()> {
         if let Some(status_record) = self.db.get_base_model_status(&self.tenant_id).await? {
-            self.status = BaseModelStatus::from_str(&status_record.status)?;
+            self.status = BaseModelStatus::parse(&status_record.status)?;
             self.error_message = status_record.error_message;
             self.memory_usage_mb = status_record.memory_usage_mb.map(|mb| mb as u32);
 

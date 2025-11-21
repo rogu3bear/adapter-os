@@ -288,7 +288,7 @@ impl ConvPipeline {
 
         match VisionKernelBundle::convolve(tensor, config) {
             Ok(result) => {
-                let (data, batch_size, channels, height, width) = result.into_parts();
+                let (data, batch_size, channels, height, width): (Vec<f32>, usize, usize, usize, usize) = result.into_parts();
                 match ImageBatch::new(data, batch_size, channels, height, width) {
                     Ok(batch) => Some(Ok(batch)),
                     Err(err) => Some(Err(err)),
@@ -412,27 +412,27 @@ impl ConvPipeline {
     }
 
     fn resnet_layers() -> Vec<ConvLayer> {
-        let mut layers = Vec::new();
-        layers.push(Self::make_layer(3, 16, 3, 1, 1, "resnet_layer1"));
-        layers.push(Self::make_layer(16, 32, 3, 2, 1, "resnet_layer2"));
-        layers.push(Self::make_layer(32, 64, 3, 2, 1, "resnet_layer3"));
-        layers
+        vec![
+            Self::make_layer(3, 16, 3, 1, 1, "resnet_layer1"),
+            Self::make_layer(16, 32, 3, 2, 1, "resnet_layer2"),
+            Self::make_layer(32, 64, 3, 2, 1, "resnet_layer3"),
+        ]
     }
 
     fn vgg_layers() -> Vec<ConvLayer> {
-        let mut layers = Vec::new();
-        layers.push(Self::make_layer(3, 32, 3, 1, 1, "vgg_layer1"));
-        layers.push(Self::make_layer(32, 64, 3, 1, 1, "vgg_layer2"));
-        layers.push(Self::make_layer(64, 64, 3, 2, 1, "vgg_layer3"));
-        layers
+        vec![
+            Self::make_layer(3, 32, 3, 1, 1, "vgg_layer1"),
+            Self::make_layer(32, 64, 3, 1, 1, "vgg_layer2"),
+            Self::make_layer(64, 64, 3, 2, 1, "vgg_layer3"),
+        ]
     }
 
     fn efficientnet_layers() -> Vec<ConvLayer> {
-        let mut layers = Vec::new();
-        layers.push(Self::make_layer(3, 24, 3, 1, 1, "efficient_layer1"));
-        layers.push(Self::make_layer(24, 24, 3, 1, 1, "efficient_layer2"));
-        layers.push(Self::make_layer(24, 40, 5, 2, 2, "efficient_layer3"));
-        layers
+        vec![
+            Self::make_layer(3, 24, 3, 1, 1, "efficient_layer1"),
+            Self::make_layer(24, 24, 3, 1, 1, "efficient_layer2"),
+            Self::make_layer(24, 40, 5, 2, 2, "efficient_layer3"),
+        ]
     }
 
     fn make_layer(

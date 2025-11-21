@@ -4,10 +4,8 @@
 //! concrete LoRA adapters that can be loaded by the worker.  The goal is
 //! to maintain deterministic behaviour so that the same detection result
 //! always yields the same adapter identifier and weight matrices.
-//!
-//! NOTE: This module is currently stubbed out as adapteros-codegraph is disabled.
 
-// use adapteros_codegraph::DetectedFramework;  // Disabled - codegraph unavailable
+use adapteros_codegraph::DetectedFramework;
 use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,16 +13,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::info;
 
 use crate::training::LoRAWeights;
-
-/// Stub replacement for DetectedFramework from adapteros-codegraph
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DetectedFramework {
-    pub name: String,
-    pub version: Option<String>,
-    pub confidence: f32,
-    pub rank: u8,
-    pub evidence: Vec<String>,
-}
 
 /// Prepared framework adapter along with metadata needed by the router.
 #[derive(Debug, Clone, Serialize, Deserialize)]

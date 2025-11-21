@@ -35,10 +35,8 @@ use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::watch;
 use parking_lot::RwLock;
@@ -102,7 +100,7 @@ pub use ephemeral_adapters::{EphemeralAdapterManager, EphemeralAdapterSpec};
 pub use filter_engine::{FilterConfig, FilterEngine, FilterKind};
 pub use framework_adapters::{FrameworkAdapterManager, FrameworkAdapterSpec};
 pub use generation::Generator;
-pub use health::{HealthConfig, HealthMonitor, HealthStatus};
+pub use health::{HealthConfig, HealthMonitor, ProcessHealthStatus as HealthStatus};
 pub use kvcache::KvCache;
 pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits};
 pub use linter_runner::{
@@ -119,7 +117,8 @@ pub use telemetry_lora::{
     TelemetryTask,
 };
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
-pub use timeout::{CircuitBreaker, CircuitState, TimeoutConfig, TimeoutWrapper};
+pub use timeout::{CircuitBreaker, TimeoutConfig, TimeoutWrapper};
+pub use adapteros_core::CircuitState;
 pub use training::{
     AdapterManifest, AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights,
     MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingConfig, TrainingExample,
@@ -268,8 +267,10 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     generator: Generator,
     embedding_model: Arc<EmbeddingModel>,
     evidence_retriever: Option<EvidenceRetriever>,
-    kv_cache: KvCache,
-    last_stack_hash: RwLock<Option<B3Hash>>,
+    /// KV cache for transformer attention (reserved for cached generation)
+    _kv_cache: KvCache,
+    /// Last stack hash for change detection (reserved for stack caching)
+    _last_stack_hash: RwLock<Option<B3Hash>>,
     // Safety mechanisms
     _timeout_config: TimeoutConfig,
     _timeout_wrapper: TimeoutWrapper,
@@ -280,15 +281,15 @@ pub struct Worker<K: FusedKernels + Send + Sync> {
     telemetry: Option<TelemetryWriter>,
     // Lifecycle management
     profiler: adapteros_profiler::AdapterProfiler,
-    lifecycle: adapteros_lora_lifecycle::LifecycleManager,
+    lifecycle: Arc<Mutex<adapteros_lora_lifecycle::LifecycleManager>>,
     // Hot-swap management
-    hotswap: HotSwapManager<K>,
+    hotswap: Arc<HotSwapManager<K>>,
     // Retirement task management
     retirement_handle: Option<tokio::task::JoinHandle<()>>,
     shutdown_tx: watch::Sender<()>,
 }
 
-impl<K: FusedKernels + Send + Sync> Worker<K> {
+impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     /// Create a new worker with comprehensive safety mechanisms
     pub async fn new(
         manifest: ManifestV3,
@@ -378,27 +379,26 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         let adapter_hashes: std::collections::HashMap<String, adapteros_core::B3Hash> = manifest
             .adapters
             .iter()
-            .map(|a| (a.id.clone(), a.hash.clone()))
+            .map(|a| (a.id.clone(), a.hash))
             .collect();
 
-        let lifecycle = adapteros_lora_lifecycle::LifecycleManager::new(
+        let lifecycle = Arc::new(Mutex::new(adapteros_lora_lifecycle::LifecycleManager::new(
             adapter_names,
             adapter_hashes,
             &manifest.policies,
             adapters_path.clone(),
             Some(telemetry.clone()),
             manifest.router.k_sparse,
-        );
+        )));
 
         // Create shared kernels Arc for both Worker and HotSwapManager
         let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
-        let hotswap = HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone(), Some(Arc::new(telemetry.clone())));
+        let hotswap = Arc::new(HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone(), Some(Arc::new(telemetry.clone()))));
 
         // Retirement task management
-        let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let hotswap_clone = hotswap.clone();
-        let retirement_handle = Some(Arc::new(hotswap_clone).start_retirement_task(shutdown_rx));
+        let (shutdown_tx, _shutdown_rx) = watch::channel(());
+        let retirement_handle = Some(hotswap.clone().start_retirement_task());
 
         Ok(Self {
             manifest,
@@ -411,8 +411,8 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
             generator,
             embedding_model,
             evidence_retriever,
-            kv_cache,
-            last_stack_hash,
+            _kv_cache: kv_cache,
+            _last_stack_hash: last_stack_hash,
             _timeout_config: timeout_config,
             _timeout_wrapper: timeout_wrapper,
             circuit_breaker,
@@ -436,115 +436,109 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
     /// # Parameters
     /// - `interval_secs`: How often to run verification (default: 300 seconds / 5 minutes)
     pub fn start_gpu_verification_task(&self, interval_secs: u64) -> tokio::task::JoinHandle<()> {
-        // TODO: Wrap lifecycle in Arc<Mutex<>> to enable cloning for background task
-        // Temporarily disabled - lifecycle doesn't implement Clone
-        let _kernels = self.kernels.clone();
-        let _telemetry = self.telemetry.clone();
-        let _interval_secs = interval_secs;
+        let kernels = self.kernels.clone();
+        let lifecycle = self.lifecycle.clone();
+        let telemetry = self.telemetry.clone();
 
         tokio::spawn(async move {
-            // Placeholder - GPU verification disabled until lifecycle is wrapped in Arc
-            tracing::warn!(
-                "GPU verification task not yet implemented - lifecycle needs Arc<Mutex<>> wrapper"
-            );
-            tokio::time::sleep(tokio::time::Duration::from_secs(86400)).await;
-        })
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
 
-        /* Original implementation - disabled until lifecycle Clone issue resolved
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            loop {
+                interval.tick().await;
 
-        loop {
-            interval.tick().await;
+                // Get loaded adapters from lifecycle
+                let loaded_adapters = {
+                    let lifecycle_guard = lifecycle.lock().await;
+                    lifecycle_guard.get_loaded_adapters()
+                };
 
-            // Get loaded adapters from lifecycle
-            let loaded_adapters = lifecycle.get_loaded_adapters();
                 if loaded_adapters.is_empty() {
                     continue; // Skip if no adapters loaded
                 }
 
                 // Verify each loaded adapter
-                for adapter_id in &loaded_adapters {
+                for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
                     let mut kernels_lock = kernels.lock().await;
 
-                    // Convert adapter ID to u16 for kernel API
-                    let adapter_id_u16 = crate::adapter_hotswap::adapter_id_to_u16(adapter_id);
-
                     // Verify GPU buffers
-                    match kernels_lock.verify_adapter_buffers(adapter_id_u16) {
+                    match kernels_lock.verify_adapter_buffers(*adapter_id_u16) {
                         Ok((buffer_size, first_sample, last_sample, mid_sample)) => {
                             // Create GPU fingerprint
-                            use adapteros_lora_kernel_mtl::GpuBufferFingerprint;
-                            let gpu_fp = GpuBufferFingerprint::new(
-                                buffer_size,
-                                &first_sample,
-                                &last_sample,
-                                &mid_sample,
-                            );
+                            #[cfg(target_os = "macos")]
+                            {
+                                use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
+                                let gpu_fp = GpuBufferFingerprint::new(
+                                    buffer_size,
+                                    &first_sample,
+                                    &last_sample,
+                                    &mid_sample,
+                                );
 
-                            // Verify against baseline
-                            match kernels_lock.verify_gpu_fingerprint(adapter_id_u16, buffer_size, &gpu_fp.checkpoint_hash) {
-                                Ok(true) => {
-                                    tracing::debug!(
-                                        adapter_id = %adapter_id,
-                                        "GPU integrity verification passed"
-                                    );
-                                }
-                                Ok(false) => {
-                                    tracing::error!(
-                                        adapter_id = %adapter_id,
-                                        "GPU buffer fingerprint mismatch detected - taking corrective action"
-                                    );
-
-                                    // Log critical telemetry event
-                                    telemetry.log("gpu_integrity_failure", serde_json::json!({
-                                        "adapter_id": adapter_id,
-                                        "reason": "fingerprint_mismatch",
-                                        "action": "adapter_unloaded",
-                                        "severity": "critical"
-                                    })).ok();
-
-                                    // Corrective action: Unload corrupted adapter from kernels
-                                    if let Err(unload_err) = kernels_lock.unload_adapter(adapter_id_u16) {
-                                        tracing::error!(
+                                // Verify against baseline
+                                match kernels_lock.verify_gpu_fingerprint(*adapter_id_u16, buffer_size, &gpu_fp.checkpoint_hash.to_hex()) {
+                                    Ok(true) => {
+                                        tracing::debug!(
                                             adapter_id = %adapter_id,
-                                            error = %unload_err,
-                                            "Failed to unload corrupted adapter"
-                                        );
-                                    } else {
-                                        tracing::info!(
-                                            adapter_id = %adapter_id,
-                                            "Successfully unloaded corrupted adapter from GPU"
+                                            "GPU integrity verification passed"
                                         );
                                     }
+                                    Ok(false) => {
+                                        tracing::error!(
+                                            adapter_id = %adapter_id,
+                                            "GPU buffer fingerprint mismatch detected - taking corrective action"
+                                        );
 
-                                    // Mark adapter for manual review in lifecycle
-                                    // This prevents automatic reloading
-                                    tracing::warn!(
-                                        adapter_id = %adapter_id,
-                                        "Adapter marked for manual review - will not be automatically reloaded"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        adapter_id = %adapter_id,
-                                        error = %e,
-                                        "GPU verification failed"
-                                    );
+                                        // Log critical telemetry event
+                                        if let Some(ref t) = telemetry {
+                                            let _ = t.log("gpu_integrity_failure", serde_json::json!({
+                                                "adapter_id": adapter_id,
+                                                "reason": "fingerprint_mismatch",
+                                                "action": "adapter_unloaded",
+                                                "severity": "critical"
+                                            }));
+                                        }
+
+                                        // Corrective action: Unload corrupted adapter from kernels
+                                        if let Err(unload_err) = kernels_lock.unload_adapter(*adapter_id_u16) {
+                                            tracing::error!(
+                                                adapter_id = %adapter_id,
+                                                error = %unload_err,
+                                                "Failed to unload corrupted adapter"
+                                            );
+                                        } else {
+                                            tracing::info!(
+                                                adapter_id = %adapter_id,
+                                                "Successfully unloaded corrupted adapter from GPU"
+                                            );
+                                        }
+
+                                        // Mark adapter for manual review in lifecycle
+                                        tracing::warn!(
+                                            adapter_id = %adapter_id,
+                                            "Adapter marked for manual review - will not be automatically reloaded"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            adapter_id = %adapter_id,
+                                            error = %e,
+                                            "GPU verification failed"
+                                        );
+                                    }
                                 }
                             }
                         }
                         Err(e) => {
-                            tracing::error!(
+                            tracing::debug!(
                                 adapter_id = %adapter_id,
                                 error = %e,
-                                "Failed to verify adapter GPU buffers"
+                                "Failed to verify adapter GPU buffers (may not be loaded)"
                             );
                         }
                     }
                 }
             }
         })
-        */
     }
 
     /// Run inference with comprehensive safety mechanisms
@@ -579,7 +573,10 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
         // Check memory - handle memory pressure if needed
         if let Err(_e) = self.memory_monitor.check_headroom() {
-            self.lifecycle.handle_memory_pressure(&self.profiler)?;
+            {
+                let lifecycle = self.lifecycle.lock().await;
+                lifecycle.handle_memory_pressure(&self.profiler)?;
+            }
             // Try again after eviction
             self.memory_monitor.check_headroom().map_err(|e| {
                 AosError::MemoryPressure(format!("Insufficient headroom after eviction: {}", e))
@@ -649,7 +646,7 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         // Uncomment
         for name in stack_handle.active.keys() {
             let table = self.hotswap.table();
-            table.inc_ref(name);
+            table.inc_ref(name).await;
         }
 
         let mut generated_tokens = Vec::new();
@@ -674,9 +671,10 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);
-            self.lifecycle
-                .record_router_decision(&decision.indices)
-                .await?;
+            {
+                let lifecycle = self.lifecycle.lock().await;
+                lifecycle.record_router_decision(&decision.indices).await?;
+            }
 
             // Convert Decision to RouterRing
             let mut router_ring = RouterRing::from(&decision);
@@ -722,7 +720,10 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         }
 
         // Evaluate lifecycle transitions after inference
-        self.lifecycle.evaluate_transitions(&self.profiler)?;
+        {
+            let lifecycle = self.lifecycle.lock().await;
+            lifecycle.evaluate_transitions(&self.profiler)?;
+        }
 
         // Log profiling snapshot (sampled at 5%)
         self.profiler.maybe_log_snapshot()?;
@@ -1090,7 +1091,10 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
         let mut skipped = Vec::new();
 
         // Get adapters that should have GPU buffers loaded
-        let loaded_adapters = self.lifecycle.get_loaded_adapters();
+        let loaded_adapters = {
+            let lifecycle = self.lifecycle.lock().await;
+            lifecycle.get_loaded_adapters()
+        };
 
         let mut kernels_lock = self.kernels.lock().await;
 
@@ -1278,23 +1282,24 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
         // Snapshot current stack and increment refcounts for workflow adapters
         let table = self.hotswap.table();
-        let stack_handle = table.current_stack.load(Ordering::Acquire).clone();
-        let refcounts = &table.refcounts;
+        let _stack_handle = table.get_current_stack_generation();
+        let refcounts = table.refcounts().lock().await;
         for id in &adapter_ids {
             if let Some(rc) = refcounts.get(id) {
                 rc.fetch_add(1, Ordering::Relaxed);
             }
         }
+        drop(refcounts);
 
         // Create kernel backend with adapter name mapping
-        let adapter_names: Vec<String> = self
+        let _adapter_names: Vec<String> = self
             .manifest
             .adapters
             .iter()
             .map(|a| a.id.clone())
             .collect();
 
-        let backend = Arc::new(MockAdapterBackend::default());
+        let backend = Arc::new(MockAdapterBackend);
 
         // Create and execute workflow
         let executor = WorkflowExecutor::new(workflow_type, adapter_ids.clone(), backend);
@@ -1307,9 +1312,29 @@ impl<K: FusedKernels + Send + Sync> Worker<K> {
 
         result
     }
+
+    /// Get reference to the hot-swap manager
+    pub fn hotswap(&self) -> &Arc<HotSwapManager<K>> {
+        &self.hotswap
+    }
+
+    /// Get reference to the KV cache
+    pub fn kv_cache(&self) -> &KvCache {
+        &self._kv_cache
+    }
+
+    /// Get reference to the last stack hash
+    pub fn last_stack_hash(&self) -> &RwLock<Option<B3Hash>> {
+        &self._last_stack_hash
+    }
+
+    /// Get reference to the telemetry writer
+    pub fn telemetry(&self) -> &Option<TelemetryWriter> {
+        &self.telemetry
+    }
 }
 
-impl<K> Drop for Worker<K> {
+impl<K: FusedKernels + Send + Sync> Drop for Worker<K> {
     fn drop(&mut self) {
         if let Some(handle) = self.retirement_handle.take() {
             let _ = self.shutdown_tx.send(());

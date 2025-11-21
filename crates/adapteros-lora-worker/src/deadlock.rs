@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tokio::time::{interval, sleep};
-use tracing::{error, info, warn};
+use tokio::time::interval;
+use tracing::{error, warn};
 
 /// Deadlock detection configuration
 #[derive(Debug, Clone)]
@@ -37,8 +37,8 @@ struct LockInfo {
     thread_id: u64,
     lock_id: String,
     acquired_at: Instant,
-    #[allow(dead_code)]
-    stack_trace: String,
+    /// Stack trace for debugging (reserved for detailed deadlock analysis)
+    _stack_trace: String,
 }
 
 /// Deadlock detector
@@ -170,7 +170,7 @@ impl DeadlockDetector {
             thread_id,
             lock_id: lock_id.clone(),
             acquired_at: Instant::now(),
-            stack_trace: "".to_string(), // Would capture actual stack trace
+            _stack_trace: "".to_string(), // Would capture actual stack trace
         };
 
         self.locks.lock().await.insert(lock_id.clone(), lock_info);

@@ -80,7 +80,7 @@ impl QwenTokenizer {
     /// This is primarily intended for tests where we want to avoid loading
     /// tokenizer JSON files from disk. The token IDs for special tokens
     /// mirror the defaults used in `from_file`.
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     pub(crate) fn from_tokenizer_instance(tokenizer: Tokenizer) -> Self {
         Self {
             tokenizer,
