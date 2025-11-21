@@ -17,9 +17,6 @@ export const Footer: React.FC = () => {
   const { data: meta, isLoading } = useQuery<MetaResponse>({
     queryKey: ['/v1/meta'],
 
-    queryFn: () => apiClient.getMeta(),
-    refetchInterval: 30000,
-
     queryFn: async () => {
       // Citation: ui/src/api/client.ts L117-L119
       return apiClient.getMeta();

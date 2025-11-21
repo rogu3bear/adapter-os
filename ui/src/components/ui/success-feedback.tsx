@@ -133,7 +133,7 @@ export function SuccessFeedback({
 }
 
 // Pre-configured success feedback for common operations
-export const SuccessTemplates = {
+export const successTemplates = {
   adapterCreated: (adapterName: string, onTest?: () => void, onView?: () => void) => (
     <SuccessFeedback
       title="Adapter Created Successfully!"

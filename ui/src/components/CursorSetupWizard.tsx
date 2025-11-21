@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from './ui/badge';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { CheckCircle, XCircle, Copy, ExternalLink } from 'lucide-react';
 import apiClient from '@/api/client';
 import { CursorConfigResponse } from '@/api/types';
@@ -196,7 +196,7 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
 
   return (
     <div className="space-y-4">
-      {wizardError && ErrorRecoveryTemplates.genericError(
+      {wizardError && errorRecoveryTemplates.genericError(
         wizardError,
         () => {
           setWizardError(null);
@@ -206,14 +206,8 @@ export function CursorSetupWizard({ onComplete, onCancel }: CursorSetupWizardPro
 
       {validationError && (
         <ErrorRecovery
-          title="Action Required"
-          message={validationError}
-          variant="warning"
-          recoveryActions={[
-            { label: 'Load Base Model', action: () => { window.location.href = '/adapters'; }, primary: true },
-            { label: 'Dismiss', action: () => setValidationError(null), variant: 'outline' }
-          ]}
-          showHelp={false}
+          error={validationError}
+          onRetry={() => setValidationError(null)}
         />
       )}
 

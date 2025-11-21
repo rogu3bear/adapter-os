@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import apiClient from '../api/client';
 import { GoldenCompareRequest, Strictness, VerificationReport } from '../api/types';
 // 【ui/src/components/GoldenCompareModal.tsx§1-40】 - Replace toast notifications with ErrorRecovery patterns
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 
 interface GoldenCompareModalProps {
   open: boolean;
@@ -155,7 +155,7 @@ export function GoldenCompareModal({ open, onOpenChange, bundleId }: GoldenCompa
         </DialogHeader>
 
         <div className="space-y-4">
-          {compareError && ErrorRecoveryTemplates.genericError(
+          {compareError && errorRecoveryTemplates.genericError(
             compareError,
             () => {
               setCompareError(null);

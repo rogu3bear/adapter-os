@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
 import apiClient from '../api/client';
-import { ErrorRecoveryTemplates } from '../components/ui/error-recovery';
+import { errorRecoveryTemplates } from '../components/ui/error-recovery';
 import { useCancellableOperation } from './useCancellableOperation';
 import type { AdapterCategory, CategoryPolicy } from '../api/types';
 
@@ -30,6 +30,10 @@ export interface UseAdapterOperationsReturn {
   promoteAdapter: (adapterId: string) => Promise<void>;
   deleteAdapter: (adapterId: string) => Promise<void>;
   updateCategoryPolicy: (category: AdapterCategory, policy: CategoryPolicy) => Promise<void>;
+  // Additional operations
+  clearOperationError?: () => void;
+  loadAdapter?: (adapterId: string) => Promise<void>;
+  unloadAdapter?: (adapterId: string) => Promise<void>;
 }
 
 export function useAdapterOperations(options: UseAdapterOperationsOptions = {}): UseAdapterOperationsReturn {
@@ -67,7 +71,7 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setOperationError(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMessage),
           () => evictAdapter(adapterId)
         )
@@ -96,7 +100,7 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setOperationError(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMessage),
           () => pinAdapter(adapterId, pinned)
         )
@@ -130,7 +134,7 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
       if (err) { // Only set error if not cancelled
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setOperationError(
-          ErrorRecoveryTemplates.genericError(
+          errorRecoveryTemplates.genericError(
             err instanceof Error ? err : new Error(errorMessage),
             () => promoteAdapter(adapterId)
           )
@@ -159,7 +163,7 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setOperationError(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMessage),
           () => deleteAdapter(adapterId)
         )
@@ -186,7 +190,7 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setOperationError(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMessage),
           () => updateCategoryPolicy(category, policy)
         )

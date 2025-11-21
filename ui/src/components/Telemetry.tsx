@@ -8,7 +8,7 @@ import { VirtualizedTableRows } from './ui/virtualized-table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { Activity, Download, Eye, CheckCircle, MoreHorizontal, Shield, Trash2 } from 'lucide-react';
+import { Activity, Download, Eye, MoreHorizontal, Shield, Trash2 } from 'lucide-react';
 import { ExportMenu } from './ui/export-menu';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
@@ -19,20 +19,19 @@ import apiClient from '../api/client';
 import { TelemetryBundle, User, VerifyBundleSignatureResponse } from '../api/types';
 
 import { useTimestamp } from '../hooks/useTimestamp';
-import { canonicalKey } from './ui/utils';
 import { HashChainView } from './HashChainView';
 import { HelpTooltip } from './ui/help-tooltip';
-import { useSSE } from '../hooks/useSSE';
 import { toast } from 'sonner';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from './ui/advanced-filter';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
-// 【ui/src/components/Telemetry.tsx§1-27】 - Replace toast errors with ErrorRecovery
 import { GoldenCompareModal } from './GoldenCompareModal';
 import { logger, toError } from '../utils/logger';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { DensityControls } from './ui/density-controls';
 import { useDensity } from '../contexts/DensityContext';
+import { useRBAC } from '@/hooks/useRBAC';
+import { PERMISSIONS } from '@/utils/rbac';
 
 interface TelemetryProps {
   user?: User;
@@ -46,6 +45,8 @@ interface TelemetryToolbarProps {
   onExportAll: (format: 'csv' | 'json') => Promise<void>;
   exportDisabled: boolean;
   onPurge: () => void;
+  canExport: boolean;
+  canPurge: boolean;
 }
 
 function TelemetryToolbar({
@@ -55,6 +56,8 @@ function TelemetryToolbar({
   onExportAll,
   exportDisabled,
   onPurge,
+  canExport,
+  canPurge,
 }: TelemetryToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -64,20 +67,24 @@ function TelemetryToolbar({
         showLabel={false}
         className="min-w-[160px]"
       />
-      <ExportMenu
-        onExport={onExportAll}
-        filename="telemetry-bundles-export"
-        formats={['csv', 'json']}
-        disabled={exportDisabled}
-      />
+      <HelpTooltip helpId="telemetry-export">
+        <ExportMenu
+          onExport={onExportAll}
+          filename="telemetry-bundles-export"
+          formats={['csv', 'json']}
+          disabled={exportDisabled || !canExport}
+        />
+      </HelpTooltip>
       <Badge variant={connected ? 'default' : 'secondary'} className="flex items-center gap-2">
         <Activity className="h-4 w-4" aria-hidden="true" />
         {connected ? 'Capturing Events (Live)' : 'Capturing Events'}
       </Badge>
-      <Button variant="destructive" size="sm" onClick={onPurge}>
-        <Trash2 className="icon-standard mr-2" />
-        Purge Old Bundles
-      </Button>
+      {canPurge && (
+        <Button variant="destructive" size="sm" onClick={onPurge}>
+          <Trash2 className="icon-standard mr-2" />
+          Purge Old Bundles
+        </Button>
+      )}
     </div>
   );
 }
@@ -86,11 +93,13 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
   const { density, setDensity } = useDensity();
+  const { can, hasRole: userHasRole } = useRBAC();
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [telemetryError, setTelemetryError] = useState<Error | null>(null);
+  const [sseError, setSseError] = useState<Error | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [showPurgeModal, setShowPurgeModal] = useState(false);
@@ -98,6 +107,10 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const [selectedBundle, setSelectedBundle] = useState<TelemetryBundle | null>(null);
   const [selectedBundles, setSelectedBundles] = useState<string[]>([]);
   const [purgeKeepCount, setPurgeKeepCount] = useState(12);
+
+  // RBAC permissions
+  const canExportTelemetry = can(PERMISSIONS.AUDIT_VIEW);
+  const canPurgeTelemetry = userHasRole(['admin']);
   
   // Filtering state
   const [filterValues, setFilterValues] = useState<FilterValues>({});
@@ -247,43 +260,86 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   useEffect(() => {
     const baseUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
     const url = `${baseUrl}/v1/stream/telemetry`;
-    
-    const eventSource = new EventSource(url);
 
-    eventSource.onopen = () => {
-      setSseConnected(true);
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+
+    const createEventSource = () => {
+      const eventSource = new EventSource(url);
+
+      eventSource.onopen = () => {
+        setSseConnected(true);
+        setSseError(null);
+        reconnectAttempts = 0;
+      };
+
+      eventSource.onerror = (event) => {
+        setSseConnected(false);
+
+        // Close the failed connection
+        eventSource.close();
+
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+
+          logger.warn('SSE connection error, attempting reconnect', {
+            component: 'Telemetry',
+            operation: 'sse_reconnect',
+            attempt: reconnectAttempts,
+            maxAttempts: maxReconnectAttempts,
+            delayMs: delay,
+          });
+
+          reconnectTimeout = setTimeout(() => {
+            createEventSource();
+          }, delay);
+        } else {
+          const error = new Error('Failed to establish SSE connection after multiple attempts. Live updates are unavailable.');
+          setSseError(error);
+          logger.error('SSE connection failed permanently', {
+            component: 'Telemetry',
+            operation: 'sse_connection_failed',
+            attempts: reconnectAttempts,
+          }, error);
+        }
+      };
+
+      // Listen for bundle events (single objects or arrays)
+      eventSource.addEventListener('bundles', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          // Normalize: handle both single object and array
+          const bundleList = Array.isArray(payload) ? payload : [payload];
+
+          setBundles((prev) => {
+            // Merge new bundles, avoiding duplicates by ID
+            const existingIds = new Set(prev.map(b => b.id));
+            const newBundles = bundleList.filter(b => !existingIds.has(b.id));
+            if (newBundles.length === 0) return prev;
+
+            // Prepend new bundles and limit to last 100
+            const merged = [...newBundles, ...prev];
+            return merged.slice(0, 100);
+          });
+        } catch (err) {
+          logger.error('Failed to parse bundles SSE payload', {
+            component: 'Telemetry',
+            operation: 'sse_bundles_parse',
+          }, toError(err));
+        }
+      });
+
+      return eventSource;
     };
 
-    eventSource.onerror = () => {
-      setSseConnected(false);
-    };
-
-    // Listen for bundle events (single objects or arrays)
-    eventSource.addEventListener('bundles', (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        // Normalize: handle both single object and array
-        const bundleList = Array.isArray(payload) ? payload : [payload];
-        
-        setBundles((prev) => {
-          // Merge new bundles, avoiding duplicates by ID
-          const existingIds = new Set(prev.map(b => b.id));
-          const newBundles = bundleList.filter(b => !existingIds.has(b.id));
-          if (newBundles.length === 0) return prev;
-          
-          // Prepend new bundles and limit to last 100
-          const merged = [...newBundles, ...prev];
-          return merged.slice(0, 100);
-        });
-      } catch (err) {
-        logger.error('Failed to parse bundles SSE payload', {
-          component: 'Telemetry',
-          operation: 'sse_bundles_parse',
-        }, toError(err));
-      }
-    });
+    const eventSource = createEventSource();
 
     return () => {
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
       eventSource.close();
     };
   }, []);
@@ -454,25 +510,27 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     }
   }, [bundles]);
 
-  const bulkActions: BulkAction[] = useMemo(() => [
-    {
-      id: 'export',
-      label: 'Export Selected',
-      handler: handleBulkExportBundles
+  const bulkActions: BulkAction[] = useMemo(() => {
+    const actions: BulkAction[] = [];
+
+    if (canExportTelemetry) {
+      actions.push({
+        id: 'export',
+        label: 'Export Selected',
+        handler: handleBulkExportBundles
+      });
     }
-  ], [handleBulkExportBundles]);
+
+    return actions;
+  }, [handleBulkExportBundles, canExportTelemetry]);
 
   if (telemetryError) {
-    return (
-      <ErrorRecovery
-        {...ErrorRecoveryTemplates.genericError(
-          telemetryError.message,
-          () => {
-            setTelemetryError(null);
-            window.location.reload();
-          }
-        )}
-      />
+    return errorRecoveryTemplates.genericError(
+      telemetryError.message,
+      () => {
+        setTelemetryError(null);
+        window.location.reload();
+      }
     );
   }
 
@@ -490,27 +548,59 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   return (
     <div className="space-y-6">
 
-      <AdvancedFilter
-        configs={telemetryFilterConfigs}
-        values={filterValues}
-        onChange={setFilterValues}
-        className="mb-4"
-        title="Filter Bundles"
-      />
+      {sseError && (
+        <Alert variant="destructive">
+          <AlertDescription className="flex items-center justify-between">
+            <span>{sseError.message}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSseError(null);
+                window.location.reload();
+              }}
+            >
+              Retry Connection
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <HelpTooltip helpId="telemetry-filters">
+        <AdvancedFilter
+          configs={telemetryFilterConfigs}
+          values={filterValues}
+          onChange={setFilterValues}
+          className="mb-4"
+          title="Filter Bundles"
+        />
+      </HelpTooltip>
 
       <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <span>
-              Event Bundles
-              {filteredBundles.length !== bundles.length && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({filteredBundles.length} of {bundles.length})
-                </span>
-              )}
-            </span>
-            <ConceptTooltip concept="bundle" />
-          </CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <CardTitle className="flex items-center gap-2">
+              <span>
+                Event Bundles
+                {filteredBundles.length !== bundles.length && (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    ({filteredBundles.length} of {bundles.length})
+                  </span>
+                )}
+              </span>
+              <ConceptTooltip concept="bundle" />
+            </CardTitle>
+            <TelemetryToolbar
+              density={density}
+              onDensityChange={setDensity}
+              connected={sseConnected}
+              onExportAll={handleExportAllBundles}
+              exportDisabled={bundles.length === 0}
+              onPurge={() => setShowPurgeModal(true)}
+              canExport={canExportTelemetry}
+              canPurge={canPurgeTelemetry}
+            />
+          </div>
         </CardHeader>
         <CardContent>
           <Table className="border-collapse w-full">
@@ -537,20 +627,32 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                     aria-label="Select all bundles"
                   />
                 </TableHead>
-                <TableHead>Bundle ID</TableHead>
+                <TableHead role="columnheader" scope="col">
+                  <HelpTooltip helpId="telemetry-event">
+                    <span>Bundle ID</span>
+                  </HelpTooltip>
+                </TableHead>
                 <TableHead role="columnheader" scope="col">
                   <HelpTooltip helpId="cpid">
                     <span>CPID</span>
                   </HelpTooltip>
                 </TableHead>
-                <TableHead role="columnheader" scope="col">Events</TableHead>
+                <TableHead role="columnheader" scope="col">
+                  <HelpTooltip helpId="telemetry-type">
+                    <span>Events</span>
+                  </HelpTooltip>
+                </TableHead>
                 <TableHead role="columnheader" scope="col">Size</TableHead>
                 <TableHead role="columnheader" scope="col">
                   <HelpTooltip helpId="merkle-root">
                     <span>Merkle Root</span>
                   </HelpTooltip>
                 </TableHead>
-                <TableHead role="columnheader" scope="col">Created</TableHead>
+                <TableHead role="columnheader" scope="col">
+                  <HelpTooltip helpId="telemetry-timestamp">
+                    <span>Created</span>
+                  </HelpTooltip>
+                </TableHead>
                 <TableHead role="columnheader" scope="col">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -602,10 +704,12 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleExportBundle(bundleTyped)}>
-                                <Download className="icon-standard mr-2" />
-                                Export
-                              </DropdownMenuItem>
+                              {canExportTelemetry && (
+                                <DropdownMenuItem onClick={() => handleExportBundle(bundleTyped)}>
+                                  <Download className="icon-standard mr-2" />
+                                  Export
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem onClick={() => handleVerifySignature(bundleTyped)}>
                                 <Shield className="icon-standard mr-2" />
                                 Verify Signature

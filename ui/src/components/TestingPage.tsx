@@ -15,9 +15,12 @@ import { logger, toError } from '../utils/logger';
 import { Link } from 'react-router-dom';
 import { FlaskConical, CheckCircle, XCircle, AlertTriangle, Settings, Play, GitCompare } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
 
 export function TestingPage() {
+  const { can } = useRBAC();
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapter, setSelectedAdapter] = useState<string | null>(null);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
@@ -31,6 +34,9 @@ export function TestingPage() {
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const canRunTests = can('testing:execute');
+  const canViewTests = can('testing:view');
 
   const showStatus = (message: string, variant: 'success' | 'info' | 'warning') => {
     setStatusMessage({ message, variant });
@@ -47,7 +53,7 @@ export function TestingPage() {
         logger.error('Failed to fetch adapters for testing', { component: 'TestingPage' }, toError(err));
         setStatusMessage({ message: 'Failed to load adapters.', variant: 'warning' });
         setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
+          errorRecoveryTemplates.genericError(
             err instanceof Error ? err : new Error('Failed to load adapters.'),
             () => fetchAdapters()
           )
@@ -83,7 +89,7 @@ export function TestingPage() {
     } catch (err) {
       setStatusMessage({ message: 'Test failed.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Test failed.'),
           () => handleRunTest()
         )
@@ -128,7 +134,10 @@ export function TestingPage() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Testing & Validation</h1>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            Testing & Validation
+            <HelpTooltip helpId="testing-config" />
+          </h1>
           <p className="text-muted-foreground">Test and validate adapters against golden baselines</p>
         </div>
       </div>
@@ -162,9 +171,10 @@ export function TestingPage() {
                     </TableCell>
                     <TableCell>{new Date(adapter.created_at).toLocaleString()}</TableCell>
                     <TableCell>
-                      <Button onClick={() => handleStartTest(adapter.id)}>
+                      <Button onClick={() => handleStartTest(adapter.id)} disabled={!canRunTests}>
                         <FlaskConical className="mr-2 h-4 w-4" />
                         Start Test
+                        <HelpTooltip helpId="testing-run" />
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -175,6 +185,14 @@ export function TestingPage() {
         </CardContent>
       </Card>
 
+      {!canRunTests && (
+        <Alert>
+          <AlertDescription className="text-muted-foreground">
+            You need the testing:execute permission to run tests on adapters.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Golden Runs Component */}
       <GoldenRuns />
 
@@ -182,11 +200,17 @@ export function TestingPage() {
       <Dialog open={isConfigModalOpen} onOpenChange={setIsConfigModalOpen}>
         <DialogContent>
           <CardHeader>
-            <CardTitle>Configure Test</CardTitle>
+            <CardTitle className="flex items-center gap-1">
+              Configure Test
+              <HelpTooltip helpId="testing-config" />
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label>Epsilon Threshold</Label>
+              <Label className="flex items-center gap-1">
+                Epsilon Threshold
+                <HelpTooltip helpId="testing-epsilon" />
+              </Label>
               <Input
                 type="number"
                 value={testConfig.epsilonThreshold}
@@ -194,7 +218,10 @@ export function TestingPage() {
               />
             </div>
             <div>
-              <Label>Pass Rate Threshold (%)</Label>
+              <Label className="flex items-center gap-1">
+                Pass Rate Threshold (%)
+                <HelpTooltip helpId="testing-pass-rate" />
+              </Label>
               <Input
                 type="number"
                 value={testConfig.passRateThreshold}
@@ -202,7 +229,10 @@ export function TestingPage() {
               />
             </div>
             <div>
-              <Label>Golden Baseline</Label>
+              <Label className="flex items-center gap-1">
+                Golden Baseline
+                <HelpTooltip helpId="golden-baseline" />
+              </Label>
               <Select onValueChange={(value) => setTestConfig(prev => ({ ...prev, selectedGolden: value }))}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select golden run" />
@@ -217,7 +247,7 @@ export function TestingPage() {
           </CardContent>
           <div className="flex justify-end gap-2 p-4">
             <Button variant="outline" onClick={() => setIsConfigModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleRunTest}>Run Test</Button>
+            <Button onClick={handleRunTest} disabled={!canRunTests}>Run Test</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -5,25 +5,23 @@ import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Slider } from './ui/slider';
-import { Checkbox } from './ui/checkbox';
 import { Alert, AlertDescription } from './ui/alert';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
-import { BatchResults } from './inference/BatchResults';
+import { validatePrompt, ValidationResult, MAX_PROMPT_LENGTH } from './inference/PromptInput';
+import { AdvancedOptions } from './inference/AdvancedOptions';
+import { InferenceOutput } from './inference/InferenceOutput';
+import { TemplateManager } from './inference/TemplateManager';
+import { BatchProcessor } from './inference/BatchProcessor';
+import { ComparisonMode } from './inference/ComparisonMode';
+import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import {
   Play,
-  Copy,
   Download,
   History,
-  Settings2,
-  ChevronDown,
   Zap,
   Clock,
-  BarChart3,
   Split,
   FileText,
   AlertTriangle,
-  CheckCircle,
   Code,
   Square,
   Wifi,
@@ -31,16 +29,16 @@ import {
   TrendingUp,
   Target,
   Plus,
-  Check
+  HelpCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
-import { InferRequest, InferResponse, InferenceSession, Adapter } from '../api/types';
+import { InferRequest, InferResponse, InferenceSession, Adapter, InferenceConfig } from '../api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { TraceVisualizer } from './TraceVisualizer';
 import { logger, toError } from '../utils/logger';
 import { useSearchParams } from 'react-router-dom';
-import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
 import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
@@ -54,135 +52,6 @@ import { InferenceRequestSchema, BatchPromptSchema } from '../schemas';
 interface InferencePlaygroundProps {
   selectedTenant: string;
 }
-
-interface ValidationResult {
-  valid: boolean;
-  error?: string;
-  warning?: string;
-  suggestion?: string;
-}
-
-// Input validation utilities for edge cases
-const MAX_PROMPT_LENGTH = 50000; // 50KB character limit
-const MAX_PROMPT_BYTES = 100000; // 100KB byte limit
-
-const validatePromptLength = (prompt: string): ValidationResult => {
-  if (prompt.length > MAX_PROMPT_LENGTH) {
-    return {
-      valid: false,
-      error: `Prompt too long (${prompt.length.toLocaleString()} characters). Maximum: ${MAX_PROMPT_LENGTH.toLocaleString()}`,
-      suggestion: 'Consider breaking into smaller chunks or using batch processing for large inputs'
-    };
-  }
-
-  const byteLength = new Blob([prompt]).size;
-  if (byteLength > MAX_PROMPT_BYTES) {
-    return {
-      valid: false,
-      error: `Prompt size too large (${(byteLength / 1024).toFixed(1)}KB). Maximum: ${(MAX_PROMPT_BYTES / 1024).toFixed(0)}KB`,
-      suggestion: 'Reduce content size or consider using file upload for large documents'
-    };
-  }
-
-  if (prompt.length > MAX_PROMPT_LENGTH * 0.8) {
-    return {
-      valid: true,
-      warning: `Approaching character limit (${prompt.length.toLocaleString()}/${MAX_PROMPT_LENGTH.toLocaleString()})`
-    };
-  }
-
-  return { valid: true };
-};
-
-const validateUnicodeContent = (text: string): ValidationResult => {
-  try {
-    // Normalize to NFC form for consistent processing
-    const normalized = text.normalize('NFC');
-
-    // Check for problematic Unicode ranges (control characters except common whitespace)
-    const hasProblematicUnicode = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B\u200C\u200D]/.test(normalized);
-    if (hasProblematicUnicode) {
-      return {
-        valid: false,
-        error: 'Prompt contains unsupported control or invisible characters',
-        suggestion: 'Remove or replace invisible characters, zero-width spaces, or control characters'
-      };
-    }
-
-    // Check for excessive emoji usage (potential spam/abuse)
-    const emojiCount = (normalized.match(/\p{Emoji}/gu) || []).length;
-    const textLength = normalized.replace(/\p{Emoji}/gu, '').length;
-    if (emojiCount > textLength * 0.5 && emojiCount > 20) {
-      return {
-        valid: false,
-        error: 'Too many emojis detected',
-        suggestion: 'Reduce emoji usage or use descriptive text instead'
-      };
-    }
-
-    return { valid: true };
-  } catch (error) {
-    return {
-      valid: false,
-      error: 'Unicode processing failed - text may contain invalid characters',
-      suggestion: 'Try re-entering the text or copy from a different source'
-    };
-  }
-};
-
-const validatePromptContent = (prompt: string): ValidationResult => {
-  if (!prompt || prompt.trim().length === 0) {
-    return {
-      valid: false,
-      error: 'Prompt cannot be empty',
-      suggestion: 'Please enter a question or instruction for the AI model'
-    };
-  }
-
-  // Check for invisible Unicode characters that would be trimmed
-  const visibleChars = prompt.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B\u200C\u200D\s]/g, '');
-  if (visibleChars.length === 0) {
-    return {
-      valid: false,
-      error: 'Prompt contains only invisible characters or whitespace',
-      suggestion: 'Please enter meaningful text content'
-    };
-  }
-
-  // Minimum meaningful length check (accounting for Unicode)
-  const normalizedLength = prompt.normalize('NFC').trim().length;
-  if (normalizedLength < 3) {
-    return {
-      valid: false,
-      error: 'Prompt too short',
-      suggestion: 'Please provide more context (minimum 3 characters)'
-    };
-  }
-
-  return { valid: true };
-};
-
-const validatePrompt = (prompt: string): ValidationResult => {
-  // Run all validations in order
-  const lengthValidation = validatePromptLength(prompt);
-  if (!lengthValidation.valid) return lengthValidation;
-
-  const contentValidation = validatePromptContent(prompt);
-  if (!contentValidation.valid) return contentValidation;
-
-  const unicodeValidation = validateUnicodeContent(prompt);
-  if (!unicodeValidation.valid) return unicodeValidation;
-
-  // Combine warnings if any
-  const warnings = [lengthValidation.warning, contentValidation.warning, unicodeValidation.warning]
-    .filter(Boolean)
-    .join('; ');
-
-  return {
-    valid: true,
-    ...(warnings && { warning: warnings })
-  };
-};
 
 // Security: Input sanitization to prevent XSS and other injection attacks
 const sanitizeInput = (input: string): string => {
@@ -227,26 +96,21 @@ const recordPrivacySafeMetrics = (operation: string, data: any) => {
 };
 
 
-interface InferenceConfig extends InferRequest {
-  id: string;
-}
-
-
 interface StreamingToken {
   token: string;
   timestamp: number;
 }
 
-export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps) {
+function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps) {
   const [searchParams] = useSearchParams();
+  const { can, userRole } = useRBAC();
+  const { errors, addError, clearError } = usePageErrors();
   const [mode, setMode] = useState<'single' | 'comparison'>('single');
   const [inferenceMode, setInferenceMode] = useState<'standard' | 'streaming' | 'batch'>('standard');
   const [prompt, setPrompt] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('none');
-  const [inferenceError, setInferenceError] = useState<Error | null>(null);
-  const [adaptersLoadError, setAdaptersLoadError] = useState<Error | null>(null);
 
   // Template management
   const { recordTemplateUsage, substituteVariables, getRecentTemplates } = usePromptTemplates();
@@ -256,18 +120,13 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   const [showVariableInputs, setShowVariableInputs] = useState(false);
   const [promptModifiedSinceTemplate, setPromptModifiedSinceTemplate] = useState(false);
 
-  // Additional state for streaming, metrics, and batch operations
+  // Additional state for metrics and batch operations
   const [metrics, setMetrics] = useState<any>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [throttledStreamingTokens, setThrottledStreamingTokens] = useState<string>('');
-  const [streamingTokens, setStreamingTokens] = useState<string>('');
-  const [streamController, setStreamController] = useState<AbortController | null>(null);
-  const streamingRef = React.useRef<boolean>(false);
   const [batchPrompts, setBatchPrompts] = useState<string[]>([]);
   const [batchValidation, setBatchValidation] = useState<ValidationResult[]>([]);
   const [batchResults, setBatchResults] = useState<any[]>([]);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
-  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [templates, setTemplates] = useState<PromptTemplateType[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [promptValidation, setPromptValidation] = useState<ValidationResult | null>(null);
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -415,7 +274,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Batch inference failed');
-      setInferenceError(error);
+      addError('batch-inference', error.message, () => executeBatchInference(prompts));
       toast.error(`Batch inference failed: ${error.message}`);
       logger.error('Batch inference failed', {
         component: 'InferencePlayground',
@@ -424,7 +283,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
     } finally {
       setIsBatchRunning(false);
     }
-  }, [configA, selectedAdapterId]);
+  }, [configA, selectedAdapterId, addError]);
 
   const handleApplyTemplate = useCallback((template: PromptTemplateType) => {
     logger.info('Applying template', { templateId: template.id, templateName: template.name });
@@ -532,8 +391,13 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           component: 'InferencePlayground',
           operation: 'loadAdapters',
         }, error);
-        setAdaptersLoadError(error);
-        // Don't set inferenceError - allow graceful degradation with base model
+        addError('adapters-load', error.message || 'Failed to load adapters. Inference will use base model only.', () => {
+          clearError('adapters-load');
+          apiClient.listAdapters().then(setAdapters).catch(err => {
+            addError('adapters-load', err instanceof Error ? err.message : 'Failed to load adapters');
+          });
+        });
+        // Don't block inference - allow graceful degradation with base model
       }
     };
     loadAdapters();
@@ -558,7 +422,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   };
 
   const handleInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
-    setInferenceError(null);
+    clearError('inference');
     setLoading(true);
     setResponse(null);
 
@@ -588,7 +452,6 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
       }, `inference-${config.id}`);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Inference failed');
-      setInferenceError(error);
 
       if (error.name === 'ZodError') {
         logger.warn('Inference validation failed', {
@@ -596,6 +459,7 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           operation: 'validate',
           configId: config.id,
         });
+        addError('inference', `Validation error: ${error.message}`, () => handleInfer(config, setResponse, setLoading));
       } else {
         logger.error('Inference request failed', {
           component: 'InferencePlayground',
@@ -604,16 +468,13 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
           tenantId: selectedTenant,
           adapterId: selectedAdapterId,
         }, toError(err));
+        addError('inference', error.message || 'An unexpected error occurred during inference.', () => handleInfer(config, setResponse, setLoading));
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    // Success - no need for toast, UI feedback is sufficient
-  };
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
     if (!response) return;
@@ -788,208 +649,36 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
-    <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="w-full justify-between" aria-label="Toggle advanced options" aria-expanded={showAdvanced}>
-          <span className="flex items-center gap-2">
-            <Settings2 className="h-4 w-4" aria-hidden="true" />
-            Advanced Options
-          </span>
-          <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-4 pt-4">
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label>Max Tokens</Label>
-            <span className="text-sm text-muted-foreground">{config.max_tokens}</span>
-          </div>
-          <Slider
-            value={[config.max_tokens || 100]}
-            onValueChange={(v) => setConfig({ ...config, max_tokens: v[0] })}
-            min={10}
-            max={2000}
-            step={10}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label>Temperature</Label>
-            <span className="text-sm text-muted-foreground">{config.temperature?.toFixed(2)}</span>
-          </div>
-          <Slider
-            value={[config.temperature || 0.7]}
-            onValueChange={(v) => setConfig({ ...config, temperature: v[0] })}
-            min={0}
-            max={2}
-            step={0.1}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label>Top K</Label>
-            <span className="text-sm text-muted-foreground">{config.top_k}</span>
-          </div>
-          <Slider
-            value={[config.top_k || 50]}
-            onValueChange={(v) => setConfig({ ...config, top_k: v[0] })}
-            min={1}
-            max={100}
-            step={1}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label>Top P</Label>
-            <span className="text-sm text-muted-foreground">{config.top_p?.toFixed(2)}</span>
-          </div>
-          <Slider
-            value={[config.top_p || 0.9]}
-            onValueChange={(v) => setConfig({ ...config, top_p: v[0] })}
-            min={0}
-            max={1}
-            step={0.05}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="seed">Seed (Optional)</Label>
-          <Input
-            id="seed"
-            type="number"
-            placeholder="Random seed"
-            value={config.seed || ''}
-            onChange={(e) => setConfig({ ...config, seed: parseInt(e.target.value) || undefined })}
-          />
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <Checkbox
-            id="evidence"
-            checked={config.require_evidence || false}
-            onCheckedChange={(checked) => setConfig({ ...config, require_evidence: !!checked })}
-          />
-          <Label htmlFor="evidence">Require Evidence (RAG)</Label>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <AdvancedOptions
+      values={{
+        max_tokens: config.max_tokens || 100,
+        temperature: config.temperature || 0.7,
+        top_k: config.top_k || 50,
+        top_p: config.top_p || 0.9,
+        seed: config.seed,
+        require_evidence: config.require_evidence || false
+      }}
+      onChange={(values) => setConfig({ ...config, ...values })}
+      isOpen={showAdvanced}
+      onOpenChange={setShowAdvanced}
+    />
   );
 
 
-  const renderResponse = (response: InferResponse | null, isLoading: boolean) => {
-    if (isLoading) {
-      return (
-        <div className="flex items-center justify-center p-8">
-          <div className="text-center space-y-2">
-            <Zap className="h-8 w-8 animate-pulse mx-auto text-primary" />
-            <p className="text-sm text-muted-foreground">Generating response...</p>
-          </div>
-        </div>
-      );
-    }
-
-    if (!response) {
-      return (
-        <div className="flex items-center justify-center p-8 text-muted-foreground">
-          <FileText className="h-8 w-8 mr-2" />
-          <p>No response yet. Click "Generate" to run inference.</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        {/* Response Text */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                {inferenceMode === 'streaming' && <CheckCircle className="h-4 w-4 text-green-500" />}
-                Response
-              </CardTitle>
-              <div className="flex gap-2">
-                <Badge variant="outline" className="gap-1">
-                  <Clock className="h-3 w-3" />
-                  {response.latency_ms || ('trace' in response && response.trace && 'latency_ms' in response.trace ? (response.trace as any).latency_ms : 0)}ms
-                </Badge>
-                <Badge variant="outline" className="gap-1">
-                  <FileText className="h-3 w-3" />
-                  {response.token_count || 0} tokens
-                </Badge>
-                {metrics && (
-                  <Badge variant="outline" className="gap-1">
-                    <TrendingUp className="h-3 w-3" />
-                    {metrics.tokensPerSecond.toFixed(1)} t/s
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="relative">
-              <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg">
-                {response.text}
-              </pre>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="absolute top-2 right-2"
-                onClick={() => handleCopy(response.text)}
-              >
-                <Copy className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Trace Information */}
-        {response.trace && 'latency_ms' in response.trace && (
-          <TraceVisualizer trace={response.trace as any} />
-        )}
-
-        {/* Enhanced Metadata */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">Finish Reason</div>
-              <div className="text-xs text-muted-foreground">{response.finish_reason || 'unknown'}</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">Router Decisions</div>
-              <div className="text-xs text-muted-foreground">
-                {response.trace?.router_decisions?.length || 0} steps
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">Evidence Spans</div>
-              <div className="text-xs text-muted-foreground">
-                {response.trace?.evidence_spans?.length || 0} found
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const renderResponse = (response: InferResponse | null, isLoading: boolean) => (
+    <InferenceOutput
+      response={response}
+      isLoading={isLoading}
+      metrics={metrics}
+      isStreaming={inferenceMode === 'streaming'}
+    />
+  );
 
   return (
     <div className="space-y-6">
 
-      {/* Error Recovery */}
-      {inferenceError && ErrorRecoveryTemplates.genericError(
-        inferenceError,
-        () => { setInferenceError(null); setPrompt(''); }
-      )}
+      {/* Consolidated Error Display */}
+      <PageErrors errors={errors} />
 
       {visibleHint && (
         <ProgressiveHint
@@ -1015,14 +704,16 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                 <Zap className="h-3 w-3 mr-1" />
                 Standard
               </Button>
-              <Button
-                variant={inferenceMode === 'streaming' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setInferenceMode('streaming')}
-              >
-                <Wifi className="h-3 w-3 mr-1" />
-                Streaming
-              </Button>
+              <HelpTooltip helpId="inference-stream">
+                <Button
+                  variant={inferenceMode === 'streaming' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setInferenceMode('streaming')}
+                >
+                  <Wifi className="h-3 w-3 mr-1" />
+                  Streaming
+                </Button>
+              </HelpTooltip>
               <Button
                 variant={inferenceMode === 'batch' ? 'default' : 'ghost'}
                 size="sm"
@@ -1043,14 +734,16 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
                 <FileText className="h-3 w-3 mr-1" />
                 Single
               </Button>
-              <Button
-                variant={mode === 'comparison' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setMode('comparison')}
-              >
-                <Split className="h-3 w-3 mr-1" />
-                Compare
-              </Button>
+              <HelpTooltip helpId="inference-compare-mode">
+                <Button
+                  variant={mode === 'comparison' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setMode('comparison')}
+                >
+                  <Split className="h-3 w-3 mr-1" />
+                  Compare
+                </Button>
+              </HelpTooltip>
             </div>
           </div>
         }
@@ -1080,155 +773,24 @@ export function InferencePlayground({ selectedTenant }: InferencePlaygroundProps
 
       {inferenceMode === 'batch' ? (
         /* Batch Mode */
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Layers className="h-5 w-5" />
-                Batch Inference
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Process multiple prompts simultaneously with shared configuration
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Batch Prompts Input */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Prompts (one per line or upload CSV)</Label>
-                  <Input
-                    type="file"
-                    accept=".csv,.txt"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-
-                      const reader = new FileReader();
-                      reader.onload = (event) => {
-                        const text = event.target?.result as string;
-                        if (file.name.endsWith('.csv')) {
-                          // Parse CSV (simple approach - assumes prompts in first column)
-                          const lines = text.split('\n').slice(1); // Skip header
-                          const prompts = lines
-                            .map(line => line.split(',')[0].replace(/^"|"$/g, '').trim())
-                            .filter(p => p);
-                          setBatchPrompts(prompts);
-                          logger.info('CSV file uploaded', {
-                            component: 'InferencePlayground',
-                            operation: 'uploadCSV',
-                            count: prompts.length,
-                          });
-                        } else {
-                          // Plain text file
-                          const prompts = text.split('\n').filter(p => p.trim());
-                          setBatchPrompts(prompts);
-                          logger.info('Text file uploaded', {
-                            component: 'InferencePlayground',
-                            operation: 'uploadText',
-                            count: prompts.length,
-                          });
-                        }
-                        toast.success(`Loaded ${batchPrompts.length} prompts from file`);
-                      };
-                      reader.readAsText(file);
-                    }}
-                    className="w-48 h-9 text-xs"
-                  />
-                </div>
-                <Textarea
-                  placeholder="Enter one prompt per line...
-Write a Python function to calculate fibonacci
-Explain quantum computing in simple terms
-What is the capital of France?"
-                  value={batchPrompts.join('\n')}
-                  onChange={(e) => setBatchPrompts(e.target.value.split('\n').filter(p => p.trim()))}
-                  rows={8}
-                  className={batchValidation.some(v => !v.valid) ? 'border-destructive' : ''}
-                />
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{batchPrompts.filter(p => p.trim()).length} prompts ready for batch processing</span>
-                  {batchPrompts.length > 100 && (
-                    <span className="text-yellow-600">⚠ Recommended max: 100 prompts</span>
-                  )}
-                </div>
-
-                {/* Batch validation errors */}
-                {batchValidation.some(v => !v.valid) && (
-                  <Alert variant="destructive" className="text-sm">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>
-                      <strong>Validation Errors:</strong>
-                      <ul className="mt-1 space-y-1">
-                        {batchValidation
-                          .map((validation, index) => ({ validation, index }))
-                          .filter(({ validation }) => !validation.valid)
-                          .slice(0, 3) // Show first 3 errors
-                          .map(({ validation, index }) => (
-                            <li key={index}>
-                              Prompt {index + 1}: {validation.error}
-                            </li>
-                          ))}
-                        {batchValidation.filter(v => !v.valid).length > 3 && (
-                          <li>... and {batchValidation.filter(v => !v.valid).length - 3} more</li>
-                        )}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {/* Batch validation warnings */}
-                {batchValidation.some(v => v.warning) && (
-                  <Alert variant="default" className="text-sm border-yellow-200 bg-yellow-50">
-                    <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                    <AlertDescription className="text-yellow-800">
-                      <strong>Warnings:</strong> Some prompts have warnings (long content, etc.)
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-
-              {/* Shared Configuration Preview */}
-              <div className="p-3 bg-muted rounded-md">
-                <h4 className="text-sm font-medium mb-2">Shared Configuration</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                  <div>Max Tokens: {configA.max_tokens}</div>
-                  <div>Temperature: {configA.temperature}</div>
-                  <div>Top K: {configA.top_k}</div>
-                  <div>Top P: {configA.top_p?.toFixed(2)}</div>
-                </div>
-              </div>
-
-              <Button
-                onClick={() => executeBatchInference(batchPrompts)}
-                disabled={batchPrompts.filter(p => p.trim()).length === 0 || isBatchRunning}
-                className="w-full"
-              >
-                {isBatchRunning ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                    Processing Batch...
-                  </>
-                ) : (
-                  <>
-                    <Layers className="h-4 w-4 mr-2" />
-                    Run Batch Inference ({batchPrompts.filter(p => p.trim()).length} prompts)
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Batch Results */}
-          {batchResults && batchResults.length > 0 && (
-            <BatchResults
-              results={batchResults}
-              prompts={batchPrompts}
-              onRetry={handleBatchRetry}
-              onExportJSON={handleBatchExportJSON}
-              onExportCSV={handleBatchExportCSV}
-            />
-          )}
-        </div>
+        <BatchProcessor
+          prompts={batchPrompts}
+          results={batchResults}
+          validation={batchValidation}
+          isProcessing={isBatchRunning}
+          config={{
+            max_tokens: configA.max_tokens || 100,
+            temperature: configA.temperature || 0.7,
+            top_k: configA.top_k || 50,
+            top_p: configA.top_p,
+          }}
+          canExecute={can('inference:execute')}
+          onPromptsChange={setBatchPrompts}
+          onProcess={executeBatchInference}
+          onRetry={handleBatchRetry}
+          onExportJSON={handleBatchExportJSON}
+          onExportCSV={handleBatchExportCSV}
+        />
       ) : mode === 'single' ? (
         /* Single Mode */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1248,7 +810,7 @@ What is the capital of France?"
                       {adapters.length === 0
                         ? 'No adapters available. Inference will use base model only.'
                         : 'Adapter loading issues detected. Some adapters may be unavailable.'}
-                      {!adaptersLoadError && (
+                      {adapterAvailability.failureCount === 0 && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1262,8 +824,13 @@ What is the capital of France?"
                   </Alert>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="adapter">
+                  <Label htmlFor="adapter" className="flex items-center gap-1">
                     Adapter {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None - base model only)</span>}
+                    <HelpTooltip helpId="inference-adapter-stack">
+                      <span className="cursor-help text-muted-foreground hover:text-foreground">
+                        <HelpCircle className="h-3 w-3" />
+                      </span>
+                    </HelpTooltip>
                   </Label>
                   <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId} disabled={adapters.length === 0}>
                     <SelectTrigger id="adapter">
@@ -1285,7 +852,7 @@ What is the capital of France?"
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    {adapters.length === 0 
+                    {adapters.length === 0
                       ? 'No adapters available. Inference will use base model only.'
                       : 'Select a trained adapter to use for inference. Leave empty to use base model.'}
                   </p>
@@ -1293,8 +860,13 @@ What is the capital of France?"
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="prompt">
+                    <Label htmlFor="prompt" className="flex items-center gap-1">
                       Prompt
+                      <HelpTooltip helpId="inference-prompt">
+                        <span className="cursor-help text-muted-foreground hover:text-foreground">
+                          <HelpCircle className="h-3 w-3" />
+                        </span>
+                      </HelpTooltip>
                       <span className="sr-only">
                         Use Ctrl+G or Cmd+G to generate, Ctrl+S or Cmd+S to toggle streaming mode, Ctrl+B or Cmd+B to toggle batch mode, Escape to cancel
                       </span>
@@ -1363,146 +935,34 @@ What is the capital of France?"
                       💡 Swipe left/right to change modes, swipe up for templates
                     </div>
                   )}
-                  {/* Template Status Indicator */}
-                  {selectedTemplate && !promptModifiedSinceTemplate && (
-                    <Alert className="bg-blue-50 border-blue-200 text-sm">
-                      <Check className="h-4 w-4 text-blue-600" />
-                      <AlertDescription className="text-blue-800">
-                        Using template: <strong>{selectedTemplate.name}</strong>
-                        {selectedTemplate.variables.length > 0 && (
-                          <span className="ml-2">
-                            ({selectedTemplate.variables.length} variable{selectedTemplate.variables.length !== 1 ? 's' : ''})
-                          </span>
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  {selectedTemplate && promptModifiedSinceTemplate && (
-                    <Alert className="bg-yellow-50 border-yellow-200 text-sm">
-                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                      <AlertDescription className="text-yellow-800">
-                        Prompt has been modified from template: <strong>{selectedTemplate.name}</strong>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleResetToTemplate}
-                          className="ml-2 h-6 text-xs"
-                        >
-                          Reset
-                        </Button>
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  {/* Template Selection and Management */}
-                  {showTemplates && (
-                    <div className="border rounded-md p-3 bg-muted/50 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-medium">Prompt Templates</div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowTemplateManager(true)}
-                          className="h-7 text-xs gap-1"
-                        >
-                          <Settings2 className="h-3 w-3" />
-                          Manage
-                        </Button>
-                      </div>
-
-                      {/* Quick Access to Recent Templates */}
-                      {getRecentTemplates().length > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-xs font-medium text-muted-foreground">Recent</div>
-                          <div className="space-y-1 max-h-32 overflow-y-auto">
-                            {getRecentTemplates().map((template) => (
-                              <Button
-                                key={template.id}
-                                variant="ghost"
-                                className="w-full justify-start text-left h-auto p-2 text-xs hover:bg-background"
-                                onClick={() => handleApplyTemplate(template)}
-                              >
-                                <div className="truncate">
-                                  <div className="font-medium">{template.name}</div>
-                                  <div className="text-xs text-muted-foreground line-clamp-1">
-                                    {template.description}
-                                  </div>
-                                </div>
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <Button
-                        variant="outline"
-                        className="w-full text-xs"
-                        onClick={() => setShowTemplateManager(true)}
-                      >
-                        View All Templates
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Variable Substitution Inputs */}
-                  {showVariableInputs && selectedTemplate && selectedTemplate.variables.length > 0 && (
-                    <div className="border rounded-md p-3 bg-blue-50 border-blue-200 space-y-3">
-                      <div className="text-sm font-medium">Enter Template Variables</div>
-                      <div className="space-y-2">
-                        {selectedTemplate.variables.map((variable) => (
-                          <div key={variable}>
-                            <Label htmlFor={`var-${variable}`} className="text-xs">
-                              {variable}
-                            </Label>
-                            <Textarea
-                              id={`var-${variable}`}
-                              placeholder={`Enter ${variable}...`}
-                              value={templateVariables[variable] || ''}
-                              onChange={(e) =>
-                                setTemplateVariables({
-                                  ...templateVariables,
-                                  [variable]: e.target.value,
-                                })
-                              }
-                              rows={2}
-                              className="text-xs"
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Real-time preview */}
-                      <div className="text-xs space-y-1">
-                        <div className="font-medium">Preview:</div>
-                        <pre className="bg-white p-2 rounded text-xs overflow-auto max-h-24 text-muted-foreground border">
-                          {substituteVariables(selectedTemplate.id, templateVariables) || selectedTemplate.prompt}
-                        </pre>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={handleApplyVariableSubstitution}
-                          className="flex-1 text-xs h-8"
-                        >
-                          Apply Template
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setShowVariableInputs(false);
-                            setSelectedTemplate(null);
-                            setTemplateVariables({});
-                          }}
-                          className="text-xs h-8"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Template Management */}
+                  <TemplateManager
+                    templates={templates}
+                    recentTemplates={getRecentTemplates()}
+                    selectedTemplate={selectedTemplate}
+                    templateVariables={templateVariables}
+                    showTemplates={showTemplates}
+                    showVariableInputs={showVariableInputs}
+                    promptModifiedSinceTemplate={promptModifiedSinceTemplate}
+                    onSelect={handleApplyTemplate}
+                    onApplyVariables={handleApplyVariableSubstitution}
+                    onResetToTemplate={handleResetToTemplate}
+                    onSaveAsTemplate={handleSavePromptAsTemplate}
+                    onManageTemplates={() => setShowTemplateManager(true)}
+                    onToggleTemplates={() => setShowTemplates(!showTemplates)}
+                    onCancelVariables={() => {
+                      setShowVariableInputs(false);
+                      setSelectedTemplate(null);
+                      setTemplateVariables({});
+                    }}
+                    onVariableChange={(variable, value) =>
+                      setTemplateVariables({
+                        ...templateVariables,
+                        [variable]: value,
+                      })
+                    }
+                    substituteVariables={substituteVariables}
+                  />
                 </div>
 
                 {renderAdvancedOptions(configA, setConfigA)}
@@ -1510,10 +970,11 @@ What is the capital of France?"
 
                 <div className="flex gap-2">
                   <Button
-                    className="flex-1"
+                    className={`flex-1 ${!can('inference:execute') ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                    disabled={isLoadingA}
+                    disabled={isLoadingA || !can('inference:execute')}
                     aria-label="Run inference with current configuration"
+                    title={!can('inference:execute') ? 'Requires inference:execute permission' : undefined}
                   >
                     <Play className="h-4 w-4 mr-2" aria-hidden="true" />
                     {isLoadingA ? 'Generating...' : 'Generate'}
@@ -1597,142 +1058,33 @@ What is the capital of France?"
         </div>
       ) : (
         /* Comparison Mode */
-        <div className="space-y-4">
-          {/* Shared Prompt */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Shared Prompt</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                placeholder="Enter prompt to compare..."
-                value={prompt}
-                onChange={(e) => {
-                  setPrompt(e.target.value);
-                  setConfigA({ ...configA, prompt: e.target.value });
-                  setConfigB({ ...configB, prompt: e.target.value });
-                }}
-                rows={4}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Side-by-Side Configurations */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Config A */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Configuration A</CardTitle>
-                  <Badge>Temperature: {configA.temperature}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {renderAdvancedOptions(configA, setConfigA)}
-
-                <div className="flex gap-2">
-                  <Button
-                    className="flex-1"
-                    onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                    disabled={isLoadingA || !prompt.trim()}
-                  >
-                    <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                    Generate A
-                  </Button>
-                  {inferenceState.isRunning && (
-                    <Button
-                      variant="outline"
-                      onClick={cancelInference}
-                      aria-label="Cancel inference A"
-                    >
-                      <Square className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-
-                {renderResponse(responseA, isLoadingA)}
-              </CardContent>
-            </Card>
-
-            {/* Config B */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Configuration B</CardTitle>
-                  <Badge>Temperature: {configB.temperature}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {renderAdvancedOptions(configB, setConfigB)}
-
-                <div className="flex gap-2">
-                  <Button
-                    className="flex-1"
-                    onClick={() => handleInfer(configB, setResponseB, setIsLoadingB)}
-                    disabled={isLoadingB || !prompt.trim()}
-                  >
-                    <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                    Generate B
-                  </Button>
-                  {inferenceState.isRunning && (
-                    <Button
-                      variant="outline"
-                      onClick={cancelInference}
-                      aria-label="Cancel inference B"
-                    >
-                      <Square className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-
-                {renderResponse(responseB, isLoadingB)}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Comparison Summary */}
-          {responseA && responseB && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" aria-hidden="true" />
-                  Comparison Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Latency</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">A: {responseA.latency_ms || responseA.trace?.latency_ms || 0}ms</Badge>
-                      <Badge variant="outline">B: {responseB.latency_ms || responseB.trace?.latency_ms || 0}ms</Badge>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Tokens</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">A: {responseA.token_count || responseA.tokens?.length || 0}</Badge>
-                      <Badge variant="outline">B: {responseB.token_count || responseB.tokens?.length || 0}</Badge>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Finish Reason</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline">{responseA.finish_reason || 'unknown'}</Badge>
-                      <Badge variant="outline">{responseB.finish_reason || 'unknown'}</Badge>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Winner</p>
-                    <Badge className="mt-1">
-                      {((responseA.latency_ms || responseA.trace?.latency_ms || 0) < (responseB.latency_ms || responseB.trace?.latency_ms || 0)) ? 'A (Faster)' : 'B (Faster)'}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        <ComparisonMode
+          prompt={prompt}
+          configA={configA}
+          configB={configB}
+          responseA={responseA}
+          responseB={responseB}
+          isLoadingA={isLoadingA}
+          isLoadingB={isLoadingB}
+          isRunning={inferenceState.isRunning}
+          canExecute={can('inference:execute')}
+          metrics={metrics}
+          onPromptChange={(value) => {
+            setPrompt(value);
+            setConfigA({ ...configA, prompt: value });
+            setConfigB({ ...configB, prompt: value });
+          }}
+          onConfigAChange={setConfigA}
+          onConfigBChange={setConfigB}
+          onRunA={() => handleInfer(configA, setResponseA, setIsLoadingA)}
+          onRunB={() => handleInfer(configB, setResponseB, setIsLoadingB)}
+          onCancel={cancelInference}
+          onCopy={(text) => {
+            navigator.clipboard.writeText(text);
+            toast.success('Copied to clipboard');
+          }}
+          renderAdvancedOptions={renderAdvancedOptions}
+        />
       )}
 
       {/* Prompt Template Manager Dialog */}
@@ -1742,5 +1094,14 @@ What is the capital of France?"
         onSelectTemplate={handleApplyTemplate}
       />
     </div>
+  );
+}
+
+// Wrap with PageErrorsProvider
+export function InferencePlayground(props: InferencePlaygroundProps) {
+  return (
+    <PageErrorsProvider>
+      <InferencePlaygroundContent {...props} />
+    </PageErrorsProvider>
   );
 }

@@ -34,7 +34,7 @@ import {
 import apiClient from '../api/client';
 import { logger } from '../utils/logger';
 
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
 import { toast } from 'sonner';
 

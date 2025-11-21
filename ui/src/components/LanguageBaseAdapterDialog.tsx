@@ -7,7 +7,7 @@ import { Switch } from './ui/switch';
 import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, Brain } from 'lucide-react';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
 import { StartTrainingRequest, TrainingConfig } from '../api/types';
 
@@ -126,7 +126,7 @@ export function LanguageBaseAdapterDialog({
       setError(message);
       setStatusMessage({ message, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           e instanceof Error ? e : new Error(message),
           () => handleSubmit()
         )

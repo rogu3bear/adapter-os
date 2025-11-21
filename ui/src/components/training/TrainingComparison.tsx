@@ -135,7 +135,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     },
     {
       name: 'Tokens/Second',
-      getValue: (job) => job.tokens_per_second,
+      getValue: (job) => job.tokens_per_sec,
       format: (val) => val?.toFixed(0) || 'N/A',
       compare: (a, b) => {
         if (a === undefined || b === undefined) return 'equal';
@@ -480,7 +480,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Tokens/sec:</span>
-                        <span className="font-mono">{job.tokens_per_second?.toFixed(0) || 'N/A'}</span>
+                        <span className="font-mono">{job.tokens_per_sec?.toFixed(0) || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Status:</span>

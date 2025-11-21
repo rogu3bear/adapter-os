@@ -5,7 +5,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Alert, AlertDescription } from './ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, CheckCircle, XCircle, ArrowRight, ArrowLeft, FileText } from 'lucide-react';
 import apiClient from '../api/client';
 import { toast } from 'sonner';
@@ -343,11 +343,8 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
 
       {wizardError && (
         <ErrorRecovery
-          title="Import Failed"
-          message={wizardError.message}
-          recoveryActions={[
-            { label: 'Try Again', action: () => setWizardError(null), primary: true }
-          ]}
+          error={wizardError.message}
+          onRetry={() => setWizardError(null)}
         />
       )}
 

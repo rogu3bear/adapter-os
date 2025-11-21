@@ -4,7 +4,7 @@
  * Works seamlessly with react-hook-form
  */
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ZodSchema, ZodError } from 'zod';
 import { formatValidationError, ValidationResult, validateField } from '../schemas/utils';
 
@@ -192,6 +192,3 @@ export function useFormValidation(
     setFieldError,
   };
 }
-
-// Import React for useRef
-import React from 'react';

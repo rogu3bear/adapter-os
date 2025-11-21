@@ -15,7 +15,7 @@ import { z } from 'zod';
  * - Must contain only lowercase letters, numbers, underscores, and hyphens
  * - Maximum length: 50 characters
  */
-export const TenantIdSchema = z.string()
+export const tenantIdSchema = z.string()
   .min(1, 'Tenant ID is required')
   .max(50, 'Tenant ID must not exceed 50 characters')
   .regex(
@@ -24,7 +24,7 @@ export const TenantIdSchema = z.string()
   )
   .describe('Tenant identifier');
 
-export type TenantId = z.infer<typeof TenantIdSchema>;
+export type TenantId = z.infer<typeof tenantIdSchema>;
 
 /**
  * Repository ID schema
@@ -67,14 +67,14 @@ export type CommitSha = z.infer<typeof CommitShaSchema>;
  * From: adapteros-server-api/src/validation.rs::validate_hash_b3()
  * - Format: b3:{64 hex characters}
  */
-export const Blake3HashSchema = z.string()
+export const blake3HashSchema = z.string()
   .regex(
     /^b3:[a-f0-9]{64}$/,
     'Hash must be in format: b3:{64 lowercase hexadecimal characters}'
   )
   .describe('BLAKE3 hash');
 
-export type Blake3Hash = z.infer<typeof Blake3HashSchema>;
+export type Blake3Hash = z.infer<typeof blake3HashSchema>;
 
 /**
  * Description schema (with security validation)
@@ -83,7 +83,7 @@ export type Blake3Hash = z.infer<typeof Blake3HashSchema>;
  * - Maximum length: 5000 characters
  * - Checks for suspicious patterns (SQL injection, XSS)
  */
-export const DescriptionSchema = z.string()
+export const descriptionSchema = z.string()
   .min(1, 'Description is required')
   .max(5000, 'Description must not exceed 5000 characters')
   .refine(
@@ -105,7 +105,7 @@ export const DescriptionSchema = z.string()
   )
   .describe('Description text');
 
-export type Description = z.infer<typeof DescriptionSchema>;
+export type Description = z.infer<typeof descriptionSchema>;
 
 /**
  * File path schema (with security validation)
@@ -135,7 +135,7 @@ export type FilePath = z.infer<typeof FilePathSchema>;
  *
  * Common pagination parameters
  */
-export const PaginationSchema = z.object({
+export const paginationSchema = z.object({
   // Page number (1-indexed)
   page: z.number()
     .int('Page must be an integer')
@@ -163,19 +163,19 @@ export const PaginationSchema = z.object({
     .describe('Sort order'),
 });
 
-export type Pagination = z.infer<typeof PaginationSchema>;
+export type Pagination = z.infer<typeof paginationSchema>;
 
 /**
  * Timestamp schema (RFC3339 format)
  */
-export const TimestampSchema = z.string()
+export const timestampSchema = z.string()
   .regex(
     /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/,
     'Timestamp must be in RFC3339 format (YYYY-MM-DD HH:MM:SS or ISO 8601)'
   )
   .describe('RFC3339 timestamp');
 
-export type Timestamp = z.infer<typeof TimestampSchema>;
+export type Timestamp = z.infer<typeof timestampSchema>;
 
 /**
  * Email schema
@@ -284,19 +284,19 @@ export type Language = z.infer<typeof LanguageSchema>;
 /**
  * Validation status enum
  */
-export const ValidationStatusSchema = z.enum([
+export const validationStatusSchema = z.enum([
   'pending',
   'valid',
   'invalid',
   'error',
 ]);
 
-export type ValidationStatus = z.infer<typeof ValidationStatusSchema>;
+export type ValidationStatus = z.infer<typeof validationStatusSchema>;
 
 /**
  * Error response schema (for API errors)
  */
-export const ErrorResponseSchema = z.object({
+export const errorResponseSchema = z.object({
   error: z.string()
     .min(1, 'Error message is required')
     .describe('Error message'),
@@ -309,12 +309,12 @@ export const ErrorResponseSchema = z.object({
     .optional()
     .describe('Additional error details'),
 
-  timestamp: TimestampSchema
+  timestamp: timestampSchema
     .optional()
     .describe('Error timestamp'),
 });
 
-export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
+export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 
 /**
  * Helper functions for common validation

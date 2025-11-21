@@ -29,9 +29,9 @@ vi.mock('../../utils/logger', () => ({
   },
 }));
 
-// Mock ErrorRecoveryTemplates
+// Mock errorRecoveryTemplates
 vi.mock('../../components/ui/error-recovery', () => ({
-  ErrorRecoveryTemplates: {
+  errorRecoveryTemplates: {
     genericError: vi.fn(() => 'Error Recovery'),
   },
 }));
@@ -39,7 +39,7 @@ vi.mock('../../components/ui/error-recovery', () => ({
 import apiClient from '../../api/client';
 import { toast } from 'sonner';
 import { logger } from '../../utils/logger';
-import { ErrorRecoveryTemplates } from '../../components/ui/error-recovery';
+import { errorRecoveryTemplates } from '../../components/ui/error-recovery';
 
 describe('useAdapterOperations', () => {
   beforeEach(() => {

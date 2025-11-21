@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from './ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Alert, AlertDescription } from './ui/alert';
 import {
   Settings,

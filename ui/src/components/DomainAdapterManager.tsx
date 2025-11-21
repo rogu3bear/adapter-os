@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -12,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 import { 
   Plus, 
   Settings, 
@@ -202,7 +203,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
       }, toError(err));
       setStatusMessage({ message: errorMsg, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMsg),
           () => handleCreateAdapter()
         )
@@ -250,7 +251,7 @@ export function DomainAdapterManager({ user, selectedTenant }: DomainAdapterMana
       }, toError(err));
       setStatusMessage({ message: errorMsg, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMsg),
           () => handleTestAdapter(adapterId, inputData)
         )

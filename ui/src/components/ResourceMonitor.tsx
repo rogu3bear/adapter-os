@@ -27,7 +27,7 @@ import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
 interface ResourceMonitorProps {
   jobId?: string;
@@ -67,7 +67,7 @@ interface ResourceMetrics {
     packets_out: number;
   };
   training?: {
-    tokens_per_second: number;
+    tokens_per_sec: number;
     loss: number;
     learning_rate: number;
     current_epoch: number;
@@ -158,7 +158,7 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
         packets_out: systemMetrics.network_tx_packets || 0
       },
       training: jobId ? {
-        tokens_per_second: systemMetrics.tokens_per_second || 0,
+        tokens_per_sec: systemMetrics.tokens_per_sec || 0,
         loss: systemMetrics.current_loss || 0,
         learning_rate: systemMetrics.learning_rate || 0,
         current_epoch: systemMetrics.current_epoch || 0,
@@ -236,13 +236,9 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
   }
 
   if (error) {
-    return (
-      <ErrorRecovery
-        {...ErrorRecoveryTemplates.genericError(
-          error.message,
-          () => refreshMetrics()
-        )}
-      />
+    return errorRecoveryTemplates.genericError(
+      error.message,
+      () => refreshMetrics()
     );
   }
 
@@ -492,7 +488,7 @@ export function ResourceMonitor({ jobId, nodeId }: ResourceMonitorProps) {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold">{currentMetrics.training.tokens_per_second.toFixed(0)}</div>
+                    <div className="text-2xl font-bold">{currentMetrics.training.tokens_per_sec.toFixed(0)}</div>
                     <div className="text-xs text-muted-foreground">Tokens/sec</div>
                   </div>
                   <div className="text-center">

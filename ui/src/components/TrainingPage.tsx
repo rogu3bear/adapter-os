@@ -13,23 +13,38 @@ import apiClient from '../api/client';
 import { TrainingJob } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { Link } from 'react-router-dom';
-import { Brain, Activity, Clock, CheckCircle, XCircle, AlertTriangle, Play, Pause, Square, RefreshCw } from 'lucide-react';
+import { Brain, Activity, Clock, CheckCircle, XCircle, AlertTriangle, Play, Pause, Square, RefreshCw, Trash2 } from 'lucide-react';
 import { Progress } from './ui/progress';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { ConfigPageHeader } from './ui/page-headers/ConfigPageHeader';
 import { useProgressOperation } from '../hooks/useProgressOperation';
+import { HelpTooltip } from './ui/help-tooltip';
+import { useRBAC } from '../hooks/useRBAC';
+import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 
-export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {}) {
+function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {}) {
+  const { can, userRole } = useRBAC();
+  const { errors, addError, clearError } = usePageErrors();
+
+  // Determine polling speed based on active jobs
+  const [hasActiveJobs, setHasActiveJobs] = useState(false);
+
   // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook
+  // Use 'fast' (5s) for active jobs, 'slow' (30s) for completed jobs view
   const { data, isLoading: loading, lastUpdated, error, refetch: refreshData } = usePolling(
     () => apiClient.listTrainingJobs(),
-    'fast', // Training progress needs frequent updates
+    hasActiveJobs ? 'fast' : 'slow',
     {
       showLoadingIndicator: true,
       onError: (err) => {
         logger.error('Failed to fetch training jobs', { component: 'TrainingPage' }, err);
+      },
+      onSuccess: (jobs) => {
+        // Update polling speed based on active jobs
+        const active = jobs?.some(j => j.status === 'running' || j.status === 'queued');
+        setHasActiveJobs(active || false);
       }
     }
   );
@@ -40,7 +55,6 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [trainingConfig, setTrainingConfig] = useState<any>(null); // State to hold training config for wizard
-  const [actionError, setActionError] = useState<Error | null>(null);
   const [cancellingJobs, setCancellingJobs] = useState<Set<string>>(new Set()); // Track jobs being cancelled
 
   // Progress tracking for training operations
@@ -56,12 +70,25 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
     }
   };
 
+  const getStatusDescription = (status: string): string => {
+    switch (status) {
+      case 'running': return 'Training is actively in progress';
+      case 'completed': return 'Training finished successfully';
+      case 'failed': return 'Training encountered an error and stopped';
+      case 'queued': return 'Waiting in queue to start';
+      case 'paused': return 'Training temporarily paused';
+      case 'cancelled': return 'Training was cancelled by user';
+      default: return 'Unknown status';
+    }
+  };
+
   const handleStartTraining = () => {
+    clearError('start-training');
     setIsWizardOpen(true);
   };
 
   const handleJobAction = async (jobId: string, action: 'pause' | 'stop' | 'resume') => {
-    setActionError(null);
+    clearError('job-action');
     try {
       if (action === 'stop') {
         // Track cancelling state
@@ -80,9 +107,12 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
           newSet.delete(jobId);
           return newSet;
         });
+
+        // Refresh to get updated status
+        refreshData();
       } else {
         // Not supported - show info, not error
-        setActionError(new Error(`${action} is not supported yet`));
+        addError('job-action', `${action} is not supported yet`);
       }
     } catch (err) {
       // Remove from cancelling set on error
@@ -93,8 +123,21 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
       });
 
       const error = err instanceof Error ? err : new Error(`Failed to ${action} job`);
-      setActionError(error);
+      addError('job-action', error.message, () => handleJobAction(jobId, action));
       logger.error(`Failed to ${action} training job`, { component: 'TrainingPage', jobId, action }, error);
+    }
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    clearError('delete-job');
+    try {
+      // For now, delete is equivalent to cancel for non-running jobs
+      await apiClient.cancelTraining(jobId);
+      refreshData();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Failed to delete job');
+      addError('delete-job', error.message, () => handleDeleteJob(jobId));
+      logger.error('Failed to delete training job', { component: 'TrainingPage', jobId }, error);
     }
   };
 
@@ -103,28 +146,36 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
       <ConfigPageHeader
         title="Training Management"
         description="Manage training jobs, templates, and monitoring"
-        primaryAction={{
+        primaryAction={can('training:start') ? {
           label: 'Start Training',
           icon: Brain,
           onClick: handleStartTraining
-        }}
+        } : undefined}
       />
+
+      {/* Show disabled button with tooltip for non-permitted users */}
+      {!can('training:start') && (
+        <div className="flex justify-end -mt-4">
+          <Button
+            disabled
+            title="Requires training:start permission"
+            className="opacity-50 cursor-not-allowed"
+          >
+            <Brain className="h-4 w-4 mr-2" />
+            Start Training
+          </Button>
+        </div>
+      )}
+
       {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
 
-      {/* Error Recovery */}
-      {error && ErrorRecoveryTemplates.trainingError(
+      {/* Consolidated Error Display */}
+      <PageErrors errors={errors} />
+
+      {/* Error Recovery - Main fetch error */}
+      {error && errorRecoveryTemplates.trainingError(
         () => refreshData(),
         () => setIsWizardOpen(true)
-      )}
-      {actionError && (
-        <ErrorRecovery
-          title="Action Failed"
-          message={actionError.message}
-          recoveryActions={[
-            { label: 'Retry', action: () => setActionError(null) },
-            { label: 'View Logs', action: () => {/* Navigate to logs */} }
-          ]}
-        />
       )}
 
       {/* Training Jobs Table */}
@@ -142,11 +193,41 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
               <Table role="table" aria-label="Training jobs">
                 <TableHeader>
                   <TableRow role="row">
-                    <TableHead role="columnheader" scope="col">Name</TableHead>
-                    <TableHead role="columnheader" scope="col">Status</TableHead>
-                    <TableHead role="columnheader" scope="col">Progress</TableHead>
-                    <TableHead role="columnheader" scope="col">Started</TableHead>
-                    <TableHead role="columnheader" scope="col">Actions</TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-job-id">
+                        ID
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-dataset">
+                        Dataset
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-status">
+                        Status
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-progress">
+                        Progress
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-loss">
+                        Loss
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-created">
+                        Created
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead role="columnheader" scope="col">
+                      <HelpTooltip helpId="training-actions">
+                        Actions
+                      </HelpTooltip>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -155,21 +236,36 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
                       const jobTyped = job as typeof trainingJobs[0];
                       return (
                         <TableRow key={jobTyped.id}>
-                          <TableCell className="font-medium">{jobTyped.adapter_name}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {getStatusIcon(jobTyped.status)}
-                              {jobTyped.status}
-                            </Badge>
+                          <TableCell className="font-medium">{jobTyped.adapter_name || jobTyped.id}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {jobTyped.dataset_id || '-'}
                           </TableCell>
                           <TableCell>
-                            <Progress value={jobTyped.progress} className="w-24" />
-                            {jobTyped.progress}%
+                            <HelpTooltip helpId={`status-${jobTyped.status}`} side="right">
+                              <Badge variant="outline" title={getStatusDescription(jobTyped.status)}>
+                                {getStatusIcon(jobTyped.status)}
+                                <span className="ml-1">{jobTyped.status}</span>
+                              </Badge>
+                            </HelpTooltip>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Progress value={jobTyped.progress} className="w-24" />
+                              <span className="text-sm">{jobTyped.progress}%</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {jobTyped.loss?.toFixed(4) || '-'}
                           </TableCell>
                           <TableCell>{new Date(jobTyped.started_at).toLocaleString()}</TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => setSelectedJob(jobTyped.id)}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedJob(jobTyped.id)}
+                                title="View training details"
+                              >
                                 <Activity className="h-4 w-4" />
                               </Button>
                               {jobTyped.status === 'running' && (
@@ -178,7 +274,8 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
                                     size="sm"
                                     variant="outline"
                                     onClick={() => handleJobAction(jobTyped.id, 'pause')}
-                                    disabled={cancellingJobs.has(jobTyped.id)}
+                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id)}
+                                    title={!can('training:cancel') ? 'Requires training:cancel permission' : `Pause ${jobTyped.adapter_name}`}
                                     aria-label={`Pause ${jobTyped.adapter_name}`}
                                   >
                                     <Pause className="h-4 w-4" />
@@ -187,7 +284,8 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
                                     size="sm"
                                     variant={cancellingJobs.has(jobTyped.id) ? "secondary" : "destructive"}
                                     onClick={() => handleJobAction(jobTyped.id, 'stop')}
-                                    disabled={cancellingJobs.has(jobTyped.id)}
+                                    disabled={!can('training:cancel') || cancellingJobs.has(jobTyped.id)}
+                                    title={!can('training:cancel') ? 'Requires training:cancel permission' : `Stop ${jobTyped.adapter_name}`}
                                     aria-label={`Stop ${jobTyped.adapter_name}`}
                                   >
                                     {cancellingJobs.has(jobTyped.id) ? (
@@ -197,6 +295,18 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
                                     )}
                                   </Button>
                                 </>
+                              )}
+                              {(jobTyped.status === 'completed' || jobTyped.status === 'failed' || jobTyped.status === 'cancelled') && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteJob(jobTyped.id)}
+                                  disabled={!can('training:cancel')}
+                                  title={!can('training:cancel') ? 'Requires training:cancel permission' : `Delete job ${jobTyped.id}`}
+                                  aria-label={`Delete ${jobTyped.adapter_name}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               )}
                               {jobTyped.status === 'completed' && (
                                 <Link to="/testing">
@@ -232,6 +342,7 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
             onComplete={(jobId) => {
               setIsWizardOpen(false);
               setSelectedJob(jobId);
+              refreshData();
             }}
             onCancel={() => setIsWizardOpen(false)}
           />
@@ -245,5 +356,14 @@ export function TrainingPage({ selectedTenant }: { selectedTenant?: string } = {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Wrap with PageErrorsProvider
+export function TrainingPage(props: { selectedTenant?: string }) {
+  return (
+    <PageErrorsProvider>
+      <TrainingPageContent {...props} />
+    </PageErrorsProvider>
   );
 }

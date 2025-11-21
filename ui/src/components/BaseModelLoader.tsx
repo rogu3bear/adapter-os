@@ -8,7 +8,7 @@ import apiClient from '../api/client';
 import { ModelStatusResponse } from '../api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ModelImportWizard } from './ModelImportWizard';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
 interface BaseModelLoaderProps {
   status: ModelStatusResponse | null;
@@ -100,24 +100,14 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
         <CardContent className="space-y-4">
           {loadError && (
             <ErrorRecovery
-              title="Failed to Load Model"
-              message={loadError.message}
-              error={loadError}
-              recoveryActions={[
-                { label: 'Try Again', action: handleLoad, primary: true },
-                { label: 'Refresh Status', action: onRefresh },
-              ]}
+              error={loadError.message}
+              onRetry={handleLoad}
             />
           )}
           {unloadError && (
             <ErrorRecovery
-              title="Failed to Unload Model"
-              message={unloadError.message}
-              error={unloadError}
-              recoveryActions={[
-                { label: 'Try Again', action: handleUnload, primary: true },
-                { label: 'Refresh Status', action: onRefresh },
-              ]}
+              error={unloadError.message}
+              onRetry={handleUnload}
             />
           )}
           <div className="flex gap-2">

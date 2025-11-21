@@ -28,7 +28,7 @@ import { ProcessDebugger } from './ProcessDebugger';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
 
 interface WorkersTabProps {
@@ -163,13 +163,9 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
 
 
   if (error) {
-    return (
-      <ErrorRecovery
-        {...ErrorRecoveryTemplates.genericError(
-          error.message,
-          () => refreshWorkers()
-        )}
-      />
+    return errorRecoveryTemplates.genericError(
+      error.message,
+      () => refreshWorkers()
     );
   }
 

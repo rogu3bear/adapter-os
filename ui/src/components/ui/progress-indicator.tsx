@@ -131,7 +131,7 @@ export function ProgressIndicator({
 }
 
 // Contextual loading messages for different operations
-export const LoadingStates = {
+export const loadingStates = {
   adapterLoad: "Loading adapter into memory... (may take 30-60 seconds)",
   training: "Training adapter on your data... (typically 2-15 minutes)",
   inference: "Generating response... (usually <5 seconds)",
@@ -140,7 +140,7 @@ export const LoadingStates = {
   analysis: "Analyzing your code... (usually <10 seconds)"
 } as const;
 
-export type LoadingStateType = keyof typeof LoadingStates;
+export type LoadingStateType = keyof typeof loadingStates;
 
 // Loading indicator with contextual messaging
 interface ContextualLoadingProps {
@@ -166,7 +166,7 @@ export function ContextualLoading({
     <div className={`flex items-center gap-3 p-4 bg-muted rounded-lg ${className}`}>
       <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
       <div className="flex-1">
-        <p className="text-sm font-medium">{LoadingStates[type]}</p>
+        <p className="text-sm font-medium">{loadingStates[type]}</p>
         {progress !== undefined && (
           <ProgressIndicator
             progress={progress}

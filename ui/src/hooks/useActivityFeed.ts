@@ -73,6 +73,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
   const baselineIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
+  const reconnectAttemptsRef = useRef(0);
 
   // Store latest values in refs to avoid recreating callbacks
   const enabledRef = useRef(enabled);
@@ -267,7 +268,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     }, 30000);
 
     // SSE live updates + reconnect with fallback polling
-    let reconnectAttempts = 0;
+    reconnectAttemptsRef.current = 0;
     const maxReconnect = 5;
     const baseDelay = 500;
 
@@ -352,7 +353,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
               deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
               return deduped.slice(0, maxEventsRef.current);
             });
-            reconnectAttempts = 0;
+            reconnectAttemptsRef.current = 0;
             clearFallback();
           } catch (err) {
             logger.error('Failed to parse activity SSE payload', { component: 'useActivityFeed', operation: 'sse_activity_parse' }, err as Error);
@@ -361,25 +362,25 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
         es.addEventListener('open', () => {
           if (!isMountedRef.current) return;
-          reconnectAttempts = 0;
+          reconnectAttemptsRef.current = 0;
           clearFallback();
         });
 
         es.addEventListener('error', (evt: any) => {
           if (!isMountedRef.current) return;
 
-          reconnectAttempts++;
+          reconnectAttemptsRef.current++;
           const unauthorized = evt?.status === 401 || evt?.code === 401;
           if (unauthorized) {
             setError('Unauthorized');
             logger.error('Activity SSE unauthorized', { component: 'useActivityFeed', operation: 'sse_error' }, new Error('Unauthorized'));
           }
 
-          if (reconnectAttempts >= maxReconnect) {
+          if (reconnectAttemptsRef.current >= maxReconnect) {
             logger.error('Max SSE reconnect threshold reached (activity)', {
               component: 'useActivityFeed',
               operation: 'sse_reconnect',
-              reconnectAttempts,
+              reconnectAttempts: reconnectAttemptsRef.current,
               maxReconnect,
             });
             startFallbackPolling();
@@ -387,7 +388,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
             return;
           }
 
-          const delay = Math.min(baseDelay * Math.pow(2, reconnectAttempts - 1), 30000);
+          const delay = Math.min(baseDelay * Math.pow(2, reconnectAttemptsRef.current - 1), 30000);
           startFallbackPolling();
           stopSSE();
 

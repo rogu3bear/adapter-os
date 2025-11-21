@@ -9,8 +9,10 @@
 import React, { useState } from 'react';
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import FeatureLayout from '@/layout/FeatureLayout';
+import { DensityProvider } from '@/contexts/DensityContext';
 import { useMessages } from '@/hooks/useMessages';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useRBAC } from '@/hooks/useRBAC';
 import { MessageThread } from '@/components/MessageThread';
 import { MessageComposer } from '@/components/MessageComposer';
 import { WorkspaceSelector } from '@/components/WorkspaceSelector';
@@ -18,12 +20,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { MessageSquare, Users, AlertCircle, RefreshCw } from 'lucide-react';
 import { logger } from '@/utils/logger';
 
 export default function MessagesPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
+  const { can, userRole } = useRBAC();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('');
 
   const { userWorkspaces, loading: workspacesLoading, error: workspacesError, refresh: refreshWorkspaces } = useWorkspaces({
@@ -102,10 +107,11 @@ export default function MessagesPage() {
   }, [selectedWorkspaceId, userWorkspaces]);
 
   return (
-    <FeatureLayout
-      title="Messages"
-      description="Workspace communication and collaboration"
-      headerActions={
+    <DensityProvider pageKey="messages">
+      <FeatureLayout
+        title="Messages"
+        description="Workspace communication and collaboration"
+        headerActions={
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -207,6 +213,7 @@ export default function MessagesPage() {
           </Card>
         )}
       </div>
-    </FeatureLayout>
+      </FeatureLayout>
+    </DensityProvider>
   );
 }

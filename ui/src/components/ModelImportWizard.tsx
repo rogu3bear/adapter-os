@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Progress } from '@/components/ui/progress';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle, RotateCcw } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ImportModelRequest } from '@/api/types';
@@ -328,20 +328,15 @@ export function ModelImportWizard({ onComplete, onCancel, tenantId }: ModelImpor
         </DialogContent>
       </Dialog>
 
-      {wizardError && ErrorRecoveryTemplates.genericError(
+      {wizardError && errorRecoveryTemplates.genericError(
         wizardError,
         () => setWizardError(null)
       )}
 
       {validationError && (
         <ErrorRecovery
-          title="Validation Required"
-          message={validationError}
-          variant="warning"
-          recoveryActions={[
-            { label: 'Fix Input', action: () => setValidationError(null), primary: true }
-          ]}
-          showHelp={false}
+          error={validationError}
+          onRetry={() => setValidationError(null)}
         />
       )}
 

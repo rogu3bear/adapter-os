@@ -1,65 +1,52 @@
-// 【ui/src/components/ui/use-mobile.ts】 - Mobile detection hook
-// 【ui/src/components/MobileNavigation.tsx】 - Mobile navigation component
 import React, { useState, useEffect, useMemo } from 'react';
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar';
 
 import { useTheme, useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
-import { Navigate } from 'react-router-dom';
-import { useIsMobile } from '@/components/ui/use-mobile';
-import { MobileNavigation } from '@/components/MobileNavigation';
 import { CommandPaletteProvider, type CommandItem, useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { CommandPalette } from '@/components/CommandPalette';
 import { HelpCenter } from '@/components/HelpCenter';
 import { NotificationBell } from '@/components/NotificationBell';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { useKeyboardShortcuts } from '@/utils/accessibility';
-import { generateNavigationGroups, shouldShowNavGroup, type NavGroup } from '@/utils/navigation';
-import { cn, FROST_OVERLAY } from '@/components/ui/utils';
-import {
-  Lock,
-  Menu,
-  X,
-  Compass,
-  LayoutDashboard,
-  Zap,
-  FlaskConical,
-  GitCompare,
-  TrendingUp,
-  Box,
-  Route,
-  Play,
-  Activity,
-  Shield,
-  Eye,
-  RotateCcw,
-  FileText,
-  Building,
-  ChevronDown,
-  ChevronRight,
-  Settings,
-  BarChart3,
-  Upload,
-  HelpCircle
-} from 'lucide-react';
-import type { UserRole } from '@/api/types';
+import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
+import { cn } from '@/components/ui/utils';
+import { Lock, ChevronDown, ChevronRight, HelpCircle } from 'lucide-react';
 
-function RootLayoutContent() {
+const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
+
+interface RootLayoutContentProps {
+  navigationGroups: ReturnType<typeof generateNavigationGroups>;
+}
+
+function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
-  const { user, isLoading, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { selectedTenant, setSelectedTenant, tenants } = useTenant();
   const location = useLocation();
   const navigate = useNavigate();
+  const { openPalette } = useCommandPalette();
+  const { isMobile } = useSidebar();
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [helpCenterOpen, setHelpCenterOpen] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
-  const isMobile = useIsMobile();
-  const { openPalette } = useCommandPalette();
 
   // Wire up keyboard shortcuts
   useKeyboardShortcuts({
@@ -67,15 +54,6 @@ function RootLayoutContent() {
     onHelp: () => setHelpCenterOpen(true),
     onNotifications: () => setNotificationCenterOpen(true),
   });
-
-  useEffect(() => {
-    if (isSidebarOpen) {
-      document.body.classList.add('overflow-hidden');
-    } else {
-      document.body.classList.remove('overflow-hidden');
-    }
-    return () => document.body.classList.remove('overflow-hidden');
-  }, [isSidebarOpen]);
 
   useEffect(() => {
     const notificationsListener = () => setNotificationCenterOpen(true);
@@ -90,167 +68,133 @@ function RootLayoutContent() {
     };
   }, []);
 
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-
-  // Generate navigation groups from centralized route config
-  const navigationGroups = useMemo(() => generateNavigationGroups(user?.role), [user?.role]);
-
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  // Persist collapsed groups state
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(COLLAPSED_GROUPS_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const toggleGroup = (groupTitle: string) => {
-    setCollapsedGroups(prev => ({
-      ...prev,
-      [groupTitle]: !prev[groupTitle]
-    }));
+    setCollapsedGroups(prev => {
+      const next = { ...prev, [groupTitle]: !prev[groupTitle] };
+      try {
+        localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Lock className="h-8 w-8 text-primary mx-auto mb-4 animate-pulse" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Handle auth at layout level - redirect unauthenticated users to login
-  // Exception: /login route is handled by LoginRoute component
-  if (!user && location.pathname !== '/login') {
-    return <Navigate to="/login" replace />;
-  }
-
-  // Allow login page to render without sidebar/navigation
-  if (location.pathname === '/login') {
-    return (
-      <div className="min-h-screen bg-background p-6">
-        <Outlet />
-        <Toaster position="top-right" className="z-40" />
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="flex h-16 items-center justify-between px-4 md:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Lock className="h-5 w-5 text-primary" />
-              <h1 className="font-medium">AdapterOS Control Plane</h1>
-            </div>
-            <div className="text-xs rounded px-2 py-0.5 border border-gray-300 text-gray-700 bg-gray-50">Zero Egress Mode</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="md:hidden" onClick={toggleSidebar} aria-label="Open menu">
-              <Menu className="h-5 w-5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setHelpCenterOpen(true)}
-              aria-label="Open help"
-              title="Help (?)"
-            >
-              <HelpCircle className="h-5 w-5" />
-            </Button>
-            <NotificationBell
-              onOpenChange={setNotificationCenterOpen}
-              showCountLabel
-            />
-            {tenants.length > 0 && (
-              <Select value={selectedTenant} onValueChange={setSelectedTenant}>
-                <SelectTrigger className="w-[180px] hidden sm:flex">
-                  <SelectValue placeholder="Select tenant" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">Default</SelectItem>
-                  {tenants.filter(t => t.id && t.id !== '').map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
-            <span className="text-muted-foreground hidden md:inline">{user.email}</span>
-            <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
-              {theme === 'dark' ? 'Light' : 'Dark'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => void logout()} className="hidden sm:inline-flex">Logout</Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Overlay for mobile */}
-      {isSidebarOpen && <div className={cn("fixed inset-0 z-40", FROST_OVERLAY, "md:hidden")} onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />}
-
-      {/* Body with sidebar and content */}
-      <div className="flex min-h-[calc(100vh-4rem)]">
-        {/* Sidebar - fixed overlay on mobile, static flex item on desktop */}
-        <aside className={`fixed top-0 bottom-0 left-0 z-50 w-64 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform md:relative md:translate-x-0 md:z-auto md:w-64 md:flex-shrink-0 overflow-y-auto bg-background border-r`}>
-          <div className="p-4 space-y-1">
-            <Button className="md:hidden mb-4 w-full justify-start" variant="ghost" onClick={() => setIsSidebarOpen(false)} aria-label="Close menu">
-              <X className="h-5 w-5 mr-2" />
-              Close Menu
-            </Button>
-
-            {isMobile ? (
-              <MobileNavigation
-                groups={navigationGroups.filter(group => shouldShowNavGroup(group, user?.role))}
-                onNavigate={(path) => {
-                  navigate(path);
-                  setIsSidebarOpen(false);
-                }}
-                userRole={user?.role}
-              />
-            ) : (
-              navigationGroups.filter(group => shouldShowNavGroup(group, user?.role)).map((group) => {
-                const isCollapsed = collapsedGroups[group.title];
-                return (
-                  <div key={group.title} className="mb-4">
-                    <button
-                      onClick={() => toggleGroup(group.title)}
-                      className="flex items-center justify-between w-full px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-                    >
-                      <span>{group.title}</span>
-                      {isCollapsed ? (
-                        <ChevronRight className="h-3 w-3" />
-                      ) : (
-                        <ChevronDown className="h-3 w-3" />
-                      )}
-                    </button>
-
-                    {!isCollapsed && (
-                      <div className="mt-1 space-y-1">
-                        {group.items.map((item) => {
-                          const Icon = item.icon;
-                          const isActive = location.pathname === item.to;
-                          return (
-                            <Button
-                              key={item.to}
-                              variant={isActive ? 'default' : 'ghost'}
-                              className="w-full justify-start"
-                              onClick={() => {
-                                navigate(item.to);
-                                setIsSidebarOpen(false);
-                              }}
-                              aria-current={isActive ? 'page' : undefined}
-                            >
-                              <Icon className="h-4 w-4 mr-2" />
-                              {item.label}
-                            </Button>
-                          );
-                        })}
-                      </div>
+    <>
+      {/* Sidebar */}
+      <Sidebar>
+        <SidebarContent className="pt-4">
+          {navigationGroups.filter(group => shouldShowNavGroup(group, user.role)).map((group) => {
+            const isCollapsed = collapsedGroups[group.title];
+            return (
+              <SidebarGroup key={group.title}>
+                <SidebarGroupLabel asChild>
+                  <button
+                    onClick={() => toggleGroup(group.title)}
+                    className={cn(
+                      'flex items-center justify-between w-full cursor-pointer',
+                      isMobile && 'min-h-[44px] px-3 py-3'
                     )}
-                  </div>
-                );
-              })
-            )}
+                    aria-expanded={!isCollapsed}
+                    aria-label={`Toggle ${group.title} menu`}
+                  >
+                    <span>{group.title}</span>
+                    {isCollapsed ? (
+                      <ChevronRight className="h-3 w-3 flex-shrink-0" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3 flex-shrink-0" />
+                    )}
+                  </button>
+                </SidebarGroupLabel>
+
+                {!isCollapsed && (
+                  <SidebarMenu>
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.to;
+                      return (
+                        <SidebarMenuItem key={item.to}>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            onClick={() => navigate(item.to)}
+                            tooltip={item.label}
+                            size={isMobile ? 'lg' : 'default'}
+                            aria-label={`Navigate to ${item.label}`}
+                          >
+                            <Icon className={isMobile ? 'h-5 w-5' : 'h-4 w-4'} />
+                            <span>{item.label}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                )}
+              </SidebarGroup>
+            );
+          })}
+        </SidebarContent>
+      </Sidebar>
+
+      {/* Main content area */}
+      <SidebarInset>
+        {/* Header */}
+        <header className="border-b bg-card sticky top-0 z-10">
+          <div className="flex h-16 items-center justify-between px-4 md:px-6">
+            <div className="flex items-center gap-3">
+              <SidebarTrigger className="md:hidden" />
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-primary" />
+                <h1 className="font-medium">AdapterOS Control Plane</h1>
+              </div>
+              <Badge variant="outline" className="text-xs hidden sm:inline-flex">Zero Egress Mode</Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setHelpCenterOpen(true)}
+                aria-label="Open help"
+                title="Help (?)"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </Button>
+              <NotificationBell
+                onOpenChange={setNotificationCenterOpen}
+                showCountLabel
+              />
+              {tenants.length > 0 && (
+                <Select value={selectedTenant} onValueChange={setSelectedTenant}>
+                  <SelectTrigger className="w-[180px] hidden sm:flex">
+                    <SelectValue placeholder="Select tenant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Default</SelectItem>
+                    {tenants.filter(t => t.id && t.id !== '').map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
+              <span className="text-muted-foreground hidden md:inline">{user.email}</span>
+              <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
+                {theme === 'dark' ? 'Light' : 'Dark'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void logout()} className="hidden sm:inline-flex">Logout</Button>
+            </div>
           </div>
-        </aside>
+        </header>
 
         {/* Content */}
         <main className="flex-1 p-4 md:p-6">
@@ -258,7 +202,7 @@ function RootLayoutContent() {
             <Outlet />
           </div>
         </main>
-      </div>
+      </SidebarInset>
 
       {/* Toaster at z-40 */}
       <Toaster position="top-right" className="z-40" />
@@ -270,22 +214,21 @@ function RootLayoutContent() {
       <CommandPalette />
       <NotificationCenter open={notificationCenterOpen} onOpenChange={setNotificationCenterOpen} />
       <HelpCenter open={helpCenterOpen} onOpenChange={setHelpCenterOpen} />
-    </div>
+    </>
   );
 }
 
 export default function RootLayout() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const location = useLocation();
 
   // Generate navigation groups from centralized route config
   const navigationGroups = useMemo(() => generateNavigationGroups(user?.role), [user?.role]);
 
   // Convert navigation groups to command items for command palette
-  const routes: CommandItem[] = useMemo(() => {
+  const commandItems: CommandItem[] = useMemo(() => {
     const items: CommandItem[] = [];
     for (const group of navigationGroups) {
-      // Filter by role if needed
       if (!shouldShowNavGroup(group, user?.role)) {
         continue;
       }
@@ -332,12 +275,24 @@ export default function RootLayout() {
     return items;
   }, [navigationGroups, user?.role]);
 
-  // Handle auth at layout level - redirect unauthenticated users to login
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Lock className="h-8 w-8 text-primary mx-auto mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect unauthenticated users to login
   if (!user && location.pathname !== '/login') {
     return <Navigate to="/login" replace />;
   }
 
-  // Allow login page to render without sidebar/navigation
+  // Login page without sidebar/navigation
   if (location.pathname === '/login') {
     return (
       <div className="min-h-screen bg-background p-6">
@@ -348,8 +303,10 @@ export default function RootLayout() {
   }
 
   return (
-    <CommandPaletteProvider routes={routes}>
-      <RootLayoutContent />
+    <CommandPaletteProvider routes={commandItems}>
+      <SidebarProvider>
+        <RootLayoutContent navigationGroups={navigationGroups} />
+      </SidebarProvider>
     </CommandPaletteProvider>
   );
 }

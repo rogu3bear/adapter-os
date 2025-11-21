@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -20,8 +21,8 @@ import { Checkbox } from './ui/checkbox';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import { ExportDialog, ExportOptions, ExportScope } from './ui/export-dialog';
-import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { SuccessFeedback, successTemplates } from './ui/success-feedback';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { TrainingWizard } from './TrainingWizard';
 import { AdapterImportWizard } from './AdapterImportWizard';
 import LanguageBaseAdapterDialog from './LanguageBaseAdapterDialog';
@@ -136,7 +137,7 @@ interface TrainingMetrics {
   learning_rate: number;
   gpu_utilization: number;
   memory_usage: number;
-  tokens_per_second: number;
+  tokens_per_sec: number;
 }
 
 export function Adapters({ user, selectedTenant }: AdaptersProps) {
@@ -442,7 +443,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
       }
       
       setSuccessFeedback(
-        SuccessTemplates.adapterLoaded(
+        successTemplates.adapterLoaded(
           adapter?.name || 'Adapter',
           () => transitionTo('/inference?adapter=' + adapterId)
         )
@@ -1598,7 +1599,7 @@ export function Adapters({ user, selectedTenant }: AdaptersProps) {
               <AdapterImportWizard
                 onComplete={async (adapter) => {
                   setSuccessFeedback(
-                    SuccessTemplates.adapterCreated(
+                    successTemplates.adapterCreated(
                       adapter.name,
                       () => transitionTo('/inference?adapter=' + adapter.adapter_id),
                       () => setActiveTab('registry')

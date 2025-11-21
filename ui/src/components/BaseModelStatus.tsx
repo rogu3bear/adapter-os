@@ -18,37 +18,31 @@ import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
 
 interface BaseModelStatusProps {
   selectedTenant: string;
 }
 
 export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProps) {
-  const [status, setStatus] = useState<BaseModelStatus | null>(null);
-
-  const [error, setError] = useState<Error | null>(null);
-
-  // 【ui/src/hooks/usePolling.ts】 - Standardized polling hook for model status
   const fetchModelStatus = async () => {
     const modelStatus = await apiClient.getBaseModelStatus(selectedTenant);
     return modelStatus;
   };
 
   const {
-    data: polledStatus,
+    data: status,
     isLoading: loading,
     lastUpdated,
-    error: pollingError,
+    error,
     refetch: refreshStatus
   } = usePolling(
     fetchModelStatus,
-    'normal', // Reduced from fast to reduce rate limiting while maintaining reasonable updates
+    'normal',
     {
       showLoadingIndicator: true,
       onError: (err) => {
-        const error = err instanceof Error ? err : new Error('Failed to fetch model status');
-        setError(error);
         logger.error('Failed to fetch base model status', {
           component: 'BaseModelStatus',
           operation: 'polling',
@@ -57,41 +51,6 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
       }
     }
   );
-
-  // Update status when polling data arrives
-  useEffect(() => {
-    if (polledStatus) {
-      setStatus(polledStatus);
-      setError(null);
-    }
-  }, [polledStatus]);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  const fetchStatus = async () => {
-    try {
-      setError(null);
-      const modelStatus = await apiClient.getBaseModelStatus(selectedTenant);
-      setStatus(modelStatus);
-      setLastUpdated(new Date());
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch model status';
-      setError(errorMsg);
-      console.error('Failed to fetch base model status:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchStatus();
-    
-    // Fixed 1-second interval for instant updates
-    const interval = setInterval(fetchStatus, 1000);
-    return () => clearInterval(interval);
-  }, [selectedTenant]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -171,12 +130,8 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
   if (error) {
     return (
       <ErrorRecovery
-        title="Model Status Error"
-        message={error.message}
-        recoveryActions={[
-          { label: 'Retry', action: () => refreshStatus() },
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
+        error={error.message}
+        onRetry={() => refreshStatus()}
       />
     );
   }
@@ -201,9 +156,13 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
         <div className="flex items-center space-x-3">
           {getStatusIcon(status.status)}
           <div>
-            <h3 className="text-lg font-medium text-gray-900">Base Model Status</h3>
+            <h3 className="text-lg font-medium text-gray-900">
+              Base Model Status
+              <HelpTooltip helpId="base-model-status" />
+            </h3>
             <p className="text-sm text-gray-500">
               {status.model_name} ({status.model_id})
+              <HelpTooltip helpId="base-model-name" />
             </p>
 
             {lastUpdated && <LastUpdated timestamp={lastUpdated} className="mt-1" />}
@@ -224,7 +183,10 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
         {/* Memory Usage */}
         <div className="flex items-center space-x-2">
           <HardDrive className="h-4 w-4 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">Memory:</span>
+          <span className="text-sm font-medium text-gray-700">
+            Memory:
+            <HelpTooltip helpId="base-model-memory" />
+          </span>
           <span className="text-sm text-gray-600">{formatMemoryUsage(status.memory_usage_mb)}</span>
         </div>
 

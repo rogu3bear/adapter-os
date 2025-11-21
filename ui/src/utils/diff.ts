@@ -401,15 +401,30 @@ export function formatDiff(diffs: DiffResult[], includePositions: boolean = fals
  * @param diffs - Array of diff results or raw Diff array
  * @returns Diff statistics
  */
-export function getDiffStats(diffs: DiffResult[] | Diff[]): Omit<DiffStats, 'computeTime'> {
+export function getDiffStats(diffs: DiffResult[] | Diff[] | LineDiff[]): Omit<DiffStats, 'computeTime'> {
   let additions = 0;
   let deletions = 0;
   let modifications = 0;
   let equalChars = 0;
   let totalChars = 0;
 
-  // Check if we have DiffResult[] or Diff[]
-  if (diffs.length > 0 && typeof diffs[0] === 'object' && 'type' in diffs[0]) {
+  // Check if we have LineDiff[], DiffResult[], or Diff[]
+  if (diffs.length > 0 && typeof diffs[0] === 'object' && 'lineNumber' in diffs[0]) {
+    // LineDiff[]
+    for (const d of diffs as LineDiff[]) {
+      const lineLength = (d.currentLine || d.goldenLine || '').length;
+      totalChars += lineLength;
+      if (d.type === 'added') {
+        additions += 1;
+      } else if (d.type === 'removed') {
+        deletions += 1;
+      } else if (d.type === 'modified') {
+        modifications += 1;
+      } else {
+        equalChars += lineLength;
+      }
+    }
+  } else if (diffs.length > 0 && typeof diffs[0] === 'object' && 'type' in diffs[0]) {
     // DiffResult[]
     for (const d of diffs as DiffResult[]) {
       totalChars += d.length;

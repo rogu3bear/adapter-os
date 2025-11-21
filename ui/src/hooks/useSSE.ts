@@ -104,7 +104,7 @@ export function useSSE<T = unknown>(
             component: 'useSSE',
             endpoint,
             operation: 'parse_error_event',
-          }, toError(parseErr));
+          });
           setError('Connection error');
         }
       });

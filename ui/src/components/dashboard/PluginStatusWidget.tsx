@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { apiClient } from '@/lib/api-client'; // assume
+import apiClient from '@/api/client';
 
 interface PluginStatus {
   plugin: string;
@@ -17,8 +17,8 @@ export function PluginStatusWidget() {
   useEffect(() => {
     const fetchPlugins = async () => {
       try {
-        const response = await apiClient.get('/v1/plugins');
-        setPlugins(response.data.plugins || []);
+        const response = await apiClient.request<{ plugins: PluginStatus[] }>('/v1/plugins');
+        setPlugins(response.plugins || []);
       } catch (error) {
         console.error('Failed to fetch plugins:', error);
       } finally {
@@ -33,11 +33,11 @@ export function PluginStatusWidget() {
 
   if (loading) return <div>Loading plugins...</div>;
 
-  const getStatusColor = (enabled: boolean, status: string) => {
-    if (!enabled) return 'gray';
-    if (status === 'Started') return 'green';
-    if (status === 'Degraded') return 'yellow';
-    return 'red';
+  const getStatusVariant = (enabled: boolean, status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
+    if (!enabled) return 'secondary';
+    if (status === 'Started') return 'default';
+    if (status === 'Degraded') return 'secondary';
+    return 'destructive';
   };
 
   return (
@@ -51,7 +51,7 @@ export function PluginStatusWidget() {
             <span>{p.plugin} ({p.tenant})</span>
             <div className="space-x-2">
               <Badge variant={p.enabled ? 'default' : 'secondary'}>Enabled: {p.enabled.toString()}</Badge>
-              <Badge variant={getStatusColor(p.enabled, p.health.status) as any}>Health: {p.health.status}</Badge>
+              <Badge variant={getStatusVariant(p.enabled, p.health.status)}>Health: {p.health.status}</Badge>
             </div>
           </div>
         ))}

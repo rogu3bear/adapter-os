@@ -10,15 +10,16 @@ import { Adapter } from '../api/types';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
-import { Code, MemoryStick, Activity, Clock, Pin, ArrowUp, Trash2, MoreHorizontal } from 'lucide-react';
+import { Code, MemoryStick, Activity, Clock, Pin, ArrowUp, Trash2, MoreHorizontal, Upload, Power, PowerOff } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
@@ -26,13 +27,19 @@ import { ProgressiveHint } from './ui/progressive-hint';
 import { useAdapterOperations } from '../hooks/useAdapterOperations';
 import { ConceptTooltip } from './ConceptTooltip';
 import { getLifecycleVariant } from '../utils/lifecycle';
+import { useRBAC } from '../hooks/useRBAC';
+import { HelpTooltip } from './ui/help-tooltip';
+import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 
 interface AdaptersData {
   adapters: Adapter[];
   totalMemory: number;
 }
 
-export function AdaptersPage() {
+function AdaptersPageContent() {
+  const { can, userRole } = useRBAC();
+  const { errors, addError, clearError } = usePageErrors();
+
   const fetchAdaptersData = async (): Promise<AdaptersData> => {
     const adaptersData = await apiClient.listAdapters();
     const metrics = await apiClient.getSystemMetrics();
@@ -57,7 +64,7 @@ export function AdaptersPage() {
   // Progressive hints
   const hints = getPageHints('adapters').map(hint => ({
     ...hint,
-    condition: hint.id === 'empty-adapters' 
+    condition: hint.id === 'empty-adapters'
       ? () => adapters.length === 0 && !loading
       : hint.condition
   }));
@@ -71,6 +78,9 @@ export function AdaptersPage() {
   const {
     isOperationLoading,
     operationError,
+    clearOperationError,
+    loadAdapter,
+    unloadAdapter,
     evictAdapter,
     pinAdapter,
     promoteAdapter,
@@ -108,13 +118,8 @@ export function AdaptersPage() {
   if (error) {
     return (
       <ErrorRecovery
-        title="Failed to Load Adapters"
-        message="Unable to load adapter data. This may be due to a network issue or server problem."
-        error={error}
-        recoveryActions={[
-          { label: 'Retry', action: () => window.location.reload(), primary: true },
-          { label: 'Go to Dashboard', action: () => { window.location.href = '/dashboard'; } }
-        ]}
+        error={error instanceof Error ? error.message : (error || "Unable to load adapter data. This may be due to a network issue or server problem.")}
+        onRetry={refetch}
       />
     );
   }
@@ -127,8 +132,17 @@ export function AdaptersPage() {
     }
   };
 
+  // Permission check helpers with canonical strings
+  const canRegister = can('adapter:register');
+  const canLoad = can('adapter:load');
+  const canUnload = can('adapter:unload');
+  const canDelete = can('adapter:delete');
+
   return (
     <div className="space-y-6">
+      {/* Consolidated Error Display */}
+      <PageErrors errors={errors} />
+
       {visibleHint && (
         <ProgressiveHint
           title={visibleHint.hint.title}
@@ -139,10 +153,39 @@ export function AdaptersPage() {
       )}
 
       {operationError && (
-        <div>
-          {operationError}
-        </div>
+        <ErrorRecovery
+          error={operationError}
+          onRetry={clearOperationError || (() => {})}
+        />
       )}
+
+      {/* Page Header with Actions */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Adapters</h1>
+          <ConceptTooltip concept="adapter" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            disabled={!canRegister}
+            title={!canRegister ? 'Requires adapter:register permission' : 'Register a new adapter'}
+            onClick={() => toast.info('Registration flow coming soon')}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Register
+            <HelpTooltip content="Register a new LoRA adapter from weights file" />
+          </Button>
+          <Button
+            disabled={!canRegister}
+            title={!canRegister ? 'Requires adapter:register permission' : 'Train a new adapter'}
+            onClick={() => toast.info('Training wizard coming soon')}
+          >
+            Train New Adapter
+            <HelpTooltip content="Start the training wizard to create a new LoRA adapter from documents" />
+          </Button>
+        </div>
+      </div>
 
       {/* Visualizations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -163,8 +206,8 @@ export function AdaptersPage() {
         <AdapterMemoryMonitor
           adapters={adapters}
           totalMemory={totalMemory}
-          onEvictAdapter={evictAdapter}
-          onPinAdapter={pinAdapter}
+          onEvictAdapter={canUnload ? evictAdapter : undefined}
+          onPinAdapter={canLoad ? pinAdapter : undefined}
           onUpdateMemoryLimit={handleUpdateMemoryLimit}
         />
       </div>
@@ -174,7 +217,7 @@ export function AdaptersPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             Deployed Adapters
-            <ConceptTooltip concept="adapter" />
+            <HelpTooltip content="List of all registered LoRA adapters with their current state and metrics" />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -195,15 +238,38 @@ export function AdaptersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Lifecycle</TableHead>
-                  <TableHead>State</TableHead>
-                  <TableHead>Memory</TableHead>
-                  <TableHead>Activations</TableHead>
-                  <TableHead>Last Used</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>
+                    Name
+                    <HelpTooltip helpId="adapter-name" />
+                  </TableHead>
+                  <TableHead>
+                    Tier
+                    <HelpTooltip helpId="adapter-tier" />
+                  </TableHead>
+                  <TableHead>
+                    Rank
+                    <HelpTooltip helpId="adapter-rank" />
+                  </TableHead>
+                  <TableHead>
+                    Lifecycle
+                    <HelpTooltip helpId="adapter-lifecycle" />
+                  </TableHead>
+                  <TableHead>
+                    State
+                    <HelpTooltip helpId="adapter-state" />
+                  </TableHead>
+                  <TableHead>
+                    Memory
+                    <HelpTooltip helpId="adapter-memory" />
+                  </TableHead>
+                  <TableHead>
+                    Activation
+                    <HelpTooltip helpId="adapter-activation" />
+                  </TableHead>
+                  <TableHead>
+                    Actions
+                    <HelpTooltip helpId="adapter-actions" />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -211,10 +277,10 @@ export function AdaptersPage() {
                   <TableRow key={adapter.id}>
                     <TableCell className="font-medium">{adapter.name}</TableCell>
                     <TableCell>
-                      <Badge>{getCategoryIcon(adapter.category)} {adapter.category}</Badge>
+                      <Badge variant="outline">{adapter.tier || 'tier_1'}</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {adapter.version || '1.0.0'}
+                      {adapter.rank || 16}
                     </TableCell>
                     <TableCell>
                       <Badge variant={getLifecycleVariant(adapter.lifecycle_state)}>
@@ -227,24 +293,81 @@ export function AdaptersPage() {
                     </TableCell>
                     <TableCell>{(adapter.memory_bytes / 1024 / 1024).toFixed(1)} MB</TableCell>
                     <TableCell>{adapter.activation_count}</TableCell>
-                    <TableCell>{adapter.last_activated ? new Date(adapter.last_activated).toLocaleString() : 'Never'}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="sm">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => promoteAdapter(adapter.id)}>
-                            <ArrowUp className="mr-2 h-4 w-4" /> Promote
+                        <DropdownMenuContent align="end">
+                          {/* Load/Unload actions */}
+                          <DropdownMenuItem
+                            onClick={() => loadAdapter?.(adapter.id)}
+                            disabled={!canLoad || adapter.current_state === 'Resident'}
+                            title={!canLoad ? 'Requires adapter:load permission' : 'Load adapter into memory'}
+                          >
+                            <Power className="mr-2 h-4 w-4" />
+                            Load
+                            <HelpTooltip content="Load adapter weights into GPU memory for inference" />
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => pinAdapter(adapter.id, !adapter.pinned)}>
-                            <Pin className="mr-2 h-4 w-4" /> {adapter.pinned ? 'Unpin' : 'Pin'}
+                          <DropdownMenuItem
+                            onClick={() => unloadAdapter?.(adapter.id)}
+                            disabled={!canUnload || adapter.current_state === 'Unloaded'}
+                            title={!canUnload ? 'Requires adapter:unload permission' : 'Unload adapter from memory'}
+                          >
+                            <PowerOff className="mr-2 h-4 w-4" />
+                            Unload
+                            <HelpTooltip content="Remove adapter from GPU memory (can be reloaded)" />
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => evictAdapter(adapter.id)}>
-                            <Trash2 className="mr-2 h-4 w-4" /> Evict
+
+                          <DropdownMenuSeparator />
+
+                          {/* Promote action */}
+                          <DropdownMenuItem
+                            onClick={() => promoteAdapter(adapter.id)}
+                            disabled={!canLoad}
+                            title={!canLoad ? 'Requires adapter:load permission' : 'Promote adapter to higher tier'}
+                          >
+                            <ArrowUp className="mr-2 h-4 w-4" />
+                            Promote
+                            <HelpTooltip content="Increase adapter tier for higher routing priority" />
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => deleteAdapter(adapter.id)}>
-                            <Trash2 className="mr-2 h-4 w-4 text-red-500" /> Delete
+
+                          {/* Pin/Unpin action */}
+                          <DropdownMenuItem
+                            onClick={() => pinAdapter(adapter.id, !adapter.pinned)}
+                            disabled={!canLoad}
+                            title={!canLoad ? 'Requires adapter:load permission' : adapter.pinned ? 'Unpin adapter' : 'Pin adapter'}
+                          >
+                            <Pin className="mr-2 h-4 w-4" />
+                            {adapter.pinned ? 'Unpin' : 'Pin'}
+                            <HelpTooltip content={adapter.pinned ? 'Allow adapter to be evicted under memory pressure' : 'Prevent adapter from being evicted under memory pressure'} />
+                          </DropdownMenuItem>
+
+                          {/* Evict action */}
+                          <DropdownMenuItem
+                            onClick={() => evictAdapter(adapter.id)}
+                            disabled={!canUnload || adapter.pinned}
+                            title={!canUnload ? 'Requires adapter:unload permission' : adapter.pinned ? 'Cannot evict pinned adapter' : 'Evict adapter'}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Evict
+                            <HelpTooltip content="Force remove adapter from memory to free resources" />
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator />
+
+                          {/* Delete action (destructive) */}
+                          <DropdownMenuItem
+                            onClick={() => deleteAdapter(adapter.id)}
+                            disabled={!canDelete}
+                            title={!canDelete ? 'Requires adapter:delete permission' : 'Permanently delete adapter'}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                            <HelpTooltip content="Permanently remove adapter and weights from the system" />
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -257,5 +380,14 @@ export function AdaptersPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Wrap with PageErrorsProvider
+export function AdaptersPage() {
+  return (
+    <PageErrorsProvider>
+      <AdaptersPageContent />
+    </PageErrorsProvider>
   );
 }

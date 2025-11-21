@@ -26,21 +26,27 @@ export interface UserInfoResponse {
   tenant_id?: string;
   created_at?: string;
   last_login_at?: string;
+  mfa_enabled?: boolean;
+  permissions?: string[];
+  token_last_rotated_at?: string;
 }
 
 export interface User {
   user_id: string;
+  id: string;  // Alias for user_id for compatibility
   email: string;
-  role: UserRole;
   display_name?: string;
+  role: UserRole;
   tenant_id?: string;
   created_at: string;
-  updated_at: string;
-  last_login_at?: string;
-  is_active: boolean;
+  last_login?: string;
+  last_login_at?: string;  // Alias for last_login
+  mfa_enabled?: boolean;
+  permissions?: string[];
+  token_last_rotated_at?: string;
 }
 
-export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'viewer';
+export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
 
 export interface RegisterUserRequest {
   email: string;
@@ -91,6 +97,9 @@ export interface RotateTokenResponse {
   token: string;
   token_type: string;
   expires_in: number;
+  created_at?: string;
+  expires_at?: string;
+  last_rotated_at?: string;
 }
 
 export interface LogoutRequest {
@@ -110,10 +119,12 @@ export interface SessionInfo {
 
 export interface TokenMetadata {
   token_id: string;
-  user_id: string;
-  issued_at: string;
-  expires_at: string;
+  user_id?: string;
+  issued_at?: string;
+  created_at: string;
+  expires_at?: string;
   last_used_at?: string;
+  last_rotated_at?: string;
   device_info?: string;
   ip_address?: string;
 }
@@ -142,4 +153,151 @@ export interface AuthConfigResponse {
   password_min_length: number;
   mfa_required: boolean;
   allowed_domains?: string[];
+}
+
+// Cursor/Config types
+export interface CursorConfigResponse {
+  cursor_id: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  is_ready?: boolean;
+  model_name?: string;
+  api_endpoint?: string;
+  setup_instructions?: string;
+}
+
+export interface CursorModelInfo {
+  id: string;
+  name: string;
+  provider?: string;
+  context_length?: number;
+  capabilities?: string[];
+}
+
+// Contact/Message types (for support/feedback)
+export interface Contact {
+  id: string;
+  name: string;
+  email: string;
+  type: 'support' | 'sales' | 'technical';
+  category?: string;
+  role?: string;
+  last_interaction?: string;
+  interaction_count?: number;
+  discovered_at?: string;
+}
+
+export interface Message {
+  id: string;
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  timestamp: string;
+  created_at: string;
+  read: boolean;
+  thread_id?: string;
+  attachments?: string[];
+  read_at?: string;
+  content?: string;
+  from_user_id?: string;
+  from_user_display_name?: string;
+  edited_at?: string;
+}
+
+// Workspace types
+export interface Workspace {
+  id: string;
+  name: string;
+  description?: string;
+  owner_id: string;
+  members: WorkspaceMember[];
+  created_at: string;
+  settings?: Record<string, unknown>;
+  is_default?: boolean;
+  member_count?: number;
+}
+
+export interface WorkspaceMember {
+  user_id: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer';
+  joined_at: string;
+  user_display_name?: string;
+  user_email?: string;
+}
+
+// Session types
+export interface Session {
+  session_id: string;
+  user_id: string;
+  created_at: string;
+  expires_at: string;
+  ip_address?: string;
+  user_agent?: string;
+  is_active?: boolean;
+  device_info?: string;
+}
+
+// Activity tracking types
+export interface ActivityEvent {
+  id: string;
+  type?: string;
+  actor?: string;
+  action?: string;
+  target?: string;
+  metadata?: Record<string, unknown>;
+  timestamp: string;
+  created_at?: string;
+  workspace_id?: string;
+  event_type?: string;
+}
+
+// Workspace resource types
+export interface WorkspaceResource {
+  id: string;
+  workspace_id: string;
+  resource_type: string;
+  resource_id: string;
+  permissions: string[];
+  resource_name?: string;
+  shared_at?: string;
+  shared_by?: string;
+}
+
+export interface RecentActivityEvent extends ActivityEvent {
+  user_name?: string;
+  resource_name?: string;
+  user_id?: string;
+  tenant_id?: string;
+  message?: string;
+  level?: string;
+  component?: string;
+}
+
+export interface CreateMessageRequest {
+  to?: string;
+  subject?: string;
+  body?: string;
+  thread_id?: string;
+  content?: string;
+}
+
+export interface CreateWorkspaceRequest {
+  name: string;
+  description?: string;
+  settings?: Record<string, unknown>;
+}
+
+export interface AddWorkspaceMemberRequest {
+  workspace_id: string;
+  user_id: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer';
+}
+
+export interface CreateActivityEventRequest {
+  type: string;
+  actor: string;
+  action: string;
+  target?: string;
+  metadata?: Record<string, unknown>;
 }

@@ -7,23 +7,35 @@ export interface TrainingJob {
   id: string;
   dataset_id: string;
   adapter_id: string;
+  adapter_name: string;
+  config: TrainingConfig;
   status: TrainingStatus;
   progress_pct?: number;
   loss?: number;
+  current_loss?: number;
+  current_epoch?: number;
+  total_epochs?: number;
   tokens_per_sec?: number;
   eta_seconds?: number;
   created_at: string;
   updated_at: string;
+  started_at?: string;
   completed_at?: string;
   error_message?: string;
+  output_path?: string;
+  checkpoint_path?: string;
   metadata_json?: string;
+  progress?: number;
+  metrics?: Record<string, number>;
+  artifact_path?: string;
+  learning_rate?: number;
 }
 
 export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface TrainingConfig {
-  adapter_id: string;
-  dataset_id: string;
+  adapter_id?: string;
+  dataset_id?: string;
   learning_rate: number;
   epochs: number;
   batch_size: number;
@@ -35,10 +47,18 @@ export interface TrainingConfig {
   save_steps?: number;
   eval_steps?: number;
   logging_steps?: number;
+  category?: string;
+  targets?: string[];
+  scope?: string;
+  repo_id?: string;
+  framework_id?: string;
+  framework_version?: string;
+  commit_sha?: string;
 }
 
 export interface StartTrainingRequest {
   config: TrainingConfig;
+  adapter_name?: string;
 }
 
 export interface TrainingResponse {
@@ -61,6 +81,11 @@ export interface TrainingMetrics {
   tokens_per_sec: number;
   time_elapsed: number;
   eta_seconds: number;
+  memory_usage?: number;
+  gpu_utilization?: number;
+  current_epoch?: number;
+  total_epochs?: number;
+  validation_loss?: number;
 }
 
 export interface Dataset {
@@ -76,10 +101,15 @@ export interface Dataset {
   created_at: string;
   updated_at: string;
   metadata_json?: string;
+  sample_count?: number;
+  created_by?: string;
 }
+
+export type TrainingDataset = Dataset;
 
 export type DatasetSourceType = 'code_repo' | 'uploaded_files' | 'generated';
 export type DatasetValidationStatus = 'pending' | 'validating' | 'valid' | 'invalid' | 'failed';
+export type Strictness = 'strict' | 'epsilon-tolerant' | 'relaxed';
 
 export interface CreateDatasetRequest {
   name: string;
@@ -123,5 +153,193 @@ export interface UploadProgress {
   total_bytes: number;
   status: 'uploading' | 'processing' | 'completed' | 'failed';
   error_message?: string;
+}
+
+// Training artifact types
+export interface TrainingArtifactsResponse {
+  job_id: string;
+  artifacts: TrainingArtifact[];
+  signature_valid?: boolean;
+  ready?: boolean;
+  manifest_hash_matches?: boolean;
+  adapter_id?: string;
+  artifact_path?: string;
+  manifest_hash_b3?: string;
+  weights_hash_b3?: string;
+}
+
+export interface TrainingArtifact {
+  id: string;
+  type: 'checkpoint' | 'final' | 'log' | 'metrics';
+  path: string;
+  size_bytes: number;
+  created_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GoldenRunSummary {
+  run_id: string;
+  job_id: string;
+  metrics: {
+    final_loss: number;
+    best_loss: number;
+    total_steps: number;
+    tokens_processed: number;
+  };
+  config: TrainingConfigFull;
+  created_at: string;
+  has_signature?: boolean;
+  name?: string;
+  cpid?: string;
+  plan_id?: string;
+  adapters?: string[];
+  layer_count?: number;
+  mean_epsilon?: number;
+  max_epsilon?: number;
+  toolchain_summary?: string;
+}
+
+export interface TrainingConfigFull {
+  learning_rate: number;
+  batch_size: number;
+  epochs: number;
+  warmup_steps: number;
+  weight_decay: number;
+  gradient_accumulation_steps: number;
+  max_grad_norm: number;
+  seed: number;
+  category?: string;
+  scope?: string;
+  repo_id?: string;
+}
+
+export interface TrainingComparison {
+  baseline: GoldenRunSummary;
+  current: GoldenRunSummary;
+  metrics_diff: {
+    loss_diff: number;
+    loss_diff_percent: number;
+    steps_diff: number;
+  };
+}
+
+export interface DatasetValidation {
+  dataset_id: string;
+  status: 'valid' | 'invalid' | 'warning';
+  issues: ValidationIssue[];
+  stats: {
+    total_samples: number;
+    valid_samples: number;
+    invalid_samples: number;
+  };
+}
+
+export interface ValidationIssue {
+  type: 'error' | 'warning';
+  message: string;
+  sample_index?: number;
+  field?: string;
+}
+
+// Golden run comparison types
+export interface GoldenMetric {
+  key: string;
+  value1: number;
+  value2: number;
+  diff: number;
+}
+
+export interface GoldenCompareResult {
+  baseline_run_id: string;
+  current_run_id: string;
+  passed: boolean;
+  metrics_comparison: {
+    loss_diff: number;
+    loss_diff_percent: number;
+    threshold: number;
+  };
+  details?: Record<string, unknown>;
+  metrics?: GoldenMetric[];
+  summary?: string;
+  recommendations?: string[];
+}
+
+export interface GoldenCompareRequest {
+  golden: string;
+  bundle_id: string;
+  strictness: Strictness;
+  verify_toolchain?: boolean;
+  verify_adapters?: boolean;
+  verify_signature?: boolean;
+  verify_device?: boolean;
+  threshold?: number;
+}
+
+export interface VerificationReport {
+  job_id: string;
+  status: 'passed' | 'failed' | 'warning';
+  passed: boolean;
+  checks: VerificationCheck[];
+  epsilon_comparison: {
+    expected: number;
+    actual: number;
+    within_tolerance: boolean;
+    divergent_layers: LayerDivergence[];
+    tolerance?: number;
+    pass_rate?: number;
+  };
+  messages?: string[];
+  summary: string;
+  generated_at: string;
+  toolchain_compatible?: boolean;
+  signature_verified?: boolean;
+  device_compatible?: boolean;
+  bundle_hash_match?: boolean;
+  adapters_compatible?: boolean;
+}
+
+export interface VerificationCheck {
+  name: string;
+  status: 'passed' | 'failed' | 'skipped';
+  message?: string;
+  details?: Record<string, unknown>;
+}
+
+// Training template types
+export interface TrainingTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  config: TrainingConfig;
+  target_modules: string[];
+  created_at: string;
+  category?: string;
+  default_epochs?: number;
+  default_batch_size?: number;
+  rank?: number;
+  alpha?: number;
+  learning_rate?: number;
+  epochs?: number;
+  batch_size?: number;
+  targets?: string[];
+}
+
+export interface LayerDivergence {
+  layer_id: string;
+  relative_error: number;
+  golden: {
+    l2_error: number;
+    mean_error: number;
+    max_error: number;
+    element_count?: number;
+  };
+  current: {
+    l2_error: number;
+    mean_error: number;
+    max_error: number;
+    element_count?: number;
+  };
+  threshold: number;
+  passed: boolean;
 }
 

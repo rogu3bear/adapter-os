@@ -1,7 +1,4 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-
-import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -28,7 +25,8 @@ import { Repository, Commit, CommitDiff } from '../api/types';
 
 import { logger } from '../utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
+import { toast } from 'sonner';
 
 // Helper function to format repository URLs for display
 // Handles cases where the URL is actually a repo_id fallback
@@ -57,9 +55,6 @@ function formatRepositoryUrl(url: string, isFallback?: boolean): string {
   // Otherwise, it's likely a repo_id fallback, format it nicely
   return `Repository: ${url}`;
 }
-
-import { toast } from 'sonner';
-import { logger } from '../utils/logger';
 
 interface GitIntegrationPageProps {
   selectedTenant: string;
@@ -113,7 +108,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
       setStatusMessage({ message: 'Failed to load repositories.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load repositories'),
           () => loadRepositories()
         )
@@ -147,7 +142,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
       setStatusMessage({ message: 'Failed to load commits.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load commits'),
           () => loadCommits(repoId)
         )
@@ -183,7 +178,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
       setStatusMessage({ message: 'Failed to load commit diff.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load commit diff'),
           () => loadCommitDiff(sha)
         )
@@ -230,7 +225,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
       setStatusMessage({ message: 'Failed to register repository.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to register repository'),
           () => handleAddRepository()
         )
@@ -263,7 +258,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
 
       setStatusMessage({ message: 'Failed to scan repository.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to scan repository'),
           () => handleScanRepository(repoId)
         )

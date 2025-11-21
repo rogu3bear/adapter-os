@@ -14,7 +14,14 @@ import * as apiTypes from './api-types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
-import { retryWithBackoff, RetryConfig, createRetryWrapper } from '../utils/retry';
+import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '../utils/retry';
+
+// Type-safe API error with extended properties
+export interface ApiError extends Error {
+  code?: string;
+  status?: number;
+  details?: Record<string, unknown>;
+}
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 
@@ -121,7 +128,7 @@ class ApiClient {
     if (result.success) {
       return result.value;
     } else {
-      throw (result as any).error;
+      throw result.error;
     }
   }
 
@@ -188,10 +195,10 @@ class ApiClient {
         // If JSON parsing fails, use status text
       }
 
-      const originalError = new Error(errorMessage);
-      (originalError as any).code = errorCode;
-      (originalError as any).status = response.status;
-      (originalError as any).details = errorDetails;
+      const originalError = new Error(errorMessage) as ApiError;
+      originalError.code = errorCode;
+      originalError.status = response.status;
+      originalError.details = errorDetails;
 
       // Extract context from request for better error messages
       const context: any = {
@@ -1056,7 +1063,7 @@ class ApiClient {
   }
 
   // Git Repository API
-  async registerGitRepository(request: types.RegisterGitRepositoryRequest): Promise<types.RegisterGitRepositoryResponse> {
+  async registerGitRepository(request: types.RegisterRepositoryRequest): Promise<types.RegisterGitRepositoryResponse> {
     return this.request<types.RegisterGitRepositoryResponse>(`/v1/git/repositories`, {
       method: 'POST',
       body: JSON.stringify(request),
@@ -1213,6 +1220,12 @@ class ApiClient {
   async verifyReplaySession(sessionId: string): Promise<types.ReplayVerificationResponse> {
     return this.request<types.ReplayVerificationResponse>(`/v1/replay/sessions/${sessionId}/verify`, {
       method: 'POST',
+    });
+  }
+
+  async deleteReplaySession(sessionId: string): Promise<void> {
+    return this.request<void>(`/v1/replay/sessions/${sessionId}`, {
+      method: 'DELETE',
     });
   }
 

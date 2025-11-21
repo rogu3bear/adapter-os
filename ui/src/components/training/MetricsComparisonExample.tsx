@@ -56,7 +56,7 @@ export const MetricsComparisonExample: React.FC = () => {
       total_epochs: cfg.epochs,
       current_loss: 0.12 + Math.random() * 0.1,
       learning_rate: cfg.learning_rate,
-      tokens_per_second: 1200 + Math.random() * 300,
+      tokens_per_sec: 1200 + Math.random() * 300,
       created_at: new Date(Date.now() - Math.random() * 3600000).toISOString(),
       started_at: new Date(Date.now() - Math.random() * 1800000).toISOString(),
       config: {
@@ -71,7 +71,7 @@ export const MetricsComparisonExample: React.FC = () => {
       },
       metrics: {
         loss: 0.12 + Math.random() * 0.1,
-        tokens_per_second: 1200 + Math.random() * 300,
+        tokens_per_sec: 1200 + Math.random() * 300,
         learning_rate: cfg.learning_rate,
         current_epoch: 15,
         total_epochs: cfg.epochs,
@@ -108,7 +108,7 @@ export const MetricsComparisonExample: React.FC = () => {
         // Performance tends to stabilize
         const basePerf = 1000 + (job.config?.rank || 16) * 20;
         const perfVariance = 100;
-        const tokens_per_second = basePerf + (Math.random() - 0.5) * perfVariance;
+        const tokens_per_sec = basePerf + (Math.random() - 0.5) * perfVariance;
 
         // GPU and memory usage
         const gpu_utilization = 80 + Math.random() * 15;
@@ -116,7 +116,7 @@ export const MetricsComparisonExample: React.FC = () => {
 
         jobHistory.push({
           loss,
-          tokens_per_second,
+          tokens_per_sec,
           learning_rate: job.config?.learning_rate || 0.0003,
           current_epoch: epoch,
           total_epochs: epochs,
@@ -198,7 +198,7 @@ export const MetricsComparisonExample: React.FC = () => {
           <CardContent>
             <div className="text-2xl font-bold">
               {Math.round(
-                jobs.reduce((sum, j) => sum + (j.tokens_per_second || 0), 0) / jobs.length
+                jobs.reduce((sum, j) => sum + (j.tokens_per_sec || 0), 0) / jobs.length
               ).toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground mt-1">

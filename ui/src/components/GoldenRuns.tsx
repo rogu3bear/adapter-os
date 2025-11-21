@@ -8,9 +8,12 @@ import { Alert, AlertDescription } from './ui/alert';
 import apiClient from '../api/client';
 import { GoldenRunSummary, GoldenCompareResult } from '../api/types';
 import { logger, toError } from '../utils/logger';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
 
 export function GoldenRuns() {
+  const { can } = useRBAC();
   const [names, setNames] = useState<string[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [summary, setSummary] = useState<GoldenRunSummary | null>(null);
@@ -20,6 +23,10 @@ export function GoldenRuns() {
   const [compareResult, setCompareResult] = useState<GoldenCompareResult | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const canViewGolden = can('golden:view');
+  const canCreateGolden = can('golden:create');
+  const canCompareGolden = can('golden:compare');
 
   const loadRuns = useCallback(async () => {
     try {
@@ -31,7 +38,7 @@ export function GoldenRuns() {
       setError(msg);
       setStatusMessage({ message: msg, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(msg),
           () => {
             setLoading(true);
@@ -62,7 +69,7 @@ export function GoldenRuns() {
         setError(msg);
         setStatusMessage({ message: msg, variant: 'warning' });
         setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
+          errorRecoveryTemplates.genericError(
             err instanceof Error ? err : new Error(msg),
             () => {
               setLoading(true);
@@ -107,7 +114,7 @@ export function GoldenRuns() {
       }, toError(error));
       setStatusMessage({ message: error instanceof Error ? error.message : 'Failed to compare golden runs', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error(error instanceof Error ? error.message : 'Failed to compare golden runs'),
           () => handleCompare()
         )
@@ -125,7 +132,10 @@ export function GoldenRuns() {
     <div className="space-y-6">
       <div className="flex-between flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Golden Baselines</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            Golden Baselines
+            <HelpTooltip helpId="golden-run" />
+          </h1>
           <p className="text-sm text-muted-foreground">Browse baselines and epsilon summaries</p>
         </div>
       </div>
@@ -179,6 +189,10 @@ export function GoldenRuns() {
               <div className="text-sm text-muted-foreground">No baselines available.</div>
             ) : (
               <div className="space-y-2">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-xs font-medium">Select Baseline</span>
+                  <HelpTooltip helpId="golden-baseline" />
+                </div>
                 <select
                   className="w-full p-2 border rounded"
                   value={selected}
@@ -190,13 +204,17 @@ export function GoldenRuns() {
                   ))}
                 </select>
                 <div className="border rounded p-2 space-y-1">
-                  <div className="text-xs font-semibold text-muted-foreground uppercase">Compare Runs</div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1">
+                    Compare Runs
+                    <HelpTooltip helpId="golden-comparison" />
+                  </div>
                   {names.map((runName) => (
                     <label key={runName} className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
                         checked={selectedRuns.includes(runName)}
                         onChange={() => toggleRunSelection(runName)}
+                        disabled={!canCompareGolden}
                       />
                       <span>{runName}</span>
                     </label>
@@ -282,9 +300,17 @@ export function GoldenRuns() {
           </CardContent>
         </Card>
       </div>
-      <Button onClick={handleCompare} disabled={selectedRuns.length !== 2}>
+      <Button onClick={handleCompare} disabled={selectedRuns.length !== 2 || !canCompareGolden}>
         Compare Selected
+        <HelpTooltip helpId="golden-comparison" />
       </Button>
+      {!canCompareGolden && (
+        <Alert className="mt-2">
+          <AlertDescription className="text-muted-foreground">
+            You need the golden:compare permission to compare golden runs.
+          </AlertDescription>
+        </Alert>
+      )}
       {compareResult && (
         <Table>
           <TableHead>

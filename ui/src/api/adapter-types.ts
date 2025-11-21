@@ -3,6 +3,17 @@
 //
 // 【2025-01-20†refactor†adapter_types】
 
+import React from 'react';
+
+export interface StageContent {
+  id: string;
+  title: string;
+  description?: string;
+  component?: string;
+  mockComponent?: React.ComponentType;
+  data?: Record<string, unknown>;
+}
+
 export interface Adapter {
   id: string;
   adapter_id: string;
@@ -44,13 +55,28 @@ export interface Adapter {
   created_at: string;
   updated_at: string;
   active: boolean;
+  state?: AdapterState;
+  last_inference?: string;
+  error_count?: number;
+
+  // UI compatibility fields
+  status?: 'active' | 'inactive' | 'loading' | 'error';  // Alias for current_state in UI
+  description?: string;  // Adapter description
 }
 
 export type AdapterCategory = 'code' | 'framework' | 'codebase' | 'ephemeral';
 export type AdapterScope = 'global' | 'tenant' | 'repo' | 'commit';
-export type AdapterState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+export type AdapterState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident' | 'loading';
 export type LifecycleState = 'draft' | 'active' | 'deprecated' | 'retired';
 export type EvictionPriority = 'never' | 'low' | 'normal' | 'high' | 'critical';
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  size_mb?: number;
+  quantization?: string;
+  loaded: boolean;
+}
 
 export interface RegisterAdapterRequest {
   adapter_id: string;
@@ -140,6 +166,352 @@ export interface AdapterStackResponse {
 export interface ListAdapterStacksResponse {
   stacks: AdapterStack[];
   total: number;
+}
+
+// Adapter detail types
+export interface AdapterDetailResponse {
+  adapter: Adapter;
+  manifest: AdapterManifest;
+  metrics: AdapterMetrics;
+  lineage?: AdapterLineage;
+  current_state?: AdapterState;
+  tenant_namespace?: string;
+  revision?: string;
+  last_activated?: string;
+  framework?: string;
+  // Additional flat fields from adapter
+  adapter_name?: string;
+  name?: string;
+  domain?: string;
+  purpose?: string;
+  memory_bytes?: number;
+  activation_count?: number;
+  hash_b3?: string;
+  rank?: number;
+  alpha?: number;
+  category?: string;
+  scope?: string;
+  tier?: number;
+}
+
+export interface AdapterManifest {
+  version: string;
+  name: string;
+  description?: string;
+  base_model: string;
+  rank: number;
+  alpha: number;
+  target_modules: string[];
+  created_at: string;
+  hash: string;
+  quantization?: string;
+  dtype?: string;
+}
+
+export interface AdapterMetrics {
+  adapter_id?: string;
+  inference_count: number;
+  total_tokens: number;
+  avg_latency_ms: number;
+  error_count: number;
+  last_used?: string;
+  performance?: Record<string, number>;
+}
+
+export interface AdapterLineage {
+  parent_id?: string;
+  children: string[];
+  training_job_id?: string;
+  dataset_id?: string;
+}
+
+export interface LineageNode {
+  adapter_id: string;
+  adapter_name?: string;
+  revision?: string;
+  current_state?: string;
+  fork_type?: string;
+}
+
+export interface AdapterLineageResponse {
+  adapter_id: string;
+  lineage: AdapterLineage;
+  history: AdapterHistoryEntry[];
+  descendants?: LineageNode[];
+  ancestors?: LineageNode[];
+  self_node?: LineageNode;
+  total_nodes?: number;
+}
+
+export interface AdapterHistoryEntry {
+  timestamp: string;
+  action: string;
+  actor: string;
+  details?: Record<string, unknown>;
+}
+
+// Policy types for adapters
+export interface CategoryPolicy {
+  category?: string;
+  allowed_adapters?: string[];
+  default_adapter?: string;
+  rules?: PolicyRule[];
+  promotion_threshold_ms: number;
+  demotion_threshold_ms: number;
+  memory_limit: number;
+  eviction_priority: EvictionPriority;
+  auto_promote: boolean;
+  auto_demote: boolean;
+  max_in_memory: number;
+  routing_priority: number;
+}
+
+export interface PolicyRule {
+  condition: string;
+  action: 'allow' | 'deny' | 'require_approval';
+  priority: number;
+}
+
+export interface Policy {
+  id: string;
+  name: string;
+  type: string;
+  content: string;
+  status: 'draft' | 'active' | 'archived';
+  created_at: string;
+  updated_at: string;
+  signature?: string;
+  cpid?: string;
+  schema_hash?: string;
+  policy_json?: string;
+  enabled?: boolean;
+  priority?: number;
+}
+
+export interface ValidatePolicyRequest {
+  policy_json: string;
+  policy_type?: string;
+}
+
+export interface ApplyPolicyRequest {
+  policy_id: string;
+  target_type: 'adapter' | 'tenant' | 'global';
+  target_id?: string;
+}
+
+// Adapter stats and state types
+export interface AdapterStats {
+  adapter_id: string;
+  total_inferences: number;
+  total_tokens: number;
+  avg_latency_ms: number;
+  error_rate: number;
+  last_24h_inferences: number;
+}
+
+export interface AdapterActivation {
+  adapter_id: string;
+  activation_percent: number;
+  trend: 'increasing' | 'stable' | 'decreasing';
+  history: Array<{ timestamp: string; value: number }>;
+}
+
+export interface AdapterStateResponse {
+  adapter_id: string;
+  current_state: AdapterState;
+  previous_state?: AdapterState;
+  transition_time?: string;
+  reason?: string;
+  old_state?: AdapterState;
+  new_state?: AdapterState;
+}
+
+export interface AdapterHealthResponse {
+  adapter_id: string;
+  health: 'healthy' | 'degraded' | 'unhealthy';
+  checks: Array<{
+    name: string;
+    status: 'passed' | 'failed';
+    message?: string;
+  }>;
+  last_check: string;
+}
+
+export interface UpdateAdapterPolicyRequest {
+  adapter_id: string;
+  policy_ids: string[];
+}
+
+export interface UpdateAdapterPolicyResponse {
+  adapter_id: string;
+  applied_policies: string[];
+  updated_at: string;
+}
+
+// Lifecycle types
+export interface LifecycleTransitionResponse {
+  adapter_id: string;
+  from_state: AdapterState;
+  to_state: AdapterState;
+  success: boolean;
+  timestamp: string;
+  reason?: string;
+}
+
+// Domain adapter types
+export interface DomainAdapter {
+  id: string;
+  domain: string;
+  name: string;
+  description?: string;
+  adapter_ids: string[];
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+
+  // Extended properties for DomainAdapterManager
+  version?: string;
+  domain_type?: string;
+  status?: 'active' | 'inactive' | 'loading' | 'error';
+  epsilon_stats?: {
+    mean_error: number;
+    max_error?: number;
+    min_error?: number;
+    std_dev?: number;
+  };
+  execution_count?: number;
+  last_execution?: string;
+}
+
+export interface CreateDomainAdapterRequest {
+  domain: string;
+  name: string;
+  description?: string;
+  adapter_ids: string[];
+  config?: Record<string, unknown>;
+}
+
+export interface TestDomainAdapterResponse {
+  domain_adapter_id: string;
+  test_results: Array<{
+    test_name: string;
+    passed: boolean;
+    latency_ms: number;
+    output?: string;
+    error?: string;
+  }>;
+  overall_passed: boolean;
+  expected_output?: string;
+  passed?: boolean;
+  actual_output?: string;
+  test_id?: string;
+  execution_time_ms?: number;
+}
+
+export interface DomainAdapterManifest {
+  domain: string;
+  version: string;
+  adapters: Array<{
+    id: string;
+    weight: number;
+    role: string;
+  }>;
+  routing_strategy: string;
+}
+
+export interface DomainAdapterExecutionResponse {
+  domain_adapter_id: string;
+  execution_id: string;
+  result: unknown;
+  adapters_invoked: string[];
+  total_latency_ms: number;
+  tokens_used: number;
+}
+
+// Monitoring types
+export interface MonitoringRule {
+  id: string;
+  name: string;
+  condition: string;
+  threshold: number;
+  action: 'alert' | 'scale' | 'restart';
+  enabled: boolean;
+  created_at: string;
+  threshold_operator?: string;
+  threshold_value?: number;
+  metric_name?: string;
+  is_active?: boolean;
+  evaluation_window_seconds?: number;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+}
+
+export interface CreateMonitoringRuleRequest {
+  name: string;
+  condition: string;
+  threshold: number;
+  action: 'alert' | 'scale' | 'restart';
+}
+
+export interface AdapterOSStatus {
+  adapter_id: string;
+  os_status: 'active' | 'inactive' | 'error';
+  last_health_check?: string;
+  metrics?: AdapterMetrics;
+  services?: Array<{
+    id: string;
+    name: string;
+    status: string;
+    state?: string;
+    restart_count?: number;
+    last_error?: string;
+  }>;
+}
+
+export interface AdapterStateRecord {
+  adapter_id: string;
+  state: AdapterState;
+  timestamp: string;
+  reason?: string;
+  category?: string;
+  memory_bytes?: number;
+  pinned?: boolean;
+}
+
+export interface AdapterScore {
+  adapter_id: string;
+  score: number;
+  rank?: number;
+}
+
+export interface AdapterActivationEvent {
+  adapter_id: string;
+  event_type: 'activated' | 'deactivated' | 'promoted' | 'demoted';
+  timestamp: string;
+  reason?: string;
+}
+
+export interface BatchInferItemResponse {
+  id: string;
+  text: string;
+  response?: string;
+  tokens: number;
+  latency_ms: number;
+  error?: string;
+}
+
+export interface AdapterTransitionEvent {
+  adapter_id: string;
+  from_state: string;
+  to_state: string;
+  timestamp: string;
+  reason?: string;
+}
+
+export interface AdapterEvictionEvent {
+  adapter_id: string;
+  evicted_at: string;
+  reason: string;
+  memory_freed_bytes?: number;
 }
 
 // Re-export commonly used types for convenience

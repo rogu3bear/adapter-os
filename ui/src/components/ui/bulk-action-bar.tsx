@@ -15,6 +15,7 @@ export interface BulkAction {
   label: string;
   variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
   handler: (selectedItems: string[]) => void | Promise<void>;
+  disabled?: boolean;
 }
 
 interface BulkActionBarProps {
@@ -62,6 +63,7 @@ export function BulkActionBar({
             size="sm"
             onClick={() => action.handler(selectedItems)}
             className="text-xs"
+            disabled={action.disabled}
           >
             {action.label}
           </Button>

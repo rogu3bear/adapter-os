@@ -9,7 +9,7 @@ import apiClient from '../../api/client';
 import { logger, toError } from '../../utils/logger';
 import { usePolling } from '../../hooks/usePolling';
 import { LastUpdated } from '../ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from '../ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from '../ui/error-recovery';
 
 interface ReportingSummaryWidgetProps {
   selectedTenant?: string;
@@ -79,11 +79,8 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
         </CardHeader>
         <CardContent>
           <ErrorRecovery
-            title="Reporting Widget Error"
-            message={error.message}
-            recoveryActions={[
-              { label: 'Retry', action: () => refreshMetrics() }
-            ]}
+            error={error.message}
+            onRetry={() => refreshMetrics()}
           />
         </CardContent>
       </Card>

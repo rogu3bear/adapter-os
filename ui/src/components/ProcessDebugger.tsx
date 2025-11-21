@@ -13,7 +13,7 @@ import { Progress } from './ui/progress';
 import { Alert, AlertDescription } from './ui/alert';
 import { ScrollArea } from './ui/scroll-area';
 
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 
 import { 
   Bug, 
@@ -153,7 +153,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       }, toError(error));
       setStatusMessage({ message: 'Failed to load process logs.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load process logs.'),
           () => fetchLogs()
         )
@@ -184,7 +184,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       }, toError(error));
       setStatusMessage({ message: 'Failed to load crash dumps.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load crash dumps.'),
           () => fetchCrashes()
         )
@@ -203,7 +203,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       // Convert DebugSession to ProcessDebugSession
       const session: ProcessDebugSession = {
         ...data,
-        session_type: data.config.session_type,
+        session_type: data.config.session_type as string,
         config_json: JSON.stringify(data.config),
         started_at: data.created_at,
       };
@@ -218,7 +218,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       }, toError(error));
       setStatusMessage({ message: 'Failed to start debug session.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to start debug session.'),
           () => fetchDebugSessions()
         )
@@ -255,7 +255,7 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
       }, toError(error));
       setStatusMessage({ message: 'Failed to run troubleshooting step.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to run troubleshooting step.'),
           () => fetchTroubleshootingSteps()
         )

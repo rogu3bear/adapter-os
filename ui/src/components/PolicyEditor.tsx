@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { FileJson, FileText, AlertTriangle, CheckCircle, Save, X } from 'lucide-react';
 
 // 【ui/src/components/PolicyEditor.tsx§1-45】 - Replace toast notifications with ErrorRecovery patterns
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import apiClient from '../api/client';
 import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '../constants/policySchema';
 import { PolicyPackConfig } from '../api/types';
@@ -316,13 +316,9 @@ export function PolicyEditor({
 
 
         <div className="space-y-3">
-          {editorError && (
-            <ErrorRecovery
-              {...ErrorRecoveryTemplates.genericError(
-                editorError.message,
-                () => setEditorError(null)
-              )}
-            />
+          {editorError && errorRecoveryTemplates.genericError(
+            editorError.message,
+            () => setEditorError(null)
           )}
 
           {statusMessage && (

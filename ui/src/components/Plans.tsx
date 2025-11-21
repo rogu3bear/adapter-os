@@ -31,10 +31,10 @@ import {
 import apiClient from '../api/client';
 import { Plan, User, PlanComparisonResponse } from '../api/types';
 import { logger, toError } from '../utils/logger';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 
 interface PlansProps {
-  user: User;
+  user?: User;
   selectedTenant: string;
 }
 
@@ -90,7 +90,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
               }, error);
               showStatus('Failed to delete selected plans.', 'warning');
               setErrorRecovery(
-                ErrorRecoveryTemplates.genericError(
+                errorRecoveryTemplates.genericError(
                   error,
                   () => performDeletion()
                 )
@@ -123,7 +123,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       }, toError(err));
       setStatusMessage({ message: 'Failed to load plans.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to load plans'),
           () => fetchPlans()
         )
@@ -151,7 +151,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       }, toError(err));
       setStatusMessage({ message: 'Failed to rebuild plan.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to rebuild plan'),
           () => handleRebuild(planId)
         )
@@ -177,7 +177,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       }, toError(err));
       setStatusMessage({ message: 'Failed to export manifest.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to export manifest'),
           () => handleExportManifest(planId)
         )
@@ -207,7 +207,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       }, toError(err));
       setStatusMessage({ message: 'Failed to compare plans.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to compare plans'),
           () => handleComparePlans()
         )
@@ -242,7 +242,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       }, toError(err));
       setStatusMessage({ message: 'Failed to start plan build.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to start plan build'),
           () => handleBuildPlan()
         )
@@ -264,7 +264,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
       }, toError(err));
       setStatusMessage({ message: 'Failed to rollback.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to rollback'),
           () => handleRollback()
         )
@@ -492,7 +492,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                 <div className="mt-2">
                   Differences:
                   <ul className="list-disc ml-5">
-                    {compareResult.differences.map((d, i) => <li key={i}>{d}</li>)}
+                    {compareResult.differences.map((d, i) => <li key={i}>{d.path}: {d.type}</li>)}
                   </ul>
                 </div>
               </div>
@@ -549,35 +549,35 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                 <AlertDescription>
                   <div className="space-y-2">
                     <p><strong>Comparison Results:</strong></p>
-                    <p>Plan 1: {compareResult.plan_1}</p>
-                    <p>Plan 2: {compareResult.plan_2}</p>
+                    <p>Plan 1: {compareResult.plan_1?.id || 'Unknown'}</p>
+                    <p>Plan 2: {compareResult.plan_2?.id || 'Unknown'}</p>
                     <p>Metallib Hash Changed: {compareResult.metallib_hash_changed ? 'Yes' : 'No'}</p>
                     {compareResult.differences.length > 0 && (
                       <div>
                         <p><strong>Differences:</strong></p>
                         <ul className="list-disc list-inside">
                           {compareResult.differences.map((diff, idx) => (
-                            <li key={idx}>{diff}</li>
+                            <li key={idx}>{diff.path}: {diff.type}</li>
                           ))}
                         </ul>
                       </div>
                     )}
-                    {compareResult.adapter_changes.added.length > 0 && (
+                    {compareResult.adapter_changes.filter(c => c.added).length > 0 && (
                       <div>
                         <p><strong>Adapters Added:</strong></p>
                         <ul className="list-disc list-inside">
-                          {compareResult.adapter_changes.added.map((adapter, idx) => (
-                            <li key={idx}>{adapter}</li>
+                          {compareResult.adapter_changes.filter(c => c.added).map((change, idx) => (
+                            <li key={idx}>{change.adapter_id}</li>
                           ))}
                         </ul>
                       </div>
                     )}
-                    {compareResult.adapter_changes.removed.length > 0 && (
+                    {compareResult.adapter_changes.filter(c => c.removed).length > 0 && (
                       <div>
                         <p><strong>Adapters Removed:</strong></p>
                         <ul className="list-disc list-inside">
-                          {compareResult.adapter_changes.removed.map((adapter, idx) => (
-                            <li key={idx}>{adapter}</li>
+                          {compareResult.adapter_changes.filter(c => c.removed).map((change, idx) => (
+                            <li key={idx}>{change.adapter_id}</li>
                           ))}
                         </ul>
                       </div>

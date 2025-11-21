@@ -34,14 +34,12 @@ import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';
 
 import { logger, toError } from '../utils/logger';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 import { ACTIVITY_EVENT_TYPES } from '../api/activityEventTypes';
-
 import { toast } from 'sonner';
-import { logger } from '../utils/logger';
 
 interface CodeIntelligenceProps {
-  user: User;
+  user?: User;
   selectedTenant: string;
 }
 
@@ -89,7 +87,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       }, toError(err));
       setStatusMessage({ message: errorMsg, variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error(errorMsg),
           () => fetchData()
         )
@@ -129,7 +127,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     } catch (err) {
       setStatusMessage({ message: 'Failed to trigger scan.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to trigger scan'),
           () => handleTriggerScan(repoId)
         )
@@ -171,7 +169,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     } catch (err) {
       setStatusMessage({ message: 'Failed to fetch repository report.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to fetch repository report'),
           () => handleViewReport(repo)
         )
@@ -196,7 +194,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     } catch (err) {
       setStatusMessage({ message: 'Failed to unregister repository.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to unregister repository'),
           () => handleUnregister()
         )

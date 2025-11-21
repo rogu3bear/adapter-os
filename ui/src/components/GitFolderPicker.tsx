@@ -156,7 +156,7 @@ export function GitFolderPicker({ onFolderSelect, onCancel }: GitFolderPickerPro
       const repoInfo: GitRepositoryInfo = {
         path: trimmedPath,
         name: repoName,
-        branch: gitInfo.branch,
+        branch: gitInfo.branch as string,
         commitCount: gitInfo.commit_count,
         languages: analysis.languages.map((lang: types.LanguageInfo) => lang.name),
         frameworks: analysis.frameworks.map((fw: types.FrameworkInfo) => fw.name),
@@ -164,7 +164,7 @@ export function GitFolderPicker({ onFolderSelect, onCancel }: GitFolderPickerPro
         // The backend GitInfo struct (git_repository.rs:92-97) only provides
         // the commit message. If timestamp is needed, backend would need to be
         // updated to include last_commit_timestamp field.
-        lastCommit: gitInfo.last_commit,
+        lastCommit: gitInfo.last_commit as string,
         isValid: response.status === 'success' || response.status === 'registered',
       };
       

@@ -46,6 +46,7 @@ import {
   ActionStatus,
   HistoryFilterOptions,
 } from '../types/history';
+import { KpiGrid } from './ui/grid';
 
 interface HistoryViewerProps {
   onReplayAction?: (action: ActionHistoryItem) => Promise<boolean>;
@@ -295,7 +296,7 @@ export function HistoryViewer({
       {/* Filters Panel */}
       {showFilters && (
         <Card className="p-4 space-y-4">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <KpiGrid>
             {/* Action Type Filter */}
             <div>
               <label className="text-sm font-medium">Action Type</label>
@@ -391,7 +392,7 @@ export function HistoryViewer({
                 Clear Filters
               </Button>
             </div>
-          </div>
+          </KpiGrid>
         </Card>
       )}
 
@@ -507,7 +508,7 @@ export function HistoryViewer({
         {/* Stats View */}
         {showStats && (
           <TabsContent value="stats" id="stats" className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <KpiGrid>
               <Card className="p-4 space-y-1">
                 <p className="text-sm text-muted-foreground">Total Actions</p>
                 <p className="text-2xl font-bold">{stats.totalActions}</p>
@@ -524,7 +525,7 @@ export function HistoryViewer({
                 <p className="text-sm text-muted-foreground">Most Common</p>
                 <p className="text-2xl font-bold capitalize">{stats.mostCommonAction || 'N/A'}</p>
               </Card>
-            </div>
+            </KpiGrid>
 
             <Card className="p-4">
               <h3 className="font-semibold mb-4">Action Distribution</h3>

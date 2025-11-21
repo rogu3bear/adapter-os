@@ -308,6 +308,44 @@ export class ServiceLifecycleManager {
     });
   }
 
+  // Wait for service to become healthy
+  async waitForHealthy(serviceId: string, timeout: number = 30000): Promise<void> {
+    const service = this.services.get(serviceId);
+    if (!service) throw new Error(`Service ${serviceId} not found`);
+
+    if (service.health === 'healthy') return;
+
+    const startTime = Date.now();
+    return new Promise((resolve, reject) => {
+      const checkHealth = () => {
+        const currentService = this.services.get(serviceId);
+        if (!currentService) {
+          reject(new Error(`Service ${serviceId} not found`));
+          return;
+        }
+
+        if (currentService.health === 'healthy') {
+          resolve();
+          return;
+        }
+
+        if (currentService.health === 'critical' || currentService.status === 'failed') {
+          reject(new Error(`Service ${serviceId} is ${currentService.health || currentService.status}`));
+          return;
+        }
+
+        if (Date.now() - startTime > timeout) {
+          reject(new Error(`Timeout waiting for service ${serviceId} to become healthy`));
+          return;
+        }
+
+        setTimeout(checkHealth, 500);
+      };
+
+      checkHealth();
+    });
+  }
+
   // Dependency Management
   private async startDependencies(serviceId: string): Promise<void> {
     const service = this.services.get(serviceId);
@@ -632,7 +670,10 @@ export class ServiceLifecycleManager {
   private async checkHttpHealth(service: Service, healthCheck: any): Promise<HealthStatus> {
     try {
       const url = healthCheck.endpoint || `http://localhost:${service.port}/health`;
-      const response = await fetch(url, { timeout: healthCheck.timeout });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), healthCheck.timeout || 5000);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
       return response.ok ? 'healthy' : 'unhealthy';
     } catch {
       return 'critical';

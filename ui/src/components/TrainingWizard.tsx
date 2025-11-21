@@ -22,7 +22,7 @@ import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
 import { DensityProvider, useDensity } from '../contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { TrainingConfigSchema, formatValidationError } from '../schemas';
@@ -1452,28 +1452,17 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
       {/* Error Recovery */}
       {wizardError && (
         <ErrorRecovery
-          title="Training Wizard Error"
-          message="An error occurred while setting up the training wizard."
-          error={wizardError}
-          recoveryActions={[
-            {
-              label: 'Reset Wizard',
-              action: () => {
-                setWizardError(null);
-                setCurrentStep(0);
-              },
-              primary: true
-            }
-          ]}
+          error={wizardError.message}
+          onRetry={() => {
+            setWizardError(null);
+            setCurrentStep(0);
+          }}
         />
       )}
       {validationError && (
         <ErrorRecovery
-          title="Validation Error"
-          message={validationError}
-          recoveryActions={[
-            { label: 'Fix Issue', action: () => setValidationError(null) }
-          ]}
+          error={validationError}
+          onRetry={() => setValidationError(null)}
         />
       )}
 

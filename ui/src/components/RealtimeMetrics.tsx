@@ -106,7 +106,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
           cpu: polledMetrics.cpu_usage_percent || 0,
           memory: polledMetrics.memory_usage_pct || 0,
           gpu: polledMetrics.gpu_utilization_percent || 0,
-          tokensPerSec: polledMetrics.tokens_per_second || 0,
+          tokensPerSec: polledMetrics.tokens_per_sec || 0,
           latency: polledMetrics.latency_p95_ms || 0,
         }];
 
@@ -129,7 +129,7 @@ export function RealtimeMetrics({ user, selectedTenant }: RealtimeMetricsProps) 
       setWorkload({
         activeWorkers: polledMetrics?.active_sessions || 0,
         queuedRequests: Math.floor(Math.random() * 20),
-        throughput: polledMetrics?.tokens_per_second || 0,
+        throughput: polledMetrics?.tokens_per_sec || 0,
         avgLatency: polledMetrics?.latency_p95_ms || 0,
       });
 

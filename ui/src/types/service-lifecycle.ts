@@ -22,7 +22,8 @@ export type LifecyclePhase =
   | 'running'          // Normal operation
   | 'shutdown'         // Graceful shutdown
   | 'cleanup'          // Resource cleanup
-  | 'error';           // Error state
+  | 'error'            // Error state
+  | 'unknown';         // Unknown phase
 
 export type HealthStatus =
   | 'unknown'          // Health status not yet determined

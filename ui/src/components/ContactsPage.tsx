@@ -15,7 +15,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 import { Contact } from '@/api/types';
 
 interface ContactsPageProps {
@@ -44,7 +44,7 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
       }, toError(error));
       setContacts([]);
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load contacts'),
           () => {
             setErrorRecovery(null);
@@ -90,21 +90,6 @@ export function ContactsPage({ selectedTenant }: ContactsPageProps) {
       eventSource.close();
     };
   }, [selectedTenant]);
-
-
-
-  const fetchContacts = async () => {
-    setLoading(true);
-    try {
-      // Citation: ui/src/api/client.ts L57-L105
-      const data = await apiClient.listContacts(selectedTenant);
-      setContacts(data);
-    } catch (error) {
-      console.error('Failed to fetch contacts:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const filteredContacts = contacts.filter(
     (c) =>

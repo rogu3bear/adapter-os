@@ -20,10 +20,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
 import FeatureLayout from '@/layout/FeatureLayout';
+import { DensityProvider } from '@/contexts/DensityContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useRBAC } from '@/hooks/useRBAC';
 import { WorkspaceCard } from '@/components/WorkspaceCard';
 import { WorkspaceMembers } from '@/components/WorkspaceMembers';
 import { WorkspaceResources } from '@/components/WorkspaceResources';
+import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
 import {
   Plus,
   Building,
@@ -38,6 +42,7 @@ import { logger } from '@/utils/logger';
 export default function WorkspacesPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
+  const { can, userRole } = useRBAC();
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
@@ -92,10 +97,11 @@ export default function WorkspacesPage() {
   };
 
   return (
-    <FeatureLayout
-      title="Workspaces"
-      description="Manage collaborative workspaces and shared resources"
-      headerActions={
+    <DensityProvider pageKey="workspaces">
+      <FeatureLayout
+        title="Workspaces"
+        description="Manage collaborative workspaces and shared resources"
+        headerActions={
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -233,7 +239,8 @@ export default function WorkspacesPage() {
           onCreate={handleCreateWorkspace}
         />
       </div>
-    </FeatureLayout>
+      </FeatureLayout>
+    </DensityProvider>
   );
 }
 

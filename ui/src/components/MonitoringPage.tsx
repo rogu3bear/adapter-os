@@ -8,40 +8,121 @@ import { DensityControls } from './ui/density-controls';
 import { useDensity } from '../contexts/DensityContext';
 import { useAuth } from '../providers/CoreProviders';
 import { useTenant } from '../layout/LayoutProvider';
+import { useRBAC } from '@/hooks/useRBAC';
+import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+
+interface ComponentError {
+  component: string;
+  message: string;
+}
 
 export function MonitoringPage() {
   const { density, setDensity } = useDensity();
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
-  
+  const { can, userRole } = useRBAC();
+  const [error, setError] = React.useState<string | null>(null);
+  const [componentErrors, setComponentErrors] = React.useState<Record<string, string>>({});
+
+  // Permission checks
+  const canViewMetrics = can('metrics:view');
+  const canManageAlerts = can('worker:manage');
+
+  const handleRetry = () => {
+    setError(null);
+    setComponentErrors({});
+    // Trigger re-fetch in child components by forcing remount
+  };
+
+  const handleComponentError = (component: string, message: string) => {
+    setComponentErrors(prev => ({ ...prev, [component]: message }));
+  };
+
+  const clearComponentError = (component: string) => {
+    setComponentErrors(prev => {
+      const updated = { ...prev };
+      delete updated[component];
+      return updated;
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">System Monitoring</h1>
+        <div>
+          <h1 className="text-3xl font-bold">System Monitoring</h1>
+          <p className="text-muted-foreground">
+            Performance metrics, resource usage, and system alerts
+          </p>
+        </div>
         <DensityControls density={density} onDensityChange={setDensity} />
       </div>
+
+      {/* Global error state */}
+      {error && errorRecoveryTemplates.genericError(error, handleRetry)}
+
+      {/* Component-specific errors */}
+      {Object.entries(componentErrors).map(([component, message]) => (
+        <React.Fragment key={component}>
+          {errorRecoveryTemplates.pollingError(
+            `${component}: ${message}`,
+            () => clearComponentError(component)
+          )}
+        </React.Fragment>
+      ))}
+
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="resources">Resources</TabsTrigger>
-          <TabsTrigger value="alerts">Alerts</TabsTrigger>
-          <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          <HelpTooltip helpId="monitoring-overview">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+          </HelpTooltip>
+          <HelpTooltip helpId="monitoring-resources">
+            <TabsTrigger value="resources">Resources</TabsTrigger>
+          </HelpTooltip>
+          <HelpTooltip helpId="monitoring-alerts">
+            <TabsTrigger value="alerts">Alerts</TabsTrigger>
+          </HelpTooltip>
+          <HelpTooltip helpId="monitoring-metrics">
+            <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          </HelpTooltip>
         </TabsList>
-        
+
         <TabsContent value="overview">
-          <MonitoringDashboard />
+          <React.Suspense fallback={<div className="p-4">Loading dashboard...</div>}>
+            <MonitoringDashboard />
+          </React.Suspense>
         </TabsContent>
-        
+
         <TabsContent value="resources">
-          <ResourceMonitor />
+          <React.Suspense fallback={<div className="p-4">Loading resources...</div>}>
+            <ResourceMonitor />
+          </React.Suspense>
         </TabsContent>
-        
+
         <TabsContent value="alerts">
-          <AlertsPage />
+          <React.Suspense fallback={<div className="p-4">Loading alerts...</div>}>
+            <AlertsPage />
+          </React.Suspense>
         </TabsContent>
-        
+
         <TabsContent value="metrics">
-          {user && <RealtimeMetrics user={user} selectedTenant={selectedTenant || 'default'} />}
+          {user && canViewMetrics && (
+            <React.Suspense fallback={<div className="p-4">Loading metrics...</div>}>
+              <RealtimeMetrics user={user} selectedTenant={selectedTenant || 'default'} />
+            </React.Suspense>
+          )}
+          {user && !canViewMetrics && (
+            <div className="p-4 text-center text-muted-foreground">
+              <HelpTooltip helpId="requires-admin">
+                <span>You do not have permission to view real-time metrics.</span>
+              </HelpTooltip>
+            </div>
+          )}
+          {!user && errorRecoveryTemplates.genericError(
+            'Authentication required to view metrics',
+            handleRetry
+          )}
         </TabsContent>
       </Tabs>
     </div>

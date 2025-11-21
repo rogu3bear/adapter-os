@@ -22,7 +22,7 @@ import {
 import apiClient from '../api/client';
 import { RouterConfig, FeatureVector, AdapterScore } from '../api/types';
 
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { logger } from '../utils/logger';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
@@ -252,18 +252,14 @@ export function RouterConfigPage({ selectedTenant }: RouterConfigPageProps) {
   return (
     <div className="space-y-6">
 
-      {pageError && (
-        <ErrorRecovery
-          {...ErrorRecoveryTemplates.genericError(
-            pageError.message,
-            () => {
-              if (validationMessage) {
-                setValidationMessage(null);
-              }
-              loadRouterConfig();
-            }
-          )}
-        />
+      {pageError && errorRecoveryTemplates.genericError(
+        pageError.message,
+        () => {
+          if (validationMessage) {
+            setValidationMessage(null);
+          }
+          loadRouterConfig();
+        }
       )}
 
       {statusMessage && (

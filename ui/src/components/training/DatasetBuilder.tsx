@@ -75,7 +75,7 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
-  const { density } = useInformationDensity();
+  const { density } = useInformationDensity({ key: 'dataset-builder' });
 
   // Dataset configuration state
   const [config, setConfig] = useState<DatasetConfig>({
@@ -512,12 +512,8 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
 
                   {uploadError && (
                     <ErrorRecovery
-                      title="Upload Error"
-                      message={uploadError.message}
-                      recoveryActions={[
-                        { label: 'Retry', action: () => { setUploadError(null); uploadFiles(); } },
-                        { label: 'Dismiss', action: () => setUploadError(null) }
-                      ]}
+                      error={uploadError.message}
+                      onRetry={() => { setUploadError(null); uploadFiles(); }}
                     />
                   )}
 
@@ -699,12 +695,8 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
 
               {uploadError && (
                 <ErrorRecovery
-                  title="Validation Error"
-                  message={uploadError.message}
-                  recoveryActions={[
-                    { label: 'Fix Configuration', action: () => { setUploadError(null); setActiveTab('configure'); } },
-                    { label: 'Dismiss', action: () => setUploadError(null) }
-                  ]}
+                  error={uploadError.message}
+                  onRetry={() => { setUploadError(null); setActiveTab('configure'); }}
                 />
               )}
 

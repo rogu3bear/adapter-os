@@ -139,9 +139,9 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
       jobs.forEach(job => {
         const history = metricsHistory.get(job.id);
         if (history && history[epoch]) {
-          point[`${job.id}_tokens_per_second`] = history[epoch].tokens_per_second;
+          point[`${job.id}_tokens_per_sec`] = history[epoch].tokens_per_sec;
         } else if (epoch === (job.current_epoch || 0)) {
-          point[`${job.id}_tokens_per_second`] = job.tokens_per_second;
+          point[`${job.id}_tokens_per_sec`] = job.tokens_per_sec;
         }
       });
       dataPoints.push(point);
@@ -190,10 +190,10 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
       }
 
       // Average performance
-      const throughputs = history.map(m => m.tokens_per_second).filter(t => t !== undefined);
+      const throughputs = history.map(m => m.tokens_per_sec).filter(t => t !== undefined);
       const avgThroughput = throughputs.length > 0
         ? throughputs.reduce((a, b) => a + b, 0) / throughputs.length
-        : job.tokens_per_second || 0;
+        : job.tokens_per_sec || 0;
 
       return {
         jobId: job.id,
@@ -511,7 +511,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
                   <Area
                     key={job.id}
                     type="monotone"
-                    dataKey={`${job.id}_tokens_per_second`}
+                    dataKey={`${job.id}_tokens_per_sec`}
                     name={job.adapter_name}
                     fill={color}
                     fillOpacity={0.2}

@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, CheckCircle, Server } from 'lucide-react';
 
 // 【ui/src/components/SpawnWorkerModal.tsx§1-35】 - Replace toast notifications with ErrorRecovery patterns
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { Node, Plan, SpawnWorkerRequest } from '../api/types';
@@ -138,7 +138,7 @@ export function SpawnWorkerModal({
 
         <div className="space-y-4 py-4">
 
-          {modalError && ErrorRecoveryTemplates.genericError(
+          {modalError && errorRecoveryTemplates.genericError(
             modalError,
             () => {
               setModalError(null);

@@ -1,5 +1,6 @@
 import { routes, canAccessRoute, type RouteConfig } from '@/config/routes';
 import type { LucideIcon } from 'lucide-react';
+import type { UserRole } from '@/api/types';
 
 export interface NavItem {
   to: string;
@@ -31,7 +32,7 @@ export function generateNavigationGroups(userRole?: string): NavGroup[] {
     }
 
     // Check if user can access this route
-    if (!canAccessRoute(route, userRole)) {
+    if (!canAccessRoute(route, userRole as UserRole | undefined)) {
       continue;
     }
 
@@ -113,7 +114,7 @@ export function shouldShowNavGroup(group: NavGroup, userRole?: string): boolean 
  * Useful for command palette and search functionality
  */
 export function getAccessibleRoutes(userRole?: string): RouteConfig[] {
-  return routes.filter(route => canAccessRoute(route, userRole));
+  return routes.filter(route => canAccessRoute(route, userRole as UserRole | undefined));
 }
 
 /**

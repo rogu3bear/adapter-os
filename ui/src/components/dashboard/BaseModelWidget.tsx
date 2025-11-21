@@ -9,7 +9,10 @@ import { ModelImportWizard } from '@/components/ModelImportWizard';
 import { Button } from '@/components/ui/button';
 import { useTenant, useAuth } from '@/layout/LayoutProvider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
+import { usePolling } from '@/hooks/usePolling';
 
 // Utility functions for request deduplication
 const OPERATION_STORAGE_KEY = 'adapteros_model_operations';
@@ -98,14 +101,14 @@ function getStatusIcon(status: ModelStatusResponse | null) {
 export function BaseModelWidget() {
   const { selectedTenant } = useTenant();
   const { user } = useAuth();
-  const [status, setStatus] = useState<ModelStatusResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { can } = useRBAC();
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
   const isAdmin = user?.role === 'admin';
+  const canRegister = can('adapter:register');
 
   // Cleanup stale operations on mount
   useEffect(() => {
@@ -117,30 +120,34 @@ export function BaseModelWidget() {
   };
 
   const fetchStatus = useCallback(async () => {
-    if (!selectedTenant) return;
-    setIsLoading(true);
-    try {
-      const statusData = await apiClient.getBaseModelStatus(selectedTenant);
-      setStatus(statusData);
-      setStatusMessage(null);
-      setErrorRecovery(null);
-    } catch (error) {
-      setStatus(null);
-      setStatusMessage({ message: 'Failed to fetch base model status.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          error instanceof Error ? error : new Error('Failed to fetch base model status.'),
-          () => fetchStatus()
-        )
-      );
-    } finally {
-      setIsLoading(false);
-    }
+    if (!selectedTenant) return null;
+    const statusData = await apiClient.getBaseModelStatus(selectedTenant);
+    setStatusMessage(null);
+    setErrorRecovery(null);
+    return statusData;
   }, [selectedTenant]);
 
-  useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
+  const {
+    data: status,
+    isLoading,
+    refetch: refetchStatus,
+    error: pollingError
+  } = usePolling(
+    fetchStatus,
+    'normal',
+    {
+      showLoadingIndicator: true,
+      onError: (error) => {
+        setStatusMessage({ message: 'Failed to fetch base model status.', variant: 'warning' });
+        setErrorRecovery(
+          errorRecoveryTemplates.genericError(
+            error instanceof Error ? error : new Error('Failed to fetch base model status.'),
+            () => refetchStatus()
+          )
+        );
+      }
+    }
+  );
 
   const handleLoad = async () => {
     if (!status?.model_id) {
@@ -165,12 +172,12 @@ export function BaseModelWidget() {
 
     try {
       await apiClient.loadBaseModel(status.model_id);
-      fetchStatus();
+      refetchStatus();
       showStatus('Base model load requested.', 'success');
     } catch (err) {
       setStatusMessage({ message: err instanceof Error ? err.message : 'Failed to load model.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to load model.'),
           () => handleLoad()
         )
@@ -204,12 +211,12 @@ export function BaseModelWidget() {
 
     try {
       await apiClient.unloadBaseModel(status.model_id);
-      fetchStatus();
+      refetchStatus();
       showStatus('Base model unload requested.', 'success');
     } catch (err) {
       setStatusMessage({ message: err instanceof Error ? err.message : 'Failed to unload model.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to unload model.'),
           () => handleUnload()
         )
@@ -223,7 +230,7 @@ export function BaseModelWidget() {
   const handleImportComplete = () => {
     setShowImportWizard(false);
     showStatus('Model import process started.', 'success');
-    fetchStatus();
+    refetchStatus();
   };
 
   const handleDownload = async () => {
@@ -305,6 +312,7 @@ export function BaseModelWidget() {
             <CardTitle className="flex items-center gap-2">
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : getStatusIcon(status)}
               Base Model
+              <HelpTooltip helpId="base-model-status" />
             </CardTitle>
             {status && (
               <Badge variant={status.is_loaded ? 'default' : 'secondary'}>
@@ -319,7 +327,10 @@ export function BaseModelWidget() {
           ) : (
             <>
               <div>
-                <p className="text-sm font-medium">{status?.model_name || 'No Model'}</p>
+                <p className="text-sm font-medium">
+                  {status?.model_name || 'No Model'}
+                  <HelpTooltip helpId="base-model-name" />
+                </p>
                 <p className="text-xs text-muted-foreground">{status?.model_id || 'No model has been imported'}</p>
               </div>
               <div className="flex gap-2">
@@ -343,7 +354,13 @@ export function BaseModelWidget() {
                   <Download className="h-4 w-4 mr-2" />
                   Download
                 </Button>
-                <Button onClick={() => setShowImportWizard(true)} variant="secondary" className="flex-1">
+                <Button
+                  onClick={() => setShowImportWizard(true)}
+                  variant="secondary"
+                  className="flex-1"
+                  disabled={!canRegister}
+                  title={!canRegister ? 'Requires adapter:register permission' : undefined}
+                >
                   <Upload className="h-4 w-4 mr-2" />
                   Import New Model
                 </Button>

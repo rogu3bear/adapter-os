@@ -5,6 +5,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { cn } from '@/components/ui/utils';
 import { Link, useLocation } from 'react-router-dom';
 import { useResize } from '@/layout/LayoutProvider';
+import { PageHeader, PageHeaderAction, PageHeaderBadge } from '@/components/ui/page-header';
 
 type BreadcrumbDefinition = {
   label: string;
@@ -25,8 +26,29 @@ interface FeatureLayoutProps {
   breadcrumbs?: BreadcrumbDefinition[];
   /**
    * Additional controls rendered to the right side of the header (buttons, filters, etc.).
+   * @deprecated Use primaryAction and secondaryActions instead
    */
   headerActions?: React.ReactNode;
+  /**
+   * Primary action button for the page header
+   */
+  primaryAction?: PageHeaderAction;
+  /**
+   * Secondary action buttons for the page header
+   */
+  secondaryActions?: PageHeaderAction[];
+  /**
+   * Badges to display in the page header
+   */
+  badges?: PageHeaderBadge[];
+  /**
+   * Help tooltip ID for the page header
+   */
+  helpId?: string;
+  /**
+   * Help tooltip content for the page header
+   */
+  helpContent?: string;
   /**
    * Adjust outer padding tokens (defaults to `default` spacing).
    */
@@ -96,6 +118,11 @@ export default function FeatureLayout({
   children,
   breadcrumbs,
   headerActions,
+  primaryAction,
+  secondaryActions,
+  badges,
+  helpId,
+  helpContent,
   contentPadding = 'default',
   maxWidth = 'xl',
   resizable,
@@ -222,15 +249,17 @@ export default function FeatureLayout({
     <div className={cn('min-h-0 min-w-0', paddingClassMap[contentPadding])}>
       <div className={cn('mx-auto', maxWidthClassMap[maxWidth])}>
         <header className="mb-[var(--section-gap)]">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h1 className="[font-size:var(--font-h1)] font-bold text-[var(--gray-900)]">{title}</h1>
-              {description && (
-                <p className="[font-size:var(--font-body)] text-[var(--gray-600)] mt-[var(--space-2)]">{description}</p>
-              )}
-            </div>
-            {headerActions && <div className="flex items-center gap-2 self-start md:self-auto">{headerActions}</div>}
-          </div>
+          <PageHeader
+            title={title}
+            description={description}
+            primaryAction={primaryAction}
+            secondaryActions={secondaryActions}
+            badges={badges}
+            helpId={helpId}
+            helpContent={helpContent}
+          >
+            {headerActions}
+          </PageHeader>
           {shouldRenderBreadcrumbs && (
             <Breadcrumb className="mt-3 hidden sm:flex">
               <BreadcrumbItem>

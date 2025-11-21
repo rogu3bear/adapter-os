@@ -43,7 +43,7 @@ export const ReservedDomains = ['core', 'internal', 'deprecated'] as const;
 /**
  * Adapter tier schema
  */
-export const AdapterTierSchema = z.number()
+export const adapterTierSchema = z.number()
   .int('Tier must be an integer')
   .min(1, 'Tier must be at least 1')
   .max(3, 'Tier must not exceed 3')
@@ -98,7 +98,7 @@ const revisionValidator = z.string()
  *
  * Validation from: adapteros-policy/src/packs/naming_policy.rs
  */
-export const AdapterNameSchema = z.string()
+export const adapterNameSchema = z.string()
   .min(3, 'Adapter name is too short')
   .max(200, 'Adapter name must not exceed 200 characters')
   .regex(
@@ -132,7 +132,7 @@ export const AdapterNameSchema = z.string()
  *
  * Maps to: adapteros-api-types/src/adapters.rs::RegisterAdapterRequest
  */
-export const RegisterAdapterRequestSchema = z.object({
+export const registerAdapterRequestSchema = z.object({
   // Adapter ID (unique identifier)
   adapter_id: z.string()
     .min(1, 'Adapter ID is required')
@@ -140,7 +140,7 @@ export const RegisterAdapterRequestSchema = z.object({
     .describe('Unique adapter identifier'),
 
   // Semantic name
-  name: AdapterNameSchema,
+  name: adapterNameSchema,
 
   // BLAKE3 hash
   hash_b3: z.string()
@@ -158,7 +158,7 @@ export const RegisterAdapterRequestSchema = z.object({
     .describe('LoRA rank dimension'),
 
   // Adapter tier
-  tier: AdapterTierSchema,
+  tier: adapterTierSchema,
 
   // Supported languages
   languages: z.array(
@@ -176,16 +176,16 @@ export const RegisterAdapterRequestSchema = z.object({
     .describe('Framework or library'),
 });
 
-export type RegisterAdapterRequest = z.infer<typeof RegisterAdapterRequestSchema>;
+export type RegisterAdapterRequest = z.infer<typeof registerAdapterRequestSchema>;
 
 /**
  * Adapter name validation request schema
  *
  * For validating names before registration
  */
-export const AdapterNameValidationSchema = z.object({
+export const adapterNameValidationSchema = z.object({
   // Name to validate
-  name: AdapterNameSchema,
+  name: adapterNameSchema,
 
   // Tenant requesting validation
   tenant_id: z.string()
@@ -194,7 +194,7 @@ export const AdapterNameValidationSchema = z.object({
     .describe('Requesting tenant'),
 
   // Optional: Parent adapter name (if forking)
-  parent_name: AdapterNameSchema.optional()
+  parent_name: adapterNameSchema.optional()
     .describe('Parent adapter for hierarchy validation'),
 
   // Optional: Latest revision in lineage
@@ -205,14 +205,14 @@ export const AdapterNameValidationSchema = z.object({
     .describe('Latest revision number in lineage'),
 });
 
-export type AdapterNameValidation = z.infer<typeof AdapterNameValidationSchema>;
+export type AdapterNameValidation = z.infer<typeof adapterNameValidationSchema>;
 
 /**
  * Adapter lifecycle states
  *
  * From: adapteros-lora-lifecycle
  */
-export const AdapterLifecycleStateSchema = z.enum([
+export const adapterLifecycleStateSchema = z.enum([
   'unloaded',
   'cold',
   'warm',
@@ -220,7 +220,7 @@ export const AdapterLifecycleStateSchema = z.enum([
   'resident',
 ]);
 
-export type AdapterLifecycleState = z.infer<typeof AdapterLifecycleStateSchema>;
+export type AdapterLifecycleState = z.infer<typeof adapterLifecycleStateSchema>;
 
 /**
  * Stack name schema
@@ -228,7 +228,7 @@ export type AdapterLifecycleState = z.infer<typeof AdapterLifecycleStateSchema>;
  * Format: stack.{namespace} or stack.{namespace}-{identifier}
  * Example: stack.production-env, stack.my-namespace
  */
-export const StackNameSchema = z.string()
+export const stackNameSchema = z.string()
   .min(6, 'Stack name is too short')
   .max(100, 'Stack name must not exceed 100 characters')
   .regex(
@@ -240,9 +240,9 @@ export const StackNameSchema = z.string()
 /**
  * Create adapter stack request schema
  */
-export const CreateAdapterStackRequestSchema = z.object({
+export const createAdapterStackRequestSchema = z.object({
   // Stack name
-  name: StackNameSchema,
+  name: stackNameSchema,
 
   // Description
   description: z.string()
@@ -266,14 +266,14 @@ export const CreateAdapterStackRequestSchema = z.object({
     .describe('Workflow type'),
 });
 
-export type CreateAdapterStackRequest = z.infer<typeof CreateAdapterStackRequestSchema>;
+export type CreateAdapterStackRequest = z.infer<typeof createAdapterStackRequestSchema>;
 
 /**
  * Adapter pinning request schema
  *
  * From: adapteros-db/src/pinned_adapters.rs
  */
-export const PinAdapterRequestSchema = z.object({
+export const pinAdapterRequestSchema = z.object({
   // Adapter ID to pin
   adapter_id: z.string()
     .min(1, 'Adapter ID is required')
@@ -301,7 +301,7 @@ export const PinAdapterRequestSchema = z.object({
     .describe('User pinning the adapter'),
 });
 
-export type PinAdapterRequest = z.infer<typeof PinAdapterRequestSchema>;
+export type PinAdapterRequest = z.infer<typeof pinAdapterRequestSchema>;
 
 /**
  * Adapter TTL (Time-To-Live) schema

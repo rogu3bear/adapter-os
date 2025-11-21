@@ -5,9 +5,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
 import { RoutingDecision, RouterCandidateInfo } from '../api/types';
 import apiClient from '../api/client';
 import { useTenant } from '../providers/FeatureProviders';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface RoutingInspectorProps {
   className?: string;
@@ -19,8 +22,9 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   const [searchHash, setSearchHash] = useState('');
   const [selectedDecision, setSelectedDecision] = useState<RoutingDecision | null>(null);
   const { selectedTenant } = useTenant();
+  const { can, userRole } = useRBAC();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['/v1/routing/decisions', limit, filter, selectedTenant],
     queryFn: async () => {
       return apiClient.getRoutingDecisions({
@@ -101,9 +105,7 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
           <CardTitle>Routing Inspector</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center h-32">
-            <div className="text-red-500">Error loading routing decisions: {String(error)}</div>
-          </div>
+          {errorRecoveryTemplates.networkError(refetch)}
         </CardContent>
       </Card>
     );
@@ -150,12 +152,32 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                 <TableRow>
                   <TableHead>Time</TableHead>
                   <TableHead>Step</TableHead>
-                  <TableHead>K</TableHead>
+                  <TableHead>
+                    <span className="flex items-center gap-1">
+                      K
+                      <HelpTooltip content="Number of adapters selected by K-sparse routing. Higher K increases expressiveness but adds compute overhead." />
+                    </span>
+                  </TableHead>
                   <TableHead>Adapters</TableHead>
                   <TableHead>Gates</TableHead>
-                  <TableHead>Entropy</TableHead>
-                  <TableHead>Overhead</TableHead>
-                  <TableHead>Latency</TableHead>
+                  <TableHead>
+                    <span className="flex items-center gap-1">
+                      Entropy
+                      <HelpTooltip content="Shannon entropy of gate distribution. Higher entropy indicates more uniform adapter selection. Low entropy may indicate collapsed routing." />
+                    </span>
+                  </TableHead>
+                  <TableHead>
+                    <span className="flex items-center gap-1">
+                      Overhead
+                      <HelpTooltip content="Routing overhead as percentage of inference time. Budget limit is 8%. Values above indicate performance issues." />
+                    </span>
+                  </TableHead>
+                  <TableHead>
+                    <span className="flex items-center gap-1">
+                      Latency
+                      <HelpTooltip content="Router decision latency in microseconds. Lower values indicate faster adapter selection." />
+                    </span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

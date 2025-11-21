@@ -10,6 +10,10 @@ import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LoadingState } from './ui/loading-state';
 import { LastUpdated } from './ui/last-updated';
+import { useRBAC } from '../hooks/useRBAC';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
+import { KpiGrid, ContentGrid } from './ui/grid';
 import {
   Activity,
   AlertTriangle,
@@ -66,6 +70,11 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [serviceActions, setServiceActions] = useState<Record<string, boolean>>({});
+  const { can, userRole } = useRBAC();
+
+  // Permission checks
+  const canManageWorkers = can('worker:manage');
+  const canManageNodes = can('node:manage');
 
   // Fetch comprehensive system data
   const fetchData = async () => {
@@ -177,8 +186,16 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
     );
   }
 
+  // Handle polling error
+  if (pollingError && !data) {
+    return errorRecoveryTemplates.pollingError(pollingError.message, refreshData);
+  }
+
   return (
     <div className="space-y-6">
+      {/* Polling Error Banner (when we have stale data) */}
+      {pollingError && data && errorRecoveryTemplates.pollingError(pollingError.message, refreshData)}
+
       {/* Critical Alerts Banner */}
       {criticalAlerts > 0 && (
         <Card className="border-red-500 bg-red-50 dark:bg-red-950">
@@ -209,15 +226,21 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="services">Services</TabsTrigger>
-          <TabsTrigger value="resources">Resources</TabsTrigger>
-          <TabsTrigger value="actions">Quick Actions</TabsTrigger>
+          <HelpTooltip helpId="management-services">
+            <TabsTrigger value="services">Services</TabsTrigger>
+          </HelpTooltip>
+          <HelpTooltip helpId="management-resources">
+            <TabsTrigger value="resources">Resources</TabsTrigger>
+          </HelpTooltip>
+          <HelpTooltip helpId="management-workers">
+            <TabsTrigger value="actions">Quick Actions</TabsTrigger>
+          </HelpTooltip>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
           {/* System Health Summary */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <KpiGrid>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">System Status</CardTitle>
@@ -275,7 +298,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                 </p>
               </CardContent>
             </Card>
-          </div>
+          </KpiGrid>
 
           {/* Resource Usage */}
           {systemMetrics && (
@@ -285,6 +308,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <Cpu className="h-4 w-4" />
                     CPU Usage
+                    <HelpTooltip helpId="cpu-usage" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -305,6 +329,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <MemoryStick className="h-4 w-4" />
                     Memory Usage
+                    <HelpTooltip helpId="memory-usage" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -338,6 +363,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <CardTitle className="text-sm font-medium flex items-center gap-2">
                     <HardDrive className="h-4 w-4" />
                     Disk Usage
+                    <HelpTooltip helpId="disk-usage" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -457,37 +483,50 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                       >
                         {service.status}
                       </Badge>
-                      <div className="flex gap-1">
-                        {service.status === 'running' ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleServiceAction(service.id, 'restart')}
-                              disabled={serviceActions[service.id]}
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleServiceAction(service.id, 'stop')}
-                              disabled={serviceActions[service.id]}
-                            >
-                              <Square className="h-4 w-4" />
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleServiceAction(service.id, 'start')}
-                            disabled={serviceActions[service.id]}
-                          >
-                            <Play className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+                      {canManageWorkers && (
+                        <div className="flex gap-1">
+                          {service.status === 'running' ? (
+                            <>
+                              <HelpTooltip content="Restart service">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleServiceAction(service.id, 'restart')}
+                                  disabled={serviceActions[service.id]}
+                                >
+                                  <RotateCcw className="h-4 w-4" />
+                                </Button>
+                              </HelpTooltip>
+                              <HelpTooltip content="Stop service">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleServiceAction(service.id, 'stop')}
+                                  disabled={serviceActions[service.id]}
+                                >
+                                  <Square className="h-4 w-4" />
+                                </Button>
+                              </HelpTooltip>
+                            </>
+                          ) : (
+                            <HelpTooltip content="Start service">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleServiceAction(service.id, 'start')}
+                                disabled={serviceActions[service.id]}
+                              >
+                                <Play className="h-4 w-4" />
+                              </Button>
+                            </HelpTooltip>
+                          )}
+                        </div>
+                      )}
+                      {!canManageWorkers && (
+                        <HelpTooltip helpId="requires-admin">
+                          <span className="text-xs text-muted-foreground">No permission</span>
+                        </HelpTooltip>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -519,13 +558,19 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                           {node.status}
                         </Badge>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate('/tenants')}
-                      >
-                        View
-                      </Button>
+                      {canManageNodes ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => navigate('/tenants')}
+                        >
+                          View
+                        </Button>
+                      ) : (
+                        <HelpTooltip helpId="requires-admin">
+                          <span className="text-xs text-muted-foreground">View only</span>
+                        </HelpTooltip>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -536,7 +581,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
 
         {/* Resources Tab */}
         <TabsContent value="resources" className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
+          <ContentGrid>
             {/* Tenants */}
             <Card>
               <CardHeader>
@@ -690,7 +735,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                 </div>
               </CardContent>
             </Card>
-          </div>
+          </ContentGrid>
         </TabsContent>
 
         {/* Quick Actions Tab */}

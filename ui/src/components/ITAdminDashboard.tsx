@@ -8,6 +8,7 @@ import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { LoadingState } from './ui/loading-state';
+import { KpiGrid, ContentGrid } from './ui/grid';
 import {
   Users,
   Server,
@@ -153,7 +154,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
       )}
 
       {/* System Overview Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <KpiGrid>
         {/* System Health */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -211,7 +212,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
             </p>
           </CardContent>
         </Card>
-      </div>
+      </KpiGrid>
 
       {/* Resource Usage */}
       <Card>
@@ -285,7 +286,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <ContentGrid>
         {/* Tenant Management */}
         <Card>
           <CardHeader>
@@ -364,7 +365,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
             </div>
           </CardContent>
         </Card>
-      </div>
+      </ContentGrid>
 
       {/* Adapter Statistics */}
       <Card>
@@ -372,7 +373,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
           <CardTitle>Adapter Registry</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <KpiGrid>
             <div className="text-center p-4 border rounded-lg">
               <div className="text-2xl font-bold">{adapters.length}</div>
               <div className="text-xs text-muted-foreground mt-1">Total Adapters</div>
@@ -395,7 +396,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
               </div>
               <div className="text-xs text-muted-foreground mt-1">Memory Used</div>
             </div>
-          </div>
+          </KpiGrid>
         </CardContent>
       </Card>
     </div>

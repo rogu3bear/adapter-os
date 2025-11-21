@@ -10,9 +10,11 @@ import apiClient from '../api/client';
 import { User } from '../api/types';
 import { logger, toError } from '../utils/logger';
 import { ArrowUp, History, Undo2, Play, CheckCircle } from 'lucide-react';
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
+import { errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
+import { HelpTooltip } from './ui/help-tooltip';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface PromotionProps {
   user: User;
@@ -20,6 +22,7 @@ interface PromotionProps {
 }
 
 export function Promotion({ user, selectedTenant }: PromotionProps) {
+  const { can } = useRBAC();
   const [cpid, setCpid] = useState('');
   const [gates, setGates] = useState<any[]>([]);
   const [dryRunResult, setDryRunResult] = useState<any | null>(null);
@@ -28,6 +31,9 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+
+  const canExecute = can('promotion:execute');
+  const canView = can('promotion:view');
 
   useEffect(() => {
     if (loading) {
@@ -70,7 +76,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
     } catch (err) {
       setStatusMessage({ message: 'Failed to load history.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Failed to load history.'),
           () => fetchHistory()
         )
@@ -103,7 +109,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       setError('Dry run failed');
       setStatusMessage({ message: 'Dry run failed.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Dry run failed.'),
           () => handleDryRun()
         )
@@ -135,7 +141,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       setError('Gate check failed');
       setStatusMessage({ message: 'Gate check failed.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Gate check failed.'),
           () => handleCheckGates()
         )
@@ -165,7 +171,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       setError('Promotion failed');
       setStatusMessage({ message: 'Promotion failed.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Promotion failed.'),
           () => handlePromote()
         )
@@ -194,7 +200,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       setError('Rollback failed');
       setStatusMessage({ message: 'Rollback failed.', variant: 'warning' });
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           err instanceof Error ? err : new Error('Rollback failed.'),
           () => handleRollback()
         )
@@ -259,15 +265,37 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>CPID</Label>
+            <Label className="flex items-center gap-1">
+              CPID
+              <HelpTooltip helpId="promotion-cpid" />
+            </Label>
             <Input value={cpid} onChange={(e) => setCpid(e.target.value)} />
           </div>
-          <div className="flex gap-2">
-            <Button onClick={handleDryRun} disabled={loading}><Play className="mr-2" /> Dry Run</Button>
-            <Button onClick={handleCheckGates} disabled={loading}><CheckCircle className="mr-2" /> Check Gates</Button>
-            <Button onClick={handlePromote} disabled={loading || !allGatesPassed}><ArrowUp className="mr-2" /> Promote</Button>
-            <Button variant="destructive" onClick={handleRollback} disabled={loading}><Undo2 className="mr-2" /> Rollback</Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={handleDryRun} disabled={loading || !canView}>
+              <Play className="mr-2 h-4 w-4" /> Dry Run
+              <HelpTooltip helpId="promotion-dry-run" />
+            </Button>
+            <Button onClick={handleCheckGates} disabled={loading || !canView}>
+              <CheckCircle className="mr-2 h-4 w-4" /> Check Gates
+              <HelpTooltip helpId="promotion-gates" />
+            </Button>
+            <Button onClick={handlePromote} disabled={loading || !allGatesPassed || !canExecute}>
+              <ArrowUp className="mr-2 h-4 w-4" /> Promote
+              <HelpTooltip helpId="promotion-execute" />
+            </Button>
+            <Button variant="destructive" onClick={handleRollback} disabled={loading || !canExecute}>
+              <Undo2 className="mr-2 h-4 w-4" /> Rollback
+              <HelpTooltip helpId="promotion-rollback" />
+            </Button>
           </div>
+          {!canExecute && (
+            <Alert>
+              <AlertDescription className="text-muted-foreground">
+                You need the promotion:execute permission to promote or rollback adapters.
+              </AlertDescription>
+            </Alert>
+          )}
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         </CardContent>
       </Card>
@@ -275,7 +303,10 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       {/* Gate Visualization */}
       <Card>
         <CardHeader>
-          <CardTitle>Gate Status</CardTitle>
+          <CardTitle className="flex items-center gap-1">
+            Gate Status
+            <HelpTooltip helpId="promotion-gates" />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {gates.length === 0 ? (
@@ -312,7 +343,10 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
       {/* Promotion History */}
       <Card>
         <CardHeader>
-          <CardTitle>Promotion History</CardTitle>
+          <CardTitle className="flex items-center gap-1">
+            Promotion History
+            <HelpTooltip helpId="promotion-history" />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>

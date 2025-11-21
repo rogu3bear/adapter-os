@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Slider } from './ui/slider';
 
 import { HelpTooltip } from './ui/help-tooltip';
-import { ErrorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 import {
   Bell,
@@ -81,7 +81,7 @@ const DEFAULT_ALERT_RULES: AlertRule[] = [
     id: 'rule-3',
     name: 'Low Tokens/Second',
     enabled: true,
-    metric: 'tokens_per_second',
+    metric: 'tokens_per_sec',
     condition: 'lt',
     threshold: 10,
     duration_seconds: 120,
@@ -179,7 +179,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
       }, toError(error));
       setAlerts([]);
       setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
+        errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error(errorMessage),
           () => {
             setErrorRecovery(null);
@@ -755,7 +755,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                     >
                       <option value="memory_usage_pct">Memory Usage %</option>
                       <option value="latency_p95_ms">P95 Latency (ms)</option>
-                      <option value="tokens_per_second">Tokens/Second</option>
+                      <option value="tokens_per_sec">Tokens/Second</option>
                       <option value="adapter_count">Adapter Count</option>
                       <option value="active_sessions">Active Sessions</option>
                     </select>
@@ -973,7 +973,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
                   </div>
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground mb-1">Tokens/Second</div>
-                    <div className="text-2xl font-bold">{metrics.tokens_per_second}</div>
+                    <div className="text-2xl font-bold">{metrics.tokens_per_sec}</div>
                   </div>
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground mb-1">Adapter Count</div>

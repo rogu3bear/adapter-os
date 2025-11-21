@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -14,12 +13,14 @@ import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import { useActionHistory } from '../hooks/useActionHistory';
 import { UndoRedoBar } from './ui/undo-redo-bar';
-import { 
-  Server, 
-  CheckCircle, 
-  AlertTriangle, 
-  Cpu, 
-  HardDrive,
+import { HelpTooltip } from './ui/help-tooltip';
+import { ErrorRecovery } from './ui/error-recovery';
+import { usePolling } from '../hooks/usePolling';
+import { useRBAC } from '../hooks/useRBAC';
+import {
+  Server,
+  CheckCircle,
+  AlertTriangle,
   MoreHorizontal,
   Eye,
   Wifi,
@@ -38,12 +39,11 @@ import {
 import apiClient from '../api/client';
 import { Node, User, NodeDetailsResponse, NodePingResponse } from '../api/types';
 
-import { ErrorRecoveryTemplates } from './ui/error-recovery';
 import { WorkersTab } from './WorkersTab';
 import { logger, toError } from '../utils/logger';
 
 import { toast } from 'sonner';
-import { WorkersTab } from './WorkersTab';
+
 
 interface NodesProps {
   user: User;
@@ -51,9 +51,9 @@ interface NodesProps {
 }
 
 export function Nodes({ user, selectedTenant }: NodesProps) {
+  const { can } = useRBAC();
   const [activeTab, setActiveTab] = useState('nodes');
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showConfirmEvictModal, setShowConfirmEvictModal] = useState(false);
@@ -64,13 +64,15 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
   const [pingResult, setPingResult] = useState<NodePingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
-  const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
+  const [registerError, setRegisterError] = useState<Error | null>(null);
+  const [evictError, setEvictError] = useState<Error | null>(null);
+  const [pingError, setPingError] = useState<Error | null>(null);
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [confirmationOptions, setConfirmationOptions] = useState<ConfirmationOptions | null>(null);
   const [pendingBulkAction, setPendingBulkAction] = useState<(() => Promise<void>) | null>(null);
   const actionHistory = useActionHistory({ maxHistorySize: 50 });
-  
+
   // Register form
   const [newHostname, setNewHostname] = useState('');
   const [newAgentEndpoint, setNewAgentEndpoint] = useState('');
@@ -79,33 +81,34 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     setStatusMessage({ message, variant });
   };
 
-  const fetchNodes = useCallback(async () => {
-    try {
+  // Use polling for node list with 'normal' speed (10s default, but normal is 5s)
+  const {
+    data: polledNodes,
+    isLoading: loading,
+    error: fetchError,
+    refetch: fetchNodes
+  } = usePolling<Node[]>(
+    async () => {
       const data = await apiClient.listNodes();
-      setNodes(data);
-      setStatusMessage(null);
-      setErrorRecovery(null);
-    } catch (err) {
-      logger.error('Failed to fetch nodes', {
-        component: 'Nodes',
-        operation: 'listNodes',
-        tenantId: selectedTenant,
-      }, toError(err));
-      setStatusMessage({ message: 'Failed to load nodes.', variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error('Failed to load nodes'),
-          () => fetchNodes()
-        )
-      );
-    } finally {
-      setLoading(false);
+      return data;
+    },
+    'normal',
+    {
+      operationName: 'listNodes',
+      onSuccess: (data) => {
+        setNodes(data as Node[]);
+        setStatusMessage(null);
+      },
+      onError: (err) => {
+        logger.error('Failed to fetch nodes', {
+          component: 'Nodes',
+          operation: 'listNodes',
+          tenantId: selectedTenant,
+        }, toError(err));
+        setStatusMessage({ message: 'Failed to load nodes.', variant: 'warning' });
+      }
     }
-  }, [selectedTenant]);
-
-  useEffect(() => {
-    fetchNodes();
-  }, [fetchNodes]);
+  );
 
   const handleRegisterNode = async () => {
     if (!newHostname.trim() || !newAgentEndpoint.trim()) {
@@ -116,27 +119,27 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     try {
       const hostname = newHostname;
       await apiClient.registerNode({
+        node_id: hostname,
         hostname,
-        metal_family: 'M3', // Default value
-        memory_gb: 128, // Default value
-        agent_endpoint: newAgentEndpoint,
+        capabilities: {
+          memory_gb: 128,
+          agent_endpoint: newAgentEndpoint,
+        },
+        metal_family: 'M3',
       });
       setShowRegisterModal(false);
       setNewHostname('');
       setNewAgentEndpoint('');
       setError(null);
+      setRegisterError(null);
       showStatus(`Node "${hostname}" registered successfully.`, 'success');
       await fetchNodes();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to register node';
+      const error = err instanceof Error ? err : new Error(errorMsg);
       setError(errorMsg);
+      setRegisterError(error);
       setStatusMessage({ message: errorMsg, variant: 'warning' });
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMsg),
-          () => handleRegisterNode()
-        )
-      );
       logger.error('Failed to register node', {
         component: 'Nodes',
         operation: 'registerNode',
@@ -148,6 +151,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
   const handleTestConnection = async (node: Node) => {
     try {
+      setPingError(null);
       showStatus(`Testing connection to ${node.hostname}...`, 'info');
       const result = await apiClient.testNodeConnection(node.id);
       setPingResult(result);
@@ -159,13 +163,14 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         showStatus(`Node is ${result.status}.`, 'warning');
       }
     } catch (err) {
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error('Failed to test connection'),
-          () => handleTestConnection(node)
-        )
-      );
+      const error = err instanceof Error ? err : new Error('Failed to test connection');
+      setPingError(error);
       setStatusMessage({ message: 'Failed to test connection.', variant: 'warning' });
+      logger.error('Failed to test node connection', {
+        component: 'Nodes',
+        operation: 'testNodeConnection',
+        nodeId: node.id,
+      }, toError(err));
     }
   };
 
@@ -182,13 +187,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       setCapacityDraft({ memory_gb: details.memory_gb, gpu_count: (details as any).gpu_count });
       setShowDetailsModal(true);
     } catch (err) {
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error('Failed to load node details'),
-          () => handleViewDetails(node)
-        )
-      );
+      const error = err instanceof Error ? err : new Error('Failed to load node details');
       setStatusMessage({ message: 'Failed to load node details.', variant: 'warning' });
+      logger.error('Failed to load node details', {
+        component: 'Nodes',
+        operation: 'getNodeDetails',
+        nodeId: node.id,
+      }, toError(err));
     }
   };
   const handleSaveLabelsCapacity = async () => {
@@ -198,13 +203,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       setShowDetailsModal(false);
       showStatus('Labels and capacity saved.', 'success');
     } catch (err) {
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error('Failed to save labels/capacity'),
-          () => handleSaveLabelsCapacity()
-        )
-      );
+      const error = err instanceof Error ? err : new Error('Failed to save labels/capacity');
       setStatusMessage({ message: 'Failed to save labels/capacity.', variant: 'warning' });
+      logger.error('Failed to save labels/capacity', {
+        component: 'Nodes',
+        operation: 'saveLabelsCapacity',
+        nodeId: selectedNode.id,
+      }, toError(err));
     }
   };
 
@@ -214,13 +219,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       showStatus(`Node "${node.hostname}" marked offline.`, 'success');
       await fetchNodes();
     } catch (err) {
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error('Failed to mark node offline'),
-          () => handleMarkOffline(node)
-        )
-      );
+      const error = err instanceof Error ? err : new Error('Failed to mark node offline');
       setStatusMessage({ message: 'Failed to mark node offline.', variant: 'warning' });
+      logger.error('Failed to mark node offline', {
+        component: 'Nodes',
+        operation: 'markNodeOffline',
+        nodeId: node.id,
+      }, toError(err));
     }
   };
 
@@ -229,6 +234,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
     try {
       const node = selectedNode;
+      setEvictError(null);
       await apiClient.evictNode(node.id);
       showStatus(`Node "${node.hostname}" evicted.`, 'success');
       setShowConfirmEvictModal(false);
@@ -246,13 +252,14 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to evict node';
-      setErrorRecovery(
-        ErrorRecoveryTemplates.genericError(
-          err instanceof Error ? err : new Error(errorMsg),
-          () => handleEvictNode()
-        )
-      );
+      const error = err instanceof Error ? err : new Error(errorMsg);
+      setEvictError(error);
       setStatusMessage({ message: errorMsg, variant: 'warning' });
+      logger.error('Failed to evict node', {
+        component: 'Nodes',
+        operation: 'evictNode',
+        nodeId: selectedNode.id,
+      }, toError(err));
     }
   };
 
@@ -280,12 +287,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         showStatus(`Successfully marked ${successCount} node(s) offline.`, 'success');
       }
       if (errorCount > 0) {
-        setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to mark ${errorCount} node(s) offline.`),
-            () => performBulkMarkOffline()
-          )
-        );
+        setStatusMessage({ message: `Failed to mark ${errorCount} node(s) offline.`, variant: 'warning' });
       }
 
       await fetchNodes();
@@ -324,7 +326,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
       if (successCount > 0) {
         showStatus(`Successfully evicted ${successCount} node(s).`, 'success');
-        
+
         // Record undo action
         actionHistory.addAction({
           action: 'bulk_evict_nodes',
@@ -336,12 +338,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
         });
       }
       if (errorCount > 0) {
-        setErrorRecovery(
-          ErrorRecoveryTemplates.genericError(
-            new Error(`Failed to evict ${errorCount} node(s).`),
-            () => performBulkEvict()
-          )
-        );
+        setStatusMessage({ message: `Failed to evict ${errorCount} node(s).`, variant: 'warning' });
       }
 
       await fetchNodes();
@@ -362,27 +359,67 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     {
       id: 'mark-offline',
       label: 'Mark Offline',
-      handler: handleBulkMarkOffline
+      handler: handleBulkMarkOffline,
+      disabled: !can('node:manage')
     },
     {
       id: 'evict',
       label: 'Evict',
       variant: 'destructive',
-      handler: handleBulkEvict
+      handler: handleBulkEvict,
+      disabled: !can('node:manage')
     }
   ];
 
-  if (loading) {
+  if (loading && nodes.length === 0) {
     return <div className="text-center p-8">Loading nodes...</div>;
   }
 
   return (
     <div className="space-y-6">
-      {errorRecovery && (
-        <div>
+      {/* Node list fetch error */}
+      {fetchError && (
+        <ErrorRecovery
+          error={fetchError.message}
+          onRetry={() => {
+            fetchNodes();
+          }}
+        />
+      )}
 
-          {errorRecovery}
-        </div>
+      {/* Register error */}
+      {registerError && (
+        <ErrorRecovery
+          error={registerError.message}
+          onRetry={() => {
+            setRegisterError(null);
+            handleRegisterNode();
+          }}
+        />
+      )}
+
+      {/* Evict error */}
+      {evictError && (
+        <ErrorRecovery
+          error={evictError.message}
+          onRetry={() => {
+            setEvictError(null);
+            handleEvictNode();
+          }}
+        />
+      )}
+
+      {/* Ping error */}
+      {pingError && (
+        <ErrorRecovery
+          error={pingError.message}
+          onRetry={() => {
+            setPingError(null);
+            if (selectedNode) {
+              handleTestConnection(selectedNode);
+            }
+          }}
+        />
       )}
 
       {statusMessage && (
@@ -439,128 +476,174 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
 
         <TabsContent value="nodes" className="space-y-4">
           <div className="flex-standard justify-end">
-            <Button variant="outline" size="sm" onClick={fetchNodes}>
+            <Button variant="outline" size="sm" onClick={() => fetchNodes()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
-            <Button onClick={() => setShowRegisterModal(true)}>
-              <Server className="h-4 w-4 mr-2" />
-              Register Node
-            </Button>
+            <HelpTooltip helpId="node-register">
+              <Button
+                onClick={() => setShowRegisterModal(true)}
+                disabled={!can('node:manage')}
+              >
+                <Server className="h-4 w-4 mr-2" />
+                Register Node
+              </Button>
+            </HelpTooltip>
           </div>
 
           <Card className="card-standard">
-        <CardHeader>
-          <CardTitle>Active Nodes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table className="border-collapse w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="p-4 border-b border-border w-12">
-                  <Checkbox
-                    checked={
-                      nodes.length === 0
-                        ? false
-                        : selectedNodes.length === nodes.length
-                          ? true
-                          : selectedNodes.length > 0
-                            ? 'indeterminate'
-                            : false
-                    }
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedNodes(nodes.map(n => n.id));
-                      } else {
-                        setSelectedNodes([]);
-                      }
-                    }}
-                    aria-label="Select all nodes"
-                  />
-                </TableHead>
-                <TableHead className="p-4 border-b border-border">Hostname</TableHead>
-                <TableHead className="p-4 border-b border-border">Endpoint</TableHead>
-                <TableHead className="p-4 border-b border-border">Status</TableHead>
-                <TableHead className="p-4 border-b border-border">Last Seen</TableHead>
-                <TableHead className="p-4 border-b border-border">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {nodes.map((node) => (
-                <TableRow key={node.id}>
-                  <TableCell className="p-4 border-b border-border">
-                    <Checkbox
-                      checked={selectedNodes.includes(node.id)}
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          setSelectedNodes(prev => [...prev, node.id]);
-                        } else {
-                          setSelectedNodes(prev => prev.filter(id => id !== node.id));
+            <CardHeader>
+              <CardTitle>Active Nodes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table className="border-collapse w-full">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="p-4 border-b border-border w-12">
+                      <Checkbox
+                        checked={
+                          nodes.length === 0
+                            ? false
+                            : selectedNodes.length === nodes.length
+                              ? true
+                              : selectedNodes.length > 0
+                                ? 'indeterminate'
+                                : false
                         }
-                      }}
-                      aria-label={`Select ${node.hostname}`}
-                    />
-                  </TableCell>
-                  <TableCell className="p-4 border-b border-border font-medium">{node.hostname}</TableCell>
-                  <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">{(node as any).agent_endpoint || 'N/A'}</TableCell>
-                  <TableCell className="p-4 border-b border-border">
-                    <div className={`status-indicator ${
-                      node.status === 'healthy' ? 'status-success' : 
-                      node.status === 'offline' ? 'status-neutral' : 
-                      'status-error'
-                    }`}>
-                      {node.status}
-                    </div>
-                  </TableCell>
-                  <TableCell className="p-4 border-b border-border">{(node as any).last_seen_at ? new Date((node as any).last_seen_at).toLocaleString() : (node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'Never')}</TableCell>
-                  <TableCell className="p-4 border-b border-border">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewDetails(node)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleTestConnection(node)}>
-                          <Wifi className="h-4 w-4 mr-2" />
-                          Test Connection
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleMarkOffline(node)}>
-                          <WifiOff className="h-4 w-4 mr-2" />
-                          Mark Offline
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          onClick={() => {
-                            setSelectedNode(node);
-                            setShowConfirmEvictModal(true);
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedNodes(nodes.map(n => n.id));
+                          } else {
+                            setSelectedNodes([]);
+                          }
+                        }}
+                        aria-label="Select all nodes"
+                      />
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-name">
+                        <span className="cursor-help">Hostname</span>
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-status">
+                        <span className="cursor-help">Status</span>
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-cpu">
+                        <span className="cursor-help">CPU</span>
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-memory">
+                        <span className="cursor-help">Memory</span>
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-gpu">
+                        <span className="cursor-help">GPU</span>
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-last-seen">
+                        <span className="cursor-help">Last Seen</span>
+                      </HelpTooltip>
+                    </TableHead>
+                    <TableHead className="p-4 border-b border-border">
+                      <HelpTooltip helpId="node-actions">
+                        <span className="cursor-help">Actions</span>
+                      </HelpTooltip>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {nodes.map((node) => (
+                    <TableRow key={node.id}>
+                      <TableCell className="p-4 border-b border-border">
+                        <Checkbox
+                          checked={selectedNodes.includes(node.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedNodes(prev => [...prev, node.id]);
+                            } else {
+                              setSelectedNodes(prev => prev.filter(id => id !== node.id));
+                            }
                           }}
-                          className="text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Evict Node
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {nodes.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    No nodes registered
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                          aria-label={`Select ${node.hostname}`}
+                        />
+                      </TableCell>
+                      <TableCell className="p-4 border-b border-border font-medium">{node.hostname}</TableCell>
+                      <TableCell className="p-4 border-b border-border">
+                        <div className={`status-indicator ${node.status === 'healthy' ? 'status-success' :
+                            node.status === 'offline' ? 'status-neutral' :
+                              'status-error'
+                          }`}>
+                          {node.status}
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
+                        {(node as any).cpu_usage_pct ? `${(node as any).cpu_usage_pct.toFixed(1)}%` : 'N/A'}
+                      </TableCell>
+                      <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
+                        {(node as any).memory_gb ? `${(node as any).memory_gb} GB` : 'N/A'}
+                      </TableCell>
+                      <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
+                        {(node as any).gpu_count !== undefined ? (node as any).gpu_count : 'N/A'}
+                      </TableCell>
+                      <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">{(node as any).last_seen_at ? new Date((node as any).last_seen_at).toLocaleString() : (node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'Never')}</TableCell>
+                      <TableCell className="p-4 border-b border-border">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleViewDetails(node)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleTestConnection(node)}>
+                              <Wifi className="h-4 w-4 mr-2" />
+                              Test Connection
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleMarkOffline(node)}
+                              disabled={!can('node:manage')}
+                            >
+                              <WifiOff className="h-4 w-4 mr-2" />
+                              Mark Offline
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedNode(node);
+                                setShowConfirmEvictModal(true);
+                              }}
+                              className="text-red-600"
+                              disabled={!can('node:manage')}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Evict Node
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {nodes.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        No nodes registered
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
- 
+
         <TabsContent value="workers">
           <WorkersTab selectedTenant={selectedTenant} />
         </TabsContent>
@@ -580,7 +663,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           )}
           <div className="mb-4">
             <div className="mb-4">
-              <Label htmlFor="hostname" className="font-medium text-sm mb-1">Hostname</Label>
+              <HelpTooltip helpId="node-name">
+                <Label htmlFor="hostname" className="font-medium text-sm mb-1 cursor-help">Hostname</Label>
+              </HelpTooltip>
               <Input
                 id="hostname"
                 placeholder="node-01"
@@ -589,7 +674,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
               />
             </div>
             <div className="mb-4">
-              <Label htmlFor="agent-endpoint" className="font-medium text-sm mb-1">Agent Endpoint</Label>
+              <HelpTooltip helpId="node-endpoint">
+                <Label htmlFor="agent-endpoint" className="font-medium text-sm mb-1 cursor-help">Agent Endpoint</Label>
+              </HelpTooltip>
               <Input
                 id="agent-endpoint"
                 placeholder="http://node-01:8080"
@@ -604,7 +691,12 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 setShowRegisterModal(false);
                 setError(null);
               }}>Cancel</Button>
-              <Button onClick={handleRegisterNode}>Register</Button>
+              <Button
+                onClick={handleRegisterNode}
+                disabled={!can('node:manage')}
+              >
+                Register
+              </Button>
             </div>
           </DialogFooter>
         </DialogContent>
@@ -625,15 +717,18 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 <AccordionContent>
                   <div className="grid-standard grid-cols-2 pt-2">
                     <div>
-                      <p className="font-medium text-sm mb-1">Status</p>
-                      <div className={`status-indicator ${
-                        nodeDetails.status === 'healthy' ? 'status-success' : 'status-error'
-                      }`}>
+                      <HelpTooltip helpId="node-status">
+                        <p className="font-medium text-sm mb-1 cursor-help">Status</p>
+                      </HelpTooltip>
+                      <div className={`status-indicator ${nodeDetails.status === 'healthy' ? 'status-success' : 'status-error'
+                        }`}>
                         {nodeDetails.status}
                       </div>
                     </div>
                     <div>
-                      <p className="font-medium text-sm mb-1">Last Seen</p>
+                      <HelpTooltip helpId="node-last-seen">
+                        <p className="font-medium text-sm mb-1 cursor-help">Last Seen</p>
+                      </HelpTooltip>
                       <p className="text-sm font-medium">
                         {nodeDetails.last_seen_at ? new Date(nodeDetails.last_seen_at).toLocaleString() : 'Never'}
                       </p>
@@ -648,7 +743,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 </AccordionTrigger>
                 <AccordionContent>
                   <div className="mb-4 pt-2">
-                    <p className="font-medium text-sm mb-1">Labels</p>
+                    <HelpTooltip helpId="node-labels">
+                      <p className="font-medium text-sm mb-1 cursor-help">Labels</p>
+                    </HelpTooltip>
                     <div className="space-y-2">
                       {Object.entries(labelsDraft).map(([k, v]) => (
                         <div key={k} className="flex gap-2">
@@ -679,16 +776,22 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                   <div className="space-y-4 pt-2">
                     <div className="grid-standard grid-cols-2">
                       <div>
-                        <p className="font-medium text-sm mb-1">Memory (GB)</p>
+                        <HelpTooltip helpId="node-memory">
+                          <p className="font-medium text-sm mb-1 cursor-help">Memory (GB)</p>
+                        </HelpTooltip>
                         <Input type="number" value={capacityDraft.memory_gb ?? ''} onChange={(e) => setCapacityDraft({ ...capacityDraft, memory_gb: parseInt(e.target.value || '0', 10) })} />
                       </div>
                       <div>
-                        <p className="font-medium text-sm mb-1">GPU Count</p>
+                        <HelpTooltip helpId="node-gpu">
+                          <p className="font-medium text-sm mb-1 cursor-help">GPU Count</p>
+                        </HelpTooltip>
                         <Input type="number" value={capacityDraft.gpu_count ?? ''} onChange={(e) => setCapacityDraft({ ...capacityDraft, gpu_count: parseInt(e.target.value || '0', 10) })} />
                       </div>
                     </div>
                     <div>
-                      <p className="font-medium text-sm mb-1">Running Workers ({nodeDetails.workers.length})</p>
+                      <HelpTooltip helpId="node-adapters">
+                        <p className="font-medium text-sm mb-1 cursor-help">Running Workers ({nodeDetails.workers.length})</p>
+                      </HelpTooltip>
                       {nodeDetails.workers.length > 0 ? (
                         <div className="mb-4">
                           {nodeDetails.workers.map((worker) => (
@@ -715,7 +818,12 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
           <DialogFooter>
             <div className="flex-standard justify-end">
               <Button variant="outline" onClick={() => setShowDetailsModal(false)}>Close</Button>
-              <Button onClick={handleSaveLabelsCapacity}>Save</Button>
+              <Button
+                onClick={handleSaveLabelsCapacity}
+                disabled={!can('node:manage')}
+              >
+                Save
+              </Button>
             </div>
           </DialogFooter>
         </DialogContent>
@@ -740,7 +848,13 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                 setShowConfirmEvictModal(false);
                 setSelectedNode(null);
               }}>Cancel</Button>
-              <Button variant="destructive" onClick={handleEvictNode}>Evict Node</Button>
+              <Button
+                variant="destructive"
+                onClick={handleEvictNode}
+                disabled={!can('node:manage')}
+              >
+                Evict Node
+              </Button>
             </div>
           </DialogFooter>
         </DialogContent>

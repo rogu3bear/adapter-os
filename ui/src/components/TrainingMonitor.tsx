@@ -30,7 +30,7 @@ import { logger, toError } from '../utils/logger';
 import { toast } from 'sonner';
 import { usePolling } from '../hooks/usePolling';
 import { LastUpdated } from './ui/last-updated';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -326,13 +326,9 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   };
 
   if (error) {
-    return (
-      <ErrorRecovery
-        {...ErrorRecoveryTemplates.genericError(
-          error.message,
-          () => refreshTraining()
-        )}
-      />
+    return errorRecoveryTemplates.genericError(
+      error.message,
+      () => refreshTraining()
     );
   }
 
@@ -350,29 +346,17 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
   return (
     <div className="space-y-6">
       {/* Error Recovery for pause/resume/stop operations */}
-      {pauseError && (
-        <ErrorRecovery
-          {...ErrorRecoveryTemplates.genericError(
-            `Failed to pause training: ${pauseError.message}`,
-            handlePause
-          )}
-        />
+      {pauseError && errorRecoveryTemplates.genericError(
+        `Failed to pause training: ${pauseError.message}`,
+        handlePause
       )}
-      {resumeError && (
-        <ErrorRecovery
-          {...ErrorRecoveryTemplates.genericError(
-            `Failed to resume training: ${resumeError.message}`,
-            handleResume
-          )}
-        />
+      {resumeError && errorRecoveryTemplates.genericError(
+        `Failed to resume training: ${resumeError.message}`,
+        handleResume
       )}
-      {stopError && (
-        <ErrorRecovery
-          {...ErrorRecoveryTemplates.genericError(
-            `Failed to stop training: ${stopError.message}`,
-            handleStop
-          )}
-        />
+      {stopError && errorRecoveryTemplates.genericError(
+        `Failed to stop training: ${stopError.message}`,
+        handleStop
       )}
 
       {/* Header */}
@@ -504,12 +488,12 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
                     <Zap className="h-4 w-4" />
                     <span className="text-sm font-medium">Tokens/sec</span>
                   </div>
-                  <span className="text-sm text-muted-foreground">{metrics.tokens_per_second}</span>
+                  <span className="text-sm text-muted-foreground">{metrics.tokens_per_sec}</span>
                 </div>
                 <div className="h-2 bg-gray-200 rounded-full">
                   <div 
                     className="h-2 bg-green-500 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.min((metrics.tokens_per_second / 2000) * 100, 100)}%` }}
+                    style={{ width: `${Math.min((metrics.tokens_per_sec / 2000) * 100, 100)}%` }}
                   />
                 </div>
               </div>

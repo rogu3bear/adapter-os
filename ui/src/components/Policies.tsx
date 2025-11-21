@@ -24,11 +24,12 @@ import { Alert, AlertDescription } from './ui/alert';
 import { logger } from '../utils/logger';
 
 import { HelpTooltip } from './ui/help-tooltip';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Skeleton } from './ui/skeleton';
 import { BookmarkButton } from './ui/bookmark-button';
 
 import { useAuth, useTenant } from '@/layout/LayoutProvider';
+import { useRBAC } from '@/hooks/useRBAC';
 import { useProgressiveHints } from '../hooks/useProgressiveHints';
 import { getPageHints } from '../data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
@@ -41,6 +42,7 @@ interface PoliciesProps {
 export function Policies({ user: userProp, selectedTenant: tenantProp }: PoliciesProps) {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
+  const { can, userRole } = useRBAC();
   const effectiveUser = userProp ?? user!;
   const effectiveTenant = tenantProp ?? selectedTenant;
 
@@ -271,15 +273,11 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   if (policiesError) {
     return (
       <ErrorRecovery
-        title="Policies Error"
-        message={policiesError.message}
-        recoveryActions={[
-          { label: 'Retry Loading', action: () => {
-            setPoliciesError(null);
-            fetchPolicies();
-          }},
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
+        error={policiesError.message}
+        onRetry={() => {
+          setPoliciesError(null);
+          fetchPolicies();
+        }}
       />
     );
   }
@@ -337,7 +335,11 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             formats={['csv', 'json']}
           />
 
-          <Button onClick={() => { setSelectedPolicy(null); setShowEditorModal(true); }}>
+          <Button
+            onClick={() => { setSelectedPolicy(null); setShowEditorModal(true); }}
+            disabled={!can('policy:apply')}
+            title={!can('policy:apply') ? 'Requires policy:apply permission' : undefined}
+          >
             <Plus className="h-4 w-4 mr-2" />
             New Policy
           </Button>
@@ -395,17 +397,25 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                   />
                 </TableHead>
                 <TableHead>
-                  <HelpTooltip helpId="cpid">
+                  <HelpTooltip helpId="policy-cpid">
                     <span>CPID</span>
                   </HelpTooltip>
                 </TableHead>
                 <TableHead>
-                  <HelpTooltip helpId="schema-hash">
+                  <HelpTooltip helpId="policy-schema-hash">
                     <span>Schema Hash</span>
                   </HelpTooltip>
                 </TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-[100px]">Actions</TableHead>
+                <TableHead>
+                  <HelpTooltip helpId="policy-status">
+                    <span>Status</span>
+                  </HelpTooltip>
+                </TableHead>
+                <TableHead className="w-[100px]">
+                  <HelpTooltip helpId="policy-actions">
+                    <span>Actions</span>
+                  </HelpTooltip>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -453,11 +463,19 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}>
+                          <DropdownMenuItem
+                            onClick={() => { setSelectedPolicy(policy); setShowEditorModal(true); }}
+                            disabled={!can('policy:apply')}
+                            title={!can('policy:apply') ? 'Requires policy:apply permission' : undefined}
+                          >
                             <Edit className="icon-standard mr-2" />
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleSignPolicy(policy)}>
+                          <DropdownMenuItem
+                            onClick={() => handleSignPolicy(policy)}
+                            disabled={!can('policy:sign')}
+                            title={!can('policy:sign') ? 'Requires policy:sign permission (Admin only)' : undefined}
+                          >
                             <FileSignature className="icon-standard mr-2" />
                             Sign Policy
                           </DropdownMenuItem>
@@ -496,11 +514,15 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           {signResult && (
             <div className="space-y-3">
               <div className="mb-4">
-                <p className="font-medium text-sm mb-1">CPID</p>
+                <HelpTooltip helpId="policy-cpid">
+                  <p className="font-medium text-sm mb-1 cursor-help">CPID</p>
+                </HelpTooltip>
                 <p className="text-sm text-muted-foreground font-mono">{signResult.cpid}</p>
               </div>
               <div className="mb-4">
-                <p className="font-medium text-sm mb-1">Signature</p>
+                <HelpTooltip helpId="policy-signed">
+                  <p className="font-medium text-sm mb-1 cursor-help">Signature</p>
+                </HelpTooltip>
                 <p className="text-xs text-muted-foreground font-mono break-all">{signResult.signature}</p>
               </div>
               <div className="mb-4">
@@ -567,12 +589,16 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
           </DialogHeader>
           <div className="space-y-4">
             <div className="mb-4">
-              <label className="font-medium text-sm mb-1">First Policy</label>
+              <HelpTooltip helpId="policy-cpid">
+                <label className="font-medium text-sm mb-1 cursor-help">First Policy</label>
+              </HelpTooltip>
               <p className="text-sm text-muted-foreground font-mono">{selectedPolicy?.cpid}</p>
             </div>
             <div className="mb-4">
-              <label className="font-medium text-sm mb-1">Second Policy CPID</label>
-              <select 
+              <HelpTooltip helpId="policy-cpid">
+                <label className="font-medium text-sm mb-1 cursor-help">Second Policy CPID</label>
+              </HelpTooltip>
+              <select
                 className="w-full p-2 border rounded"
                 value={compareCpid2}
                 onChange={(e) => setCompareCpid2(e.target.value)}
@@ -589,7 +615,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                   <p className="font-medium text-sm mb-1">Differences ({compareResult.differences.length})</p>
                   <ul className="list-disc list-inside text-sm text-muted-foreground mt-2">
                     {compareResult.differences.map((diff, idx) => (
-                      <li key={idx} className="font-mono text-xs">{diff}</li>
+                      <li key={idx} className="font-mono text-xs">{diff.path}: {diff.type}</li>
                     ))}
                   </ul>
                 </div>

@@ -25,11 +25,13 @@ import {
 } from 'lucide-react';
 import type { TrainingJob, TrainingConfig, InferRequest, InferResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
-import { ProgressIndicator, ContextualLoading, LoadingStates } from './ui/progress-indicator';
-import { SuccessFeedback, SuccessTemplates } from './ui/success-feedback';
+import { ProgressIndicator, ContextualLoading, loadingStates } from './ui/progress-indicator';
+import { SuccessFeedback, successTemplates } from './ui/success-feedback';
 import { useViewTransition } from '../hooks/useViewTransition';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
+import { useRBAC } from '../hooks/useRBAC';
 
 type TrainingStep = 'upload' | 'configure' | 'training' | 'complete';
 
@@ -47,10 +49,12 @@ interface TrainingMetrics {
 }
 
 export function SingleFileAdapterTrainer() {
+  const { can } = useRBAC();
   const [step, setStep] = useState<TrainingStep>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileUploadError, setFileUploadError] = useState<Error | null>(null);
 
   // Configuration state
   const [adapterName, setAdapterName] = useState('');
@@ -81,13 +85,23 @@ export function SingleFileAdapterTrainer() {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0];
     if (uploadedFile) {
+      // Validate file size (10MB max)
+      if (uploadedFile.size > 10 * 1024 * 1024) {
+        setFileUploadError(new Error('File size exceeds 10MB limit'));
+        return;
+      }
+
+      setFileUploadError(null);
       setFile(uploadedFile);
-      
+
       // Read file content for preview
       const reader = new FileReader();
       reader.onload = (e) => {
         const content = e.target?.result as string;
         setFileContent(content);
+      };
+      reader.onerror = () => {
+        setFileUploadError(new Error('Failed to read file content'));
       };
       reader.readAsText(uploadedFile);
 
@@ -351,9 +365,16 @@ export function SingleFileAdapterTrainer() {
             <CardTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5" />
               Upload Training Data
+              <HelpTooltip helpId="trainer-file-upload" />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {fileUploadError && (
+              <ErrorRecovery
+                error={fileUploadError.message}
+                onRetry={() => { setFileUploadError(null); fileInputRef.current?.click(); }}
+              />
+            )}
             <div
               className="border-2 border-dashed rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               onClick={() => fileInputRef.current?.click()}
@@ -407,7 +428,10 @@ export function SingleFileAdapterTrainer() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="adapter-name">Adapter Name</Label>
+              <Label htmlFor="adapter-name">
+                Adapter Name
+                <HelpTooltip helpId="trainer-adapter-name" />
+              </Label>
               <Input
                 id="adapter-name"
                 value={adapterName}
@@ -418,7 +442,10 @@ export function SingleFileAdapterTrainer() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="rank">LoRA Rank</Label>
+                <Label htmlFor="rank">
+                  LoRA Rank
+                  <HelpTooltip helpId="trainer-rank" />
+                </Label>
                 <Input
                   id="rank"
                   type="number"
@@ -427,13 +454,13 @@ export function SingleFileAdapterTrainer() {
                   min={1}
                   max={64}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Lower = faster, Higher = more capacity
-                </p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="alpha">Alpha</Label>
+                <Label htmlFor="alpha">
+                  Alpha
+                  <HelpTooltip helpId="trainer-alpha" />
+                </Label>
                 <Input
                   id="alpha"
                   type="number"
@@ -445,7 +472,10 @@ export function SingleFileAdapterTrainer() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="epochs">Epochs</Label>
+                <Label htmlFor="epochs">
+                  Epochs
+                  <HelpTooltip helpId="trainer-epochs" />
+                </Label>
                 <Input
                   id="epochs"
                   type="number"
@@ -457,7 +487,10 @@ export function SingleFileAdapterTrainer() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="batch-size">Batch Size</Label>
+                <Label htmlFor="batch-size">
+                  Batch Size
+                  <HelpTooltip helpId="trainer-batch-size" />
+                </Label>
                 <Input
                   id="batch-size"
                   type="number"
@@ -469,7 +502,10 @@ export function SingleFileAdapterTrainer() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="learning-rate">Learning Rate</Label>
+                <Label htmlFor="learning-rate">
+                  Learning Rate
+                  <HelpTooltip helpId="trainer-learning-rate" />
+                </Label>
                 <Input
                   id="learning-rate"
                   type="number"
@@ -480,7 +516,7 @@ export function SingleFileAdapterTrainer() {
               </div>
             </div>
 
-            {trainingError && ErrorRecoveryTemplates.trainingError(
+            {trainingError && errorRecoveryTemplates.trainingError(
               () => {
                 setTrainingError(null);
                 setStep('configure');
@@ -492,12 +528,8 @@ export function SingleFileAdapterTrainer() {
             )}
             {uploadError && (
               <ErrorRecovery
-                title="Upload Failed"
-                message={uploadError.message}
-                recoveryActions={[
-                  { label: 'Retry Upload', action: () => { setUploadError(null); handleUploadToServer(); } },
-                  { label: 'Try Again Later', action: () => setUploadError(null) }
-                ]}
+                error={uploadError.message}
+                onRetry={() => { setUploadError(null); handleUploadToServer(); }}
               />
             )}
 
@@ -505,7 +537,12 @@ export function SingleFileAdapterTrainer() {
               <Button variant="outline" onClick={() => setStep('upload')}>
                 Back
               </Button>
-              <Button onClick={handleStartTraining} className="flex-1">
+              <Button
+                onClick={handleStartTraining}
+                className="flex-1"
+                disabled={!can('training:start')}
+                title={!can('training:start') ? 'Requires training:start permission' : undefined}
+              >
                 <Zap className="w-4 h-4 mr-2" />
                 Start Training
               </Button>
@@ -573,7 +610,7 @@ export function SingleFileAdapterTrainer() {
       {/* Step 4: Complete - Success & Next Steps */}
       {step === 'complete' && (
         <div className="space-y-6">
-          {SuccessTemplates.trainingComplete(
+          {successTemplates.trainingComplete(
             adapterName,
             () => {
               // Scroll to test section

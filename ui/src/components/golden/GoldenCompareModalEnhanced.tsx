@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import apiClient from '../../api/client';
 import { GoldenCompareRequest, Strictness, VerificationReport, LayerDivergence } from '../../api/types';
-import { ErrorRecoveryTemplates } from '../ui/error-recovery';
+import { errorRecoveryTemplates } from '../ui/error-recovery';
 import { EpsilonHeatmap } from './EpsilonHeatmap';
 import { StatisticalSummary } from './StatisticalSummary';
 import { LayerDetailModal } from './LayerDetailModal';
@@ -160,7 +160,7 @@ export function GoldenCompareModalEnhanced({ open, onOpenChange, bundleId }: Gol
           </DialogHeader>
 
           <div className="space-y-4">
-            {compareError && ErrorRecoveryTemplates.genericError(
+            {compareError && errorRecoveryTemplates.genericError(
               compareError,
               () => {
                 setCompareError(null);

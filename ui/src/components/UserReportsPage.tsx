@@ -27,6 +27,7 @@ import type {
   TelemetryEvent,
   Adapter
 } from '@/api/types';
+import { KpiGrid } from './ui/grid';
 
 interface UserReportsPageProps {
   tenantId?: string;
@@ -118,7 +119,7 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <KpiGrid>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Adapters</CardTitle>
@@ -167,14 +168,14 @@ export function UserReportsPage({ tenantId }: UserReportsPageProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics?.tokens_per_second?.toFixed(1) || '0'}
+              {metrics?.tokens_per_sec?.toFixed(1) || '0'}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               tokens/second
             </p>
           </CardContent>
         </Card>
-      </div>
+      </KpiGrid>
 
       {/* Recent Training Jobs */}
       <Card>

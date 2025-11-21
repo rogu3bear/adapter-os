@@ -7,6 +7,7 @@ export interface StageContent {
   context: string;
   route?: string; // Real page route in the app
   mentalModelExplanation?: string; // How this relates to the unified mental model
+  mockComponent?: string; // Name of mock component to render for this stage
 }
 
 export interface Stage {

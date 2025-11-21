@@ -1,31 +1,50 @@
-// 【ui/src/contexts/DensityContext.tsx】 - Density context
+// Audit Page - Security and system audit events with RBAC and real-time polling
 import React, { useState, useEffect, useCallback } from 'react';
-import { RequireAuth } from '@/layout/LayoutProvider';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/api/client';
 import { TelemetryEvent } from '@/api/types';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from '@/components/ui/advanced-filter';
+import { useRBAC } from '@/hooks/useRBAC';
+import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { usePolling } from '@/hooks/usePolling';
+import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
 
 function AuditPageInner() {
   const { density, setDensity } = useDensity();
+  const { can, userRole } = useRBAC();
   const [auditLogs, setAuditLogs] = useState<TelemetryEvent[]>([]);
   const [allAuditLogs, setAllAuditLogs] = useState<TelemetryEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
-  
+
   // Filtering state
   const [filterValues, setFilterValues] = useState<FilterValues>({});
-  
+
+  // RBAC: Check if user has audit:view permission
+  if (!can('audit:view')) {
+    return (
+      <FeatureLayout title="Audit Log">
+        <PageHeader
+          title="Audit Log"
+          description="Security and system audit events"
+        />
+        <ErrorRecovery
+          error="You do not have permission to view audit logs. This page requires the audit:view permission (Admin, SRE, or Compliance role)."
+          onRetry={() => window.location.reload()}
+        />
+      </FeatureLayout>
+    );
+  }
+
   // Filter configurations for audit logs
   const auditFilterConfigs: FilterConfig[] = [
     {
@@ -82,7 +101,7 @@ function AuditPageInner() {
       type: 'dateRange',
     },
   ];
-  
+
   // Filter audit logs based on filter values
   const filteredAuditLogs = allAuditLogs.filter(log => {
     // Search filter
@@ -95,44 +114,44 @@ function AuditPageInner() {
         (log.component?.toLowerCase().includes(searchLower)) ||
         (log.trace_id && String(log.trace_id).toLowerCase().includes(searchLower)) ||
         (log.metadata && JSON.stringify(log.metadata).toLowerCase().includes(searchLower));
-      
+
       if (!matchesSearch) {
         return false;
       }
     }
-    
+
     // Level filter (multi-select)
     if (filterValues.level && Array.isArray(filterValues.level) && filterValues.level.length > 0) {
       if (!filterValues.level.includes(log.level?.toLowerCase() || '')) {
         return false;
       }
     }
-    
+
     // Event type filter
     if (filterValues.eventType && log.event_type !== filterValues.eventType) {
       return false;
     }
-    
+
     // User ID filter
     if (filterValues.userId && log.user_id !== filterValues.userId) {
       return false;
     }
-    
+
     // Tenant ID filter
     if (filterValues.tenantId && log.tenant_id !== filterValues.tenantId) {
       return false;
     }
-    
+
     // Component filter
     if (filterValues.component && log.component !== filterValues.component) {
       return false;
     }
-    
+
     // Trace ID filter
     if (filterValues.traceId && log.trace_id && String(log.trace_id) !== filterValues.traceId) {
       return false;
     }
-    
+
     // Date range filter
     if (filterValues.dateRange && typeof filterValues.dateRange === 'object') {
       const range = filterValues.dateRange as { start?: string; end?: string };
@@ -148,28 +167,40 @@ function AuditPageInner() {
         }
       }
     }
-    
+
     return true;
   });
 
-  const loadAuditLogs = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      // Load more logs to enable client-side filtering
-      const logs = await apiClient.getTelemetryLogs({
-        category: 'audit',
-        limit: 500, // Load more for filtering
-        offset: 0,
-      });
-      setAllAuditLogs(logs);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load audit logs');
-    } finally {
-      setLoading(false);
-    }
+  // Use polling for real-time audit log updates
+  const fetchAuditLogs = useCallback(async () => {
+    const logs = await apiClient.getTelemetryLogs({
+      category: 'audit',
+      limit: 500, // Load more for filtering
+      offset: 0,
+    });
+    return logs;
   }, []);
-  
+
+  const {
+    data: polledLogs,
+    isLoading: loading,
+    error: pollingError,
+    refetch: loadAuditLogs,
+    lastUpdated
+  } = usePolling(
+    fetchAuditLogs,
+    'slow', // Audit logs update slowly (30s)
+    {
+      enabled: true,
+      operationName: 'fetchAuditLogs',
+      onSuccess: (data) => {
+        setAllAuditLogs(data as TelemetryEvent[]);
+      },
+    }
+  );
+
+  const error = pollingError?.message || null;
+
   // Update displayed logs when filters or pagination change
   useEffect(() => {
     const start = offset;
@@ -181,9 +212,12 @@ function AuditPageInner() {
     }
   }, [filteredAuditLogs, offset, limit]);
 
+  // Update allAuditLogs when polled data changes
   useEffect(() => {
-    loadAuditLogs();
-  }, [loadAuditLogs]);
+    if (polledLogs) {
+      setAllAuditLogs(polledLogs);
+    }
+  }, [polledLogs]);
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleString();
@@ -199,12 +233,28 @@ function AuditPageInner() {
     }
   };
 
+  // Export audit logs as JSON
+  const handleExportLogs = useCallback(() => {
+    const dataToExport = filteredAuditLogs.length > 0 ? filteredAuditLogs : allAuditLogs;
+    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [filteredAuditLogs, allAuditLogs]);
+
   return (
-    <FeatureLayout 
-      title="Audit Log" 
-      description="Security and system audit events"
-      right={<DensityControls density={density} onDensityChange={setDensity} />}
-    >
+    <FeatureLayout title="Audit Log">
+      <PageHeader
+        title="Audit Log"
+        description="Security and system audit events"
+      >
+        <DensityControls density={density} onDensityChange={setDensity} />
+      </PageHeader>
       <div className="space-y-6">
         {/* Advanced Filters */}
         <AdvancedFilter
@@ -214,16 +264,23 @@ function AuditPageInner() {
           className="mb-4"
           title="Filter Audit Logs"
         />
-        
+
         {/* Basic Controls */}
         <Card>
           <CardHeader>
-            <CardTitle>Controls</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Controls
+              <HelpTooltip helpId="audit-controls">
+                <span className="cursor-help text-muted-foreground">(?)</span>
+              </HelpTooltip>
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4 items-center">
+            <div className="flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Items per page:</label>
+                <HelpTooltip helpId="audit-items-per-page">
+                  <label className="text-sm font-medium cursor-help">Items per page:</label>
+                </HelpTooltip>
                 <Select value={limit.toString()} onValueChange={(value) => setLimit(parseInt(value))}>
                   <SelectTrigger className="w-24">
                     <SelectValue />
@@ -236,9 +293,27 @@ function AuditPageInner() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={loadAuditLogs} disabled={loading}>
-                Refresh
-              </Button>
+              <HelpTooltip helpId="audit-refresh">
+                <Button onClick={loadAuditLogs} disabled={loading} variant="outline">
+                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </HelpTooltip>
+              <HelpTooltip helpId="audit-export">
+                <Button
+                  onClick={handleExportLogs}
+                  disabled={!can('audit:view') || allAuditLogs.length === 0}
+                  variant="outline"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </HelpTooltip>
+              {lastUpdated && (
+                <span className="text-xs text-muted-foreground">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -246,8 +321,11 @@ function AuditPageInner() {
         {/* Audit Logs Table */}
         <Card>
           <CardHeader>
-            <CardTitle>
+            <CardTitle className="flex items-center gap-2">
               Audit Events
+              <HelpTooltip helpId="audit-events">
+                <span className="cursor-help text-muted-foreground">(?)</span>
+              </HelpTooltip>
               {filteredAuditLogs.length !== allAuditLogs.length && (
                 <span className="ml-2 text-sm font-normal text-muted-foreground">
                   ({filteredAuditLogs.length} of {allAuditLogs.length} total)
@@ -261,13 +339,9 @@ function AuditPageInner() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {error && (
-              <div className="text-red-600 mb-4 p-3 bg-red-50 rounded">
-                {error}
-              </div>
-            )}
+            {error && errorRecoveryTemplates.genericError(error, loadAuditLogs)}
 
-            {loading ? (
+            {loading && allAuditLogs.length === 0 ? (
               <div className="flex justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
@@ -284,11 +358,41 @@ function AuditPageInner() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Level</TableHead>
-                      <TableHead>Event</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Details</TableHead>
+                      <TableHead>
+                        <HelpTooltip helpId="audit-timestamp">
+                          <div className="flex items-center gap-1 cursor-help">
+                            Timestamp
+                          </div>
+                        </HelpTooltip>
+                      </TableHead>
+                      <TableHead>
+                        <HelpTooltip helpId="audit-level">
+                          <div className="flex items-center gap-1 cursor-help">
+                            Level
+                          </div>
+                        </HelpTooltip>
+                      </TableHead>
+                      <TableHead>
+                        <HelpTooltip helpId="audit-event">
+                          <div className="flex items-center gap-1 cursor-help">
+                            Event
+                          </div>
+                        </HelpTooltip>
+                      </TableHead>
+                      <TableHead>
+                        <HelpTooltip helpId="audit-user">
+                          <div className="flex items-center gap-1 cursor-help">
+                            User
+                          </div>
+                        </HelpTooltip>
+                      </TableHead>
+                      <TableHead>
+                        <HelpTooltip helpId="audit-details">
+                          <div className="flex items-center gap-1 cursor-help">
+                            Details
+                          </div>
+                        </HelpTooltip>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -324,23 +428,29 @@ function AuditPageInner() {
             {/* Pagination */}
             {filteredAuditLogs.length > limit && (
               <div className="flex justify-between items-center mt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setOffset(Math.max(0, offset - limit))}
-                  disabled={offset === 0}
-                >
-                  Previous
-                </Button>
+                <HelpTooltip helpId="audit-pagination-prev">
+                  <Button
+                    variant="outline"
+                    onClick={() => setOffset(Math.max(0, offset - limit))}
+                    disabled={offset === 0}
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    Previous
+                  </Button>
+                </HelpTooltip>
                 <span className="text-sm text-muted-foreground">
                   Showing {offset + 1} - {Math.min(offset + limit, filteredAuditLogs.length)} of {filteredAuditLogs.length}
                 </span>
-                <Button
-                  variant="outline"
-                  onClick={() => setOffset(offset + limit)}
-                  disabled={offset + limit >= filteredAuditLogs.length}
-                >
-                  Next
-                </Button>
+                <HelpTooltip helpId="audit-pagination-next">
+                  <Button
+                    variant="outline"
+                    onClick={() => setOffset(offset + limit)}
+                    disabled={offset + limit >= filteredAuditLogs.length}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </HelpTooltip>
               </div>
             )}
           </CardContent>

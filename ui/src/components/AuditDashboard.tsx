@@ -24,7 +24,7 @@ import apiClient from '../api/client';
 import { Policy, TelemetryBundle, PromotionGate, ComplianceControl, PolicyViolationRecord } from '../api/types';
 import { toast } from 'sonner';
 import { logger } from '../utils/logger';
-import { ErrorRecovery, ErrorRecoveryTemplates } from './ui/error-recovery';
+import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { ExportDialog, ExportOptions } from './ui/export-dialog';
 
 interface AuditDashboardProps {
@@ -478,15 +478,11 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   if (auditError) {
     return (
       <ErrorRecovery
-        title="Audit Dashboard Error"
-        message={auditError.message}
-        recoveryActions={[
-          { label: 'Retry Loading', action: () => {
-            setAuditError(null);
-            loadAuditData();
-          }},
-          { label: 'View Logs', action: () => {/* Navigate to logs */} }
-        ]}
+        error={auditError.message}
+        onRetry={() => {
+          setAuditError(null);
+          loadAuditData();
+        }}
       />
     );
   }

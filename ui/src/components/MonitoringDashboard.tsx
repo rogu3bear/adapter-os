@@ -25,6 +25,7 @@ import * as types from '../api/types';
 
 import { logger, toError } from '../utils/logger';
 import { usePolling } from '../hooks/usePolling';
+import { KpiGrid, ContentGrid } from './ui/grid';
 
 
 interface AlertEntry {
@@ -255,7 +256,7 @@ export const MonitoringDashboard: React.FC = () => {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiGrid>
             <SummaryCard
               title="CPU Utilization"
               icon={<Cpu className="h-5 w-5 text-blue-500" />}
@@ -280,9 +281,9 @@ export const MonitoringDashboard: React.FC = () => {
               value={systemMetrics ? `${Math.floor(uptimeSeconds / 3600)}h` : '--'}
               description="Since last kernel reload"
             />
-          </div>
+          </KpiGrid>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <ContentGrid>
             <Card>
               <CardHeader>
                 <CardTitle>CPU Trend</CardTitle>
@@ -301,7 +302,7 @@ export const MonitoringDashboard: React.FC = () => {
                 <MetricsChart data={latencyHistoryMs} yAxisLabel="Latency (ms)" color="#f97316" height={260} />
               </CardContent>
             </Card>
-          </div>
+          </ContentGrid>
 
           {qualityMetrics && (
             <Card>
@@ -309,28 +310,30 @@ export const MonitoringDashboard: React.FC = () => {
                 <CardTitle>Quality KPIs</CardTitle>
                 <CardDescription>End-to-end router quality and outcome metrics</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KpiBadge
-                  icon={<ShieldCheck className="h-4 w-4" />}
-                  label="Answer Relevance"
-                  value={qualityMetrics.arr?.toFixed(2) ?? '--'}
-                />
-                <KpiBadge
-                  icon={<Zap className="h-4 w-4" />}
-                  label="Early Correctness (ECS@5)"
-                  value={qualityMetrics.ecs5?.toFixed(2) ?? '--'}
-                />
-                <KpiBadge
-                  icon={<Database className="h-4 w-4" />}
-                  label="Hallucination Rate"
-                  value={`${qualityMetrics.hlr?.toFixed(2) ?? '--'}%`}
-                />
-                <KpiBadge
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  label="Completion Rate"
-                  value={`${qualityMetrics.cr?.toFixed(2) ?? '--'}%`}
-                  variant={qualityMetrics.cr !== undefined && qualityMetrics.cr < 95 ? 'destructive' : 'default'}
-                />
+              <CardContent>
+                <KpiGrid>
+                  <KpiBadge
+                    icon={<ShieldCheck className="h-4 w-4" />}
+                    label="Answer Relevance"
+                    value={qualityMetrics.arr?.toFixed(2) ?? '--'}
+                  />
+                  <KpiBadge
+                    icon={<Zap className="h-4 w-4" />}
+                    label="Early Correctness (ECS@5)"
+                    value={qualityMetrics.ecs5?.toFixed(2) ?? '--'}
+                  />
+                  <KpiBadge
+                    icon={<Database className="h-4 w-4" />}
+                    label="Hallucination Rate"
+                    value={`${qualityMetrics.hlr?.toFixed(2) ?? '--'}%`}
+                  />
+                  <KpiBadge
+                    icon={<AlertTriangle className="h-4 w-4" />}
+                    label="Completion Rate"
+                    value={`${qualityMetrics.cr?.toFixed(2) ?? '--'}%`}
+                    variant={qualityMetrics.cr !== undefined && qualityMetrics.cr < 95 ? 'destructive' : 'default'}
+                  />
+                </KpiGrid>
               </CardContent>
             </Card>
           )}
