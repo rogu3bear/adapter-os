@@ -55,6 +55,14 @@ pub struct User {
     pub role: String,
     pub disabled: bool,
     pub created_at: String,
+    /// Tenant ID associated with the user (defaults to "default" if not set in DB)
+    #[sqlx(default)]
+    #[serde(default = "default_tenant_id")]
+    pub tenant_id: String,
+}
+
+fn default_tenant_id() -> String {
+    "default".to_string()
 }
 
 impl Db {

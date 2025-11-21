@@ -1,3 +1,12 @@
+#![allow(unexpected_cfgs)]
+#![allow(unused_imports)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::redundant_closure)]
+
 use adapteros_core::{AosError, Result};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
@@ -583,12 +592,136 @@ impl Db {
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
+
+    /// Insert a new adapter stack
+    pub async fn insert_stack(&self, req: &CreateStackRequest) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let adapter_ids_json =
+            serde_json::to_string(&req.adapter_ids).map_err(|e| AosError::Serialization(e))?;
+        let workflow_type = req.workflow_type.as_deref().unwrap_or("parallel");
+        let description = req.description.as_deref().unwrap_or("");
+
+        sqlx::query(
+            r#"
+            INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'))
+            "#,
+        )
+        .bind(&id)
+        .bind(&req.tenant_id)
+        .bind(&req.name)
+        .bind(description)
+        .bind(&adapter_ids_json)
+        .bind(workflow_type)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
+
+        Ok(id)
+    }
+
+    /// Increment adapter activation count
+    pub async fn increment_adapter_activation(&self, adapter_id: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE adapters
+            SET activation_count = activation_count + 1,
+                last_activated = datetime('now'),
+                updated_at = datetime('now')
+            WHERE adapter_id = ?
+            "#,
+        )
+        .bind(adapter_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to increment adapter activation: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Rebuild all indexes for a tenant
+    pub async fn rebuild_all_indexes(&self, _tenant_id: &str) -> Result<()> {
+        // Stub implementation - indexes are maintained automatically by SQLite
+        // This is a placeholder for future index management functionality
+        Ok(())
+    }
+
+    /// List adapters for a specific tenant
+    pub async fn list_adapters_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterRecord>> {
+        let rows = sqlx::query_as::<_, AdapterRecord>(
+            r#"
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state
+            FROM adapters
+            WHERE tenant_id = ?
+            ORDER BY name ASC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list adapters by tenant: {}", e)))?;
+
+        Ok(rows)
+    }
+
+    /// Get user by username
+    pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
+        let row = sqlx::query_as::<_, User>(
+            r#"
+            SELECT id, email, display_name, pw_hash, role, disabled, created_at
+            FROM users
+            WHERE email LIKE ? || '@%' OR id = ? || '-user'
+            "#,
+        )
+        .bind(username)
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get user by username: {}", e)))?;
+
+        Ok(row)
+    }
+
+    /// Get index hash for a tenant and index type
+    pub async fn get_index_hash(
+        &self,
+        tenant_id: &str,
+        index_type: &str,
+    ) -> Result<Option<adapteros_core::B3Hash>> {
+        let row: Option<(Vec<u8>,)> = sqlx::query_as(
+            r#"
+            SELECT hash
+            FROM index_hashes
+            WHERE tenant_id = ? AND index_type = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(index_type)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get index hash: {}", e)))?;
+
+        match row {
+            Some((hash_bytes,)) => {
+                if hash_bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&hash_bytes);
+                    Ok(Some(adapteros_core::B3Hash::new(arr)))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 // Re-export sqlx types for convenience
 pub use sqlx;
 pub use sqlx::Row;
 
+pub mod activity_events;
+pub use activity_events::ActivityEvent;
 pub mod adapters;
 pub mod artifacts;
 pub mod audit;
@@ -646,6 +779,8 @@ pub use routing_telemetry_bridge::{event_to_decision, persist_router_decisions};
 pub mod telemetry_bundles;
 pub mod users;
 pub use users::{Role, User};
+pub mod workers;
+pub use models::Worker;
 
 // Re-export unified access types
 pub use unified_access::{

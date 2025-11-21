@@ -52,6 +52,20 @@ pub struct TelemetryRecord {
     pub created_at: String,
 }
 
+/// Telemetry bundle from database
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TelemetryBundle {
+    pub id: String,
+    pub tenant_id: String,
+    pub cpid: String,
+    pub path: String,
+    pub merkle_root_b3: String,
+    pub start_seq: i64,
+    pub end_seq: i64,
+    pub event_count: i64,
+    pub created_at: String,
+}
+
 impl TelemetryBatchBuilder {
     /// Create a new telemetry batch builder
     pub fn new() -> Self {
@@ -252,5 +266,31 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Failed to get telemetry by event type: {}", e)))?;
 
         Ok(records)
+    }
+
+    /// Get telemetry bundles by tenant
+    pub async fn get_telemetry_bundles_by_tenant(
+        &self,
+        tenant_id: &str,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<TelemetryBundle>> {
+        let bundles = sqlx::query_as::<_, TelemetryBundle>(
+            r#"
+            SELECT id, tenant_id, cpid, path, merkle_root_b3, start_seq, end_seq, event_count, created_at
+            FROM telemetry_bundles
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get telemetry bundles: {}", e)))?;
+
+        Ok(bundles)
     }
 }

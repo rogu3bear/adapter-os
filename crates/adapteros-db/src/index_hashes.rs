@@ -1,8 +1,9 @@
 use crate::Db;
-use adapteros_core::{B3Hash, Result, IndexSnapshot, GraphNode, StackInfo};
+use adapteros_core::{AosError, B3Hash, Result, IndexSnapshot, GraphNode, StackInfo};
 use serde_json::Value;
+use sqlx::Row;
 use std::collections::BTreeMap;
-use anyhow::anyhow;
+use tracing::{debug, warn};
 
 impl Db {
     pub async fn store_index_hash(&self, tenant_id: &str, index_type: &str, hash: &B3Hash) -> Result<()> {
@@ -74,14 +75,42 @@ pub async fn build_index_snapshot(tenant_id: &str, index_type: &str, db: &Db) ->
     match index_type {
         "adapter_graph" => {
             let adapters = db.list_adapters(tenant_id).await?;
-            let mut nodes: Vec<GraphNode> = adapters.into_iter().map(|a| GraphNode {
-                id: a.id.clone(),
-                edges: vec![], // TODO: Query and sort edges if relations exist (e.g., dependencies)
+
+            // Build edges from adapter_stacks relationships
+            // Adapters in the same stack are considered connected
+            let stacks_rows = sqlx::query(
+                "SELECT adapter_ids_json FROM adapter_stacks WHERE tenant_id = ?"
+            )
+            .bind(tenant_id)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query adapter stacks for edges: {}", e)))?;
+
+            // Build edge map from stack relationships
+            let mut edge_map: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for row in stacks_rows {
+                let adapter_ids_json: String = row.get("adapter_ids_json");
+                if let Ok(adapter_ids) = serde_json::from_str::<Vec<String>>(&adapter_ids_json) {
+                    // Create bidirectional edges between all adapters in the same stack
+                    for i in 0..adapter_ids.len() {
+                        for j in (i + 1)..adapter_ids.len() {
+                            edge_map.entry(adapter_ids[i].clone()).or_default().push(adapter_ids[j].clone());
+                            edge_map.entry(adapter_ids[j].clone()).or_default().push(adapter_ids[i].clone());
+                        }
+                    }
+                }
+            }
+
+            let mut nodes: Vec<GraphNode> = adapters.into_iter().map(|a| {
+                let mut edges = edge_map.remove(&a.id).unwrap_or_default();
+                edges.sort();
+                edges.dedup();
+                GraphNode {
+                    id: a.id.clone(),
+                    edges,
+                }
             }).collect();
             nodes.sort_by(|n1, n2| n1.id.cmp(&n2.id));
-            for node in &mut nodes {
-                node.edges.sort(); // Ensure edges are sorted for determinism
-            }
             Ok(IndexSnapshot::AdapterGraph(nodes))
         },
         "stacks" => {
@@ -99,38 +128,119 @@ pub async fn build_index_snapshot(tenant_id: &str, index_type: &str, db: &Db) ->
             Ok(IndexSnapshot::AdapterStacks(stacks))
         },
         "router_table" => {
-            // Query router priors or weights, use BTreeMap for sorted keys
-            let priors = BTreeMap::new(); // TODO: Query from router config or decisions table
+            // Query router priors from routing_decisions table
+            // Aggregate average entropy per adapter as prior weight
+            let rows = sqlx::query(
+                "SELECT selected_adapter_ids, AVG(entropy) as avg_entropy
+                 FROM routing_decisions
+                 WHERE tenant_id = ? AND selected_adapter_ids IS NOT NULL
+                 GROUP BY selected_adapter_ids
+                 ORDER BY selected_adapter_ids"
+            )
+            .bind(tenant_id)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query routing decisions: {}", e)))?;
+
+            let mut priors: BTreeMap<String, f64> = BTreeMap::new();
+            for row in rows {
+                let adapter_ids: String = row.get("selected_adapter_ids");
+                let avg_entropy: f64 = row.get("avg_entropy");
+                // Split comma-separated adapter IDs and assign entropy as prior
+                for adapter_id in adapter_ids.split(',').map(|s| s.trim()) {
+                    if !adapter_id.is_empty() {
+                        // Use entry to accumulate if adapter appears in multiple selections
+                        priors.entry(adapter_id.to_string())
+                            .and_modify(|e| *e = (*e + avg_entropy) / 2.0)
+                            .or_insert(avg_entropy);
+                    }
+                }
+            }
+            debug!(tenant_id = %tenant_id, num_priors = priors.len(), "Built router table priors");
             Ok(IndexSnapshot::RouterTable(priors))
         },
         "telemetry_secondary" => {
-            // Group events by tenant/user, sorted keys and vecs
-            let secondary = BTreeMap::new(); // TODO: Query recent events, group by trace_id or user_id
+            // Query recent activity events grouped by user_id
+            let rows = sqlx::query(
+                "SELECT user_id, GROUP_CONCAT(event_type) as event_types
+                 FROM activity_events
+                 WHERE tenant_id = ?
+                 GROUP BY user_id
+                 ORDER BY user_id"
+            )
+            .bind(tenant_id)
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to query activity events: {}", e)))?;
+
+            let mut secondary: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for row in rows {
+                let user_id: String = row.get("user_id");
+                let event_types: String = row.get("event_types");
+                let mut events: Vec<String> = event_types
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                events.sort();
+                secondary.insert(user_id, events);
+            }
+            debug!(tenant_id = %tenant_id, num_users = secondary.len(), "Built telemetry secondary index");
             Ok(IndexSnapshot::TelemetrySecondary(secondary))
         },
-        _ => Err(anyhow!("Unsupported index type: {}", index_type)),
+        _ => Err(AosError::Validation(format!("Unsupported index type: {}", index_type)).into()),
     }
 }
 
-// Assume Adapter and StackDb structs exist or define minimally
+// Local structs for index building
 #[derive(Debug, Clone)]
-struct Adapter {
+struct AdapterInfo {
     id: String,
-    // other fields...
 }
 
 #[derive(Debug, Clone)]
 struct StackDb {
     name: String,
     adapter_ids: Vec<String>,
-    // ...
 }
 
 impl Db {
-    // Placeholder for list_adapter_stacks if not existing
+    /// List adapters for a tenant (for index building)
+    pub async fn list_adapters(&self, tenant_id: &str) -> Result<Vec<AdapterInfo>> {
+        let rows = sqlx::query(
+            "SELECT adapter_id FROM adapters WHERE tenant_id = ? ORDER BY adapter_id"
+        )
+        .bind(tenant_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query adapters: {}", e)))?;
+
+        let adapters = rows.into_iter().map(|row| {
+            AdapterInfo {
+                id: row.get("adapter_id"),
+            }
+        }).collect();
+
+        Ok(adapters)
+    }
+
+    /// List adapter stacks for a tenant
     pub async fn list_adapter_stacks(&self, tenant_id: &str) -> Result<Vec<StackDb>> {
-        // Implement query: SELECT name, adapter_ids_json FROM adapter_stacks WHERE tenant_id = ?
-        let stacks = vec![]; // Placeholder
+        let rows = sqlx::query(
+            "SELECT name, adapter_ids_json FROM adapter_stacks WHERE tenant_id = ? ORDER BY name"
+        )
+        .bind(tenant_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to query adapter stacks: {}", e)))?;
+
+        let stacks = rows.into_iter().map(|row| {
+            let name: String = row.get("name");
+            let adapter_ids_json: String = row.get("adapter_ids_json");
+            let adapter_ids: Vec<String> = serde_json::from_str(&adapter_ids_json).unwrap_or_default();
+            StackDb { name, adapter_ids }
+        }).collect();
+
         Ok(stacks)
     }
 }

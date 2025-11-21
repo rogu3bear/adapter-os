@@ -197,7 +197,7 @@ impl Db {
     /// ## Security: Parameterized Query
     /// tenant_id is properly bound to prevent SQL injection.
     pub async fn get_progress_stats(&self, tenant_id: Option<&str>) -> Result<ProgressStats> {
-        let (sql, row): (&str, (i64, i64, i64, i64)) = if let Some(tid) = tenant_id {
+        let row: (i64, i64, i64, i64) = if let Some(tid) = tenant_id {
             // Query with tenant filter
             let query_sql = "SELECT
                 COUNT(*) as total_events,
@@ -207,15 +207,13 @@ impl Db {
                 FROM progress_events
                 WHERE tenant_id = ?";
 
-            let result = sqlx::query_as(query_sql)
+            sqlx::query_as(query_sql)
                 .bind(tid)
                 .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!("Failed to get progress stats: {}", e))
-                })?;
-
-            (query_sql, result)
+                })?
         } else {
             // Query without tenant filter
             let query_sql = "SELECT
@@ -225,14 +223,41 @@ impl Db {
                 COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_operations
                 FROM progress_events";
 
-            let result = sqlx::query_as(query_sql)
+            sqlx::query_as(query_sql)
                 .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!("Failed to get progress stats: {}", e))
-                })?;
+                })?
+        };
 
-            (query_sql, result)
+        // Calculate average completion time from timestamps
+        // We calculate the difference between created_at and updated_at for completed operations
+        let avg_completion_time_secs: Option<f64> = if let Some(tid) = tenant_id {
+            let avg_result: (Option<f64>,) = sqlx::query_as(
+                "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400.0)
+                 FROM progress_events
+                 WHERE tenant_id = ? AND status = 'completed'"
+            )
+            .bind(tid)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to get avg completion time: {}", e))
+            })?;
+            avg_result.0
+        } else {
+            let avg_result: (Option<f64>,) = sqlx::query_as(
+                "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400.0)
+                 FROM progress_events
+                 WHERE status = 'completed'"
+            )
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to get avg completion time: {}", e))
+            })?;
+            avg_result.0
         };
 
         Ok(ProgressStats {
@@ -240,7 +265,7 @@ impl Db {
             active_operations: row.1,
             completed_operations: row.2,
             failed_operations: row.3,
-            avg_completion_time_secs: None, // TODO: Calculate from timestamps
+            avg_completion_time_secs,
         })
     }
 
