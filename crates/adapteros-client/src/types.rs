@@ -1,6 +1,9 @@
 // Re-export types from shared API types crate
 pub use adapteros_api_types::*;
 
+// Re-export canonical types from adapteros-types
+pub use adapteros_types::{AdapterInfo, AdapterMetrics, AdapterState};
+
 // Additional client-specific types not covered by shared types
 use serde::{Deserialize, Serialize};
 
@@ -241,15 +244,7 @@ pub struct ListAdaptersResponse {
     pub tier_breakdown: TierBreakdown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterInfo {
-    pub id: String,
-    pub tier: String,
-    pub rank: u32,
-    pub activation_rate: f32,
-    pub ttl_hours: Option<u32>,
-    pub created_at: String,
-}
+// AdapterInfo is now imported from adapteros_types
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierBreakdown {

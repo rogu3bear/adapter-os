@@ -31,9 +31,12 @@ impl Default for HealthConfig {
     }
 }
 
-/// Health status
+/// Process health status for worker monitoring
+///
+/// Note: For general health status, use `adapteros_core::HealthStatus`.
+/// This enum is specific to process health monitoring with detailed message variants.
 #[derive(Debug, Clone)]
-pub enum HealthStatus {
+pub enum ProcessHealthStatus {
     Healthy,
     Warning(String),
     Critical(String),
@@ -81,7 +84,7 @@ impl HealthMonitor {
             match self.check_health().await {
                 Ok(status) => {
                     self.consecutive_failures.store(0, Ordering::Relaxed);
-                    if !matches!(status, HealthStatus::Healthy) {
+                    if !matches!(status, ProcessHealthStatus::Healthy) {
                         warn!("Health check warning: {:?}", status);
                     }
                 }
@@ -101,7 +104,7 @@ impl HealthMonitor {
         Ok(())
     }
 
-    async fn check_health(&self) -> Result<HealthStatus> {
+    async fn check_health(&self) -> Result<ProcessHealthStatus> {
         // Check memory growth
         let current_memory = get_process_memory()?;
         let memory_growth = current_memory.saturating_sub(self.baseline_memory);
@@ -135,14 +138,14 @@ impl HealthMonitor {
                 .saturating_sub(last_request);
 
             if time_since_request > self.config.max_response_time.as_secs() {
-                return Ok(HealthStatus::Warning(format!(
+                return Ok(ProcessHealthStatus::Warning(format!(
                     "No requests processed for {} seconds",
                     time_since_request
                 )));
             }
         }
 
-        Ok(HealthStatus::Healthy)
+        Ok(ProcessHealthStatus::Healthy)
     }
 
     async fn trigger_shutdown(&self) -> Result<()> {

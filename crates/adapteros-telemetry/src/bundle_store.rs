@@ -14,8 +14,10 @@ use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 use tracing;
+
+// Re-export canonical BundleMetadata from adapteros-telemetry-types
+pub use adapteros_telemetry_types::BundleMetadata;
 
 /// Bundle Store Manager
 pub struct BundleStore {
@@ -27,23 +29,6 @@ pub struct BundleStore {
     policy: RetentionPolicy,
 }
 
-/// Bundle metadata for index
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundleMetadata {
-    pub bundle_hash: B3Hash,
-    pub cpid: Option<String>,
-    pub tenant_id: String,
-    pub event_count: usize,
-    pub sequence_no: u64,
-    pub merkle_root: B3Hash,
-    pub signature: String,
-    pub public_key: String, // Ed25519 public key in hex format (for verification per Artifacts Ruleset #13)
-    pub created_at: SystemTime,
-    pub prev_bundle_hash: Option<B3Hash>,
-    pub is_incident_bundle: bool,
-    pub is_promotion_bundle: bool,
-    pub tags: Vec<String>,
-}
 
 /// Retention policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,7 +91,7 @@ impl BundleStore {
         }
 
         // Store bundle file: root_dir/{tenant_id}/bundles/{hash}.ndjson
-        let tenant_dir = self.root_dir.join(&metadata.tenant_id).join("bundles");
+        let tenant_dir = self.root_dir.join(metadata.tenant_id.as_deref().unwrap_or("default")).join("bundles");
         fs::create_dir_all(&tenant_dir)?;
 
         let bundle_path = tenant_dir.join(format!("{}.ndjson", bundle_hash));
@@ -138,7 +123,7 @@ impl BundleStore {
 
         let bundle_path = self
             .root_dir
-            .join(&metadata.tenant_id)
+            .join(metadata.tenant_id.as_deref().unwrap_or("default"))
             .join("bundles")
             .join(format!("{}.ndjson", bundle_hash));
 
@@ -215,7 +200,7 @@ impl BundleStore {
         let mut bundles: Vec<&BundleMetadata> = self
             .index
             .values()
-            .filter(|m| m.tenant_id == tenant_id)
+            .filter(|m| m.tenant_id.as_deref() == Some(tenant_id))
             .collect();
 
         bundles.sort_by_key(|m| m.sequence_no);
@@ -330,7 +315,7 @@ impl BundleStore {
             .remove(bundle_hash)
             .ok_or_else(|| AosError::Telemetry(format!("Bundle {} not found", bundle_hash)))?;
 
-        let tenant_dir = self.root_dir.join(&metadata.tenant_id).join("bundles");
+        let tenant_dir = self.root_dir.join(metadata.tenant_id.as_deref().unwrap_or("default")).join("bundles");
         let bundle_path = tenant_dir.join(format!("{}.ndjson", bundle_hash));
         let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
 
@@ -388,7 +373,7 @@ impl BundleStore {
 
     /// Update metadata file on disk
     fn update_metadata_file(&self, bundle_hash: &B3Hash, metadata: &BundleMetadata) -> Result<()> {
-        let tenant_dir = self.root_dir.join(&metadata.tenant_id).join("bundles");
+        let tenant_dir = self.root_dir.join(metadata.tenant_id.as_deref().unwrap_or("default")).join("bundles");
         let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
         let meta_json = serde_json::to_string_pretty(metadata)?;
         fs::write(&meta_path, meta_json)?;
@@ -444,7 +429,7 @@ impl BundleStore {
             // Try to get bundle size
             let bundle_path = self
                 .root_dir
-                .join(&metadata.tenant_id)
+                .join(metadata.tenant_id.as_deref().unwrap_or("default"))
                 .join("bundles")
                 .join(format!("{}.ndjson", metadata.bundle_hash));
 
@@ -487,6 +472,7 @@ pub struct StorageStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::SystemTime;
     use tempfile::TempDir;
 
     #[test]
@@ -499,17 +485,22 @@ mod tests {
         let metadata = BundleMetadata {
             bundle_hash: B3Hash::hash(bundle_data),
             cpid: Some("cpid-001".to_string()),
-            tenant_id: "tenant-test".to_string(),
+            tenant_id: Some("tenant-test".to_string()),
             event_count: 10,
-            sequence_no: 1,
+            sequence_no: Some(1),
             merkle_root: B3Hash::hash(b"merkle"),
             signature: "sig".to_string(),
             public_key: "test_pubkey".to_string(),
+            key_id: "test_key_id".to_string(),
+            schema_version: 1,
+            signed_at_us: 0,
             created_at: SystemTime::now(),
             prev_bundle_hash: None,
             is_incident_bundle: false,
             is_promotion_bundle: false,
             tags: vec![],
+            stack_id: None,
+            stack_version: None,
         };
 
         // Store bundle
@@ -540,17 +531,22 @@ mod tests {
             let metadata = BundleMetadata {
                 bundle_hash: B3Hash::hash(bundle_data.as_bytes()),
                 cpid: Some("cpid-001".to_string()),
-                tenant_id: "tenant-test".to_string(),
+                tenant_id: Some("tenant-test".to_string()),
                 event_count: 10,
-                sequence_no: i,
+                sequence_no: Some(i),
                 merkle_root: B3Hash::hash(b"merkle"),
                 signature: "sig".to_string(),
                 public_key: "test_pubkey".to_string(),
+                key_id: "test_key_id".to_string(),
+                schema_version: 1,
+                signed_at_us: 0,
                 created_at: SystemTime::now(),
                 prev_bundle_hash: None,
                 is_incident_bundle: false,
                 is_promotion_bundle: false,
                 tags: vec![],
+                stack_id: None,
+                stack_version: None,
             };
             store
                 .store_bundle(bundle_data.as_bytes(), metadata)
@@ -581,17 +577,22 @@ mod tests {
         let metadata1 = BundleMetadata {
             bundle_hash: bundle1_hash,
             cpid: Some("cpid-001".to_string()),
-            tenant_id: "tenant-test".to_string(),
+            tenant_id: Some("tenant-test".to_string()),
             event_count: 10,
-            sequence_no: 1,
+            sequence_no: Some(1),
             merkle_root: B3Hash::hash(b"merkle1"),
             signature: "sig1".to_string(),
             public_key: "test_pubkey1".to_string(),
+            key_id: "test_key_id1".to_string(),
+            schema_version: 1,
+            signed_at_us: 0,
             created_at: SystemTime::now(),
             prev_bundle_hash: None,
             is_incident_bundle: false,
             is_promotion_bundle: false,
             tags: vec![],
+            stack_id: None,
+            stack_version: None,
         };
         store.store_bundle(bundle1_data, metadata1).unwrap();
         store.mark_incident_bundle(&bundle1_hash).unwrap();
@@ -600,17 +601,22 @@ mod tests {
         let metadata2 = BundleMetadata {
             bundle_hash: B3Hash::hash(bundle2_data),
             cpid: Some("cpid-001".to_string()),
-            tenant_id: "tenant-test".to_string(),
+            tenant_id: Some("tenant-test".to_string()),
             event_count: 10,
-            sequence_no: 2,
+            sequence_no: Some(2),
             merkle_root: B3Hash::hash(b"merkle2"),
             signature: "sig2".to_string(),
             public_key: "test_pubkey2".to_string(),
+            key_id: "test_key_id2".to_string(),
+            schema_version: 1,
+            signed_at_us: 0,
             created_at: SystemTime::now(),
             prev_bundle_hash: Some(B3Hash::hash(b"merkle1")),
             is_incident_bundle: false,
             is_promotion_bundle: false,
             tags: vec![],
+            stack_id: None,
+            stack_version: None,
         };
         store.store_bundle(bundle2_data, metadata2).unwrap();
 

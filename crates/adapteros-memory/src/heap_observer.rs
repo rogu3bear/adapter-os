@@ -368,25 +368,15 @@ fn current_timestamp() -> u128 {
 mod tests {
     use super::*;
 
+    /// Helper function to get a shared Metal device for tests.
+    /// Avoids repeated system_default() calls for consistency and performance.
+    fn get_test_device() -> Option<Arc<Device>> {
+        Device::system_default().map(Arc::new)
+    }
+
     #[test]
     fn test_heap_observer_creation() {
-        #[cfg(target_os = "macos")]
-        {
-            if let Some(device) = Device::system_default() {
-                let observer = MetalHeapObserver::new(Arc::new(device), 1.0);
-                assert_eq!(observer.get_allocation_count(), 0);
-            }
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            #[cfg(target_os = "macos")]
-            let device = Arc::new(metal::Device::system_default().unwrap());
-            #[cfg(not(target_os = "macos"))]
-            let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-                // Create a mock device for testing
-                unsafe { std::mem::transmute(0x1usize) }
-            }));
+        if let Some(device) = get_test_device() {
             let observer = MetalHeapObserver::new(device, 1.0);
             assert_eq!(observer.get_allocation_count(), 0);
         }
@@ -394,75 +384,60 @@ mod tests {
 
     #[test]
     fn test_sampling_rate() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let observer = MetalHeapObserver::new(device, 0.5);
-        // Test that sampling rate is clamped
-        assert!(observer.sampling_rate >= 0.0 && observer.sampling_rate <= 1.0);
+        if let Some(device) = get_test_device() {
+            let observer = MetalHeapObserver::new(device, 0.5);
+            // Test that sampling rate is clamped
+            assert!(observer.sampling_rate >= 0.0 && observer.sampling_rate <= 1.0);
+        }
     }
 
     #[test]
     fn test_memory_stats() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let observer = MetalHeapObserver::new(device, 1.0);
-        let stats = observer.get_memory_stats();
+        if let Some(device) = get_test_device() {
+            let observer = MetalHeapObserver::new(device, 1.0);
+            let stats = observer.get_memory_stats();
 
-        assert_eq!(stats.total_allocated, 0);
-        assert_eq!(stats.allocation_count, 0);
-        assert_eq!(stats.heap_count, 0);
-        assert_eq!(stats.migration_event_count, 0);
+            assert_eq!(stats.total_allocated, 0);
+            assert_eq!(stats.allocation_count, 0);
+            assert_eq!(stats.heap_count, 0);
+            assert_eq!(stats.migration_event_count, 0);
+        }
     }
 
     #[test]
     fn test_heap_hash_calculation() {
-        #[cfg(target_os = "macos")]
-        let device = Arc::new(metal::Device::system_default().unwrap());
-        #[cfg(not(target_os = "macos"))]
-        let device = Arc::new(metal::Device::system_default().unwrap_or_else(|| {
-            // Create a mock device for testing
-            unsafe { std::mem::transmute(0x1usize) }
-        }));
-        let observer = MetalHeapObserver::new(device, 1.0);
+        if let Some(device) = get_test_device() {
+            let observer = MetalHeapObserver::new(device, 1.0);
 
-        let allocations = vec![
-            HeapAllocation {
-                allocation_id: Uuid::new_v4(),
-                heap_id: 1,
-                buffer_id: 1,
-                size_bytes: 1024,
-                offset_bytes: 0,
-                timestamp: 1000,
-                memory_addr: Some(0x1000),
-                storage_mode: "shared".to_string(),
-            },
-            HeapAllocation {
-                allocation_id: Uuid::new_v4(),
-                heap_id: 1,
-                buffer_id: 2,
-                size_bytes: 2048,
-                offset_bytes: 1024,
-                timestamp: 2000,
-                memory_addr: Some(0x2000),
-                storage_mode: "shared".to_string(),
-            },
-        ];
+            let allocations = vec![
+                HeapAllocation {
+                    allocation_id: Uuid::new_v4(),
+                    heap_id: 1,
+                    buffer_id: 1,
+                    size_bytes: 1024,
+                    offset_bytes: 0,
+                    timestamp: 1000,
+                    memory_addr: Some(0x1000),
+                    storage_mode: "shared".to_string(),
+                },
+                HeapAllocation {
+                    allocation_id: Uuid::new_v4(),
+                    heap_id: 1,
+                    buffer_id: 2,
+                    size_bytes: 2048,
+                    offset_bytes: 1024,
+                    timestamp: 2000,
+                    memory_addr: Some(0x2000),
+                    storage_mode: "shared".to_string(),
+                },
+            ];
 
-        let refs: Vec<&HeapAllocation> = allocations.iter().collect();
-        let hash1 = observer.calculate_heap_hash(&refs);
-        let hash2 = observer.calculate_heap_hash(&refs);
+            let refs: Vec<&HeapAllocation> = allocations.iter().collect();
+            let hash1 = observer.calculate_heap_hash(&refs);
+            let hash2 = observer.calculate_heap_hash(&refs);
 
-        // Hash should be deterministic
-        assert_eq!(hash1, hash2);
+            // Hash should be deterministic
+            assert_eq!(hash1, hash2);
+        }
     }
 }

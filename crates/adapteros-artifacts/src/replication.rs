@@ -6,7 +6,7 @@
 //! - BLAKE3 verification
 //! - Air-gap export/import
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{time, AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -83,7 +83,7 @@ pub fn create_manifest(
         artifacts,
         total_bytes,
         signature: "mock_signature".to_string(), // In production: sign with Ed25519
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: time::now_rfc3339(),
     })
 }
 
@@ -312,15 +312,3 @@ async fn transfer_chunk(
     }
 }
 
-// Stub chrono for timestamp
-mod chrono {
-    pub struct Utc;
-    impl Utc {
-        pub fn now() -> Self {
-            Self
-        }
-        pub fn to_rfc3339(&self) -> String {
-            "2025-10-08T00:00:00Z".to_string()
-        }
-    }
-}

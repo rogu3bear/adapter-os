@@ -5,16 +5,17 @@
 
 use std::env;
 use std::process;
+use tracing::error;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <command> [args...]", args[0]);
-        eprintln!("Commands:");
-        eprintln!("  check <path>     - Check a single file for determinism violations");
-        eprintln!("  check-dir <path> - Check all Rust files in a directory");
-        eprintln!("  help             - Show this help message");
+        error!("Usage: {} <command> [args...]", args[0]);
+        error!("Commands:");
+        error!("  check <path>     - Check a single file for determinism violations");
+        error!("  check-dir <path> - Check all Rust files in a directory");
+        error!("  help             - Show this help message");
         process::exit(1);
     }
 
@@ -23,7 +24,7 @@ fn main() {
     match command.as_str() {
         "check" => {
             if args.len() < 3 {
-                eprintln!("Error: check command requires a file path");
+                error!("Error: check command requires a file path");
                 process::exit(1);
             }
             let file_path = &args[2];
@@ -31,7 +32,7 @@ fn main() {
         }
         "check-dir" => {
             if args.len() < 3 {
-                eprintln!("Error: check-dir command requires a directory path");
+                error!("Error: check-dir command requires a directory path");
                 process::exit(1);
             }
             let dir_path = &args[2];
@@ -41,8 +42,8 @@ fn main() {
             print_help();
         }
         _ => {
-            eprintln!("Unknown command: {}", command);
-            eprintln!("Use 'help' to see available commands");
+            error!("Unknown command: {}", command);
+            error!("Use 'help' to see available commands");
             process::exit(1);
         }
     }

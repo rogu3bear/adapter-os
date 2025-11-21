@@ -9,7 +9,8 @@ use axum::{
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tokio::net::UnixListener;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod agent;
@@ -19,9 +20,17 @@ use agent::NodeAgent;
 #[command(name = "aos-node")]
 #[command(about = "AdapterOS Node Agent", long_about = None)]
 struct Cli {
-    /// Agent listen port
+    /// Agent listen port (ignored in production mode)
     #[arg(short, long, default_value = "9443")]
     port: u16,
+
+    /// Enable production mode (requires UDS binding, no TCP)
+    #[arg(long, env = "AOS_PRODUCTION_MODE")]
+    production_mode: bool,
+
+    /// Unix Domain Socket path for production mode
+    #[arg(long, env = "AOS_NODE_UDS_PATH", default_value = "/var/run/aos/node.sock")]
+    uds_path: String,
 }
 
 #[derive(Clone)]
@@ -60,8 +69,6 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    info!("AdapterOS Node Agent starting on port {}", cli.port);
-
     // Initialize node agent
     let agent = Arc::new(NodeAgent::new());
     let state = AppState { agent };
@@ -80,13 +87,36 @@ async fn main() -> Result<()> {
         .route("/sync/create-manifest", post(sync_create_manifest))
         .with_state(state);
 
-    // Start server
-    let addr = format!("0.0.0.0:{}", cli.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    // Start server based on mode
+    if cli.production_mode {
+        // Production mode: Use Unix Domain Socket only (egress policy compliance)
+        info!("AdapterOS Node Agent starting in PRODUCTION mode");
 
-    info!("Node agent listening on {}", addr);
+        // Ensure parent directory exists
+        if let Some(parent) = std::path::Path::new(&cli.uds_path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
-    axum::serve(listener, app).await?;
+        // Remove existing socket file if present
+        if std::path::Path::new(&cli.uds_path).exists() {
+            std::fs::remove_file(&cli.uds_path)?;
+        }
+
+        let listener = UnixListener::bind(&cli.uds_path)?;
+        info!("Node agent listening on UDS: {}", cli.uds_path);
+
+        axum::serve(listener, app).await?;
+    } else {
+        // Development mode: TCP binding allowed
+        warn!("Node agent running in DEVELOPMENT mode with TCP binding - not suitable for production");
+
+        let addr = format!("0.0.0.0:{}", cli.port);
+        let listener = tokio::net::TcpListener::bind(&addr).await?;
+
+        info!("Node agent listening on TCP: {}", addr);
+
+        axum::serve(listener, app).await?;
+    }
 
     Ok(())
 }

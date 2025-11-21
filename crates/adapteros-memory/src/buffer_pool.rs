@@ -136,13 +136,16 @@ impl BufferPool {
         }
 
         let bucket = self.size_bucket(size);
-        let mut buffers = self.buffers.lock().unwrap();
+        let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
+            warn!("Buffer pool mutex was poisoned, recovering: {:?}", e);
+            e.into_inner()
+        });
 
         if let Some(bucket_queue) = buffers.get_mut(&bucket) {
             if let Some(mut pooled) = bucket_queue.pop_front() {
                 pooled.reset(size);
 
-                let mut total_pooled = self.total_pooled_bytes.lock().unwrap();
+                let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| e.into_inner());
                 *total_pooled = total_pooled.saturating_sub(pooled.capacity);
 
                 debug!(
@@ -176,7 +179,7 @@ impl BufferPool {
         }
 
         let bucket = self.size_bucket(capacity);
-        let mut buffers = self.buffers.lock().unwrap();
+        let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
 
         let bucket_queue = buffers.entry(bucket).or_insert_with(VecDeque::new);
 
@@ -184,7 +187,7 @@ impl BufferPool {
         if bucket_queue.len() >= self.config.max_pool_size {
             // Evict oldest buffer
             if let Some(old) = bucket_queue.pop_back() {
-                let mut total_pooled = self.total_pooled_bytes.lock().unwrap();
+                let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| e.into_inner());
                 *total_pooled = total_pooled.saturating_sub(old.capacity);
 
                 debug!(
@@ -201,7 +204,7 @@ impl BufferPool {
         let pooled = PooledBuffer::new(capacity);
         bucket_queue.push_front(pooled);
 
-        let mut total_pooled = self.total_pooled_bytes.lock().unwrap();
+        let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| e.into_inner());
         *total_pooled += capacity;
 
         debug!(
@@ -231,7 +234,7 @@ impl BufferPool {
 
         // Check cache
         {
-            let mut cache = self.conversion_cache.lock().unwrap();
+            let mut cache = self.conversion_cache.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(cached) = cache.get_mut(&key) {
                 cached.last_accessed = current_timestamp();
                 debug!(
@@ -249,7 +252,7 @@ impl BufferPool {
 
         // Cache result
         {
-            let mut cache = self.conversion_cache.lock().unwrap();
+            let mut cache = self.conversion_cache.lock().unwrap_or_else(|e| e.into_inner());
 
             // Evict if cache full
             if cache.len() >= self.config.max_conversion_cache_size {
@@ -266,7 +269,7 @@ impl BufferPool {
                 },
             );
 
-            let mut total_cache = self.total_cache_bytes.lock().unwrap();
+            let mut total_cache = self.total_cache_bytes.lock().unwrap_or_else(|e| e.into_inner());
             *total_cache += size_bytes;
 
             debug!(
@@ -375,7 +378,7 @@ impl BufferPool {
         {
             cache.remove(&oldest_key);
 
-            let mut total_cache = self.total_cache_bytes.lock().unwrap();
+            let mut total_cache = self.total_cache_bytes.lock().unwrap_or_else(|e| e.into_inner());
             *total_cache = total_cache.saturating_sub(oldest_size);
 
             debug!(
@@ -398,11 +401,11 @@ impl BufferPool {
 
     /// Get pool statistics
     pub fn stats(&self) -> BufferPoolStats {
-        let buffers = self.buffers.lock().unwrap();
-        let cache = self.conversion_cache.lock().unwrap();
+        let buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
+        let cache = self.conversion_cache.lock().unwrap_or_else(|e| e.into_inner());
 
-        let total_pooled = *self.total_pooled_bytes.lock().unwrap();
-        let total_cache = *self.total_cache_bytes.lock().unwrap();
+        let total_pooled = *self.total_pooled_bytes.lock().unwrap_or_else(|e| e.into_inner());
+        let total_cache = *self.total_cache_bytes.lock().unwrap_or_else(|e| e.into_inner());
 
         let buffer_count: usize = buffers.values().map(|q| q.len()).sum();
         let cache_entries = cache.len();
@@ -418,16 +421,16 @@ impl BufferPool {
     /// Clear all pooled buffers and cache (for memory pressure)
     pub fn clear(&self) {
         {
-            let mut buffers = self.buffers.lock().unwrap();
+            let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
             buffers.clear();
-            let mut total_pooled = self.total_pooled_bytes.lock().unwrap();
+            let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| e.into_inner());
             *total_pooled = 0;
         }
 
         {
-            let mut cache = self.conversion_cache.lock().unwrap();
+            let mut cache = self.conversion_cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.clear();
-            let mut total_cache = self.total_cache_bytes.lock().unwrap();
+            let mut total_cache = self.total_cache_bytes.lock().unwrap_or_else(|e| e.into_inner());
             *total_cache = 0;
         }
 

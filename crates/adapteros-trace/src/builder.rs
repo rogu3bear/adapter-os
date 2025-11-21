@@ -1,6 +1,7 @@
 //! In-memory trace builder with bounded buffers for live dashboard
 
 use crate::schema::TraceBundle;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
@@ -62,9 +63,15 @@ impl TraceBuffer {
     }
 
     /// Add or update a trace (evicts oldest if over capacity)
-    pub fn add_trace(&self, trace: Trace) {
-        let mut guard = self.inner.write().expect("trace buffer poisoned");
-        let mut idx_guard = self.span_index.write().expect("span index poisoned");
+    pub fn add_trace(&self, trace: Trace) -> Result<()> {
+        let mut guard = self
+            .inner
+            .write()
+            .map_err(|e| AosError::Telemetry(format!("Trace buffer lock poisoned: {}", e)))?;
+        let mut idx_guard = self
+            .span_index
+            .write()
+            .map_err(|e| AosError::Telemetry(format!("Span index lock poisoned: {}", e)))?;
 
         // Evict oldest if at capacity
         if guard.len() >= self.capacity {
@@ -78,17 +85,24 @@ impl TraceBuffer {
         idx_guard.insert(trace.trace_id.clone(), span_ids);
 
         guard.push_back(trace);
+        Ok(())
     }
 
     /// Get a trace by trace_id
-    pub fn get_trace(&self, trace_id: &str) -> Option<Trace> {
-        let guard = self.inner.read().expect("trace buffer poisoned");
-        guard.iter().find(|t| t.trace_id == trace_id).cloned()
+    pub fn get_trace(&self, trace_id: &str) -> Result<Option<Trace>> {
+        let guard = self
+            .inner
+            .read()
+            .map_err(|e| AosError::Telemetry(format!("Trace buffer lock poisoned: {}", e)))?;
+        Ok(guard.iter().find(|t| t.trace_id == trace_id).cloned())
     }
 
     /// Search traces by various criteria (returns matching trace_ids)
-    pub fn search(&self, query: &TraceSearchQuery) -> Vec<String> {
-        let guard = self.inner.read().expect("trace buffer poisoned");
+    pub fn search(&self, query: &TraceSearchQuery) -> Result<Vec<String>> {
+        let guard = self
+            .inner
+            .read()
+            .map_err(|e| AosError::Telemetry(format!("Trace buffer lock poisoned: {}", e)))?;
         let mut results = Vec::new();
 
         for trace in guard.iter() {
@@ -129,30 +143,39 @@ impl TraceBuffer {
             }
         }
 
-        results
+        Ok(results)
     }
 
     /// Get all trace IDs (newest first, up to limit)
-    pub fn list_traces(&self, limit: usize) -> Vec<String> {
-        let guard = self.inner.read().expect("trace buffer poisoned");
-        guard
+    pub fn list_traces(&self, limit: usize) -> Result<Vec<String>> {
+        let guard = self
+            .inner
+            .read()
+            .map_err(|e| AosError::Telemetry(format!("Trace buffer lock poisoned: {}", e)))?;
+        Ok(guard
             .iter()
             .rev()
             .take(limit)
             .map(|t| t.trace_id.clone())
-            .collect()
+            .collect())
     }
 
     /// Current number of traces retained
-    pub fn len(&self) -> usize {
-        let guard = self.inner.read().expect("trace buffer poisoned");
-        guard.len()
+    pub fn len(&self) -> Result<usize> {
+        let guard = self
+            .inner
+            .read()
+            .map_err(|e| AosError::Telemetry(format!("Trace buffer lock poisoned: {}", e)))?;
+        Ok(guard.len())
     }
 
     /// Check if the trace buffer is empty
-    pub fn is_empty(&self) -> bool {
-        let guard = self.inner.read().expect("trace buffer poisoned");
-        guard.is_empty()
+    pub fn is_empty(&self) -> Result<bool> {
+        let guard = self
+            .inner
+            .read()
+            .map_err(|e| AosError::Telemetry(format!("Trace buffer lock poisoned: {}", e)))?;
+        Ok(guard.is_empty())
     }
 }
 

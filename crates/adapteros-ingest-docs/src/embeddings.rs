@@ -10,20 +10,11 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tracing::{debug, warn};
 
+// Re-export the canonical EmbeddingModel trait from adapteros-lora-rag
+pub use adapteros_lora_rag::EmbeddingModel;
+
 /// Embedding dimension (standard for many models)
 pub const EMBEDDING_DIMENSION: usize = 384;
-
-/// Embedding model trait for document chunks
-pub trait EmbeddingModel: Send + Sync {
-    /// Encode text into an embedding vector
-    fn encode_text(&self, text: &str) -> Result<Vec<f32>>;
-
-    /// Get the model hash for determinism tracking
-    fn model_hash(&self) -> B3Hash;
-
-    /// Get the embedding dimension
-    fn dimension(&self) -> usize;
-}
 
 /// Production-ready embedding model selector
 pub enum ProductionEmbeddingModel {

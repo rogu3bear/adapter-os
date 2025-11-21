@@ -2,6 +2,7 @@
 
 use adapteros_core::{AosError, Result};
 use std::process::Command;
+use tracing::{info, warn};
 
 /// Validate that Packet Filter (PF) rules are active and block egress
 ///
@@ -126,8 +127,8 @@ mod tests {
         // Just check that it doesn't panic
         // Actual validation depends on system configuration
         match result {
-            Ok(_) => println!("PF validation passed"),
-            Err(e) => println!("PF validation: {}", e),
+            Ok(_) => info!("PF validation passed"),
+            Err(e) => warn!("PF validation failed: {}", e),
         }
     }
 }

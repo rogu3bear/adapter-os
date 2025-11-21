@@ -28,7 +28,6 @@ pub fn derive_tenant_key(tenant_id: &str) -> Result<[u8; 32]> {
     // Check for Secure Enclave availability
     if !is_secure_enclave_available() {
         tracing::warn!("Secure Enclave not available, using software key derivation");
-        eprintln!("⚠️  Secure Enclave not available, using software key derivation");
         return derive_software_key(tenant_id);
     }
 
@@ -93,7 +92,6 @@ fn derive_software_key_with_hardware_info(tenant_id: &str) -> Result<[u8; 32]> {
 #[cfg(not(target_os = "macos"))]
 pub fn derive_tenant_key(tenant_id: &str) -> Result<[u8; 32]> {
     tracing::warn!("Secure Enclave only available on macOS, using software derivation");
-    eprintln!("⚠️  Secure Enclave only available on macOS, using software derivation");
     derive_software_key(tenant_id)
 }
 

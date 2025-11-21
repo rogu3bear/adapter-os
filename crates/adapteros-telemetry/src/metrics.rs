@@ -18,6 +18,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::info;
 
+// Re-export canonical AdapterMetrics from adapteros-types
+pub use adapteros_types::AdapterMetrics;
+
 /// Metrics collector with Prometheus integration
 pub struct MetricsCollector {
     registry: Registry,
@@ -97,13 +100,7 @@ pub struct PolicyMetrics {
     pub violations_by_policy: HashMap<String, u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterMetrics {
-    pub activations_total: u64,
-    pub evictions_total: u64,
-    pub active_adapters: f64,
-    pub activations_by_adapter: HashMap<String, u64>,
-}
+// AdapterMetrics is now imported from adapteros_types
 
 impl MetricsCollector {
     /// Create a new metrics collector

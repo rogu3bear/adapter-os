@@ -10,17 +10,15 @@
 //! - Using content-based seeds for training
 //! - Sorting all extracted data consistently
 //! - Using BLAKE3 hashing for reproducibility
+//!
+//! NOTE: CodeGraph support is currently disabled due to tree-sitter conflict.
 
-use adapteros_codegraph::{CodeGraph, DirectoryAnalysis, DirectorySymbolKind, Visibility};
-use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_lora_worker::training::{
-    AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
-};
+// use adapteros_codegraph::{CodeGraph, DirectoryAnalysis, DirectorySymbolKind, Visibility};  // Disabled
+use adapteros_core::{AosError, Result};
+use adapteros_lora_worker::training::TrainingConfig;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tokenizers::Tokenizer;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 /// Configuration for codebase ingestion
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,138 +90,36 @@ pub struct IngestionResult {
     pub content_hash: String,
 }
 
-/// Codebase ingestion pipeline
+/// Codebase ingestion pipeline (stub - codegraph disabled)
 pub struct CodebaseIngestion {
     config: IngestionConfig,
-    tokenizer: Tokenizer,
 }
 
 impl CodebaseIngestion {
-    /// Create a new ingestion pipeline
+    /// Create a new ingestion pipeline (stub - codegraph disabled)
     pub fn new(config: IngestionConfig) -> Result<Self> {
-        // Load tokenizer
-        let tokenizer_path = config
-            .tokenizer_path
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json"));
-
-        if !tokenizer_path.exists() {
-            return Err(AosError::NotFound(format!(
-                "Tokenizer not found: {}. Please ensure it exists or specify --tokenizer",
-                tokenizer_path.display()
-            )));
-        }
-
-        let tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to load tokenizer from {}: {}",
-                tokenizer_path.display(),
-                e
-            ))
-        })?;
-
-        info!("Loaded tokenizer from: {}", tokenizer_path.display());
-
-        Ok(Self { config, tokenizer })
+        info!("CodebaseIngestion created (CodeGraph support disabled)");
+        Ok(Self { config })
     }
 
-    /// Run the full ingestion pipeline: extract → generate dataset → train → package
+    /// Run the full ingestion pipeline (stub - codegraph disabled)
     pub async fn ingest_and_train(
         &self,
         repo_path: &Path,
         adapter_id: &str,
-        adapters_root: &Path,
+        _adapters_root: &Path,
     ) -> Result<IngestionResult> {
         info!(
-            "Starting codebase ingestion for repository: {}",
-            repo_path.display()
+            "Codebase ingestion requested for repository: {} (adapter: {})",
+            repo_path.display(),
+            adapter_id
         );
 
-        // Step 1: Extract code knowledge using CodeGraph
-        let (code_graph, dir_analysis) = self.extract_code_knowledge(repo_path).await?;
-
-        // Step 2: Generate training dataset from extracted symbols
-        let examples = self.generate_training_dataset(&code_graph, &dir_analysis, repo_path)?;
-
-        if examples.is_empty() {
-            return Err(AosError::Training(
-                "No training examples generated from codebase".to_string(),
-            ));
-        }
-
-        info!(
-            "Generated {} training examples from {} symbols",
-            examples.len(),
-            code_graph.symbols.len()
-        );
-
-        // Step 3: Compute content hash for reproducibility
-        let content_hash = self.compute_content_hash(&code_graph, &examples);
-
-        // Step 4: Train the adapter with deterministic seed
-        let training_result = self.train_adapter(&examples, &content_hash).await?;
-
-        // Step 5: Package the trained adapter
-        let packaged = self
-            .package_adapter(
-                adapter_id,
-                &training_result.weights,
-                adapters_root,
-                &content_hash,
-            )
-            .await?;
-
-        // Step 6: Get commit SHA if available
-        let commit_sha = self.get_commit_sha(repo_path);
-
-        Ok(IngestionResult {
-            adapter_id: adapter_id.to_string(),
-            adapter_hash: packaged.hash_b3.clone(),
-            repo_path: repo_path.to_string_lossy().to_string(),
-            commit_sha,
-            symbols_count: code_graph.symbols.len(),
-            examples_count: examples.len(),
-            final_loss: training_result.final_loss,
-            training_time_ms: training_result.training_time_ms,
-            content_hash,
-        })
+        Err(AosError::Internal(
+            "CodeGraph support is disabled due to tree-sitter conflict. Use code_ingestion.rs pipeline instead.".to_string(),
+        ))
     }
-
-    /// Extract code knowledge from repository using CodeGraph
-    async fn extract_code_knowledge(
-        &self,
-        repo_path: &Path,
-    ) -> Result<(CodeGraph, DirectoryAnalysis)> {
-        info!("Parsing repository with CodeGraph: {}", repo_path.display());
-
-        // Parse repository to build code graph
-        let code_graph = CodeGraph::from_directory(repo_path, None)
-            .await
-            .map_err(|e| {
-                AosError::Internal(format!(
-                    "CodeGraph parsing failed for {}: {}",
-                    repo_path.display(),
-                    e
-                ))
-            })?;
-
-        info!(
-            "Parsed {} symbols from repository",
-            code_graph.symbols.len()
-        );
-
-        // Also get directory-level analysis for file structure
-        let dir_analysis = adapteros_codegraph::analyze_directory(repo_path, Path::new(""))
-            .map_err(|e| {
-                AosError::Internal(format!(
-                    "Directory analysis failed for {}: {}",
-                    repo_path.display(),
-                    e
-                ))
-            })?;
-
-        Ok((code_graph, dir_analysis))
-    }
+}
 
     /// Generate training dataset from extracted code symbols
     fn generate_training_dataset(

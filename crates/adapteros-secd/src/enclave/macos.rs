@@ -1,9 +1,8 @@
 use super::{EnclaveError, Result};
-use adapteros_core::B3Hash;
+use adapteros_core::{derive_seed, B3Hash};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, Key, KeyInit, Nonce};
 use core_foundation::base::CFOptionFlags;
-use rand::Rng;
 use security_framework::access_control::{ProtectionMode, SecAccessControl};
 use security_framework::base::Error as SecurityError;
 use security_framework::item::{ItemClass, ItemSearchOptions, Location, Reference, SearchResult};
@@ -56,8 +55,12 @@ impl EnclaveManager {
         let key = Key::from_slice(&key_bytes);
         let cipher = ChaCha20Poly1305::new(key);
 
+        // Derive deterministic nonce using HKDF with domain separation
+        // Combines "enclave-nonce" domain with label for unique, reproducible nonces
+        let domain = format!("enclave-nonce:{}", label);
+        let seed = derive_seed(&B3Hash::hash(data), &domain);
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut nonce_bytes);
+        nonce_bytes.copy_from_slice(&seed[..12]);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher

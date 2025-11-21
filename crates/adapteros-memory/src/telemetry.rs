@@ -43,7 +43,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.allocation", &event);
+            writer.emit_event("memory.allocation", serde_json::to_value(&event).unwrap());
 
             info!(
                 adapter_id = adapter_id,
@@ -64,7 +64,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.deallocation", &event);
+            writer.emit_event("memory.deallocation", serde_json::to_value(&event).unwrap());
 
             info!(
                 adapter_id = adapter_id,
@@ -94,7 +94,7 @@ impl MemoryTelemetryWriter {
                 PressureLevel::Critical => "error",
             };
 
-            writer.emit_event(&format!("memory.pressure.{}", level), &event);
+            writer.emit_event(&format!("memory.pressure.{}", level), serde_json::to_value(&event).unwrap());
 
             match report.pressure_level {
                 PressureLevel::Critical => warn!(
@@ -128,7 +128,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.eviction", &event);
+            writer.emit_event("memory.eviction", serde_json::to_value(&event).unwrap());
 
             warn!(
                 adapter_id = evicted.adapter_id,
@@ -154,7 +154,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.stats", &event);
+            writer.emit_event("memory.stats", serde_json::to_value(&event).unwrap());
         }
     }
 
@@ -169,7 +169,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.buffer_pool.stats", &event);
+            writer.emit_event("memory.buffer_pool.stats", serde_json::to_value(&event).unwrap());
         }
     }
 
@@ -188,7 +188,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.fingerprint.verification", &event);
+            writer.emit_event("memory.fingerprint.verification", serde_json::to_value(&event).unwrap());
 
             if !verified {
                 warn!(
@@ -217,7 +217,7 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.footprint.anomaly", &event);
+            writer.emit_event("memory.footprint.anomaly", serde_json::to_value(&event).unwrap());
 
             if !within_tolerance {
                 warn!(
@@ -234,7 +234,7 @@ impl MemoryTelemetryWriter {
 /// Trait for telemetry event sinks
 pub trait TelemetryEventSink: Send + Sync {
     /// Emit a telemetry event
-    fn emit_event<T: Serialize>(&self, event_type: &str, event: &T);
+    fn emit_event(&self, event_type: &str, event: serde_json::Value);
 }
 
 /// Memory allocation event
@@ -351,12 +351,11 @@ mod tests {
     }
 
     impl TelemetryEventSink for MockTelemetrySink {
-        fn emit_event<T: Serialize>(&self, event_type: &str, event: &T) {
-            let json = serde_json::to_value(event).unwrap();
+        fn emit_event(&self, event_type: &str, event: serde_json::Value) {
             self.events
                 .lock()
                 .unwrap()
-                .push((event_type.to_string(), json));
+                .push((event_type.to_string(), event));
         }
     }
 

@@ -1,6 +1,6 @@
 //! SPDX SBOM generation and validation
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{time, AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ impl SpdxDocument {
             name,
             document_namespace: namespace,
             creation_info: CreationInfo {
-                created: chrono::Utc::now().to_rfc3339(),
+                created: time::now_rfc3339(),
                 creators: vec!["Tool: aos-sbom".to_string()],
                 license_list_version: "3.20".to_string(),
             },
@@ -134,19 +134,6 @@ impl SpdxDocument {
     }
 }
 
-// Stub chrono for timestamp
-mod chrono {
-    pub struct Utc;
-    impl Utc {
-        pub fn now() -> Self {
-            Self
-        }
-        pub fn to_rfc3339(&self) -> String {
-            // Simplified: return a fixed timestamp for now
-            "2025-01-01T00:00:00Z".to_string()
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

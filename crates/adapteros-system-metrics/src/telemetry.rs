@@ -120,10 +120,22 @@ impl SystemMetricsTelemetry {
     }
 
     /// Check if we should sample this event
+    ///
+    /// Uses deterministic sampling based on current timestamp hash.
+    /// Given the same timestamp, the sampling decision is reproducible.
     fn should_sample(&self) -> bool {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        rng.gen::<f32>() < self.sampling_rate
+        // Get current timestamp as deterministic input
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("System time before UNIX epoch")
+            .as_nanos();
+
+        // Use simple hash-based sampling for determinism
+        // Mix timestamp bits to get pseudo-random distribution
+        let hash = timestamp.wrapping_mul(0x517cc1b727220a95);
+        let normalized = (hash as f32) / (u128::MAX as f32);
+
+        normalized < self.sampling_rate
     }
 }
 

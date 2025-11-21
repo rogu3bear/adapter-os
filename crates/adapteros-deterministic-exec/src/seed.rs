@@ -396,11 +396,25 @@ impl GlobalSeedManager {
         let seed = if let Some(seed) = primary_seed {
             seed
         } else {
-            // Use hardware RNG as fallback
-            let mut fallback_seed = [0u8; 32];
-            rand::thread_rng().fill_bytes(&mut fallback_seed);
+            // Use a fixed deterministic fallback seed derived via HKDF
+            // This maintains determinism but should only be used in development/testing
+            use hkdf::Hkdf;
+            use sha2::Sha256;
 
-            warn!("Using hardware RNG fallback for global seed - this reduces determinism");
+            // Fixed entropy source for fallback - deterministic but unique per domain
+            const FALLBACK_IKM: &[u8] = b"adapteros-deterministic-exec-fallback-seed-v1";
+            const FALLBACK_SALT: &[u8] = b"global-seed-manager-emergency";
+
+            let hk = Hkdf::<Sha256>::new(Some(FALLBACK_SALT), FALLBACK_IKM);
+            let mut fallback_seed = [0u8; 32];
+            hk.expand(b"fallback", &mut fallback_seed)
+                .expect("HKDF expansion failed for fallback seed");
+
+            error!(
+                "No primary seed provided - using fixed deterministic fallback seed. \
+                 This should only occur in development/testing. Production deployments \
+                 MUST provide a proper seed derived from the manifest hash."
+            );
             fallback_seed
         };
 

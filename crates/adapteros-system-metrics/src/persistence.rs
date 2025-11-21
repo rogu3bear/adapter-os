@@ -395,10 +395,10 @@ impl MetricsPersistenceService {
             .to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count = sqlx::query!(
+        let deleted_count = sqlx::query(
             "DELETE FROM process_health_metrics WHERE collected_at < ?",
-            cutoff_rfc3339
         )
+        .bind(&cutoff_rfc3339)
         .execute(self.db.pool())
         .await
         .map_err(|e| {
@@ -431,7 +431,7 @@ impl MetricsPersistenceService {
 
     /// Get active workers from database
     async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query!("SELECT id, tenant_id FROM workers WHERE status = 'active'")
+        let rows = sqlx::query("SELECT id, tenant_id FROM workers WHERE status = 'active'")
             .fetch_all(self.db.pool())
             .await
             .map_err(|e| {
@@ -440,9 +440,12 @@ impl MetricsPersistenceService {
 
         let workers = rows
             .into_iter()
-            .map(|row| WorkerInfo {
-                id: row.id.unwrap_or_else(|| "unknown".to_string()),
-                tenant_id: row.tenant_id,
+            .map(|row| {
+                use sqlx::Row;
+                WorkerInfo {
+                    id: row.get::<Option<String>, _>("id").unwrap_or_else(|| "unknown".to_string()),
+                    tenant_id: row.get("tenant_id"),
+                }
             })
             .collect();
 

@@ -11,6 +11,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex as TokioMutex;
 use tracing::info;
 
 /// Unified memory management interface
@@ -211,7 +212,7 @@ pub struct UnifiedMemoryManager {
     headroom_threshold: f64,
 
     /// Adapter registry
-    adapters: Arc<Mutex<HashMap<String, AdapterMemoryInfo>>>,
+    adapters: Arc<TokioMutex<HashMap<String, AdapterMemoryInfo>>>,
 }
 
 impl UnifiedMemoryManager {
@@ -222,7 +223,7 @@ impl UnifiedMemoryManager {
             total_allocated: Arc::new(Mutex::new(0)),
             memory_limit,
             headroom_threshold,
-            adapters: Arc::new(Mutex::new(HashMap::new())),
+            adapters: Arc::new(TokioMutex::new(HashMap::new())),
         }
     }
 
@@ -261,7 +262,7 @@ impl MemoryManager for UnifiedMemoryManager {
             MemoryPressureLevel::Critical
         };
 
-        let adapters = self.adapters.lock().unwrap().values().cloned().collect();
+        let adapters = self.adapters.lock().await.values().cloned().collect();
 
         Ok(MemoryUsageStats {
             total_memory: self.memory_limit,
@@ -275,7 +276,7 @@ impl MemoryManager for UnifiedMemoryManager {
     }
 
     async fn evict_adapter(&self, adapter_id: &str) -> Result<()> {
-        let mut adapters = self.adapters.lock().unwrap();
+        let mut adapters = self.adapters.lock().await;
 
         if let Some(adapter) = adapters.get_mut(adapter_id) {
             if adapter.pinned {
@@ -305,7 +306,7 @@ impl MemoryManager for UnifiedMemoryManager {
     }
 
     async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()> {
-        let mut adapters = self.adapters.lock().unwrap();
+        let mut adapters = self.adapters.lock().await;
 
         if let Some(adapter) = adapters.get_mut(adapter_id) {
             adapter.pinned = pinned;
@@ -326,7 +327,7 @@ impl MemoryManager for UnifiedMemoryManager {
     }
 
     async fn get_adapter_memory_info(&self, adapter_id: &str) -> Result<AdapterMemoryInfo> {
-        let adapters = self.adapters.lock().unwrap();
+        let adapters = self.adapters.lock().await;
 
         adapters
             .get(adapter_id)
@@ -503,7 +504,7 @@ mod tests {
         let manager = UnifiedMemoryManager::new(1024 * 1024, 15.0);
 
         // Add adapters with identical quality scores but different IDs
-        let mut adapters = manager.adapters.lock().unwrap();
+        let mut adapters = manager.adapters.lock().await;
 
         adapters.insert(
             "adapter-zeta".to_string(),

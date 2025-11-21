@@ -3,16 +3,37 @@
 //! Ephemeral adapters are short-lived LoRA weights that capture the
 //! impact of recent changes.  They are generated from the change detector
 //! and automatically expire after their TTL window.
+//!
+//! NOTE: This module is currently stubbed out as adapteros-codegraph is disabled.
 
-use adapteros_codegraph::DetectedChange;
-use adapteros_core::{B3Hash, Result};
+// use adapteros_codegraph::DetectedChange;  // Disabled - codegraph unavailable
+use adapteros_core::{AosError, B3Hash, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::info;
+use std::path::PathBuf;
 
 use crate::training::LoRAWeights;
+
+/// Stub replacement for DetectedChange from adapteros-codegraph
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectedChange {
+    pub path: PathBuf,
+    pub change_type: DetectedChangeType,
+    pub impacted_symbols: Vec<String>,
+    pub impact_score: f32,
+    pub suggested_rank: u8,
+    pub ttl_hours: u64,
+    pub commit_id: String,
+}
+
+/// Stub replacement for DetectedChangeType
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DetectedChangeType {
+    Added,
+    Modified,
+    Deleted,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EphemeralAdapterSpec {
@@ -181,7 +202,7 @@ mod tests {
     fn sample_change(path: &str) -> DetectedChange {
         DetectedChange {
             path: PathBuf::from(path),
-            change_type: adapteros_codegraph::DetectedChangeType::Modified,
+            change_type: DetectedChangeType::Modified,
             impacted_symbols: vec!["handler".into()],
             impact_score: 0.8,
             suggested_rank: 6,
@@ -189,8 +210,6 @@ mod tests {
             commit_id: "abc123".into(),
         }
     }
-
-    use std::path::PathBuf;
 
     #[test]
     fn create_and_evict_ephemeral_adapter() {

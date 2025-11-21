@@ -833,20 +833,43 @@ async fn main() -> Result<()> {
         .nest("/api", api_routes);
 
     // Bind and serve
-    let port = config
-        .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
-        .server
-        .port;
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    info!("Starting control plane on {}", addr);
-    info!("UI available at http://127.0.0.1:{}/", port);
-    info!("API available at http://127.0.0.1:{}/api/", port);
+    let (production_mode, uds_socket, port) = {
+        let cfg = config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+        (cfg.server.production_mode, cfg.server.uds_socket.clone(), cfg.server.port)
+    };
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // Egress policy: production_mode requires UDS-only
+    if production_mode {
+        let socket_path = uds_socket.ok_or_else(|| {
+            AosError::PolicyViolation(
+                "Egress policy violation: production_mode requires uds_socket configuration".into(),
+            )
+        })?;
+
+        info!("Starting control plane on UDS: {}", socket_path);
+        info!("Production mode enabled - TCP binding disabled per Egress policy");
+
+        // Remove existing socket file if present
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = tokio::net::UnixListener::bind(&socket_path)?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+    } else {
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        info!("Starting control plane on {}", addr);
+        info!("UI available at http://127.0.0.1:{}/", port);
+        info!("API available at http://127.0.0.1:{}/api/", port);
+        warn!("Development mode: TCP binding enabled. Set production_mode=true for UDS-only");
+
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+    }
 
     Ok(())
 }

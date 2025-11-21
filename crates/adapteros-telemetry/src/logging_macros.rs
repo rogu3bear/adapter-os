@@ -1,4 +1,3 @@
-use tracing::{event, Level};
 
 macro_rules! log_with_identity {
     ($envelope:expr, $lvl:expr, $($arg:tt)*) => {

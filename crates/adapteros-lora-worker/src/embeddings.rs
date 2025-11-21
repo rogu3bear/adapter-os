@@ -158,6 +158,10 @@ impl RagEmbeddingModel for EmbeddingModel {
         B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
             .unwrap()
     }
+
+    fn dimension(&self) -> usize {
+        self.dimension
+    }
 }
 
 #[cfg(test)]

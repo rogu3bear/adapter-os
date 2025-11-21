@@ -380,12 +380,12 @@ impl AlertEvaluator {
     async fn is_in_cooldown(&self, rule_id: &str, cooldown_seconds: i64) -> Result<bool> {
         let cutoff_time = chrono::Utc::now() - chrono::Duration::seconds(cooldown_seconds);
 
-        let recent_alert = sqlx::query!(
-            "SELECT created_at FROM process_alerts 
-             WHERE rule_id = ? AND status IN ('active', 'acknowledged') 
+        let recent_alert = sqlx::query(
+            "SELECT created_at FROM process_alerts
+             WHERE rule_id = ? AND status IN ('active', 'acknowledged')
              ORDER BY created_at DESC LIMIT 1",
-            rule_id
         )
+        .bind(rule_id)
         .fetch_optional(self.db.pool())
         .await
         .map_err(|e| {
@@ -393,7 +393,9 @@ impl AlertEvaluator {
         })?;
 
         if let Some(alert) = recent_alert {
-            let alert_time = match &alert.created_at {
+            use sqlx::Row;
+            let created_at: Option<chrono::NaiveDateTime> = alert.get("created_at");
+            let alert_time = match created_at {
                 Some(dt) => chrono::DateTime::parse_from_rfc3339(
                     &dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
                 ),
@@ -595,11 +597,11 @@ impl AlertEvaluator {
         level_config: &serde_json::Value,
     ) -> Result<()> {
         // Update escalation level in database
-        sqlx::query!(
+        sqlx::query(
             "UPDATE process_alerts SET escalation_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            new_level,
-            alert.id
         )
+        .bind(new_level)
+        .bind(&alert.id)
         .execute(self.db.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to escalate alert: {}", e)))?;
@@ -663,7 +665,7 @@ impl AlertEvaluator {
 
     /// Get active tenants
     async fn get_active_tenants(&self) -> Result<Vec<TenantInfo>> {
-        let rows = sqlx::query!("SELECT id FROM tenants")
+        let rows = sqlx::query("SELECT id FROM tenants")
             .fetch_all(self.db.pool())
             .await
             .map_err(|e| {
@@ -672,8 +674,11 @@ impl AlertEvaluator {
 
         let tenants = rows
             .into_iter()
-            .map(|row| TenantInfo {
-                id: row.id.unwrap_or_else(|| "unknown".to_string()),
+            .map(|row| {
+                use sqlx::Row;
+                TenantInfo {
+                    id: row.get::<Option<String>, _>("id").unwrap_or_else(|| "unknown".to_string()),
+                }
             })
             .collect();
 

@@ -2,13 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-/// Status for a health check.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HealthStatus {
-    Healthy,
-    Degraded,
-    Unhealthy,
-}
+// Re-export canonical HealthStatus from adapteros-core
+pub use adapteros_core::HealthStatus;
 
 /// Health check definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]

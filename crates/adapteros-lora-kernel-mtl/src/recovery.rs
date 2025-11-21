@@ -6,6 +6,7 @@
 
 use adapteros_core::{AosError, Result};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use tracing::{error, info};
 
 /// Recovery wrapper for Metal kernel dispatch
 ///
@@ -57,11 +58,11 @@ impl RecoveryWrapper {
                     "Unknown panic".to_string()
                 };
 
-                eprintln!(
-                    "⚠️  Metal kernel panic caught (count: {}): {}",
-                    self.panic_count, panic_msg
+                error!(
+                    panic_count = self.panic_count,
+                    panic_message = %panic_msg,
+                    "Metal kernel panic caught - device marked as degraded"
                 );
-                eprintln!("    Device marked as degraded - recovery required");
 
                 Err(AosError::Kernel(format!(
                     "Kernel panic - device marked degraded: {}",
@@ -103,7 +104,7 @@ impl RecoveryWrapper {
         // 4. Verify with a test dispatch
 
         self.degraded = false;
-        eprintln!("✓ Recovery attempted - device unmarked as degraded");
+        info!("Recovery attempted - device unmarked as degraded");
         Ok(())
     }
 

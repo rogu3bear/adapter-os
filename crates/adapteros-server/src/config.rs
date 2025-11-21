@@ -22,6 +22,10 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_bind")]
     pub bind: String,
+    #[serde(default)]
+    pub production_mode: bool,
+    #[serde(default)]
+    pub uds_socket: Option<String>,
 }
 
 fn default_bind() -> String {

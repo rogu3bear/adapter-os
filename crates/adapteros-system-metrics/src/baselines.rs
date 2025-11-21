@@ -582,10 +582,10 @@ impl BaselineService {
         let cutoff_time = chrono::Utc::now();
 
         let cutoff_time_str = cutoff_time.to_rfc3339();
-        let deleted_count = sqlx::query!(
+        let deleted_count = sqlx::query(
             "DELETE FROM process_performance_baselines WHERE expires_at < ?",
-            cutoff_time_str
         )
+        .bind(&cutoff_time_str)
         .execute(self.db.pool())
         .await
         .map_err(|e| {
@@ -620,7 +620,7 @@ impl BaselineService {
 
     /// Get active tenants
     async fn get_active_tenants(&self) -> Result<Vec<TenantInfo>> {
-        let rows = sqlx::query!("SELECT id FROM tenants")
+        let rows = sqlx::query("SELECT id FROM tenants")
             .fetch_all(self.db.pool())
             .await
             .map_err(|e| {
@@ -629,8 +629,11 @@ impl BaselineService {
 
         let tenants = rows
             .into_iter()
-            .map(|row| TenantInfo {
-                id: row.id.unwrap_or_default(),
+            .map(|row| {
+                use sqlx::Row;
+                TenantInfo {
+                    id: row.get::<Option<String>, _>("id").unwrap_or_default(),
+                }
             })
             .collect();
 
@@ -639,19 +642,22 @@ impl BaselineService {
 
     /// Get active workers for a tenant
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             "SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'",
-            tenant_id
         )
+        .bind(tenant_id)
         .fetch_all(self.db.pool())
         .await
         .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get workers: {}", e)))?;
 
         let workers = rows
             .into_iter()
-            .map(|row| WorkerInfo {
-                id: row.id.unwrap_or_default(),
-                tenant_id: tenant_id.to_string(),
+            .map(|row| {
+                use sqlx::Row;
+                WorkerInfo {
+                    id: row.get::<Option<String>, _>("id").unwrap_or_default(),
+                    tenant_id: tenant_id.to_string(),
+                }
             })
             .collect();
 

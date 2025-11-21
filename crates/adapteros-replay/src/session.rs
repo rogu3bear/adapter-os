@@ -55,9 +55,9 @@ pub struct ReplayStats {
 }
 
 pub struct ReplaySession {
-    trace_path: PathBuf,
+    _trace_path: PathBuf,
     trace_bundle: TraceBundle,
-    executor: Arc<DeterministicExecutor>,
+    _executor: Arc<DeterministicExecutor>,
     current_event_index: Arc<AtomicU64>,
     verification_mode: VerificationMode,
     stats: Mutex<ReplayStats>,
@@ -87,9 +87,9 @@ impl ReplaySession {
         let total_events = trace_bundle.events.len();
 
         Ok(Self {
-            trace_path: trace_path.to_path_buf(),
+            _trace_path: trace_path.to_path_buf(),
             trace_bundle,
-            executor,
+            _executor: executor,
             current_event_index: Arc::new(AtomicU64::new(0)),
             verification_mode: mode,
             stats: Mutex::new(ReplayStats {
@@ -211,6 +211,10 @@ impl ReplaySession {
     }
 
     /// Verify replay signature with deterministic error code
+    ///
+    /// Future use: Will be called during replay initialization to validate trace bundle signatures.
+    /// Stub implementation currently returns error. Integration pending with cryptographic verification.
+    #[allow(dead_code)]
     fn verify_replay_signature(&self) -> Result<(), ReplayError> {
         // TODO: Implement actual signature verification
         // For now, return error with deterministic code

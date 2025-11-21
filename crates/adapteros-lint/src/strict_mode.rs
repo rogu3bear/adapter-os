@@ -5,6 +5,7 @@
 
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::info;
 
 /// Global strict mode flag
 static STRICT_MODE_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -14,7 +15,7 @@ pub fn init_strict_mode() {
     // Check for environment variable
     if env::var("ADAPTEROS_STRICT_MODE").is_ok() {
         STRICT_MODE_ENABLED.store(true, Ordering::Relaxed);
-        eprintln!("🔒 AdapterOS strict mode enabled via environment variable");
+        info!("AdapterOS strict mode enabled via environment variable");
         return;
     }
 
@@ -23,7 +24,7 @@ pub fn init_strict_mode() {
     for arg in &args {
         if arg == "--strict" || arg == "--deterministic" {
             STRICT_MODE_ENABLED.store(true, Ordering::Relaxed);
-            eprintln!("🔒 AdapterOS strict mode enabled via command line");
+            info!("AdapterOS strict mode enabled via command line");
             return;
         }
     }
@@ -37,13 +38,13 @@ pub fn is_strict_mode() -> bool {
 /// Enable strict mode programmatically
 pub fn enable_strict_mode() {
     STRICT_MODE_ENABLED.store(true, Ordering::Relaxed);
-    eprintln!("🔒 AdapterOS strict mode enabled programmatically");
+    info!("AdapterOS strict mode enabled programmatically");
 }
 
 /// Disable strict mode programmatically
 pub fn disable_strict_mode() {
     STRICT_MODE_ENABLED.store(false, Ordering::Relaxed);
-    eprintln!("🔓 AdapterOS strict mode disabled");
+    info!("AdapterOS strict mode disabled");
 }
 
 /// Macro to check strict mode and panic if enabled

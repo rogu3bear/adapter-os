@@ -4,6 +4,7 @@
 //! with automatic quiet mode when running in CI environments.
 
 use std::env;
+use tracing::{error, warn};
 
 /// Output mode for CLI commands
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,13 +131,13 @@ impl OutputWriter {
 
     /// Print an error message (always shown)
     pub fn error(&self, msg: impl AsRef<str>) {
-        eprintln!("❌ {}", msg.as_ref());
+        error!("{}", msg.as_ref());
     }
 
     /// Print a warning message (always shown unless quiet)
     pub fn warning(&self, msg: impl AsRef<str>) {
         if !self.mode.is_quiet() {
-            eprintln!("⚠️  {}", msg.as_ref());
+            warn!("{}", msg.as_ref());
         }
     }
 

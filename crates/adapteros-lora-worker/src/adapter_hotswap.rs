@@ -23,9 +23,9 @@ use std::path::Path;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::{Condvar, Mutex};
 use std::time::Instant;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::time::{sleep, Duration};
 
@@ -139,52 +139,54 @@ pub struct AdapterTable {
     /// INVARIANT: current_stack generation strictly increases on successful swap. The atomic pointer ensures readers see consistent stack during inference.
     current_stack: AtomicUsize,
     /// Reference counts for staged adapters
-    refcounts: Mutex<HashMap<String, AtomicUsize>>,
+    refcounts: TokioMutex<HashMap<String, AtomicUsize>>,
     /// List of retired stacks for RCU
-    retired_stacks: Mutex<Vec<Arc<Stack>>>,
+    retired_stacks: TokioMutex<Vec<Arc<Stack>>>,
     /// Sender for event-driven retirement wake-up when refcounts reach 0 (bounded to prevent memory growth)
     retirement_sender: Option<MpscSender<()>>,
     /// Telemetry writer for RCU events
     telemetry: Option<Arc<TelemetryWriter>>,
     /// Retry counts for RCU
-    retry_counts: Mutex<HashMap<u64, u32>>,
+    retry_counts: TokioMutex<HashMap<u64, u32>>,
 }
 
 impl AdapterTable {
     /// Create new empty adapter table
     pub fn new() -> Self {
         Self {
+            active: RwLock::new(HashMap::new()),
             staged: RwLock::new(HashMap::new()),
             rollback_state: RwLock::new(None),
             checkpoints: RwLock::new(Vec::new()),
             max_checkpoints: 20, // Keep last 20 checkpoints in memory
             current_stack: AtomicUsize::new(0),
-            refcounts: Mutex::new(HashMap::new()),
-            retired_stacks: Mutex::new(Vec::new()),
+            refcounts: TokioMutex::new(HashMap::new()),
+            retired_stacks: TokioMutex::new(Vec::new()),
             retirement_sender: None,
             telemetry: None,
-            retry_counts: Mutex::new(HashMap::new()),
+            retry_counts: TokioMutex::new(HashMap::new()),
         }
     }
 
     /// Create adapter table with custom checkpoint limit
     pub fn with_checkpoint_limit(max_checkpoints: usize) -> Self {
         Self {
+            active: RwLock::new(HashMap::new()),
             staged: RwLock::new(HashMap::new()),
             rollback_state: RwLock::new(None),
             checkpoints: RwLock::new(Vec::new()),
             max_checkpoints,
             current_stack: AtomicUsize::new(0),
-            refcounts: Mutex::new(HashMap::new()),
-            retired_stacks: Mutex::new(Vec::new()),
+            refcounts: TokioMutex::new(HashMap::new()),
+            retired_stacks: TokioMutex::new(Vec::new()),
             retirement_sender: None,
             telemetry: None,
-            retry_counts: Mutex::new(HashMap::new()),
+            retry_counts: TokioMutex::new(HashMap::new()),
         }
     }
 
     /// Preload adapter into staging area
-    pub fn preload(&self, id: String, hash: B3Hash, vram_mb: u64) -> Result<()> {
+    pub async fn preload(&self, id: String, hash: B3Hash, vram_mb: u64) -> Result<()> {
         let mut staged = self.staged.write();
 
         if staged.contains_key(&id) {
@@ -203,7 +205,7 @@ impl AdapterTable {
         );
 
         // Ensure refcount entry exists for this adapter
-        let mut refcounts = self.refcounts.lock();
+        let mut refcounts = self.refcounts.lock().await;
         refcounts
             .entry(id.clone())
             .or_insert_with(|| AtomicUsize::new(0));
@@ -213,12 +215,12 @@ impl AdapterTable {
     }
 
     /// Swap adapters atomically with mutex-guarded pointer flip
-    pub fn swap(&self, add_ids: &[String], remove_ids: &[String]) -> Result<(i64, usize)> {
+    pub async fn swap(&self, add_ids: &[String], remove_ids: &[String]) -> Result<(i64, usize)> {
         // Save current stack for potential rollback
         {
             let current = self.current_stack.load(Ordering::Acquire);
             *self.rollback_state.write() = Some(Arc::new(Stack {
-                generation: current,
+                generation: current as u64,
                 active: self.active.read().clone(),
             }));
         }
@@ -251,7 +253,7 @@ impl AdapterTable {
                 if let Some(rollback_stack) = rollback_state.as_ref() {
                     let _old = self
                         .current_stack
-                        .swap(rollback_stack.generation, Ordering::AcqRel);
+                        .swap(rollback_stack.generation as usize, Ordering::AcqRel);
                     tracing::warn!(
                         adapter_id = %id,
                         "Rolled back to previous state due to missing staged adapter"
@@ -275,7 +277,7 @@ impl AdapterTable {
         drop(staged_write); // Release lock
 
         // Ensure refcounts for new active adapters
-        let mut refcounts = self.refcounts.lock();
+        let mut refcounts = self.refcounts.lock().await;
         for name in new_active.keys() {
             refcounts
                 .entry(name.clone())
@@ -285,7 +287,7 @@ impl AdapterTable {
 
         let new_gen = old_stack + 1;
         let new_stack = Arc::new(Stack {
-            generation: new_gen,
+            generation: new_gen as u64,
             active: new_active,
         });
 
@@ -293,9 +295,9 @@ impl AdapterTable {
 
         // Retire old stack if generation changed
         if old > new_gen {
-            let mut retired = self.retired_stacks.lock().unwrap();
+            let mut retired = self.retired_stacks.lock().await;
             retired.push(Arc::new(Stack {
-                generation: old,
+                generation: old as u64,
                 active: self.active.read().clone(),
             }));
         }
@@ -304,7 +306,7 @@ impl AdapterTable {
     }
 
     /// Rollback to last verified state
-    pub fn rollback(&self) -> Result<()> {
+    pub async fn rollback(&self) -> Result<()> {
         let rollback_stack = self
             .rollback_state
             .read()
@@ -314,13 +316,13 @@ impl AdapterTable {
 
         let old = self
             .current_stack
-            .swap(rollback_stack.generation, Ordering::AcqRel);
+            .swap(rollback_stack.generation as usize, Ordering::AcqRel);
 
         // Retire the previous current stack if generation changed
-        if old > rollback_stack.generation {
-            let mut retired = self.retired_stacks.lock().unwrap();
+        if old as u64 > rollback_stack.generation {
+            let mut retired = self.retired_stacks.lock().await;
             retired.push(Arc::new(Stack {
-                generation: old,
+                generation: old as u64,
                 active: self.active.read().clone(),
             }));
         }
@@ -492,8 +494,8 @@ impl AdapterTable {
 
     /// Decrement refcount for an adapter and send wake-up if it reaches 0
     /// Returns the new refcount
-    pub fn dec_ref(&self, name: &str) -> usize {
-        let mut refcounts = self.refcounts.lock();
+    pub async fn dec_ref(&self, name: &str) -> usize {
+        let refcounts = self.refcounts.lock().await;
         if let Some(rc) = refcounts.get(name) {
             let old = rc.fetch_sub(1, Ordering::Relaxed);
             if old == 1 {
@@ -583,28 +585,10 @@ impl AdapterTable {
     }
 
     /// Increment reference count for an adapter
-    pub fn inc_ref(&self, adapter_id: &str) {
-        let mut refcounts = self.refcounts.lock();
+    pub async fn inc_ref(&self, adapter_id: &str) {
+        let refcounts = self.refcounts.lock().await;
         if let Some(rc) = refcounts.get(adapter_id) {
             rc.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    /// Decrement reference count for an adapter and notify if it reaches 0
-    pub fn dec_ref(&self, adapter_id: &str) -> usize {
-        let mut refcounts = self.refcounts.lock();
-        if let Some(rc) = refcounts.get(adapter_id) {
-            let old = rc.fetch_sub(1, Ordering::Relaxed);
-            if old == 1 {
-                if let Some(tx) = &self.retirement_sender {
-                    let _ = tx
-                        .try_send(())
-                        .map_err(|_| tracing::warn!("Failed to send retirement signal"));
-                }
-            }
-            old.saturating_sub(1)
-        } else {
-            0
         }
     }
 
@@ -631,29 +615,33 @@ impl AdapterTable {
         &self,
         kernels_opt: Option<Arc<tokio::sync::Mutex<K>>>,
     ) -> Result<()> {
-        let mut retired_guard = self.retired_stacks.lock().unwrap();
+        let mut retired_guard = self.retired_stacks.lock().await;
         let mut i = 0;
         while i < retired_guard.len() {
             let stack = &retired_guard[i];
+            let stack_generation = stack.generation;
+            let adapter_ids: Vec<String> = stack.active.keys().cloned().collect();
+            drop(retired_guard); // Release lock before acquiring refcounts
+
             let can_unload = {
-                let refcounts = self.refcounts.lock();
-                stack.active.iter().all(|(id, _)| {
+                let refcounts = self.refcounts.lock().await;
+                adapter_ids.iter().all(|id| {
                     refcounts
                         .get(id)
                         .map_or(false, |rc| rc.load(Ordering::Relaxed) == 0)
                 })
             };
-            retired_guard = self.retired_stacks.lock().unwrap(); // re-lock
+            retired_guard = self.retired_stacks.lock().await; // re-acquire
             if i >= retired_guard.len() {
                 break;
             } // list may have changed
             let stack_ref = &retired_guard[i];
-            if stack_ref.generation != stack.generation {
+            if stack_ref.generation != stack_generation {
                 i += 1;
                 continue;
             } // changed
             if can_unload {
-                let mut retry_guard = self.retry_counts.lock().unwrap();
+                let mut retry_guard = self.retry_counts.lock().await;
                 let gen = stack_ref.generation;
                 let retry_count = retry_guard.entry(gen).or_insert(0);
                 if *retry_count >= 3 {
@@ -682,7 +670,7 @@ impl AdapterTable {
                 drop(retry_guard); // Release retry lock before kernel lock
 
                 let mut unload_failed = false;
-                if let Some(kernels) = kernels_opt {
+                if let Some(kernels) = kernels_opt.clone() {
                     let mut k_lock = kernels.lock().await;
                     for (id, _) in &stack_ref.active {
                         let id_u16 = adapter_id_to_u16(id);
@@ -695,18 +683,18 @@ impl AdapterTable {
                     drop(k_lock);
                 } else {
                     retired_guard.remove(i);
-                    let mut retry_guard = self.retry_counts.lock().unwrap();
+                    let mut retry_guard = self.retry_counts.lock().await;
                     retry_guard.remove(&gen);
                     tracing::info!("Unloaded retired stack (no kernels)");
                 }
                 if !unload_failed {
                     retired_guard.remove(i);
-                    let mut retry_guard = self.retry_counts.lock().unwrap();
+                    let mut retry_guard = self.retry_counts.lock().await;
                     retry_guard.remove(&gen);
                     tracing::info!("Successfully unloaded retired stack gen {}", gen);
                 } else {
                     // Increment retry and sleep
-                    let mut retry_guard = self.retry_counts.lock().unwrap();
+                    let mut retry_guard = self.retry_counts.lock().await;
                     *retry_guard.entry(gen).or_insert(0) += 1;
                     drop(retry_guard);
                     sleep(Duration::from_millis(100)).await;
@@ -729,8 +717,8 @@ impl AdapterTable {
         B3Hash::hash(&data)
     }
 
-    pub fn get_current_stack_handle(&self) -> Arc<StackHandle> {
-        self.current_stack.load(Ordering::Acquire).clone()
+    pub fn get_current_stack_generation(&self) -> usize {
+        self.current_stack.load(Ordering::Acquire)
     }
 }
 
@@ -955,7 +943,7 @@ where
                     24 // Mock value
                 };
 
-                self.table.preload(adapter_id.clone(), hash, vram_mb)?;
+                self.table.preload(adapter_id.clone(), hash, vram_mb).await?;
 
                 AdapterCommandResult {
                     success: true,
@@ -991,7 +979,7 @@ where
                     drop(kernels_lock);
                 }
 
-                let (vram_delta, _added_count) = self.table.swap(&add_ids, &remove_ids)?;
+                let (vram_delta, _added_count) = self.table.swap(&add_ids, &remove_ids).await?;
                 let stack_hash = self.table.compute_stack_hash();
 
                 let cross_layer_hash = if let Some(ref kernels) = self.kernels {
@@ -1041,7 +1029,7 @@ where
             }
 
             AdapterCommand::Rollback => {
-                self.table.rollback()?;
+                self.table.rollback().await?;
                 let stack_hash = self.table.compute_stack_hash();
 
                 AdapterCommandResult {
@@ -1151,14 +1139,14 @@ where
 
                 // Collect stacks to potentially unload (don't hold lock during processing)
                 let stacks_to_check: Vec<_> = {
-                    let retired_guard = manager.table.retired_stacks.lock().unwrap();
+                    let retired_guard = manager.table.retired_stacks.lock().await;
                     retired_guard.clone() // Clone the stacks to avoid holding lock
                 };
 
                 // Process each stack
                 for stack in stacks_to_check {
                     let can_unload = {
-                        let refcounts_guard = manager.table.refcounts.lock().unwrap();
+                        let refcounts_guard = manager.table.refcounts.lock().await;
                         stack.active.iter().all(|(id, _)| {
                             refcounts_guard
                                 .get(id)
@@ -1180,7 +1168,7 @@ where
                             }
                             if !unload_failed {
                                 // Remove from retired stacks
-                                let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                                let mut retired_guard = manager.table.retired_stacks.lock().await;
                                 if let Some(pos) = retired_guard.iter().position(|s| s.generation == stack.generation) {
                                     retired_guard.remove(pos);
                                 }
@@ -1191,7 +1179,7 @@ where
                             }
                         } else {
                             // No kernel backend, just remove
-                            let mut retired_guard = manager.table.retired_stacks.lock().unwrap();
+                            let mut retired_guard = manager.table.retired_stacks.lock().await;
                             if let Some(pos) = retired_guard.iter().position(|s| s.generation == stack.generation) {
                                 retired_guard.remove(pos);
                             }
@@ -1211,8 +1199,8 @@ where
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_preload_and_swap() {
+    #[tokio::test]
+    async fn test_preload_and_swap() {
         let table = AdapterTable::new();
 
         // Preload two adapters
@@ -1221,14 +1209,17 @@ mod tests {
 
         table
             .preload("adapter1".to_string(), hash1, 10)
+            .await
             .expect("Test adapter preload should succeed");
         table
             .preload("adapter2".to_string(), hash2, 15)
+            .await
             .expect("Test adapter preload should succeed");
 
         // Swap them in
         let (delta, count) = table
             .swap(&["adapter1".to_string(), "adapter2".to_string()], &[])
+            .await
             .expect("Test adapter swap should succeed");
         assert_eq!(delta, 25);
         assert_eq!(count, 2);
@@ -1239,17 +1230,19 @@ mod tests {
         assert_eq!(hash_1, hash_2);
     }
 
-    #[test]
-    fn test_rollback() {
+    #[tokio::test]
+    async fn test_rollback() {
         let table = AdapterTable::new();
 
         // Preload and swap adapter1
         let hash1 = B3Hash::hash(b"adapter1");
         table
             .preload("adapter1".to_string(), hash1, 10)
+            .await
             .expect("Test adapter preload should succeed");
         table
             .swap(&["adapter1".to_string()], &[])
+            .await
             .expect("Test adapter swap should succeed");
 
         let hash_before = table.compute_stack_hash();
@@ -1258,38 +1251,48 @@ mod tests {
         let hash2 = B3Hash::hash(b"adapter2");
         table
             .preload("adapter2".to_string(), hash2, 20)
+            .await
             .expect("Test adapter preload should succeed");
         table
             .swap(&["adapter2".to_string()], &["adapter1".to_string()])
+            .await
             .expect("Test adapter swap should succeed");
 
         // Rollback should restore adapter1
-        table.rollback().expect("Test rollback should succeed");
+        table.rollback().await.expect("Test rollback should succeed");
         let hash_after = table.compute_stack_hash();
 
         assert_eq!(hash_before, hash_after);
     }
 
-    #[test]
-    fn test_rcu_refcount() {
+    #[tokio::test]
+    async fn test_rcu_refcount() {
         let table = AdapterTable::new();
         let h1 = B3Hash::hash(b"test");
-        table.preload("test".to_string(), h1, 10).unwrap();
-        table.swap(&["test"], &[]).unwrap();
+        table.preload("test".to_string(), h1, 10).await.unwrap();
+        table.swap(&["test".to_string()], &[]).await.unwrap();
         let stack = table.current_stack.load(Ordering::Acquire).clone();
         let rc = table
             .refcounts
             .lock()
+            .await
             .get("test")
             .unwrap()
             .load(Ordering::Relaxed);
         assert_eq!(rc, 0);
-        let rca = table.refcounts.lock().get("test").unwrap();
-        rca.fetch_add(1, Ordering::Relaxed);
-        assert_eq!(rca.load(Ordering::Relaxed), 1);
-        table.swap(&[], &["test"]).unwrap();
-        rca.fetch_sub(1, Ordering::Relaxed);
-        assert_eq!(rca.load(Ordering::Relaxed), 0);
+        {
+            let refcounts = table.refcounts.lock().await;
+            let rca = refcounts.get("test").unwrap();
+            rca.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(rca.load(Ordering::Relaxed), 1);
+        }
+        table.swap(&[], &["test".to_string()]).await.unwrap();
+        {
+            let refcounts = table.refcounts.lock().await;
+            let rca = refcounts.get("test").unwrap();
+            rca.fetch_sub(1, Ordering::Relaxed);
+            assert_eq!(rca.load(Ordering::Relaxed), 0);
+        }
         // Note: background would unload, but in test we don't wait
     }
 
@@ -1302,13 +1305,13 @@ mod tests {
             table.preload("test".to_string(), h, 10).unwrap();
             table.swap(&["test"], &[]).unwrap();
 
-            let initial_gen = table.current_stack.load(Ordering::Acquire).generation;
+            let initial_gen = table.current_stack.load(Ordering::Acquire);
 
             // 50 readers: snapshot, inc, hold, dec
             for _ in 0..50 {
                 let table_clone = table.clone();
                 loom::thread::spawn(move || {
-                    let stack = table_clone.current_stack.load(Ordering::Acquire).clone();
+                    let _stack_gen = table_clone.current_stack.load(Ordering::Acquire);
                     table_clone.inc_ref("test");
                     std::thread::sleep(std::time::Duration::from_secs(1)); // Simulate long inference
                     table_clone.dec_ref("test");
@@ -1349,32 +1352,33 @@ mod tests {
 
     #[tokio::test]
     async fn stress_test_swap_during_inference() {
-        let mut table = AdapterTable::new();
+        let table = AdapterTable::new();
         let h1 = B3Hash::hash(b"a");
         let h2 = B3Hash::hash(b"b");
-        table.preload("a".to_string(), h1, 10).unwrap();
-        table.swap(&["a"], &[]).unwrap();
+        table.preload("a".to_string(), h1, 10).await.unwrap();
+        table.swap(&["a".to_string()], &[]).await.unwrap();
 
         // Simulate 100 concurrent infers + 50 swaps
         let mut handles = vec![];
         let table_arc = Arc::new(table);
 
-        for i in 0..100 {
+        for _i in 0..100 {
             let table_clone = table_arc.clone();
             handles.push(tokio::spawn(async move {
                 // Simulate infer: snapshot, inc, hold, dec
                 let stack = table_clone.current_stack.load(Ordering::Acquire).clone();
-                for name in stack.active.keys() {
-                    table_clone
-                        .refcounts
-                        .lock()
-                        .entry(name.clone())
-                        .or_insert_with(|| AtomicUsize::new(0))
-                        .fetch_add(1, Ordering::Relaxed);
+                {
+                    let mut refcounts = table_clone.refcounts.lock().await;
+                    for name in stack.active.keys() {
+                        refcounts
+                            .entry(name.clone())
+                            .or_insert_with(|| AtomicUsize::new(0))
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
                 }
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await; // Simulate 100ms infer
                 for name in stack.active.keys() {
-                    table_clone.dec_ref(name);
+                    table_clone.dec_ref(name).await;
                 }
                 Ok::<(), ()>(())
             }));
@@ -1384,8 +1388,8 @@ mod tests {
             let table_clone = table_arc.clone();
             handles.push(tokio::spawn(async move {
                 // Swap a -> b
-                table_clone.preload("b".to_string(), h2, 15).unwrap();
-                table_clone.swap(&["b"], &["a"]).unwrap();
+                table_clone.preload("b".to_string(), h2, 15).await.unwrap();
+                table_clone.swap(&["b".to_string()], &["a".to_string()]).await.unwrap();
                 Ok(())
             }));
         }
@@ -1398,10 +1402,9 @@ mod tests {
         // Assert no panics, refcounts 0
         let stack = table_arc.current_stack.load(Ordering::Acquire);
         for name in stack.active.keys() {
+            let refcounts = table_arc.refcounts.lock().await;
             assert_eq!(
-                table_arc
-                    .refcounts
-                    .lock()
+                refcounts
                     .get(name)
                     .unwrap()
                     .load(Ordering::Relaxed),
@@ -1414,18 +1417,18 @@ mod tests {
     async fn test_unload_time() {
         let table = Arc::new(AdapterTable::new());
         let h = B3Hash::zero();
-        table.preload("test".to_string(), h, 10).unwrap();
-        table.swap(&["test"], &[]).unwrap();
+        table.preload("test".to_string(), h, 10).await.unwrap();
+        table.swap(&["test".to_string()], &[]).await.unwrap();
 
         // Simulate hold
-        table.inc_ref("test");
+        table.inc_ref("test").await;
         let start = Instant::now();
         // Simulate work
         tokio::time::sleep(Duration::from_millis(100)).await;
-        table.dec_ref("test");
+        table.dec_ref("test").await;
 
         // Wait for background to process (since periodic 5s, manual call for test)
-        table.process_retired_stacks(&None).await.unwrap();
+        table.process_retired_stacks::<()>(None).await.unwrap();
 
         let unload_time = start.elapsed();
         assert!(

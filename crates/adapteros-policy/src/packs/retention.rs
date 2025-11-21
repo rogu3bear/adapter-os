@@ -8,6 +8,9 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Re-export canonical types from adapteros-telemetry-types
+pub use adapteros_telemetry_types::{BundleType, RetentionBundleMetadata as BundleMetadata};
+
 /// Retention policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetentionConfig {
@@ -43,31 +46,6 @@ impl Default for RetentionConfig {
     }
 }
 
-/// Bundle metadata for retention decisions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundleMetadata {
-    pub bundle_id: String,
-    pub cpid: String,
-    pub created_at: u64,
-    pub size_bytes: u64,
-    pub last_accessed: u64,
-    pub bundle_type: BundleType,
-    pub incident_id: Option<String>,
-    pub promotion_id: Option<String>,
-}
-
-/// Type of bundle for retention decisions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum BundleType {
-    /// Regular inference bundle
-    Inference,
-    /// Incident investigation bundle
-    Incident,
-    /// Control plane promotion bundle
-    Promotion,
-    /// Audit trail bundle
-    Audit,
-}
 
 /// Retention policy implementation
 pub struct RetentionPolicy {

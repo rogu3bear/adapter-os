@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
+use ::tracing::{error, warn};
 
 pub mod alerting;
 pub mod audit_log;
@@ -42,9 +43,13 @@ pub use audit_log::{
 };
 pub use bundle::BundleWriter;
 pub use bundle_store::{
-    BundleMetadata as StoredBundleMetadata, BundleStore, ChainVerificationReport, EvictionStrategy,
+    BundleStore, ChainVerificationReport, EvictionStrategy,
     GarbageCollectionReport, RetentionPolicy, StorageStats,
 };
+// Re-export canonical BundleMetadata with StoredBundleMetadata alias for backward compatibility
+pub use adapteros_telemetry_types::BundleMetadata as StoredBundleMetadata;
+// Import canonical BundleMetadata for internal use
+use adapteros_telemetry_types::BundleMetadata;
 pub use compression::{
     CompressedBundleMetadata, CompressionAlgorithm, CompressionLevel, TelemetryCompressor,
 };
@@ -72,7 +77,7 @@ pub use replay::{
 pub use report::generate_html_report;
 pub use ring_buffer::{RingBufferStats, TelemetryRingBuffer};
 pub use sampling::{EventSampler, SamplingStats, SamplingStrategy};
-pub use tracing::{
+pub use crate::tracing::{
     Span, SpanEvent, SpanKind, SpanStatus, Trace, TraceBuffer, TraceBufferStats, TraceContext,
     TraceSearchQuery,
 };
@@ -89,20 +94,8 @@ pub struct TelemetryWriter {
     _handle: thread::JoinHandle<()>,
 }
 
-impl Clone for TelemetryWriter {
-    fn clone(&self) -> Self {
-        // Clone the sender channel, but we can't clone the thread handle
-        // Create a dummy handle that does nothing
-        let sender = self.sender.clone();
-        let handle = thread::spawn(|| {
-            // Dummy thread that immediately exits
-        });
-        Self {
-            sender,
-            _handle: handle,
-        }
-    }
-}
+// Note: TelemetryWriter is not Clone because JoinHandle cannot be cloned.
+// Use Arc<TelemetryWriter> for shared ownership instead.
 
 impl TelemetryWriter {
     /// Create a new telemetry writer
@@ -123,7 +116,7 @@ impl TelemetryWriter {
         let handle = thread::spawn(move || {
             if let Err(e) = run_writer(receiver, output_dir, max_events, max_bytes, signing_keypair)
             {
-                eprintln!("Telemetry writer thread failed: {}", e);
+                error!(error = %e, "Telemetry writer thread failed");
             }
         });
 
@@ -324,7 +317,7 @@ fn run_writer(
     for event in receiver {
         // In run_writer function, after receiving event
         if let Err(e) = event.identity.validate() {
-            eprintln!("Invalid identity in telemetry event: {}", e);
+            warn!(error = %e, "Invalid identity in telemetry event");
             continue; // Skip invalid event
         }
         // Then process
@@ -398,11 +391,33 @@ fn finalize_bundle(path: &Path, event_hashes: &[B3Hash], signing_keypair: &Keypa
 
     // Write metadata file
     let meta_path = path.with_extension("meta.json");
+    let public_key_bytes = bundle_signature.public_key.to_bytes();
+    let key_id = {
+        let hash = adapteros_core::hash::compute_hash(&public_key_bytes);
+        hex::encode(&hash.as_bytes()[..16])
+    };
     let metadata = BundleMetadata {
-        event_count: event_hashes.len(),
+        bundle_hash,
         merkle_root,
-        signature: Some(hex::encode(bundle_signature.signature.to_bytes())),
-        public_key: Some(hex::encode(bundle_signature.public_key.to_bytes())),
+        event_count: event_hashes.len(),
+        signature: hex::encode(bundle_signature.signature.to_bytes()),
+        public_key: hex::encode(public_key_bytes),
+        key_id,
+        schema_version: 1,
+        signed_at_us: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as u64,
+        cpid: None,
+        tenant_id: None,
+        sequence_no: None,
+        created_at: std::time::SystemTime::now(),
+        prev_bundle_hash: None,
+        is_incident_bundle: false,
+        is_promotion_bundle: false,
+        tags: Vec::new(),
+        stack_id: None,
+        stack_version: None,
     };
 
     let meta_file = File::create(meta_path)?;
@@ -445,13 +460,7 @@ pub fn verify_bundle_signature(
     Ok(true)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct BundleMetadata {
-    event_count: usize,
-    merkle_root: B3Hash,
-    signature: Option<String>,  // Ed25519 signature in hex format
-    public_key: Option<String>, // Ed25519 public key in hex format (for verification)
-}
+// BundleMetadata is now imported from adapteros_telemetry_types
 
 /// Security events (always logged at 100% sampling per Telemetry Ruleset #9)
 #[derive(Debug, Clone, Serialize, Deserialize)]

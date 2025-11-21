@@ -4,12 +4,12 @@
 //! and multi-index search capabilities.
 
 use crate::{
-    chunking::CodeChunker,
+    chunking::{CodeChunker, Language, SymbolNode},
     fts_index::{DocIndexImpl, IndexedDoc, IndexedTest, SymbolIndexImpl, TestIndexImpl},
     retrieval::{EvidenceSpan, EvidenceType},
     DocMetadata, TenantIndex,
 };
-use adapteros_codegraph::types::{Language, SymbolNode};
+// use adapteros_codegraph::types::{Language, SymbolNode};
 use adapteros_core::{B3Hash, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -74,10 +74,16 @@ pub struct FileChange {
     pub old_path: Option<PathBuf>,
 }
 
-/// Embedding model trait (simplified for now)
+/// Embedding model trait for document and query encoding
 pub trait EmbeddingModel: Send + Sync {
+    /// Encode text into an embedding vector
     fn encode_text(&self, text: &str) -> Result<Vec<f32>>;
+
+    /// Get the model hash for determinism tracking
     fn model_hash(&self) -> B3Hash;
+
+    /// Get the embedding dimension
+    fn dimension(&self) -> usize;
 }
 
 /// Evidence index manager

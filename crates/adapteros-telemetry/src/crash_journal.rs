@@ -13,6 +13,7 @@ use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use ::tracing::{error, info};
 
 /// Crash journal entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,11 +162,10 @@ impl CrashJournal {
         std::fs::write(&filepath, final_json)
             .map_err(|e| AosError::Io(format!("Failed to write crash journal: {}", e)))?;
 
-        // Also write to stderr for immediate visibility
-        eprintln!("💥 CRASH JOURNAL WRITTEN: {}", filepath.display());
-        eprintln!("   Message: {}", entry.message);
+        // Also log crash for visibility
+        info!(path = %filepath.display(), message = %entry.message, "Crash journal written");
         if let Some(ref loc) = entry.location {
-            eprintln!("   Location: {}", loc);
+            info!(location = %loc, "Crash location");
         }
 
         Ok(())
@@ -182,13 +182,13 @@ pub fn install_panic_hook(crash_journal: Arc<CrashJournal>) {
     std::panic::set_hook(Box::new(move |panic_info| {
         // Record crash
         if let Err(e) = crash_journal.record_crash(panic_info) {
-            eprintln!("Failed to record crash journal: {}", e);
+            error!(error = %e, "Failed to record crash journal");
         }
 
         // Call default panic handler for backtrace
         #[cfg(debug_assertions)]
         {
-            eprintln!("{:?}", Backtrace::capture());
+            info!(backtrace = ?Backtrace::capture(), "Panic backtrace");
         }
     }));
 }

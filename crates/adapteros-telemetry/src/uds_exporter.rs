@@ -7,7 +7,8 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, error, info, warn};
@@ -150,7 +151,7 @@ impl UdsMetricsExporter {
 
         // Format metrics
         let metrics_output = {
-            let registry = registry.lock().unwrap();
+            let registry = registry.lock().await;
             if prometheus_compat {
                 Self::format_prometheus_metrics(&registry)
             } else {
@@ -259,13 +260,13 @@ impl UdsMetricsExporter {
 
     /// Register a metric
     pub fn register_metric(&self, metadata: MetricMetadata) {
-        let mut registry = self.metrics_registry.lock().unwrap();
+        let mut registry = self.metrics_registry.blocking_lock();
         registry.insert(metadata.name.clone(), metadata);
     }
 
     /// Update a metric value
     pub fn update_metric(&self, name: &str, value: MetricValue) -> Result<()> {
-        let mut registry = self.metrics_registry.lock().unwrap();
+        let mut registry = self.metrics_registry.blocking_lock();
         if let Some(metadata) = registry.get_mut(name) {
             metadata.value = value;
             Ok(())
@@ -279,7 +280,7 @@ impl UdsMetricsExporter {
 
     /// Increment a counter
     pub fn increment_counter(&self, name: &str, delta: f64) -> Result<()> {
-        let mut registry = self.metrics_registry.lock().unwrap();
+        let mut registry = self.metrics_registry.blocking_lock();
         if let Some(metadata) = registry.get_mut(name) {
             match &mut metadata.value {
                 MetricValue::Counter(ref mut value) => {
@@ -347,7 +348,7 @@ mod tests {
         exporter.increment_counter("test_counter", 5.0).unwrap();
 
         // Verify metric value
-        let registry = exporter.metrics_registry.lock().unwrap();
+        let registry = exporter.metrics_registry.lock().await;
         let metric = registry.get("test_counter").unwrap();
         match metric.value {
             MetricValue::Counter(value) => assert_eq!(value, 5.0),

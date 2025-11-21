@@ -3,7 +3,7 @@
 //! Implements timeout protection and circuit breaker patterns to prevent runaway processes.
 //! Aligns with Memory Ruleset #12 and Performance Ruleset #11 from policy enforcement.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, CircuitState, Result};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
@@ -29,13 +29,7 @@ impl Default for TimeoutConfig {
     }
 }
 
-/// Circuit breaker state
-#[derive(Debug, Clone)]
-pub enum CircuitState {
-    Closed,
-    Open { until: Instant },
-    HalfOpen,
-}
+// CircuitState is imported from adapteros_core::CircuitState
 
 /// Circuit breaker for runaway detection
 pub struct CircuitBreaker {

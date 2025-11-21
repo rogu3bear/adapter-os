@@ -78,8 +78,8 @@ impl std::fmt::Display for TaskId {
 /// Cancellation token with BLAKE3-hashed cause tracking
 #[derive(Debug, Clone)]
 pub struct CancelToken {
-    cause: String,
-    cause_hash: [u8; 32],
+    _cause: String,
+    _cause_hash: [u8; 32],
     cancelled: Arc<AtomicU64>,
 }
 
@@ -87,8 +87,8 @@ impl CancelToken {
     /// Create a new cancel token
     pub fn new() -> Self {
         Self {
-            cause: String::new(),
-            cause_hash: [0u8; 32],
+            _cause: String::new(),
+            _cause_hash: [0u8; 32],
             cancelled: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -109,7 +109,7 @@ impl CancelToken {
 
     /// Get the cancellation cause hash
     pub fn cause_hash(&self) -> [u8; 32] {
-        self.cause_hash
+        self._cause_hash
     }
 }
 
@@ -180,12 +180,15 @@ pub type Result<T> = std::result::Result<T, DeterministicExecutorError>;
 /// Handle for a spawned deterministic task
 pub struct DeterministicJoinHandle {
     task_id: TaskId,
-    executor: Arc<DeterministicExecutor>,
+    _executor: Arc<DeterministicExecutor>,
 }
 
 impl DeterministicJoinHandle {
     pub fn new(task_id: TaskId, executor: Arc<DeterministicExecutor>) -> Self {
-        Self { task_id, executor }
+        Self {
+            task_id,
+            _executor: executor,
+        }
     }
 
     /// Abort the task

@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
+use tracing::{debug, error};
 
 use crate::cli_telemetry;
 use crate::commands;
@@ -1820,7 +1821,7 @@ fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, 
     // First, try to get user-friendly message from error code registry
     if let Some(code) = error_code {
         if let Some(error_info) = find_by_code(code) {
-            eprintln!("{}", error_info);
+            error!("{}", error_info);
             return;
         }
     }
@@ -1847,11 +1848,11 @@ fn display_user_friendly_error(error: &anyhow::Error, error_code: Option<&str>, 
         format!("An unexpected error occurred. Event ID: {}", event_id)
     };
 
-    eprintln!("❌ {}", user_friendly_msg);
+    error!("{}", user_friendly_msg);
 
     // Show the original error in verbose mode or for debugging
     if std::env::var("AOS_DEBUG").is_ok() || std::env::var("RUST_BACKTRACE").is_ok() {
-        eprintln!("Technical details: {}", error_msg);
+        debug!("Technical details: {}", error_msg);
     }
 }
 

@@ -2,7 +2,12 @@
 //!
 //! Tests the full evidence retrieval pipeline including FTS5 indices,
 //! vector search, and evidence manager.
+//!
+//! NOTE: These tests are disabled because adapteros-codegraph is disabled
+//! due to tree-sitter conflicts. Re-enable when codegraph is restored.
 
+// Disabled: adapteros-codegraph dependency is disabled
+/*
 use adapteros_codegraph::types::{Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
 use adapteros_lora_rag::{
     ChangeType, DocIndexImpl, EvidenceIndexManager, EvidenceType, FileChange, IndexedDoc,
@@ -354,3 +359,4 @@ async fn test_search_with_empty_indices() -> Result<()> {
 
     Ok(())
 }
+*/

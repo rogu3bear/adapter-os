@@ -1,5 +1,6 @@
 //! Report generation for orchestrator results
 
+use adapteros_core::time;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -53,7 +54,7 @@ impl GateReport {
     pub fn new(cpid: String) -> Self {
         Self {
             cpid,
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp: time::now_rfc3339(),
             gates: HashMap::new(),
             all_passed: true,
         }
@@ -128,19 +129,3 @@ impl GateReport {
     }
 }
 
-// Stub chrono for timestamp
-mod chrono {
-    pub struct Utc;
-    impl Utc {
-        pub fn now() -> Self {
-            Self
-        }
-        pub fn to_rfc3339(&self) -> String {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_secs()
-                .to_string()
-        }
-    }
-}

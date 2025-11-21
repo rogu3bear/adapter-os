@@ -2,6 +2,7 @@
 
 use adapteros_core::{AosError, Result};
 use std::path::PathBuf;
+use tracing::info;
 
 #[cfg(target_os = "macos")]
 use nix::unistd::{setgid, setuid, Gid, Uid};
@@ -31,10 +32,7 @@ pub fn drop_privileges(isolation: &TenantIsolation) -> Result<()> {
         ));
     }
 
-    eprintln!(
-        "Dropping privileges to UID={}, GID={}",
-        isolation.uid, isolation.gid
-    );
+    info!(uid = isolation.uid, gid = isolation.gid, "Dropping privileges");
 
     // Change group first (must be done before changing user)
     let gid = Gid::from_raw(isolation.gid);
@@ -51,9 +49,7 @@ pub fn drop_privileges(isolation: &TenantIsolation) -> Result<()> {
         ));
     }
 
-    eprintln!("✓ Privileges dropped successfully");
-    eprintln!("  New UID: {}", uid);
-    eprintln!("  New GID: {}", gid);
+    info!(uid = %uid, gid = %gid, "Privileges dropped successfully");
 
     Ok(())
 }
@@ -89,16 +85,14 @@ pub fn setup_filesystem_caps(isolation: &TenantIsolation) -> Result<()> {
     // and pass them to the worker instead of paths
     // This prevents path traversal attacks
 
-    eprintln!("✓ Filesystem capabilities configured");
-    eprintln!("  Root: {}", isolation.root_dir.display());
-    eprintln!("  Socket: {}", isolation.socket_path.display());
+    info!(root_dir = %isolation.root_dir.display(), socket_path = %isolation.socket_path.display(), "Filesystem capabilities configured");
 
     Ok(())
 }
 
 /// Complete tenant isolation setup
 pub fn setup_tenant_isolation(isolation: &TenantIsolation) -> Result<()> {
-    eprintln!("\nSetting up isolation for tenant: {}", isolation.tenant_id);
+    info!(tenant_id = %isolation.tenant_id, "Setting up tenant isolation");
 
     // Set up filesystem first (before dropping privileges)
     setup_filesystem_caps(isolation)?;
@@ -111,10 +105,10 @@ pub fn setup_tenant_isolation(isolation: &TenantIsolation) -> Result<()> {
     {
         // Set resource limits
         // In production: set RLIMIT_NOFILE, RLIMIT_NPROC, etc.
-        eprintln!("✓ Resource limits configured");
+        info!("Resource limits configured");
     }
 
-    eprintln!("\n✓ Tenant isolation complete\n");
+    info!("Tenant isolation complete");
 
     Ok(())
 }

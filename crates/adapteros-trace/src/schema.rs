@@ -6,6 +6,9 @@ use adapteros_core::B3Hash;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// Re-export canonical TraceBundleMetadata from adapteros-telemetry-types
+pub use adapteros_telemetry_types::TraceBundleMetadata as BundleMetadata;
+
 /// Core event schema for AdapterOS traces
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
@@ -166,22 +169,6 @@ pub struct TraceBundle {
     pub bundle_hash: B3Hash,
 }
 
-/// Bundle metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundleMetadata {
-    /// Creation timestamp
-    pub created_at: u128,
-    /// Number of events in bundle
-    pub event_count: usize,
-    /// Total size in bytes
-    pub total_size_bytes: u64,
-    /// Compression used
-    pub compression: String,
-    /// Signature of the bundle
-    pub signature: Option<String>,
-    /// Additional metadata
-    pub custom: HashMap<String, serde_json::Value>,
-}
 
 impl TraceBundle {
     /// Create a new trace bundle

@@ -47,7 +47,7 @@ pub struct TextAdapter {
     /// Internal state
     state: Arc<RwLock<TextAdapterState>>,
     /// Manifest configuration
-    manifest: AdapterManifest,
+    _manifest: AdapterManifest,
 }
 
 #[derive(Debug)]
@@ -108,7 +108,7 @@ impl TextAdapter {
         Ok(Self {
             metadata,
             state: Arc::new(RwLock::new(state)),
-            manifest,
+            _manifest: manifest,
         })
     }
 
@@ -276,6 +276,10 @@ impl TextAdapter {
     }
 
     /// Compute epsilon statistics
+    ///
+    /// Future use: Will be integrated into the forward pass for numerical stability verification.
+    /// Currently kept for reference implementation during epsilon testing integration.
+    #[allow(dead_code)]
     fn compute_epsilon(&self, reference: &Tensor, output: &Tensor) -> Result<EpsilonStats> {
         use adapteros_numerics::noise::measure_error;
 

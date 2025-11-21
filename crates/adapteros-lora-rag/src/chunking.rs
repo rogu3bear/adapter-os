@@ -3,11 +3,122 @@
 //! Uses tree-sitter to chunk code by semantic boundaries (functions, classes, modules)
 //! while including context (imports, surrounding code).
 
-use adapteros_codegraph::types::{Language, SymbolKind, SymbolNode};
+// use adapteros_codegraph::types::{Language, SymbolKind, SymbolNode};
 use adapteros_core::B3Hash;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+// Stub types for disabled adapteros-codegraph dependency
+/// Stub SymbolId for disabled codegraph
+#[derive(Debug, Clone)]
+pub struct SymbolId(String);
+
+impl SymbolId {
+    pub fn to_hex(&self) -> String {
+        self.0.clone()
+    }
+}
+
+/// Stub Visibility for disabled codegraph
+#[derive(Debug, Clone)]
+pub enum Visibility {
+    Public,
+    Private,
+    Crate,
+}
+
+impl std::fmt::Display for Visibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Visibility::Public => write!(f, "public"),
+            Visibility::Private => write!(f, "private"),
+            Visibility::Crate => write!(f, "crate"),
+        }
+    }
+}
+
+/// Stub SymbolNode for disabled codegraph
+#[derive(Debug, Clone)]
+pub struct SymbolNode {
+    pub id: SymbolId,
+    pub kind: SymbolKind,
+    pub span: Span,
+    pub name: String,
+    pub module_path: Vec<String>,
+    pub file_path: String,
+    pub signature: Option<String>,
+    pub visibility: Visibility,
+    pub docstring: Option<String>,
+}
+
+impl SymbolNode {
+    pub fn qualified_name(&self) -> String {
+        if self.module_path.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}::{}", self.module_path.join("::"), self.name)
+        }
+    }
+}
+
+/// Stub SymbolKind for disabled codegraph
+#[derive(Debug, Clone, PartialEq)]
+pub enum SymbolKind {
+    Function,
+    Method,
+    Struct,
+    Enum,
+    Trait,
+    Impl,
+    Module,
+    Const,
+    Static,
+    Type,
+    Field,
+    Variant,
+}
+
+impl std::fmt::Display for SymbolKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SymbolKind::Function => write!(f, "function"),
+            SymbolKind::Method => write!(f, "method"),
+            SymbolKind::Struct => write!(f, "struct"),
+            SymbolKind::Enum => write!(f, "enum"),
+            SymbolKind::Trait => write!(f, "trait"),
+            SymbolKind::Impl => write!(f, "impl"),
+            SymbolKind::Module => write!(f, "module"),
+            SymbolKind::Const => write!(f, "const"),
+            SymbolKind::Static => write!(f, "static"),
+            SymbolKind::Type => write!(f, "type"),
+            SymbolKind::Field => write!(f, "field"),
+            SymbolKind::Variant => write!(f, "variant"),
+        }
+    }
+}
+
+/// Stub Span for disabled codegraph
+#[derive(Debug, Clone)]
+pub struct Span {
+    pub start_line: u32,
+    pub end_line: u32,
+}
+
+/// Stub Language for disabled codegraph
+pub struct Language;
+
+impl Language {
+    pub fn from_path(_path: &Path) -> Option<Self> {
+        None // Return None to skip unsupported files
+    }
+}
+
+impl std::fmt::Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown")
+    }
+}
 
 /// Chunking configuration
 #[derive(Debug, Clone)]

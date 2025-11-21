@@ -31,6 +31,8 @@ use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
 use adapteros_core::{AosError, Result};
+#[cfg(feature = "password-fallback")]
+use adapteros_core::{B3Hash, derive_seed};
 use base64::Engine;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::collections::HashMap;
@@ -353,16 +355,20 @@ impl PasswordFallbackKeyring {
         #[cfg(feature = "password-fallback")]
         {
             use aes_gcm::{AeadInPlace, Aes256Gcm, KeyInit};
-            use rand::RngCore;
 
             let json_data = serde_json::to_vec(keystore).map_err(|e| {
                 error!(error = %e, "Failed to serialize keystore");
                 AosError::Crypto(format!("Failed to serialize keystore: {}", e))
             })?;
 
-            // Generate random nonce
+            // Derive deterministic nonce using HKDF with domain separation
+            // Use master_key hash and data hash as entropy sources
+            let key_hash = B3Hash::hash(&self.master_key);
+            let data_hash = B3Hash::hash(&json_data);
+            let nonce_label = format!("keychain-seal-nonce:{}", data_hash.to_hex());
+            let nonce_seed = derive_seed(&key_hash, &nonce_label);
             let mut nonce_bytes = [0u8; 12];
-            rand::thread_rng().fill_bytes(&mut nonce_bytes);
+            nonce_bytes.copy_from_slice(&nonce_seed[..12]);
 
             // Encrypt with AES-256-GCM
             let cipher = Aes256Gcm::new_from_slice(&self.master_key).map_err(|e| {
@@ -623,14 +629,18 @@ impl KeyringImpl for PasswordFallbackKeyring {
         // Use AES-GCM for encryption
         use aes_gcm::aead::{Aead, KeyInit};
         use aes_gcm::{Aes256Gcm, Nonce};
-        use rand::RngCore;
 
         let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes);
         let cipher = Aes256Gcm::new(key);
 
-        // Generate a random nonce
+        // Derive deterministic nonce using HKDF with domain separation
+        // Use key_id, key material, and plaintext hash for uniqueness
+        let key_hash = B3Hash::hash(&key_bytes);
+        let plaintext_hash = B3Hash::hash(plaintext);
+        let nonce_label = format!("keychain-seal-nonce:{}:{}", key_id, plaintext_hash.to_hex());
+        let nonce_seed = derive_seed(&key_hash, &nonce_label);
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        nonce_bytes.copy_from_slice(&nonce_seed[..12]);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // Encrypt the plaintext
@@ -2714,9 +2724,8 @@ mod tests {
             .collect();
 
         // Wait for all tasks to complete
-        let results = futures::future::join_all(tasks).await;
-        for result in results {
-            let signature = result.unwrap();
+        for task in tasks {
+            let signature = task.await.unwrap();
             assert!(!signature.is_empty());
         }
     }

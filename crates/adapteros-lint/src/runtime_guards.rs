@@ -6,6 +6,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
+use tracing::{info, warn};
 
 /// Global state for runtime guards
 static GUARDS_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -42,9 +43,9 @@ pub fn init_guards(config: GuardConfig) {
     STRICT_MODE.store(config.strict_mode, Ordering::Relaxed);
 
     if config.enabled {
-        eprintln!("🔒 AdapterOS determinism guards enabled");
+        info!("AdapterOS determinism guards enabled");
         if config.strict_mode {
-            eprintln!("⚠️  Strict mode: will panic on first nondeterminism violation");
+            warn!("Strict mode: will panic on first nondeterminism violation");
         }
     }
 }
@@ -78,18 +79,18 @@ pub fn report_violation(violation_type: &str, details: &str) {
             count + 1
         );
     } else {
-        eprintln!(
-            "⚠️  Nondeterminism violation #{}: {} - {}",
-            count + 1,
-            violation_type,
-            details
+        warn!(
+            violation_number = count + 1,
+            violation_type = violation_type,
+            details = details,
+            "Nondeterminism violation detected"
         );
 
         // Check if we've exceeded max violations
         if count + 1 >= 10 {
             // Default max violations
             panic!(
-                "🚨 Too many nondeterminism violations detected ({}). Halting execution.",
+                "Too many nondeterminism violations detected ({}). Halting execution.",
                 count + 1
             );
         }

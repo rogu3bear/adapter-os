@@ -9,20 +9,8 @@ use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::time::Duration;
 use tracing::{error, info};
 
-/// Enhanced adapter state structure for UDS communication
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AdapterState {
-    pub id: String,
-    pub hash: String, // B3Hash as string
-    pub vram_mb: u64,
-    pub active: bool,
-    pub tier: String, // persistent, ephemeral, etc.
-    pub rank: u32,
-    pub activation_pct: f32,
-    pub quality_delta: f32,
-    pub last_activation: Option<u64>, // timestamp
-    pub pinned: bool,
-}
+// Re-export canonical AdapterState from adapteros-types
+pub use adapteros_types::AdapterState;
 
 /// Enhanced adapter profile structure for UDS communication
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

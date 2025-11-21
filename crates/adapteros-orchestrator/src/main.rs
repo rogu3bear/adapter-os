@@ -4,7 +4,7 @@ use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{info, error};
 
 #[derive(Parser)]
 #[command(name = "mplora-orchestrator")]
@@ -62,10 +62,7 @@ async fn main() -> Result<()> {
             report,
             format,
         } => {
-            info!(cpid = %cpid, "AdapterOS Promotion Gate Orchestrator");
-            println!("=====================================");
-            println!("CPID: {}", cpid);
-            println!();
+            info!(cpid = %cpid, "Starting AdapterOS Promotion Gate Orchestrator");
 
             let config = OrchestratorConfig {
                 continue_on_error,
@@ -80,19 +77,10 @@ async fn main() -> Result<()> {
             let orchestrator = Orchestrator::new(config);
             let gate_report = orchestrator.run().await?;
 
-            println!();
-            println!("====================================");
-
             if gate_report.all_passed {
-                info!(cpid = %cpid, gate_passed = true, "All gates passed");
-                println!("✅ ALL GATES PASSED");
-                println!();
-                println!("CPID {} is ready for promotion.", cpid);
+                info!(cpid = %cpid, gate_passed = true, "All gates passed successfully");
             } else {
-                println!("❌ GATES FAILED");
-                println!();
-                println!("CPID {} cannot be promoted.", cpid);
-                println!("Review failures above and try again.");
+                error!(cpid = %cpid, gate_passed = false, "One or more gates failed");
             }
 
             // Write report if requested
@@ -103,8 +91,7 @@ async fn main() -> Result<()> {
                 };
 
                 gate_report.write_to_file(&report_path, format)?;
-                println!();
-                println!("Report written to: {}", report_path.display());
+                info!(report_path = %report_path.display(), "Report written to file");
             }
 
             // Exit with error code if gates failed

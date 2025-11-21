@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
@@ -162,7 +163,7 @@ pub struct SupervisorDaemon {
     /// Configuration
     config: SupervisorConfig,
     /// Active worker processes
-    workers: Arc<Mutex<HashMap<String, WorkerHandle>>>,
+    workers: Arc<TokioMutex<HashMap<String, WorkerHandle>>>,
     /// Worker restart states (tracks backoff)
     restart_states: Arc<Mutex<HashMap<String, WorkerRestartState>>>,
     /// Health checker
@@ -170,7 +171,7 @@ pub struct SupervisorDaemon {
     /// Policy hash watcher
     policy_watcher: Option<Arc<PolicyHashWatcher>>,
     /// Quarantine manager
-    quarantine_manager: Arc<Mutex<QuarantineManager>>,
+    quarantine_manager: Arc<TokioMutex<QuarantineManager>>,
     /// Adapter registry
     adapter_registry: Option<Arc<Registry>>,
     /// Database
@@ -243,11 +244,11 @@ impl SupervisorDaemon {
 
         Ok(Self {
             config,
-            workers: Arc::new(Mutex::new(HashMap::new())),
+            workers: Arc::new(TokioMutex::new(HashMap::new())),
             restart_states: Arc::new(Mutex::new(HashMap::new())),
             _health_checker: health_checker,
             policy_watcher: None,
-            quarantine_manager: Arc::new(Mutex::new(QuarantineManager::new())),
+            quarantine_manager: Arc::new(TokioMutex::new(QuarantineManager::new())),
             adapter_registry: None,
             db,
         })
@@ -308,7 +309,7 @@ impl SupervisorDaemon {
 
     /// Check worker health
     async fn check_worker_health(&self) -> Result<()> {
-        let workers = self.workers.lock().unwrap();
+        let workers = self.workers.lock().await;
         debug!("Checking health of {} workers", workers.len());
 
         for (tenant_id, worker) in workers.iter() {
@@ -386,15 +387,16 @@ impl SupervisorDaemon {
         warn!("Enforcing system quarantine: {}", summary);
 
         // Set quarantine on all workers
-        let workers = self.workers.lock().unwrap();
+        let workers = self.workers.lock().await;
         for (_tenant_id, _worker) in workers.iter() {
             // In production, signal worker to enter quarantine mode
             debug!("Signaling worker to enter quarantine");
         }
+        drop(workers);
 
         // Update quarantine manager
         {
-            let mut quarantine = self.quarantine_manager.lock().unwrap();
+            let mut quarantine = self.quarantine_manager.lock().await;
             quarantine.set_quarantined(true, summary);
         }
 
@@ -402,8 +404,8 @@ impl SupervisorDaemon {
     }
 
     /// Register a worker
-    pub fn register_worker(&self, tenant_id: String, pid: Option<u32>) {
-        let mut workers = self.workers.lock().unwrap();
+    pub async fn register_worker(&self, tenant_id: String, pid: Option<u32>) {
+        let mut workers = self.workers.lock().await;
         workers.insert(
             tenant_id.clone(),
             WorkerHandle {
@@ -416,14 +418,14 @@ impl SupervisorDaemon {
     }
 
     /// Get worker status
-    pub fn get_worker_status(&self, tenant_id: &str) -> Option<WorkerStatus> {
-        let workers = self.workers.lock().unwrap();
+    pub async fn get_worker_status(&self, tenant_id: &str) -> Option<WorkerStatus> {
+        let workers = self.workers.lock().await;
         workers.get(tenant_id).map(|w| w.status.clone())
     }
 
     /// Check quarantine operation
-    pub fn check_operation(&self, operation: QuarantineOperation) -> Result<()> {
-        let quarantine = self.quarantine_manager.lock().unwrap();
+    pub async fn check_operation(&self, operation: QuarantineOperation) -> Result<()> {
+        let quarantine = self.quarantine_manager.lock().await;
         quarantine.check_operation(operation)
     }
 
@@ -453,7 +455,7 @@ impl SupervisorDaemon {
 
             // Update worker status
             {
-                let mut workers = self.workers.lock().unwrap();
+                let mut workers = self.workers.lock().await;
                 if let Some(worker) = workers.get_mut(tenant_id) {
                     worker.status = WorkerStatus::Stopped;
                 }
@@ -477,7 +479,7 @@ impl SupervisorDaemon {
 
         // Mark as restarting
         {
-            let mut workers = self.workers.lock().unwrap();
+            let mut workers = self.workers.lock().await;
             if let Some(worker) = workers.get_mut(tenant_id) {
                 worker.status = WorkerStatus::Restarting;
             }
@@ -511,7 +513,7 @@ impl SupervisorDaemon {
         // 4. Wait for initial health check
 
         // For now, just mark as healthy (placeholder)
-        let mut workers = self.workers.lock().unwrap();
+        let mut workers = self.workers.lock().await;
         if let Some(worker) = workers.get_mut(tenant_id) {
             worker.status = WorkerStatus::Healthy;
             worker.pid = Some(std::process::id()); // Placeholder PID
@@ -572,7 +574,7 @@ mod tests {
         };
 
         let supervisor = SupervisorDaemon::new(config).await.unwrap();
-        assert!(supervisor.workers.lock().unwrap().is_empty());
+        assert!(supervisor.workers.lock().await.is_empty());
     }
 
     #[tokio::test]
@@ -586,9 +588,9 @@ mod tests {
         };
 
         let supervisor = SupervisorDaemon::new(config).await.unwrap();
-        supervisor.register_worker("test-tenant".to_string(), Some(12345));
+        supervisor.register_worker("test-tenant".to_string(), Some(12345)).await;
 
-        let status = supervisor.get_worker_status("test-tenant");
+        let status = supervisor.get_worker_status("test-tenant").await;
         assert_eq!(status, Some(WorkerStatus::Healthy));
     }
 
@@ -623,7 +625,7 @@ mod tests {
         };
 
         let supervisor = SupervisorDaemon::new(config).await.unwrap();
-        supervisor.register_worker("test-tenant".to_string(), Some(12345));
+        supervisor.register_worker("test-tenant".to_string(), Some(12345)).await;
 
         // Simulate crash
         supervisor
@@ -632,7 +634,7 @@ mod tests {
             .unwrap();
 
         // Worker should be restarted and healthy
-        let status = supervisor.get_worker_status("test-tenant");
+        let status = supervisor.get_worker_status("test-tenant").await;
         assert_eq!(status, Some(WorkerStatus::Healthy));
 
         // Restart attempts should be 1
