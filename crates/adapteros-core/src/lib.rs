@@ -31,13 +31,16 @@ pub mod hash;
 pub mod id;
 pub mod identity;
 pub mod index_snapshot;
+pub mod json;
 pub mod lifecycle;
 pub mod naming;
 pub mod plugins;
 pub mod policy;
 pub mod seed;
 pub mod stack;
+pub mod status;
 pub mod tenant_snapshot;
+pub mod time;
 pub mod timeout;
 pub mod training;
 pub mod version;
@@ -58,6 +61,7 @@ pub use seed::{
     derive_seed_typed, hash_adapter_dir, SeedLabel,
 };
 pub use stack::compute_stack_hash;
+pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
 pub use version::VersionInfo;
@@ -69,10 +73,10 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        AdapterName, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics,
-        CircuitState, DriftPolicy, ForkType, LifecycleState, LifecycleTransition, Result,
-        ResultExt, SemanticVersion, SharedCircuitBreaker, StackName, StandardCircuitBreaker,
-        TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate, TransitionReason,
-        VersionInfo, CPID,
+        AdapterName, AdapterOSStatus, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig,
+        CircuitBreakerMetrics, CircuitState, DriftPolicy, ForkType, HealthCheckResult,
+        HealthStatus, LifecycleState, LifecycleTransition, Result, ResultExt, SemanticVersion,
+        ServiceStatus, SharedCircuitBreaker, StackName, StandardCircuitBreaker, TrainingConfig,
+        TrainingJob, TrainingJobStatus, TrainingTemplate, TransitionReason, VersionInfo, CPID,
     };
 }

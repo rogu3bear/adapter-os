@@ -5,7 +5,8 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "Bash(./test_cli_integration.sh:*)",
-      "Bash(/Users/star/Dev/:*)"
+      "Bash(/Users/star/Dev/:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []

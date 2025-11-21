@@ -4,6 +4,67 @@
 //! across menu bar, web UI, and other monitoring interfaces.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::{Duration, SystemTime};
+
+/// Canonical health status for components across AdapterOS.
+///
+/// Use this type for health checks across all subsystems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HealthStatus {
+    /// Component is functioning normally
+    Healthy,
+    /// Component is functional but experiencing issues
+    Degraded,
+    /// Component is not functioning
+    Unhealthy,
+    /// Health status cannot be determined
+    Unknown,
+}
+
+impl Default for HealthStatus {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl std::fmt::Display for HealthStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Healthy => write!(f, "healthy"),
+            Self::Degraded => write!(f, "degraded"),
+            Self::Unhealthy => write!(f, "unhealthy"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+/// Detailed health check result with metrics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResult {
+    /// Overall health status
+    pub status: HealthStatus,
+    /// Timestamp of the check
+    pub timestamp: SystemTime,
+    /// Response time for the check
+    pub response_time: Duration,
+    /// Error message if unhealthy
+    pub error: Option<String>,
+    /// Additional metrics
+    pub metrics: HashMap<String, serde_json::Value>,
+}
+
+impl Default for HealthCheckResult {
+    fn default() -> Self {
+        Self {
+            status: HealthStatus::Unknown,
+            timestamp: SystemTime::now(),
+            response_time: Duration::ZERO,
+            error: None,
+            metrics: HashMap::new(),
+        }
+    }
+}
 
 /// Status of a managed service
 #[derive(Debug, Clone, Serialize, Deserialize)]
