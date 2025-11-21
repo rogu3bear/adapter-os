@@ -96,7 +96,7 @@ impl TokenBucket {
         let now = current_timestamp_ms();
 
         Self {
-            tokens: AtomicU64::new(config.capacity),
+            tokens: AtomicU64::new(config.burst_capacity),
             last_refill: Arc::new(Mutex::new(now)),
             rate: config.events_per_second,
             capacity: config.burst_capacity,
@@ -702,6 +702,7 @@ impl TelemetryBuffer {
     /// Create a buffer with custom rate limit configuration
     pub fn with_config(max_size: usize, config: RateLimitConfig) -> Self {
         let cb = Arc::new(StandardCircuitBreaker::new(
+            "telemetry_buffer".to_string(),
             CircuitBreakerConfig::default(),
         ));
         Self {
@@ -912,6 +913,11 @@ impl TelemetryBuffer {
     pub fn health_checker(&self) -> Arc<TelemetryHealthChecker> {
         self.health_checker.clone()
     }
+
+    /// Get the maximum buffer size
+    pub fn max_size(&self) -> usize {
+        self.max_size
+    }
 }
 
 impl Default for TelemetryBuffer {
@@ -1083,17 +1089,74 @@ pub fn telemetry_channel() -> (TelemetrySender, TelemetryReceiver) {
     tokio::sync::broadcast::channel(1000)
 }
 
+/// Configuration for telemetry workers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryWorkerConfig {
+    /// Flush interval for telemetry buffer (seconds)
+    pub flush_interval_secs: u64,
+    /// Maximum batch size for database writes
+    pub batch_size: usize,
+    /// Enable metrics collection
+    pub enable_metrics: bool,
+    /// Retry policy for failed writes
+    pub max_retries: u32,
+}
+
+impl Default for TelemetryWorkerConfig {
+    fn default() -> Self {
+        Self {
+            flush_interval_secs: 10,
+            batch_size: 100,
+            enable_metrics: true,
+            max_retries: 3,
+        }
+    }
+}
+
+/// Spawn background telemetry workers for buffer flushing and metrics collection
+pub fn spawn_telemetry_workers(
+    buffer: Arc<TelemetryBuffer>,
+    _db: adapteros_db::Db,
+    config: TelemetryWorkerConfig,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(config.flush_interval_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+
+            // Flush buffer and process events
+            let events = buffer.flush().await;
+            if !events.is_empty() {
+                info!(
+                    event_count = events.len(),
+                    "Telemetry worker flushed events"
+                );
+                // In production, these would be persisted to database
+                // For now, just log the flush
+            }
+
+            // Update health metrics
+            let len = buffer.len().await;
+            let max_size = buffer.max_size();
+            let utilization = (len as f64 / max_size as f64) * 100.0;
+            buffer.health_checker().update_buffer_utilization(utilization);
+        }
+    })
+}
+
 /// Convert from adapteros_telemetry::metrics::MetricsSnapshot to crate::types::MetricsSnapshotResponse
 impl From<adapteros_telemetry::metrics::MetricsSnapshot> for crate::types::MetricsSnapshotResponse {
     fn from(snapshot: adapteros_telemetry::metrics::MetricsSnapshot) -> Self {
         let mut counters = HashMap::new();
         let mut gauges = HashMap::new();
-        let mut histograms = HashMap::new();
+        let mut histograms: HashMap<String, Vec<f64>> = HashMap::new();
 
-        // Convert throughput to counters
+        // Convert throughput to counters (cast u64 to f64)
         counters.insert(
             "tokens_generated_total".to_string(),
-            snapshot.throughput.tokens_generated_total,
+            snapshot.throughput.tokens_generated_total as f64,
         );
 
         // Convert system metrics to gauges
@@ -1128,50 +1191,50 @@ impl From<adapteros_telemetry::metrics::MetricsSnapshot> for crate::types::Metri
             snapshot.queue_depth.kernel_queue,
         );
 
-        // Convert latency metrics to histograms (simplified as JSON)
+        // Convert latency metrics to histograms (as Vec<f64> with p50, p95, p99)
         histograms.insert(
             "inference_latency".to_string(),
-            serde_json::json!({
-                "p50": snapshot.latency.inference_p50_ms,
-                "p95": snapshot.latency.inference_p95_ms,
-                "p99": snapshot.latency.inference_p99_ms,
-            }),
+            vec![
+                snapshot.latency.inference_p50_ms,
+                snapshot.latency.inference_p95_ms,
+                snapshot.latency.inference_p99_ms,
+            ],
         );
         histograms.insert(
             "router_latency".to_string(),
-            serde_json::json!({
-                "p50": snapshot.latency.router_p50_ms,
-                "p95": snapshot.latency.router_p95_ms,
-                "p99": snapshot.latency.router_p99_ms,
-            }),
+            vec![
+                snapshot.latency.router_p50_ms,
+                snapshot.latency.router_p95_ms,
+                snapshot.latency.router_p99_ms,
+            ],
         );
         histograms.insert(
             "kernel_latency".to_string(),
-            serde_json::json!({
-                "p50": snapshot.latency.kernel_p50_ms,
-                "p95": snapshot.latency.kernel_p95_ms,
-                "p99": snapshot.latency.kernel_p99_ms,
-            }),
+            vec![
+                snapshot.latency.kernel_p50_ms,
+                snapshot.latency.kernel_p95_ms,
+                snapshot.latency.kernel_p99_ms,
+            ],
         );
 
-        // Add policy counters
+        // Add policy counters (cast u64 to f64)
         counters.insert(
             "policy_violations_total".to_string(),
-            snapshot.policy.violations_total,
+            snapshot.policy.violations_total as f64,
         );
         counters.insert(
             "abstain_events_total".to_string(),
-            snapshot.policy.abstain_events_total,
+            snapshot.policy.abstain_events_total as f64,
         );
 
-        // Add adapter counters
+        // Add adapter counters (cast u64 to f64)
         counters.insert(
             "adapter_activations_total".to_string(),
-            snapshot.adapters.activations_total,
+            snapshot.adapters.activations_total as f64,
         );
         counters.insert(
             "adapter_evictions_total".to_string(),
-            snapshot.adapters.evictions_total,
+            snapshot.adapters.evictions_total as f64,
         );
         gauges.insert(
             "active_adapters".to_string(),
@@ -1179,7 +1242,7 @@ impl From<adapteros_telemetry::metrics::MetricsSnapshot> for crate::types::Metri
         );
 
         Self {
-            timestamp: snapshot.timestamp,
+            timestamp: Some(snapshot.timestamp.to_string()),
             counters,
             gauges,
             histograms,

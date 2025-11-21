@@ -457,15 +457,16 @@ impl ProgressService {
         let message = if success { "Operation completed successfully" } else { "Operation failed" };
 
         // Update stored operation
-        let (tenant_id, event_type) = {
+        let (tenant_id, event_type, duration_secs) = {
             let mut storage = self.storage.write().await;
             match *storage {
                 ProgressStorage::Memory(ref mut ops) => {
                     if let Some(op) = ops.get_mut(&operation_id) {
+                        let duration_secs = (Utc::now() - op.started_at).num_milliseconds() as f64 / 1000.0;
                         op.last_updated = Utc::now();
                         op.status = final_status.clone();
                         op.message = Some(message.to_string());
-                        (op.tenant_id.clone(), op.event_type.clone())
+                        (op.tenant_id.clone(), op.event_type.clone(), duration_secs)
                     } else {
                         return Err(AosError::NotFound(format!("Operation not found: {}", operation_id)));
                     }
@@ -487,12 +488,14 @@ impl ProgressService {
                                 ProgressEventType::Operation(record.event_type[10..].to_string())
                             } else if record.event_type.starts_with("training:") {
                                 ProgressEventType::Training(record.event_type[9..].to_string())
-                            } else if let Some(ind) = record.event_type.find(":") {
+                            } else if let Some(ind) = record.event_type.find(':') {
                                 ProgressEventType::Background(record.event_type[ind+1..].to_string())
                             } else {
                                 ProgressEventType::Custom(record.event_type.clone())
                             };
-                            (record.tenant_id.clone(), event_type)
+                            // Calculate duration from created_at
+                            let duration_secs = (Utc::now() - record.created_at).num_milliseconds() as f64 / 1000.0;
+                            (record.tenant_id.clone(), event_type, duration_secs)
                         } else {
                             // Database is stubbed (returns empty) or operation doesn't exist
                             return Err(AosError::NotFound(format!(
@@ -512,9 +515,9 @@ impl ProgressService {
         // Record metrics
         let event_type_str = Self::event_type_string(&event_type);
         if success {
-            self.record_operation_completed(event_type_str, &tenant_id, 0.0); // TODO: Calculate actual duration
+            self.record_operation_completed(event_type_str, &tenant_id, duration_secs);
         } else {
-            self.record_operation_failed(event_type_str, &tenant_id, 0.0); // TODO: Calculate actual duration
+            self.record_operation_failed(event_type_str, &tenant_id, duration_secs);
         }
 
         // Emit final progress event
@@ -853,6 +856,38 @@ impl ProgressService {
         let event_type_str = Self::event_type_string(&event_type);
         self.record_event_emitted(event_type_str);
 
+        // Get started_at from storage to calculate elapsed time
+        let (started_at, elapsed_secs) = {
+            let storage = self.storage.read().await;
+            match &*storage {
+                ProgressStorage::Memory(ops) => {
+                    if let Some(op) = ops.get(&operation_id) {
+                        let elapsed = (Utc::now() - op.started_at).num_milliseconds() as f64 / 1000.0;
+                        (op.started_at.to_rfc3339(), elapsed)
+                    } else {
+                        (Utc::now().to_rfc3339(), 0.0)
+                    }
+                }
+                ProgressStorage::Database(db) => {
+                    let query = adapteros_db::progress_events::ProgressEventQuery {
+                        operation_id: Some(operation_id.clone()),
+                        limit: Some(1),
+                        ..Default::default()
+                    };
+                    if let Ok(records) = db.get_progress_events(query).await {
+                        if let Some(record) = records.first() {
+                            let elapsed = (Utc::now() - record.created_at).num_milliseconds() as f64 / 1000.0;
+                            (record.created_at.to_rfc3339(), elapsed)
+                        } else {
+                            (Utc::now().to_rfc3339(), 0.0)
+                        }
+                    } else {
+                        (Utc::now().to_rfc3339(), 0.0)
+                    }
+                }
+            }
+        };
+
         let event = ProgressEvent {
             event_id: Uuid::new_v4().to_string(),
             operation_id,
@@ -861,9 +896,9 @@ impl ProgressService {
             progress_pct,
             status,
             message,
-            started_at: Utc::now().to_rfc3339(),
+            started_at,
             updated_at: Utc::now().to_rfc3339(),
-            elapsed_secs: 0.0, // TODO: Calculate actual elapsed time
+            elapsed_secs,
             metadata: None,
         };
 

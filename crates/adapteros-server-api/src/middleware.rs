@@ -39,15 +39,17 @@ pub async fn auth_middleware(
 
     let token = auth_header
         .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_ref());
+        .or(query_token.as_deref());
 
     if let Some(token) = token {
         match validate_token(token, &state.jwt_secret) {
             Ok(claims) => {
+                // Extract tenant_id before moving claims
+                let tenant_id = claims.tenant_id.clone();
                 // Insert claims into request extensions for handlers to use
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
-                    claims.tenant_id.clone(),
+                    tenant_id,
                     "api".to_string(),
                     "middleware".to_string(), // or specific
                     IdentityEnvelope::default_revision(),
@@ -100,7 +102,7 @@ pub async fn dual_auth_middleware(
 
     let token = auth_header
         .and_then(|header| header.strip_prefix("Bearer "))
-        .or(query_token.as_ref());
+        .or(query_token.as_deref());
 
     if let Some(token) = token {
         if token == "adapteros-local" {
@@ -115,9 +117,10 @@ pub async fn dual_auth_middleware(
                 jti: Uuid::new_v4().to_string(),
                 nbf: now.timestamp(),
             };
+            let tenant_id = claims.tenant_id.clone();
             req.extensions_mut().insert(claims);
             let identity = IdentityEnvelope::new(
-                claims.tenant_id.clone(),
+                tenant_id,
                 "api".to_string(),
                 "middleware".to_string(), // or specific
                 IdentityEnvelope::default_revision(),
@@ -128,9 +131,10 @@ pub async fn dual_auth_middleware(
 
         match validate_token(token, &state.jwt_secret) {
             Ok(claims) => {
+                let tenant_id = claims.tenant_id.clone();
                 req.extensions_mut().insert(claims);
                 let identity = IdentityEnvelope::new(
-                    claims.tenant_id.clone(),
+                    tenant_id,
                     "api".to_string(),
                     "middleware".to_string(), // or specific
                     IdentityEnvelope::default_revision(),

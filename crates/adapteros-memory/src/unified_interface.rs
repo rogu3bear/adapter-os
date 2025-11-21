@@ -358,11 +358,14 @@ impl MemoryManager for UnifiedMemoryManager {
         // Get current memory usage
         let stats = self.get_memory_usage().await?;
 
+        // Count pinned adapters
+        let adapters_pinned = stats.adapters.iter().filter(|a| a.pinned).count() as u32;
+
         // If headroom is sufficient, no cleanup needed
         if stats.headroom_percentage >= self.headroom_threshold {
             return Ok(MemoryCleanupReport {
                 adapters_evicted: 0,
-                adapters_pinned: 0,
+                adapters_pinned,
                 memory_freed_bytes: 0,
                 memory_freed_mb: 0,
                 duration_ms: start_time.elapsed().as_millis() as u64,
@@ -423,7 +426,7 @@ impl MemoryManager for UnifiedMemoryManager {
 
         Ok(MemoryCleanupReport {
             adapters_evicted,
-            adapters_pinned: 0, // TODO: Count pinned adapters
+            adapters_pinned,
             memory_freed_bytes: memory_freed,
             memory_freed_mb: memory_freed / (1024 * 1024),
             duration_ms: duration.as_millis() as u64,

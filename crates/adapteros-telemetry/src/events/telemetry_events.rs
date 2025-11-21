@@ -390,6 +390,7 @@ pub struct CalibrationMetricsEvent {
 }
 
 impl CalibrationMetricsEvent {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         accuracy: f32,
         precision: f32,

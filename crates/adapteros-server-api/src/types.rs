@@ -1,12 +1,76 @@
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 // Re-export shared API types
 pub use adapteros_api_types::*;
 
 // ErrorResponse is imported from adapteros_api_types via the pub use above
+
+// ===== Telemetry Response Types =====
+
+/// Single metric data point with timestamp
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MetricDataPointResponse {
+    /// Unix timestamp in milliseconds
+    pub timestamp: u64,
+    /// Metric value
+    pub value: f64,
+    /// Optional labels/tags for the data point
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<HashMap<String, String>>,
+}
+
+/// Time series data for a single metric
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MetricsSeriesResponse {
+    /// Name of the metric series
+    pub series_name: String,
+    /// Data points in the series
+    pub points: Vec<MetricDataPointResponse>,
+}
+
+/// Current metrics snapshot with counters, gauges, and histograms
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct MetricsSnapshotResponse {
+    /// Counter metrics (monotonically increasing values)
+    pub counters: HashMap<String, f64>,
+    /// Gauge metrics (point-in-time values)
+    pub gauges: HashMap<String, f64>,
+    /// Histogram metrics (distribution summaries)
+    pub histograms: HashMap<String, Vec<f64>>,
+    /// Timestamp when snapshot was taken (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+}
+
+/// Activity event for recent activity feed
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ActivityEventResponse {
+    /// Unique event identifier
+    pub id: String,
+    /// Event timestamp (RFC3339)
+    pub timestamp: String,
+    /// Type of event (e.g., "adapter.loaded", "training.completed")
+    pub event_type: String,
+    /// Log level (debug, info, warn, error, critical)
+    pub level: String,
+    /// Human-readable event message
+    pub message: String,
+    /// Component that generated the event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    /// Tenant ID associated with the event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    /// User ID that triggered the event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    /// Additional event metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
 
 /// Single request item within a batch inference call
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -45,22 +109,7 @@ pub struct BatchInferResponse {
     pub responses: Vec<BatchInferItemResponse>,
 }
 
-// ErrorResponse methods are implemented in adapteros-api-types
-
-impl IntoResponse for ErrorResponse {
-    fn into_response(self) -> Response {
-        let status = match self.code.as_str() {
-            "NOT_FOUND" => StatusCode::NOT_FOUND,
-            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
-            "FORBIDDEN" => StatusCode::FORBIDDEN,
-            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
-            "CONFLICT" => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        (status, axum::Json(self)).into_response()
-    }
-}
+// ErrorResponse methods and IntoResponse impl are in adapteros-api-types
 
 /// Upsert directory adapter request (synthetic, optional activation)
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1323,16 +1372,19 @@ pub fn training_config_from_request(
         warmup_steps: req.warmup_steps,
         max_seq_length: req.max_seq_length,
         gradient_accumulation_steps: req.gradient_accumulation_steps,
+        weight_group_config: None,
     }
 }
 
 /// Convert orchestrator TrainingJob to TrainingJobResponse
 pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> TrainingJobResponse {
     TrainingJobResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: job.id,
         adapter_name: job.adapter_name,
         template_id: job.template_id,
         repo_id: job.repo_id,
+        dataset_id: job.dataset_id,
         status: format!("{:?}", job.status).to_lowercase(),
         progress_pct: job.progress_pct,
         current_epoch: job.current_epoch,
@@ -1353,6 +1405,7 @@ pub fn training_template_to_response(
     template: adapteros_orchestrator::TrainingTemplate,
 ) -> TrainingTemplateResponse {
     TrainingTemplateResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: template.id,
         name: template.name,
         description: template.description,
@@ -1644,6 +1697,72 @@ pub struct GitStatusResponse {
     pub modified_files: Vec<String>,
     pub staged_files: Vec<String>,
     pub untracked_files: Vec<String>,
+}
+
+/// Backpressure response for rate limiting
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BackpressureResponse {
+    /// Memory pressure level (e.g., "high", "critical")
+    pub level: String,
+    /// Suggested retry delay in seconds
+    pub retry_after_secs: u64,
+    /// Suggested action to take
+    pub suggested_action: String,
+}
+
+// ===== Golden Run Types =====
+
+/// Golden run summary response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GoldenRunSummary {
+    /// Name of the golden baseline
+    pub name: String,
+    /// Unique run identifier
+    pub run_id: String,
+    /// Control point ID
+    pub cpid: String,
+    /// Plan identifier
+    pub plan_id: String,
+    /// BLAKE3 hash of the bundle
+    pub bundle_hash: String,
+    /// Number of layers in epsilon stats
+    pub layer_count: usize,
+    /// Maximum epsilon value across all layers
+    pub max_epsilon: f64,
+    /// Mean epsilon value across all layers
+    pub mean_epsilon: f64,
+    /// Toolchain summary string
+    pub toolchain_summary: String,
+    /// List of adapters used in the run
+    pub adapters: Vec<String>,
+    /// RFC3339 timestamp of creation
+    pub created_at: String,
+    /// Whether the archive has a signature
+    pub has_signature: bool,
+}
+
+/// Golden compare request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GoldenCompareRequest {
+    /// Name of the golden baseline to compare against
+    pub golden: String,
+    /// Bundle ID to compare
+    pub bundle_id: String,
+    /// Strictness level: "bitwise", "epsilon-tolerant", or "statistical"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strictness: Option<String>,
+    /// Verify toolchain matches
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_toolchain: Option<bool>,
+    /// Verify adapters match
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_adapters: Option<bool>,
+    /// Verify signature
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_signature: Option<bool>,
+    /// Verify device matches
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_device: Option<bool>,
 }
 
 // ===== Audit Logs API Types =====

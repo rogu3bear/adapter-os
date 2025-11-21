@@ -10,16 +10,18 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0"
-tracing = "0.1"
-parking_lot = "0.12"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-blake3 = "1.5"
-hex = "0.4"
-chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1.0", features = ["rt", "test-util", "macros", "rt-multi-thread"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+bytemuck = { workspace = true }
+half = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.30"

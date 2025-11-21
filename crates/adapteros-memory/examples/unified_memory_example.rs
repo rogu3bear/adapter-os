@@ -10,7 +10,7 @@ use adapteros_memory::{
     BackendType, BufferPool, BufferPoolConfig, MemoryLimits, MemoryPressureManager,
     MemoryTelemetryWriter, TelemetryEventSink, TensorFormat, UnifiedMemoryTracker,
 };
-use serde::Serialize;
+
 use std::sync::{Arc, Mutex};
 
 /// Mock telemetry sink that prints events
@@ -27,8 +27,8 @@ impl NoOpTelemetrySink {
 }
 
 impl TelemetryEventSink for NoOpTelemetrySink {
-    fn emit_event<T: Serialize>(&self, event_type: &str, event: &T) {
-        let json = serde_json::to_string_pretty(event).unwrap();
+    fn emit_event(&self, event_type: &str, event: serde_json::Value) {
+        let json = serde_json::to_string_pretty(&event).unwrap();
         let message = format!("[{}]\n{}\n", event_type, json);
         println!("{}", message);
         self.events.lock().unwrap().push(message);

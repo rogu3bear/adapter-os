@@ -4,7 +4,8 @@
 
 use adapteros_core::AosError;
 use adapteros_db::Db;
-use adapteros_orchestrator::{FederationDaemon, FederationVerificationReport};
+use adapteros_orchestrator::FederationVerificationReport;
+use crate::state::AppState;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -14,11 +15,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::Row;
-use std::sync::Arc;
 use tracing::{error, info};
+use utoipa::ToSchema;
 
 /// Federation status response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FederationStatusResponse {
     /// Whether federation is operational
     pub operational: bool,
@@ -26,8 +27,8 @@ pub struct FederationStatusResponse {
     pub quarantined: bool,
     /// Quarantine reason (if quarantined)
     pub quarantine_reason: Option<String>,
-    /// Latest verification report
-    pub latest_verification: Option<FederationVerificationReport>,
+    /// Latest verification report (JSON string)
+    pub latest_verification: Option<String>,
     /// Number of registered hosts
     pub total_hosts: usize,
     /// Timestamp
@@ -35,7 +36,7 @@ pub struct FederationStatusResponse {
 }
 
 /// Quarantine status response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct QuarantineStatusResponse {
     /// Whether system is quarantined
     pub quarantined: bool,
@@ -44,7 +45,7 @@ pub struct QuarantineStatusResponse {
 }
 
 /// Quarantine details
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct QuarantineDetails {
     /// Reason for quarantine
     pub reason: String,
@@ -56,29 +57,29 @@ pub struct QuarantineDetails {
     pub cpid: Option<String>,
 }
 
-/// API state with federation daemon
-pub struct FederationApiState {
-    pub daemon: Arc<FederationDaemon>,
-    pub db: Arc<Db>,
-}
-
 /// GET /api/federation/status
 ///
 /// Returns current federation verification status
 #[utoipa::path(
     get,
-    path = "/api/v1/federation/status",
+    path = "/v1/federation/status",
     responses(
-        (status = 200, description = "Federation status retrieved successfully", body = FederationStatusResponse)
-    )
+        (status = 200, description = "Federation status retrieved successfully", body = FederationStatusResponse),
+        (status = 503, description = "Federation daemon not available")
+    ),
+    tags = ["federation"]
 )]
 pub async fn get_federation_status(
-    State(state): State<Arc<FederationApiState>>,
+    State(state): State<AppState>,
 ) -> std::result::Result<Json<FederationStatusResponse>, AppError> {
     info!("Fetching federation status");
 
+    let daemon = state.federation_daemon.as_ref().ok_or_else(|| {
+        AppError(AosError::Config("Federation daemon not configured".into()))
+    })?;
+
     // Get latest verification report
-    let latest_verification = match state.daemon.get_latest_report().await {
+    let latest_verification = match daemon.get_latest_report().await {
         Ok(report) => Some(report),
         Err(e) => {
             error!(error = %e, "Failed to get latest federation report");
@@ -90,9 +91,9 @@ pub async fn get_federation_status(
     let total_hosts = get_host_count(&state.db).await.unwrap_or(0);
 
     // Check quarantine status
-    let quarantined = state.daemon.is_quarantined();
+    let quarantined = daemon.is_quarantined();
     let quarantine_reason = if quarantined {
-        Some(state.daemon.quarantine_status())
+        Some(daemon.quarantine_status())
     } else {
         None
     };
@@ -101,7 +102,7 @@ pub async fn get_federation_status(
         operational: !quarantined && latest_verification.as_ref().map(|r| r.ok).unwrap_or(false),
         quarantined,
         quarantine_reason,
-        latest_verification,
+        latest_verification: latest_verification.map(|r| serde_json::to_string(&r).unwrap_or_default()),
         total_hosts,
         timestamp: chrono::Utc::now().to_rfc3339(),
     };
@@ -114,17 +115,23 @@ pub async fn get_federation_status(
 /// Returns quarantine status with details
 #[utoipa::path(
     get,
-    path = "/api/v1/federation/quarantine",
+    path = "/v1/federation/quarantine",
     responses(
-        (status = 200, description = "Quarantine status retrieved successfully", body = QuarantineStatusResponse)
-    )
+        (status = 200, description = "Quarantine status retrieved successfully", body = QuarantineStatusResponse),
+        (status = 503, description = "Federation daemon not available")
+    ),
+    tags = ["federation"]
 )]
 pub async fn get_quarantine_status(
-    State(state): State<Arc<FederationApiState>>,
+    State(state): State<AppState>,
 ) -> std::result::Result<Json<QuarantineStatusResponse>, AppError> {
     info!("Fetching quarantine status");
 
-    let quarantined = state.daemon.is_quarantined();
+    let daemon = state.federation_daemon.as_ref().ok_or_else(|| {
+        AppError(AosError::Config("Federation daemon not configured".into()))
+    })?;
+
+    let quarantined = daemon.is_quarantined();
 
     let details = if quarantined {
         // Fetch quarantine details from database
@@ -153,13 +160,14 @@ pub async fn get_quarantine_status(
 /// Release system from quarantine (requires authentication)
 #[utoipa::path(
     post,
-    path = "/api/v1/federation/release-quarantine",
+    path = "/v1/federation/release-quarantine",
     responses(
         (status = 200, description = "System released from quarantine successfully")
-    )
+    ),
+    tags = ["federation"]
 )]
 pub async fn release_quarantine(
-    State(state): State<Arc<FederationApiState>>,
+    State(state): State<AppState>,
 ) -> std::result::Result<Json<serde_json::Value>, AppError> {
     info!("Releasing system from quarantine");
 

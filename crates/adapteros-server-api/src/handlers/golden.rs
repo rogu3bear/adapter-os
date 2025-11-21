@@ -13,6 +13,15 @@ use adapteros_verify::{
 };
 
 /// GET /v1/golden/runs — list golden baseline names
+#[utoipa::path(
+    get,
+    path = "/v1/golden/runs",
+    responses(
+        (status = 200, description = "List of golden run names", body = Vec<String>),
+        (status = 500, description = "Failed to list golden runs", body = ErrorResponse)
+    ),
+    tag = "golden"
+)]
 pub async fn list_golden_runs(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -37,6 +46,18 @@ pub async fn list_golden_runs(
 }
 
 /// GET /v1/golden/runs/:name — return a summary of a specific golden baseline
+#[utoipa::path(
+    get,
+    path = "/v1/golden/runs/{name}",
+    params(
+        ("name" = String, Path, description = "Golden run name")
+    ),
+    responses(
+        (status = 200, description = "Golden run summary", body = GoldenRunSummary),
+        (status = 404, description = "Golden run not found", body = ErrorResponse)
+    ),
+    tag = "golden"
+)]
 pub async fn get_golden_run(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -78,6 +99,18 @@ pub async fn get_golden_run(
 }
 
 /// POST /v1/golden/compare — compare a bundle against a golden baseline
+#[utoipa::path(
+    post,
+    path = "/v1/golden/compare",
+    request_body = GoldenCompareRequest,
+    responses(
+        (status = 200, description = "Verification report"),
+        (status = 404, description = "Golden baseline or bundle not found", body = ErrorResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 500, description = "Verification failed", body = ErrorResponse)
+    ),
+    tag = "golden"
+)]
 pub async fn golden_compare(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,

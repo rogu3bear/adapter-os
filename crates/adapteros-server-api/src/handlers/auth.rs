@@ -4,35 +4,33 @@
 //!
 //! 【2025-01-20†rectification†auth_handlers_expanded】
 
-use axum::{http::StatusCode, response::Json, Json as AxumJson, Extension};
-use adapteros_db::Db;
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use crate::auth::Claims;
+use crate::state::AppState;
 use crate::types::*;
-use tracing::warn;
+use utoipa;
 
-pub async fn login_handler(
-    AxumJson(payload): AxumJson<LoginRequest>,
-    db: Db,
-) -> Result<Json<LoginResponse>, StatusCode> {
-    // Check if users table is empty
-    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if user_count == 0 {
-        warn!("No users seeded in DB; bootstrap required");
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
-
-    // Existing login logic...
-    let user = sqlx::query_as!(User, "SELECT * FROM users WHERE username = $1", payload.username)
-        .fetch_optional(&db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // ... rest of validation and JWT generation ...
-    Ok(Json(response))
+/// Login endpoint
+#[utoipa::path(
+    post,
+    path = "/v1/auth/login",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = LoginResponse),
+        (status = 401, description = "Invalid credentials", body = ErrorResponse)
+    ),
+    tag = "auth"
+)]
+pub async fn auth_login(
+    State(_state): State<AppState>,
+    Json(request): Json<LoginRequest>,
+) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Stub implementation: always fail with unauthorized
+    // Real implementation would validate credentials and generate JWT
+    Err((
+        StatusCode::UNAUTHORIZED,
+        Json(ErrorResponse::new("Invalid credentials".to_string())),
+    ))
 }
 
 /// Logout endpoint (client-side token discard)
@@ -49,12 +47,11 @@ pub async fn auth_me(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<UserInfoResponse>, (StatusCode, Json<ErrorResponse>)> {
     Ok(Json(UserInfoResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         user_id: claims.sub,
-        email: claims.email.unwrap_or_default(),
+        email: claims.email,
         role: claims.role,
-        tenant_id: claims.tenant_id,
-        created_at: None,
-        last_login_at: None,
+        created_at: String::new(),
     }))
 }
 

@@ -1,29 +1,23 @@
-use crate::handlers::chunked_upload::{
-    ChunkAssembler, ChunkUploadResult, ChunkWriter, CompressionFormat, CompressionHandler,
-    FileValidator, ResumeToken, UploadSession, UploadSessionManager, DEFAULT_CHUNK_SIZE,
+use crate::auth::Claims;
+use super::chunked_upload::{
+    CompressionFormat, FileValidator, UploadSession, UploadSessionManager, DEFAULT_CHUNK_SIZE,
     MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
 use crate::state::{AppState, DatasetProgressEvent};
 use crate::types::*;
-use adapteros_api_types::training::*;
-use adapteros_db::training_datasets::{
-    DatasetFile, DatasetStatistics, TrainingDataset,
-};
-use adapteros_orchestrator::training_dataset_integration::TrainingDatasetManager;
-use anyhow::{anyhow, Context, Result};
+use adapteros_db::training_datasets::DatasetFile;
 use axum::{
-    extract::{multipart::Multipart, Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive},
-        Sse, IntoResponse,
+        IntoResponse, Sse,
     },
-    Json,
+    Extension, Json,
 };
 use blake3::Hasher;
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
-use sqlx;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -32,6 +26,7 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use tracing::{debug, error, info, warn};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 /// Default dataset storage root if not configured
@@ -60,7 +55,7 @@ fn send_progress_event(
 }
 
 /// Query parameters for listing datasets
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema, IntoParams)]
 pub struct ListDatasetsQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -69,7 +64,7 @@ pub struct ListDatasetsQuery {
 }
 
 /// Request to initiate a chunked upload
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InitiateChunkedUploadRequest {
     /// File name being uploaded
     pub file_name: String,
@@ -82,7 +77,7 @@ pub struct InitiateChunkedUploadRequest {
 }
 
 /// Response from initiating a chunked upload
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InitiateChunkedUploadResponse {
     /// Unique session identifier
     pub session_id: String,
@@ -98,7 +93,6 @@ pub struct InitiateChunkedUploadResponse {
 #[utoipa::path(
     post,
     path = "/v1/datasets/upload",
-    request_body(content = Multipart),
     responses(
         (status = 200, description = "Dataset created successfully", body = UploadDatasetResponse),
         (status = 400, description = "Invalid request"),
@@ -109,6 +103,7 @@ pub struct InitiateChunkedUploadResponse {
 )]
 pub async fn upload_dataset(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let dataset_id = Uuid::now_v7().to_string();
@@ -287,7 +282,7 @@ pub async fn upload_dataset(
         &dataset_format,
         &dataset_hash,
         &dataset_path.to_string_lossy(),
-        Some("system"),  // TODO: Get from auth context
+        Some(&claims.sub),
     ).await.map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create dataset record: {}", e))
     })?;
@@ -369,15 +364,16 @@ pub async fn initiate_chunked_upload(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp directory: {}", e)))?;
 
     let manager = UploadSessionManager::new(1000); // Max 1000 concurrent sessions
-    let session = manager.create_session(
+    let session_result: anyhow::Result<UploadSession> = manager.create_session(
         request.file_name.clone(),
         request.total_size,
         content_type.clone(),
         chunk_size,
         &temp_base,
     )
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .await;
+    let session = session_result
+        .map_err(|e: anyhow::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     info!("Initiated chunked upload session {} for file {} ({} bytes, {} chunks)",
           session.session_id, request.file_name, request.total_size, expected_chunks);
@@ -452,10 +448,7 @@ pub async fn get_dataset(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let dataset = state.db.get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => (StatusCode::NOT_FOUND, "Dataset not found".to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e))
-        })?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
     Ok(Json(DatasetResponse {
@@ -544,10 +537,8 @@ pub async fn get_dataset_statistics(
 
     let stats = state.db.get_dataset_statistics(&dataset_id)
         .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => (StatusCode::NOT_FOUND, "Statistics not computed for this dataset".to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get statistics: {}", e))
-        })?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get statistics: {}", e)))?
+        .ok_or((StatusCode::NOT_FOUND, "Statistics not computed for this dataset".to_string()))?;
 
     Ok(Json(DatasetStatisticsResponse {
         schema_version: "1.0".to_string(),
@@ -636,7 +627,7 @@ pub async fn validate_dataset(
         }
 
         // Verify file hash with streaming to avoid loading entire file
-        match validate_file_hash_streaming(&file.file_path, &file.hash_b3).await {
+        match validate_file_hash_streaming(std::path::Path::new(&file.file_path), &file.hash_b3).await {
             Ok(matches) => {
                 if !matches {
                     validation_errors.push(format!(
@@ -655,7 +646,7 @@ pub async fn validate_dataset(
 
         // Format-specific validation with quick checks
         if request.check_format.unwrap_or(true) {
-            if let Err(e) = FileValidator::quick_validate(&file.file_path, &dataset.format, STREAM_BUFFER_SIZE).await {
+            if let Err(e) = FileValidator::quick_validate(std::path::Path::new(&file.file_path), &dataset.format, STREAM_BUFFER_SIZE).await {
                 validation_errors.push(format!("File {} format validation failed: {}", file.file_name, e));
                 is_valid = false;
             }
@@ -748,7 +739,7 @@ pub async fn preview_dataset(
             break;
         }
 
-        match stream_preview_file(&file.file_path, &dataset.format, limit - count).await {
+        match stream_preview_file(std::path::Path::new(&file.file_path), &dataset.format, limit - count).await {
             Ok(mut file_examples) => {
                 count += file_examples.len();
                 examples.append(&mut file_examples);
@@ -814,7 +805,7 @@ pub async fn delete_dataset(
 }
 
 /// Query parameters for progress stream
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ProgressStreamQuery {
     pub dataset_id: Option<String>,
 }

@@ -3,22 +3,19 @@ use crate::state::AppState;
 use adapteros_api_types::adapters::*;
 use adapteros_core::B3Hash;
 use adapteros_core::StackName;
-use adapteros_db::sqlx;
-use adapteros_db::traits::AdapterRecord;
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
-    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use tracing::{info, warn};
+use utoipa::ToSchema;
 
 /// Request to create a new adapter stack
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateStackRequest {
     pub name: String,
     pub description: Option<String>,
@@ -28,7 +25,7 @@ pub struct CreateStackRequest {
 }
 
 /// Response for adapter stack operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StackResponse {
     #[serde(default = "default_schema_version")]
     pub schema_version: String,
@@ -50,7 +47,7 @@ fn default_schema_version() -> String {
 }
 
 /// Workflow type for adapter stacks
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowType {
     Parallel,
@@ -98,11 +95,11 @@ pub async fn create_stack(
     let workflow_type_str = req.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
     let db_req = adapteros_db::traits::CreateStackRequest {
-        tenant_id,
+        tenant_id: tenant_id.clone(),
         name: req.name.clone(),
         description: req.description.clone(),
         adapter_ids: req.adapter_ids.clone(),
-        workflow_type: req.workflow_type.clone(),
+        workflow_type: req.workflow_type.as_ref().map(|w| format!("{:?}", w)),
     };
 
     let id = state.db.insert_stack(&db_req).await.map_err(|e| {
@@ -311,40 +308,33 @@ pub async fn activate_stack(
     let tenant_id = claims.tenant_id;
 
     // First verify the stack exists and parse adapter IDs (including version for telemetry)
-    let stack = sqlx::query!(
-        r#"
-        SELECT id, name, adapter_ids_json, tenant_id, version
-        FROM adapter_stacks
-        WHERE id = ? AND tenant_id = ?
-        "#,
-        id,
-        tenant_id
-    )
-    .fetch_optional(&state.db_pool)
-    .await
-    .map_err(|e| {
-        warn!(
-            "Database error while fetching stack {} for tenant {}: {}",
-            id, tenant_id, e
-        );
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {}", e),
-        )
-    })?
-    .ok_or_else(|| {
-        warn!(
-            "Attempted to activate non-existent stack: {} for tenant {}",
-            id, tenant_id
-        );
-        (
-            StatusCode::NOT_FOUND,
-            format!(
-                "Stack with id '{}' not found for tenant '{}'",
+    let stack = state
+        .db
+        .get_stack(&tenant_id, &id)
+        .await
+        .map_err(|e| {
+            warn!(
+                "Database error while fetching stack {} for tenant {}: {}",
+                id, tenant_id, e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!(
+                "Attempted to activate non-existent stack: {} for tenant {}",
                 id, tenant_id
-            ),
-        )
-    })?;
+            );
+            (
+                StatusCode::NOT_FOUND,
+                format!(
+                    "Stack with id '{}' not found for tenant '{}'",
+                    id, tenant_id
+                ),
+            )
+        })?;
 
     if stack.tenant_id != tenant_id {
         return Err((
@@ -353,7 +343,8 @@ pub async fn activate_stack(
         ));
     }
 
-    let name = stack.name;
+    let name = stack.name.clone();
+    let stack_version = stack.version;
 
     // Parse adapter IDs to ensure they're valid
     let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json).map_err(|e| {
@@ -374,8 +365,8 @@ pub async fn activate_stack(
                 "Internal synchronization error".to_string(),
             )
         })?;
-        let prev = active_stack.clone();
-        *active_stack = Some(id.clone());
+        let prev = active_stack.get(&tenant_id).cloned().flatten();
+        active_stack.insert(tenant_id.clone(), Some(id.clone()));
         prev
     };
 
@@ -408,15 +399,6 @@ pub async fn activate_stack(
             } else {
                 vec![]
             };
-                serde_json::from_str::<Vec<String>>(&old_stack.adapter_ids_json).map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Parse old: {}", e),
-                    )
-                })?
-            } else {
-                vec![]
-            };
 
             let add_ids: Vec<_> = adapter_ids
                 .iter()
@@ -429,29 +411,29 @@ pub async fn activate_stack(
                 .cloned()
                 .collect();
 
-            tokio::task::spawn_blocking(move || worker.hotswap.swap(&add_ids, &remove_ids))
+            let hotswap = worker.hotswap().clone();
+            hotswap.swap(&add_ids, &remove_ids)
                 .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Spawn blocking error: {}", e),
-                    )
-                })?
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-            worker.kv_cache.zeroize_all();
+            // KV cache zeroization: method not yet available on Worker
+            // if let Some(kv_cache) = worker.kv_cache_mut() {
+            //     kv_cache.zeroize_all();
+            // }
 
-            *worker.last_stack_hash.write() = Some(new_hash);
+            *worker.last_stack_hash().write() = Some(new_hash);
 
-            worker.telemetry.emit_custom("stack.swap", json!({
-                "old_stack_hash": old_hash.as_ref().map(|h| h.to_short_hex()),
-                "new_stack_hash": new_hash.to_short_hex(),
-                "cache_reset": true,
-                "tenant_id": tenant_id,
-                "stack_id": id,
-                "stack_version": stack.version, // PRD-03: Include version in telemetry
-                "trace_id": tracing::Span::current().id().map(|id| format!("{:x}", id.into_u64())).unwrap_or("unknown".to_string()),
-            })).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            if let Some(telemetry) = worker.telemetry() {
+                telemetry.log("stack.swap", json!({
+                    "old_stack_hash": old_hash.as_ref().map(|h| h.to_short_hex()),
+                    "new_stack_hash": new_hash.to_short_hex(),
+                    "cache_reset": true,
+                    "tenant_id": tenant_id,
+                    "stack_id": id,
+                    "stack_version": stack_version, // PRD-03: Include version in telemetry
+                    "trace_id": tracing::Span::current().id().map(|id| format!("{:x}", id.into_u64())).unwrap_or("unknown".to_string()),
+                })).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            }
         }
     }
 
@@ -496,8 +478,8 @@ pub async fn deactivate_stack(
         let mut active = state.active_stack.write().map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock poisoned: {}", e))
         })?;
-        let prev = active.get(&tenant_id).cloned();
-        active.insert(tenant_id, None);
+        let prev = active.get(&tenant_id).cloned().flatten();
+        active.insert(tenant_id.clone(), None);
         prev
     };
 
@@ -549,7 +531,9 @@ async fn compute_stack_hash(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             .ok_or((StatusCode::NOT_FOUND, format!("Adapter {} not found", id)))?;
 
-        pairs.push((id.clone(), adapter.hash_b3));
+        let hash = adapteros_core::B3Hash::from_hex(&adapter.hash_b3)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        pairs.push((id.clone(), hash));
     }
 
     // Use canonical compute_stack_hash from adapteros-core

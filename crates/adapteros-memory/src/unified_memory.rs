@@ -22,9 +22,8 @@ pub struct UnifiedMemoryManager {
 /// Memory pool for a specific backend
 #[derive(Debug)]
 pub struct MemoryPool {
-    /// Pool identifier
-    #[allow(dead_code)]
-    id: String,
+    /// Pool identifier (reserved for multi-pool management)
+    _id: String,
     /// Allocated blocks
     blocks: HashMap<String, MemoryBlock>,
     /// Available memory
@@ -44,9 +43,8 @@ pub struct MemoryBlock {
     size: usize,
     /// Backend type
     backend: String,
-    /// Allocation timestamp
-    #[allow(dead_code)]
-    timestamp: u64,
+    /// Allocation timestamp (reserved for LRU eviction)
+    _timestamp: u64,
 }
 
 /// Memory allocation request
@@ -95,7 +93,7 @@ impl UnifiedMemoryManager {
         }
 
         let pool = MemoryPool {
-            id: backend.to_string(),
+            _id: backend.to_string(),
             blocks: HashMap::new(),
             available: pool_size,
             total_size: pool_size,
@@ -146,7 +144,7 @@ impl UnifiedMemoryManager {
             ptr,
             size: request.size,
             backend: request.backend.clone(),
-            timestamp: self.current_timestamp(),
+            _timestamp: self.current_timestamp(),
         };
 
         pool_guard.blocks.insert(block_id, block.clone());

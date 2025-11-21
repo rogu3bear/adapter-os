@@ -13,29 +13,30 @@ use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
-use adapteros_db::Adapter;
+use adapteros_db::adapters::Adapter;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::Json,
     Extension,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
+use utoipa::ToSchema;
 
 // ============================================================================
 // PRD-07: Adapter Lifecycle Promotion/Demotion
 // ============================================================================
 
 /// Lifecycle state transition request
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct LifecycleTransitionRequest {
     /// Reason for the transition (required for audit trail)
     pub reason: String,
 }
 
 /// Lifecycle state transition response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct LifecycleTransitionResponse {
     pub adapter_id: String,
     pub old_state: String,
@@ -335,7 +336,7 @@ pub async fn demote_adapter_lifecycle(
 // ============================================================================
 
 /// Lineage node in the adapter tree
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct LineageNode {
     pub adapter_id: String,
     pub adapter_name: Option<String>,
@@ -371,7 +372,7 @@ impl From<Adapter> for LineageNode {
 }
 
 /// Adapter lineage tree response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AdapterLineageResponse {
     pub adapter_id: String,
     pub ancestors: Vec<LineageNode>,
@@ -524,7 +525,7 @@ pub async fn get_adapter_lineage(
 }
 
 /// Adapter detail response with full metadata
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AdapterDetailResponse {
     // Core identity
     pub id: String,

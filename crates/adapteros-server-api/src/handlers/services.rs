@@ -1,36 +1,39 @@
 ///! Service control handlers
 ///
 /// Proxy endpoints that forward service control operations to the supervisor API.
-/// These handlers provide service start/stop/restart functionality with localhost-only auth.
+/// These handlers provide service start/stop/restart functionality with JWT auth.
+use crate::auth::Claims;
 use crate::errors::ErrorResponseExt;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::supervisor_client::SupervisorClient;
 use crate::types::ErrorResponse;
 use adapteros_core::AosError;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     response::Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
+use utoipa::ToSchema;
 
 /// Request to start/stop a service
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ServiceControlRequest {
     pub service_id: String,
 }
 
 /// Response from service control operations
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ServiceControlResponse {
     pub success: bool,
     pub message: String,
 }
 
 /// Query parameters for logs endpoint
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct LogsQuery {
     #[serde(default = "default_log_lines")]
     pub lines: u32,
@@ -57,12 +60,18 @@ fn default_log_lines() -> u32 {
 )]
 pub async fn start_service(
     State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(service_id): Path<String>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!(service_id = %service_id, "Starting service");
+    // Require NodeManage permission for service control operations
+    require_permission(&claims, Permission::NodeManage).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
+        )
+    })?;
 
-    // TODO: Add localhost-only auth check in production
-    // For development, allow all requests from localhost
+    info!(service_id = %service_id, user = %claims.sub, "Starting service");
 
     let client = SupervisorClient::from_env();
 
@@ -76,21 +85,13 @@ pub async fn start_service(
         }
         Err(AosError::NotFound(msg)) => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "not_found".to_string(),
-                message: msg,
-                details: None,
-            }),
+            Json(ErrorResponse::new(msg).with_code("NOT_FOUND")),
         )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to start service");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal_error".to_string(),
-                    message: format!("Failed to start service: {}", e),
-                    details: None,
-                }),
+                Json(ErrorResponse::new(format!("Failed to start service: {}", e)).with_code("INTERNAL_ERROR")),
             ))
         }
     }
@@ -113,11 +114,18 @@ pub async fn start_service(
 )]
 pub async fn stop_service(
     State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(service_id): Path<String>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!(service_id = %service_id, "Stopping service");
+    // Require NodeManage permission for service control operations
+    require_permission(&claims, Permission::NodeManage).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
+        )
+    })?;
 
-    // TODO: Add localhost-only auth check in production
+    info!(service_id = %service_id, user = %claims.sub, "Stopping service");
 
     let client = SupervisorClient::from_env();
 
@@ -131,21 +139,13 @@ pub async fn stop_service(
         }
         Err(AosError::NotFound(msg)) => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "not_found".to_string(),
-                message: msg,
-                details: None,
-            }),
+            Json(ErrorResponse::new(msg).with_code("NOT_FOUND")),
         )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to stop service");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal_error".to_string(),
-                    message: format!("Failed to stop service: {}", e),
-                    details: None,
-                }),
+                Json(ErrorResponse::new(format!("Failed to stop service: {}", e)).with_code("INTERNAL_ERROR")),
             ))
         }
     }
@@ -168,11 +168,18 @@ pub async fn stop_service(
 )]
 pub async fn restart_service(
     State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(service_id): Path<String>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!(service_id = %service_id, "Restarting service");
+    // Require NodeManage permission for service control operations
+    require_permission(&claims, Permission::NodeManage).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
+        )
+    })?;
 
-    // TODO: Add localhost-only auth check in production
+    info!(service_id = %service_id, user = %claims.sub, "Restarting service");
 
     let client = SupervisorClient::from_env();
 
@@ -186,21 +193,13 @@ pub async fn restart_service(
         }
         Err(AosError::NotFound(msg)) => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "not_found".to_string(),
-                message: msg,
-                details: None,
-            }),
+            Json(ErrorResponse::new(msg).with_code("NOT_FOUND")),
         )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to restart service");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal_error".to_string(),
-                    message: format!("Failed to restart service: {}", e),
-                    details: None,
-                }),
+                Json(ErrorResponse::new(format!("Failed to restart service: {}", e)).with_code("INTERNAL_ERROR")),
             ))
         }
     }
@@ -219,10 +218,17 @@ pub async fn restart_service(
 )]
 pub async fn start_essential_services(
     State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Starting all essential services");
+    // Require NodeManage permission for service control operations
+    require_permission(&claims, Permission::NodeManage).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
+        )
+    })?;
 
-    // TODO: Add localhost-only auth check in production
+    info!(user = %claims.sub, "Starting all essential services");
 
     let client = SupervisorClient::from_env();
 
@@ -238,11 +244,7 @@ pub async fn start_essential_services(
             error!(error = %e, "Failed to start essential services");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal_error".to_string(),
-                    message: format!("Failed to start essential services: {}", e),
-                    details: None,
-                }),
+                Json(ErrorResponse::new(format!("Failed to start essential services: {}", e)).with_code("INTERNAL_ERROR")),
             ))
         }
     }
@@ -261,10 +263,17 @@ pub async fn start_essential_services(
 )]
 pub async fn stop_essential_services(
     State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Stopping all essential services");
+    // Require NodeManage permission for service control operations
+    require_permission(&claims, Permission::NodeManage).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
+        )
+    })?;
 
-    // TODO: Add localhost-only auth check in production
+    info!(user = %claims.sub, "Stopping all essential services");
 
     let client = SupervisorClient::from_env();
 
@@ -280,11 +289,7 @@ pub async fn stop_essential_services(
             error!(error = %e, "Failed to stop essential services");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal_error".to_string(),
-                    message: format!("Failed to stop essential services: {}", e),
-                    details: None,
-                }),
+                Json(ErrorResponse::new(format!("Failed to stop essential services: {}", e)).with_code("INTERNAL_ERROR")),
             ))
         }
     }
@@ -308,12 +313,19 @@ pub async fn stop_essential_services(
 )]
 pub async fn get_service_logs(
     State(_state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(service_id): Path<String>,
     Query(params): Query<LogsQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    info!(service_id = %service_id, lines = params.lines, "Fetching service logs");
+    // Require NodeManage permission for service control operations
+    require_permission(&claims, Permission::NodeManage).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
+        )
+    })?;
 
-    // TODO: Add localhost-only auth check in production
+    info!(service_id = %service_id, lines = params.lines, user = %claims.sub, "Fetching service logs");
 
     let client = SupervisorClient::from_env();
 
@@ -324,21 +336,13 @@ pub async fn get_service_logs(
         Ok(logs) => Ok(Json(logs)),
         Err(AosError::NotFound(msg)) => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "not_found".to_string(),
-                message: msg,
-                details: None,
-            }),
+            Json(ErrorResponse::new(msg).with_code("NOT_FOUND")),
         )),
         Err(e) => {
             error!(service_id = %service_id, error = %e, "Failed to fetch service logs");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "internal_error".to_string(),
-                    message: format!("Failed to fetch logs: {}", e),
-                    details: None,
-                }),
+                Json(ErrorResponse::new(format!("Failed to fetch logs: {}", e)).with_code("INTERNAL_ERROR")),
             ))
         }
     }

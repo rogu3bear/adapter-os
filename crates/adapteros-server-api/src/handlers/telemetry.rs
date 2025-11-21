@@ -8,7 +8,8 @@ use crate::types::{
     ActivityEventResponse, ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse,
     MetricsSnapshotResponse,
 };
-use adapteros_db::{activity_events::ActivityEvent, users::Role};
+use adapteros_db::users::Role;
+use adapteros_db::ActivityEvent;
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::{sse::Event, sse::KeepAlive, Sse};
@@ -336,7 +337,7 @@ pub fn event_matches_filters(
     filters: &NormalizedLogFilters,
 ) -> bool {
     if let Some(ref tenant) = filters.tenant_id {
-        if event.tenant_id.as_ref() != Some(tenant) {
+        if &event.identity.tenant_id != tenant {
             return false;
         }
     }
@@ -569,7 +570,7 @@ fn convert_unified_event(event: &UnifiedTelemetryEvent) -> ActivityEventResponse
         level: format!("{:?}", event.level).to_ascii_lowercase(),
         message: event.message.clone(),
         component: event.component.clone(),
-        tenant_id: event.tenant_id.clone(),
+        tenant_id: Some(event.identity.tenant_id.clone()),
         user_id: event.user_id.clone(),
         metadata: event.metadata.clone(),
     }

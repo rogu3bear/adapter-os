@@ -124,9 +124,8 @@ impl TokenBucket {
         }
     }
 
-    /// Get current token count (for metrics)
-    #[allow(dead_code)]
-    fn available_tokens(&self) -> u32 {
+    /// Get current token count (for metrics and observability)
+    pub fn available_tokens(&self) -> u32 {
         let tokens_fixed = self.tokens.load(Ordering::Acquire);
         (tokens_fixed / 1000) as u32
     }

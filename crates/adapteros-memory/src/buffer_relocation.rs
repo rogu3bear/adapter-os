@@ -82,10 +82,9 @@ pub struct BufferState {
 
 /// Buffer relocation detector
 pub struct BufferRelocationDetector {
-    /// Device reference
+    /// Device reference (reserved for Metal buffer API calls)
     #[cfg(target_os = "macos")]
-    #[allow(dead_code)]
-    device: Arc<Device>,
+    _device: Arc<Device>,
     /// Active buffers by buffer ID
     active_buffers: Arc<RwLock<HashMap<u64, BufferState>>>,
     /// Relocation history
@@ -101,7 +100,7 @@ impl BufferRelocationDetector {
     #[cfg(target_os = "macos")]
     pub fn new(device: Arc<Device>, detection_enabled: bool) -> Self {
         Self {
-            device,
+            _device: device,
             active_buffers: Arc::new(RwLock::new(HashMap::new())),
             relocation_history: Arc::new(RwLock::new(Vec::new())),
             next_buffer_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),

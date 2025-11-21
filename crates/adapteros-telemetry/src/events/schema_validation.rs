@@ -2,8 +2,20 @@
 //!
 //! Events for tracking API response schema validation results.
 
-use crate::{EventType, LogLevel, TelemetryEvent, TelemetryEventBuilder};
+use adapteros_core::identity::IdentityEnvelope;
+use crate::{EventType, LogLevel, TelemetryEventBuilder};
+use crate::unified_events::TelemetryEvent;
 use serde_json::json;
+
+/// Create a default identity envelope for schema validation events
+fn schema_validation_identity() -> IdentityEnvelope {
+    IdentityEnvelope::new(
+        "system".to_string(),
+        "schema_validation".to_string(),
+        "validator".to_string(),
+        "1.0".to_string(),
+    )
+}
 
 /// Schema validation success event
 pub fn schema_validation_success(schema_name: &str, response_size: usize, validation_time_us: u64) -> TelemetryEvent {
@@ -11,6 +23,7 @@ pub fn schema_validation_success(schema_name: &str, response_size: usize, valida
         EventType::Custom("schema_validation.success".to_string()),
         LogLevel::Debug,
         format!("Schema validation passed for '{}' ({} bytes, {}μs)", schema_name, response_size, validation_time_us),
+        schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
     .metadata(json!({
@@ -28,6 +41,7 @@ pub fn schema_validation_failure(schema_name: &str, error_message: &str, respons
         EventType::Custom("schema_validation.failure".to_string()),
         LogLevel::Warn,
         format!("Schema validation failed for '{}': {} ({} bytes, {}μs)", schema_name, error_message, response_size, validation_time_us),
+        schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
     .metadata(json!({
@@ -46,6 +60,7 @@ pub fn schema_validation_skipped(schema_name: &str, reason: &str) -> TelemetryEv
         EventType::Custom("schema_validation.skipped".to_string()),
         LogLevel::Debug,
         format!("Schema validation skipped for '{}': {}", schema_name, reason),
+        schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
     .metadata(json!({
@@ -62,6 +77,7 @@ pub fn schema_registered(schema_name: &str, version: &str) -> TelemetryEvent {
         EventType::Custom("schema_validation.registered".to_string()),
         LogLevel::Info,
         format!("Response schema '{}' v{} registered", schema_name, version),
+        schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
     .metadata(json!({
@@ -93,6 +109,7 @@ pub fn response_validation_summary(
             "Response validation summary: {}/{} valid ({:.2}% error rate, {:.0}μs avg)",
             valid_responses, total_responses, error_rate, avg_validation_time_us
         ),
+        schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
     .metadata(json!({
@@ -112,6 +129,7 @@ pub fn schema_compliance_alert(schema_name: &str, recent_errors: u32, threshold:
         EventType::Custom("schema_validation.compliance_alert".to_string()),
         LogLevel::Error,
         format!("Schema '{}' compliance alert: {} recent errors (threshold: {})", schema_name, recent_errors, threshold),
+        schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
     .metadata(json!({

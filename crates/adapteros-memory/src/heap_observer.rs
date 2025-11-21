@@ -57,10 +57,9 @@ pub struct HeapState {
 
 /// Metal heap observer
 pub struct MetalHeapObserver {
-    /// Device reference
+    /// Device reference (reserved for Metal heap API calls)
     #[cfg(target_os = "macos")]
-    #[allow(dead_code)]
-    device: Arc<Device>,
+    _device: Arc<Device>,
     /// Active allocations by buffer ID
     allocations: Arc<RwLock<HashMap<u64, HeapAllocation>>>,
     /// Heap states by heap ID
@@ -78,7 +77,7 @@ impl MetalHeapObserver {
     #[cfg(target_os = "macos")]
     pub fn new(device: Arc<Device>, sampling_rate: f32) -> Self {
         Self {
-            device,
+            _device: device,
             allocations: Arc::new(RwLock::new(HashMap::new())),
             heap_states: Arc::new(RwLock::new(HashMap::new())),
             migration_events: Arc::new(RwLock::new(Vec::new())),

@@ -653,13 +653,77 @@ impl MetricsServer {
         Self { collector, port }
     }
 
-    /// Start the metrics server (simplified implementation)
+    /// Start the metrics server with /metrics endpoint
     pub async fn start(&self) -> Result<()> {
-        info!(
-            "Metrics server would start on port {} (simplified implementation)",
-            self.port
-        );
-        // TODO: Implement full HTTP server with axum
+        use axum::{routing::get, Router};
+        use std::net::SocketAddr;
+
+        let collector = Arc::clone(&self.collector);
+        let collector_json = Arc::clone(&self.collector);
+
+        // Handler for Prometheus metrics
+        let prometheus_handler = move || {
+            let collector = Arc::clone(&collector);
+            async move {
+                match collector.render_prometheus() {
+                    Ok(metrics_bytes) => {
+                        match String::from_utf8(metrics_bytes) {
+                            Ok(metrics) => (
+                                axum::http::StatusCode::OK,
+                                [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+                                metrics,
+                            ),
+                            Err(e) => (
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                                format!("UTF-8 encoding error: {}", e),
+                            ),
+                        }
+                    }
+                    Err(e) => (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                        format!("Error rendering metrics: {}", e),
+                    ),
+                }
+            }
+        };
+
+        // Handler for JSON metrics
+        let json_handler = move || {
+            let collector = Arc::clone(&collector_json);
+            async move {
+                let snapshot = collector.get_metrics_snapshot().await;
+                match serde_json::to_string_pretty(&snapshot) {
+                    Ok(json) => (
+                        axum::http::StatusCode::OK,
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        json,
+                    ),
+                    Err(e) => (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                        format!("JSON serialization error: {}", e),
+                    ),
+                }
+            }
+        };
+
+        let app = Router::new()
+            .route("/metrics", get(prometheus_handler))
+            .route("/metrics/json", get(json_handler));
+
+        let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
+        info!(port = self.port, "Starting metrics server on {}", addr);
+
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .map_err(|e| AosError::Network(format!("Failed to bind metrics server: {}", e)))?;
+
+        axum::serve(listener, app)
+            .await
+            .map_err(|e| AosError::Network(format!("Metrics server error: {}", e)))?;
+
         Ok(())
     }
 

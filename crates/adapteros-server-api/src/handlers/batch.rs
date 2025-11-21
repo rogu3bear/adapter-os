@@ -142,15 +142,24 @@ pub async fn batch_infer(
         .await
         {
             Ok(Ok(worker_response)) => {
+                let adapters_used = worker_response.trace.router_summary.adapters_used.clone();
                 let response = InferResponse {
+                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                    id: uuid::Uuid::new_v4().to_string(),
                     text: worker_response.text.unwrap_or_default(),
                     tokens: vec![],
+                    tokens_generated: 0,
                     finish_reason: worker_response.status.clone(),
+                    latency_ms: 0,
+                    adapters_used: adapters_used.clone(),
                     trace: InferenceTrace {
-                        adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
+                        adapters_used,
                         router_decisions: vec![],
                         latency_ms: 0,
                     },
+                    model: None,
+                    prompt_tokens: None,
+                    error: None,
                 };
 
                 responses.push(BatchInferItemResponse {

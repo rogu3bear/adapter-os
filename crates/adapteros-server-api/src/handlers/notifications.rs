@@ -12,8 +12,9 @@ use axum::{
 use serde::Serialize;
 use std::str::FromStr;
 use tracing::error;
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct NotificationResponse {
     pub id: String,
     pub user_id: String,
@@ -27,7 +28,7 @@ pub struct NotificationResponse {
     pub created_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct NotificationSummary {
     pub total_count: i64,
     pub unread_count: i64,

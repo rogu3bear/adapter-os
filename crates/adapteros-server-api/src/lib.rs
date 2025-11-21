@@ -7,6 +7,7 @@ pub mod ip_extraction;
 pub mod middleware;
 pub mod middleware_security;
 pub mod permissions;
+pub mod plugin_registry;
 pub mod routes;
 pub mod security;
 pub mod signing;
@@ -16,6 +17,8 @@ pub mod telemetry_ext;
 pub mod types;
 pub mod uds_client;
 pub mod validation;
+
+pub use plugin_registry::PluginRegistry;
 
 pub use state::{AppState, CryptoState};
 pub use telemetry::{spawn_telemetry_workers, TelemetryWorkerConfig, SpanStatus, TraceSearchQuery, TraceEvent, TraceBuffer};

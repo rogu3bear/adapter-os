@@ -7,16 +7,17 @@ use axum::{
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct JourneyPath {
-    #[allow(dead_code)]
-    journey_type: String,
-    #[allow(dead_code)]
-    id: String,
+    /// Type of journey (e.g., "adapter", "training", "deployment")
+    pub journey_type: String,
+    /// Unique identifier for the journey
+    pub id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct JourneyResponse {
     journey_type: String,
     id: String,
@@ -25,7 +26,7 @@ pub struct JourneyResponse {
     created_at: DateTime<Utc>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct JourneyState {
     state: String,
     timestamp: DateTime<Utc>,

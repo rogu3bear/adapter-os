@@ -27,32 +27,33 @@ use axum::{
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct BootstrapRequest {
     pub email: String,
     pub password: String,
     pub display_name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct BootstrapResponse {
     pub user_id: String,
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct LogoutResponse {
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RefreshResponse {
     pub token: String,
     pub expires_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SessionInfo {
     pub jti: String,
     pub created_at: String,
@@ -60,7 +61,7 @@ pub struct SessionInfo {
     pub last_activity: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SessionsResponse {
     pub sessions: Vec<SessionInfo>,
 }
@@ -387,7 +388,9 @@ pub async fn login_handler(
         schema_version: "v1".to_string(),
         token,
         user_id: user.id,
+        tenant_id: tenant_id.clone(),
         role: user.role,
+        expires_in: 28800, // 8 hours
     }))
 }
 

@@ -51,7 +51,7 @@ use uuid::Uuid;
 pub fn validate_tenant_isolation(
     claims: &Claims,
     resource_tenant_id: &str,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> std::result::Result<(), (StatusCode, Json<ErrorResponse>)> {
     // Admin users with "admin" role can access all tenants
     if claims.role == "admin" {
         return Ok(());

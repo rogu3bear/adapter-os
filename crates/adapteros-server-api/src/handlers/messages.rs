@@ -11,14 +11,15 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
+use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateMessageRequest {
     pub content: String,
     pub thread_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MessageResponse {
     pub id: String,
     pub workspace_id: String,

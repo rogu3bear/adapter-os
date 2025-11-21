@@ -3,13 +3,18 @@ use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
-use adapteros_lora_worker::UmaPressureMonitor;
+use adapteros_lora_worker::memory::UmaPressureMonitor;
+use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
-use adapteros_orchestrator::{CodeJobManager, TrainingService};
+use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
+use adapteros_telemetry::{BundleStore, MetricsCollector, RetentionPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, Mutex};
+
+use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
+use adapteros_registry::Registry;
 
 /// Runtime configuration subset needed by API handlers
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,13 +99,31 @@ pub struct AppState {
     pub worker: Option<Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>>,
     pub active_stack: Arc<RwLock<HashMap<String, Option<String>>>>,
     pub db_pool: sqlx::SqlitePool,
-    pub plugin_registry: Arc<adapteros_server::PluginRegistry>,
+    pub plugin_registry: Arc<crate::plugin_registry::PluginRegistry>,
     pub uma_monitor: Arc<UmaPressureMonitor>,
     pub response_validator: Arc<crate::validation::response_schemas::ResponseSchemaValidator>,
     // Enhanced security fields
     pub use_ed25519: bool,
     pub ed25519_keypair: Keypair,
     pub ed25519_public_key: String,
+    // Telemetry and metrics fields
+    pub metrics_collector: Arc<MetricsCollector>,
+    pub metrics_registry: Arc<MetricsRegistry>,
+    pub telemetry_buffer: Arc<TelemetryBuffer>,
+    pub trace_buffer: Arc<TraceBuffer>,
+    pub telemetry_tx: TelemetrySender,
+    // Registry for adapter management
+    pub registry: Option<Arc<Registry>>,
+    // Dataset progress SSE channel
+    pub dataset_progress_tx: Option<Arc<broadcast::Sender<DatasetProgressEvent>>>,
+    // Signal broadcast channels for SSE streaming
+    pub training_signal_tx: Arc<broadcast::Sender<Signal>>,
+    pub discovery_signal_tx: Arc<broadcast::Sender<Signal>>,
+    pub contact_signal_tx: Arc<broadcast::Sender<Signal>>,
+    // Federation daemon for consensus ledger
+    pub federation_daemon: Option<Arc<FederationDaemon>>,
+    // Telemetry bundle store for tenant hydration
+    pub telemetry_bundle_store: Arc<std::sync::RwLock<BundleStore>>,
 }
 
 impl AppState {
@@ -109,12 +132,22 @@ impl AppState {
         jwt_secret: Vec<u8>,
         config: Arc<RwLock<ApiConfig>>,
         metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
+        metrics_collector: Arc<MetricsCollector>,
+        metrics_registry: Arc<MetricsRegistry>,
         uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
         let crypto_state = CryptoState::new();
         let ed25519_keypair = crypto_state.jwt_keypair.clone();
         let ed25519_public_key = hex::encode(ed25519_keypair.public_key().to_bytes());
+
+        // Create signal broadcast channels for SSE streaming
+        let (training_signal_tx, _) = broadcast::channel(100);
+        let (discovery_signal_tx, _) = broadcast::channel(100);
+        let (contact_signal_tx, _) = broadcast::channel(100);
+
+        // Create telemetry broadcast channel
+        let (telemetry_tx, _) = broadcast::channel(1000);
 
         Self {
             db: db.clone(),
@@ -130,13 +163,33 @@ impl AppState {
             worker: None,
             active_stack: Arc::new(RwLock::new(HashMap::new())),
             db_pool,
-            plugin_registry: Arc::new(adapteros_server::PluginRegistry::new(db.clone())),
+            plugin_registry: Arc::new(crate::plugin_registry::PluginRegistry::new(db.clone())),
             uma_monitor,
             response_validator: Arc::new(crate::validation::response_schemas::ResponseSchemaValidator::new(None)),
             use_ed25519: true,  // Default to Ed25519 for production
             ed25519_keypair: ed25519_keypair.clone(),
             ed25519_public_key,
+            metrics_collector,
+            metrics_registry,
+            telemetry_buffer: Arc::new(TelemetryBuffer::default()),
+            trace_buffer: Arc::new(TraceBuffer::new(1000)),
+            telemetry_tx,
+            registry: None,
+            dataset_progress_tx: None,
+            training_signal_tx: Arc::new(training_signal_tx),
+            discovery_signal_tx: Arc::new(discovery_signal_tx),
+            contact_signal_tx: Arc::new(contact_signal_tx),
+            federation_daemon: None,
+            telemetry_bundle_store: Arc::new(std::sync::RwLock::new(
+                BundleStore::new("var/telemetry/bundles", RetentionPolicy::default())
+                    .expect("Failed to create telemetry bundle store"),
+            )),
         }
+    }
+
+    pub fn with_federation(mut self, daemon: Arc<FederationDaemon>) -> Self {
+        self.federation_daemon = Some(daemon);
+        self
     }
 
     pub fn with_lifecycle(mut self, lifecycle_manager: Arc<Mutex<LifecycleManager>>) -> Self {
@@ -167,7 +220,7 @@ impl AppState {
         self
     }
 
-    pub fn with_plugin_registry(mut self, registry: Arc<adapteros_server::PluginRegistry>) -> Self {
+    pub fn with_plugin_registry(mut self, registry: Arc<crate::plugin_registry::PluginRegistry>) -> Self {
         self.plugin_registry = registry;
         self
     }
@@ -175,6 +228,59 @@ impl AppState {
     pub fn with_dataset_progress(mut self, tx: broadcast::Sender<DatasetProgressEvent>) -> Self {
         self.dataset_progress_tx = Some(Arc::new(tx));
         self
+    }
+
+    pub fn with_telemetry_buffer(mut self, buffer: Arc<TelemetryBuffer>) -> Self {
+        self.telemetry_buffer = buffer;
+        self
+    }
+
+    pub fn with_trace_buffer(mut self, buffer: Arc<TraceBuffer>) -> Self {
+        self.trace_buffer = buffer;
+        self
+    }
+
+    pub fn with_telemetry_tx(mut self, tx: TelemetrySender) -> Self {
+        self.telemetry_tx = tx;
+        self
+    }
+
+    pub fn with_registry(mut self, registry: Arc<Registry>) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
+    /// Set custom training signal transmitter for SSE streaming
+    pub fn with_training_signals(mut self, tx: broadcast::Sender<Signal>) -> Self {
+        self.training_signal_tx = Arc::new(tx);
+        self
+    }
+
+    /// Set custom discovery signal transmitter for SSE streaming
+    pub fn with_discovery_signals(mut self, tx: broadcast::Sender<Signal>) -> Self {
+        self.discovery_signal_tx = Arc::new(tx);
+        self
+    }
+
+    /// Set custom contact signal transmitter for SSE streaming
+    pub fn with_contact_signals(mut self, tx: broadcast::Sender<Signal>) -> Self {
+        self.contact_signal_tx = Arc::new(tx);
+        self
+    }
+
+    /// Get a clone of the training signal sender for broadcasting events
+    pub fn training_signal_sender(&self) -> Arc<broadcast::Sender<Signal>> {
+        self.training_signal_tx.clone()
+    }
+
+    /// Get a clone of the discovery signal sender for broadcasting events
+    pub fn discovery_signal_sender(&self) -> Arc<broadcast::Sender<Signal>> {
+        self.discovery_signal_tx.clone()
+    }
+
+    /// Get a clone of the contact signal sender for broadcasting events
+    pub fn contact_signal_sender(&self) -> Arc<broadcast::Sender<Signal>> {
+        self.contact_signal_tx.clone()
     }
 
     /// Helper to check if lifecycle manager is available

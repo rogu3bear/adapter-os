@@ -362,7 +362,7 @@ pub async fn load_model(
         model_id,
         tenant_id
     )
-    .fetch_optional(&state.db.pool()) // Assume state.db.pool
+    .fetch_optional(state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
@@ -427,7 +427,7 @@ pub async fn load_model(
         model_id,
         tenant_id
     )
-    .execute(&state.db.pool()) // Assume state.db.pool
+    .execute(state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to update model status: {}", e);
@@ -446,8 +446,14 @@ pub async fn load_model(
         .await
         .map_err(AosError::from)?;
 
+    // Get actual memory usage from model runtime if available
     let memory_mb = if adapter.is_ok() {
-        4096 // Simplified fallback for now
+        if let Some(rt) = &state.model_runtime {
+            let guard = rt.lock().await;
+            guard.get_model_memory(tenant_id, &model_id).unwrap_or(4096)
+        } else {
+            4096 // Fallback when runtime not available
+        }
     } else {
         0
     };
@@ -456,7 +462,6 @@ pub async fn load_model(
         Ok(()) => {
             // Success path: update loaded with memory_mb
             let loaded_at = chrono::Utc::now().to_rfc3339();
-            // let memory_mb: i32 = 8192; // TODO: Get actual memory usage
 
             let update_result = sqlx::query!(
                                     "UPDATE base_model_status SET status = 'loaded', loaded_at = ?, memory_usage_mb = ?, updated_at = ? WHERE model_id = ? AND tenant_id = ?",
@@ -594,7 +599,7 @@ pub async fn unload_model(
         model_id,
         tenant_id
     )
-    .fetch_optional(&state.db.pool()) // Assume state.db.pool
+    .fetch_optional(state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model: {}", e);
@@ -811,7 +816,7 @@ pub async fn get_import_status(
         import_id,
         tenant_id
     )
-    .fetch_optional(&state.db.pool()) // Assume state.db.pool
+    .fetch_optional(state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to get import status: {}", e);
@@ -1605,7 +1610,7 @@ pub async fn get_cursor_config(
          WHERE bms.tenant_id = ? ORDER BY bms.updated_at DESC LIMIT 1",
         tenant_id
     )
-    .fetch_optional(&state.db.pool()) // Assume state.db.pool
+    .fetch_optional(state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         error!("Failed to check model status: {}", e);
@@ -1661,7 +1666,7 @@ async fn track_journey_step(
         step,
         now
     )
-    .execute(&state.db.pool()) // Assume state.db.pool
+    .execute(state.db.pool()) // Assume state.db.pool
     .await
     .map_err(|e| {
         warn!("Failed to track journey step: {}", e);

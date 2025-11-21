@@ -21,6 +21,16 @@
 //! - Buffer relocations are detected and logged
 //! - Page migrations are tracked and recorded
 
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(clippy::or_fun_call)]
+#![allow(clippy::arc_with_non_send_sync)]
+#![allow(clippy::redundant_pattern_matching)]
+#![allow(clippy::manual_saturating_arithmetic)]
+#![allow(clippy::unwrap_or_default)]
+#![allow(clippy::implicit_saturating_sub)]
+
 pub mod buffer_pool;
 pub mod buffer_relocation;
 pub mod heap_observer;

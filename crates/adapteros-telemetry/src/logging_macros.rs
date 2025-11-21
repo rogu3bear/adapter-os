@@ -1,4 +1,4 @@
-
+#[allow(unused_macros)]
 macro_rules! log_with_identity {
     ($envelope:expr, $lvl:expr, $($arg:tt)*) => {
         {
@@ -14,4 +14,5 @@ macro_rules! log_with_identity {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use log_with_identity;

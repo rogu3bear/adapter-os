@@ -14,14 +14,15 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tracing::{error, info, warn};
+use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateWorkspaceRequest {
     pub name: String,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceResponse {
     pub id: String,
     pub name: String,
@@ -31,13 +32,13 @@ pub struct WorkspaceResponse {
     pub updated_at: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateWorkspaceRequest {
     pub name: Option<String>,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct AddWorkspaceMemberRequest {
     pub tenant_id: String,
     pub user_id: Option<String>,
@@ -45,12 +46,12 @@ pub struct AddWorkspaceMemberRequest {
     pub permissions_json: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateWorkspaceMemberRequest {
     pub role: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ShareResourceRequest {
     pub resource_type: String,
     pub resource_id: String,

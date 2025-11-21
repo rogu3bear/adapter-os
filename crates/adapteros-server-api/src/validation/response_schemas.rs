@@ -272,7 +272,9 @@ impl ResponseSchemaValidator {
                 )
             };
 
-            let _ = telemetry.log_event(event).await;
+            if let Err(e) = telemetry.log_event(event) {
+                tracing::warn!("Failed to log validation telemetry: {}", e);
+            }
         }
     }
 

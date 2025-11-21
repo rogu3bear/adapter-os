@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread;
 use ::tracing::{error, warn};
 
@@ -89,13 +90,11 @@ pub use unified_events::{
 pub use writer::RouterDecisionWriter;
 
 /// Telemetry writer with background thread
+#[derive(Clone)]
 pub struct TelemetryWriter {
     sender: Sender<UnifiedTelemetryEvent>,
-    _handle: thread::JoinHandle<()>,
+    _handle: Arc<thread::JoinHandle<()>>,
 }
-
-// Note: TelemetryWriter is not Clone because JoinHandle cannot be cloned.
-// Use Arc<TelemetryWriter> for shared ownership instead.
 
 impl TelemetryWriter {
     /// Create a new telemetry writer
@@ -122,7 +121,7 @@ impl TelemetryWriter {
 
         Ok(Self {
             sender,
-            _handle: handle,
+            _handle: Arc::new(handle),
         })
     }
 
@@ -393,7 +392,7 @@ fn finalize_bundle(path: &Path, event_hashes: &[B3Hash], signing_keypair: &Keypa
     let meta_path = path.with_extension("meta.json");
     let public_key_bytes = bundle_signature.public_key.to_bytes();
     let key_id = {
-        let hash = adapteros_core::hash::compute_hash(&public_key_bytes);
+        let hash = adapteros_core::hash::B3Hash::hash(&public_key_bytes);
         hex::encode(&hash.as_bytes()[..16])
     };
     let metadata = BundleMetadata {

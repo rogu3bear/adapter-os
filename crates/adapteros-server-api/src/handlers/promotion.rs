@@ -24,13 +24,16 @@ use utoipa::ToSchema;
 
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
+use crate::handlers::aos_error_to_response;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_core::AosError;
+use adapteros_crypto::signature::{Keypair, PublicKey, Signature};
 
 use adapteros_core::Result as AosResult;
 use adapteros_verify::GoldenRunArchive;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use tracing::{error, info, warn};
 
 // ===== Request/Response Types =====
@@ -190,7 +193,7 @@ pub async fn request_promotion(
             .bind(&claims.sub)
             .bind(&claims.email)
             .bind(&req.notes)
-            .execute(&state.db.pool)
+            .execute(state.db.pool())
             .await;
 
             match result {
@@ -285,7 +288,7 @@ pub async fn get_promotion_status(
          LIMIT 1"
     )
     .bind(&run_id)
-    .fetch_optional(&state.db.pool)
+    .fetch_optional(state.db.pool())
     .await
     .map_err(|e| {
         error!("Database error: {}", e);
@@ -316,7 +319,7 @@ pub async fn get_promotion_status(
                  ORDER BY checked_at ASC"
             )
             .bind(&request_id)
-            .fetch_all(&state.db.pool)
+            .fetch_all(state.db.pool())
             .await
             .map_err(|e| {
                 (
@@ -350,7 +353,7 @@ pub async fn get_promotion_status(
                  ORDER BY approved_at DESC"
             )
             .bind(&request_id)
-            .fetch_all(&state.db.pool)
+            .fetch_all(state.db.pool())
             .await
             .map_err(|e| {
                 (
@@ -450,7 +453,7 @@ pub async fn approve_or_reject_promotion(
          LIMIT 1"
     )
     .bind(&run_id)
-    .fetch_optional(&state.db.pool)
+    .fetch_optional(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -506,7 +509,8 @@ pub async fn approve_or_reject_promotion(
         Utc::now().to_rfc3339()
     );
 
-    let signature = sign_approval_message(&approval_message);
+    let signature = sign_approval_message(&state.crypto.signing_keypair, &approval_message);
+    let public_key_hex = hex::encode(state.crypto.signing_keypair.public_key().to_bytes());
 
     // Record approval
     let insert_result = sqlx::query(
@@ -520,8 +524,8 @@ pub async fn approve_or_reject_promotion(
     .bind(&req.action)
     .bind(&req.message)
     .bind(&signature)
-    .bind("placeholder-public-key") // TODO: Use actual keypair
-    .execute(&state.db.pool)
+    .bind(&public_key_hex)
+    .execute(state.db.pool())
     .await;
 
     match insert_result {
@@ -540,7 +544,7 @@ pub async fn approve_or_reject_promotion(
             )
             .bind(new_status)
             .bind(&request_id)
-            .execute(&state.db.pool)
+            .execute(state.db.pool())
             .await;
 
             // If approved, execute promotion
@@ -625,7 +629,7 @@ pub async fn rollback_promotion(
          WHERE stage_name = ?"
     )
     .bind(&stage)
-    .fetch_optional(&state.db.pool)
+    .fetch_optional(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -681,7 +685,7 @@ pub async fn rollback_promotion(
     )
     .bind(&claims.email)
     .bind(&stage)
-    .execute(&state.db.pool)
+    .execute(state.db.pool())
     .await;
 
     // Log rollback in history
@@ -698,7 +702,7 @@ pub async fn rollback_promotion(
     .bind(&claims.email)
     .bind(&req.reason)
     .bind(&serde_json::json!({"reason": req.reason}).to_string())
-    .execute(&state.db.pool)
+    .execute(state.db.pool())
     .await;
 
     let _ = log_success(
@@ -744,7 +748,7 @@ pub async fn get_gate_status(
          LIMIT 1"
     )
     .bind(&run_id)
-    .fetch_optional(&state.db.pool)
+    .fetch_optional(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -779,7 +783,7 @@ pub async fn get_gate_status(
          ORDER BY checked_at ASC"
     )
     .bind(&request_id)
-    .fetch_all(&state.db.pool)
+    .fetch_all(state.db.pool())
     .await
     .map_err(|e| {
         (
@@ -820,37 +824,40 @@ async fn run_promotion_gates(
 
     // Gate 1: Hash validation
     let hash_gate_result = validate_hash_gate(state, run_id).await;
+    let hash_error_msg = hash_gate_result.as_ref().err().map(|e| e.to_string());
     record_gate_result(
         state,
         request_id,
         "hash_validation",
         hash_gate_result.is_ok(),
         hash_gate_result.as_ref().ok(),
-        hash_gate_result.err().map(|e| e.to_string()),
+        hash_error_msg,
     )
     .await?;
 
     // Gate 2: Policy check
     let policy_gate_result = validate_policy_gate(state, run_id).await;
+    let policy_error_msg = policy_gate_result.as_ref().err().map(|e| e.to_string());
     record_gate_result(
         state,
         request_id,
         "policy_check",
         policy_gate_result.is_ok(),
         policy_gate_result.as_ref().ok(),
-        policy_gate_result.err().map(|e| e.to_string()),
+        policy_error_msg,
     )
     .await?;
 
     // Gate 3: Determinism check
     let determinism_gate_result = validate_determinism_gate(state, run_id).await;
+    let determinism_error_msg = determinism_gate_result.as_ref().err().map(|e| e.to_string());
     record_gate_result(
         state,
         request_id,
         "determinism_check",
         determinism_gate_result.is_ok(),
         determinism_gate_result.as_ref().ok(),
-        determinism_gate_result.err().map(|e| e.to_string()),
+        determinism_error_msg,
     )
     .await?;
 
@@ -881,7 +888,7 @@ async fn record_gate_result(
     .bind(passed)
     .bind(details_json)
     .bind(error_message)
-    .execute(&state.db.pool)
+    .execute(state.db.pool())
     .await?;
 
     Ok(())
@@ -896,7 +903,8 @@ async fn validate_hash_gate(
         .join("baselines")
         .join(run_id);
 
-    let archive = GoldenRunArchive::load(&golden_dir)?;
+    let archive = GoldenRunArchive::load(&golden_dir)
+        .map_err(|e| AosError::Validation(format!("Failed to load golden run archive: {}", e)))?;
 
     // Verify bundle hash exists
     if archive.bundle_hash.to_string().is_empty() {
@@ -933,7 +941,8 @@ async fn validate_determinism_gate(
         .join("baselines")
         .join(run_id);
 
-    let archive = GoldenRunArchive::load(&golden_dir)?;
+    let archive = GoldenRunArchive::load(&golden_dir)
+        .map_err(|e| AosError::Validation(format!("Failed to load golden run archive: {}", e)))?;
 
     // Check epsilon statistics
     let max_epsilon = archive.epsilon_stats.max_epsilon();
@@ -966,7 +975,7 @@ async fn execute_promotion(
         "SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?"
     )
     .bind(request_id)
-    .fetch_one(&state.db.pool)
+    .fetch_one(state.db.pool())
     .await?;
 
     let target_stage: String = request_row.try_get("target_stage")?;
@@ -976,7 +985,7 @@ async fn execute_promotion(
         "SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?"
     )
     .bind(&target_stage)
-    .fetch_one(&state.db.pool)
+    .fetch_one(state.db.pool())
     .await?;
 
     let previous_run_id: String = stage_row.try_get("active_golden_run_id")?;
@@ -993,7 +1002,7 @@ async fn execute_promotion(
     .bind(run_id)
     .bind(&previous_run_id)
     .bind(&target_stage)
-    .execute(&state.db.pool)
+    .execute(state.db.pool())
     .await?;
 
     // Update promotion status
@@ -1003,7 +1012,7 @@ async fn execute_promotion(
          WHERE request_id = ?"
     )
     .bind(request_id)
-    .execute(&state.db.pool)
+    .execute(state.db.pool())
     .await?;
 
     // Record in history
@@ -1016,7 +1025,7 @@ async fn execute_promotion(
     .bind(run_id)
     .bind(&target_stage)
     .bind(&previous_run_id)
-    .execute(&state.db.pool)
+    .execute(state.db.pool())
     .await?;
 
     info!(
@@ -1027,11 +1036,44 @@ async fn execute_promotion(
 }
 
 /// Sign approval message with Ed25519
-fn sign_approval_message(message: &str) -> String {
-    // TODO: Implement actual Ed25519 signing with keypair
-    // For now, return a placeholder signature
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(message.as_bytes());
-    format!("sig-{:x}", hasher.finalize())
+fn sign_approval_message(keypair: &Keypair, message: &str) -> String {
+    let signature = keypair.sign(message.as_bytes());
+    hex::encode(signature.to_bytes())
+}
+
+/// Verify an approval signature (reserved for multi-party approval workflow)
+fn _verify_approval_signature(
+    public_key_hex: &str,
+    message: &str,
+    signature_hex: &str,
+) -> AosResult<()> {
+    let public_key_bytes = hex::decode(public_key_hex)
+        .map_err(|e| AosError::Crypto(format!("Invalid public key hex: {}", e)))?;
+
+    if public_key_bytes.len() != 32 {
+        return Err(AosError::Crypto(format!(
+            "Invalid public key length: {}",
+            public_key_bytes.len()
+        )));
+    }
+
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&public_key_bytes);
+    let public_key = PublicKey::from_bytes(&key_array)?;
+
+    let signature_bytes = hex::decode(signature_hex)
+        .map_err(|e| AosError::Crypto(format!("Invalid signature hex: {}", e)))?;
+
+    if signature_bytes.len() != 64 {
+        return Err(AosError::Crypto(format!(
+            "Invalid signature length: {}",
+            signature_bytes.len()
+        )));
+    }
+
+    let mut sig_array = [0u8; 64];
+    sig_array.copy_from_slice(&signature_bytes);
+    let signature = Signature::from_bytes(&sig_array)?;
+
+    public_key.verify(message.as_bytes(), &signature)
 }

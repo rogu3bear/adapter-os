@@ -10,22 +10,31 @@ use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
-use adapteros_db::{RoutingDecision as DbRoutingDecision, RoutingDecisionFilters, RouterCandidate};
+use adapteros_db::{RoutingDecision as DbRoutingDecision, RoutingDecisionFilters, RouterCandidate as DbRouterCandidate};
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
+/// Router candidate for API schema
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RouterCandidateRequest {
+    pub adapter_idx: u16,
+    pub raw_score: f32,
+    pub gate_q15: i16,
+}
+
 /// Request to ingest a router decision event (internal endpoint)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct IngestRouterDecisionRequest {
     pub tenant_id: String,
     pub request_id: Option<String>,
     pub step: usize,
     pub input_token_id: Option<u32>,
-    pub candidate_adapters: Vec<RouterCandidate>,
+    pub candidate_adapters: Vec<RouterCandidateRequest>,
     pub entropy: f32,
     pub tau: f32,
     pub entropy_floor: f32,
@@ -51,13 +60,13 @@ pub struct RoutingDecisionsQuery {
 }
 
 /// Response containing routing decisions
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RoutingDecisionsResponse {
     pub items: Vec<RoutingDecisionResponse>,
 }
 
 /// Routing decision response (enriched with parsed candidates)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RoutingDecisionResponse {
     pub id: String,
     pub tenant_id: String,
@@ -78,7 +87,7 @@ pub struct RoutingDecisionResponse {
 }
 
 /// Router candidate response with computed fields
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RouterCandidateResponse {
     pub adapter_idx: u16,
     pub raw_score: f32,
@@ -117,7 +126,17 @@ pub async fn ingest_router_decision(
     );
 
     // Convert to database record
-    let candidates_json = serde_json::to_string(&request.candidate_adapters)
+    let db_candidates: Vec<DbRouterCandidate> = request
+        .candidate_adapters
+        .iter()
+        .map(|c| DbRouterCandidate {
+            adapter_idx: c.adapter_idx,
+            raw_score: c.raw_score,
+            gate_q15: c.gate_q15,
+        })
+        .collect();
+
+    let candidates_json = serde_json::to_string(&db_candidates)
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
@@ -129,8 +148,7 @@ pub async fn ingest_router_decision(
             )
         })?;
 
-    let selected_adapter_ids: Vec<String> = request
-        .candidate_adapters
+    let selected_adapter_ids: Vec<String> = db_candidates
         .iter()
         .filter(|c| c.gate_q15 > 0) // Consider selected if gate > 0
         .map(|c| c.adapter_idx.to_string())
@@ -220,7 +238,7 @@ pub async fn get_routing_decisions(
     Extension(claims): Extension<Claims>,
     Query(query): Query<RoutingDecisionsQuery>,
 ) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer, Role::Sre])?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE])?;
 
     debug!(
         tenant_id = %query.tenant,
@@ -237,6 +255,7 @@ pub async fn get_routing_decisions(
         until: query.until.clone(),
         stack_id: query.stack_id.clone(),
         adapter_id: query.adapter_id.clone(),
+        request_id: None,
         min_entropy: query.min_entropy,
         max_overhead_pct: query.max_overhead_pct,
     };
@@ -292,7 +311,7 @@ pub async fn get_routing_decision_by_id(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<RoutingDecisionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer, Role::Sre])?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE])?;
 
     let decision = state.db.get_routing_decision(&id).await.map_err(|e| {
         (
@@ -313,7 +332,7 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
     // Parse candidate adapters from JSON
     let candidates: Vec<RouterCandidateResponse> = serde_json::from_str(&decision.candidate_adapters)
         .ok()
-        .map(|candidates: Vec<RouterCandidate>| {
+        .map(|candidates: Vec<DbRouterCandidate>| {
             // Determine which candidates are selected (top-K with highest gates)
             let mut sorted_candidates = candidates.clone();
             sorted_candidates.sort_by(|a, b| b.gate_q15.cmp(&a.gate_q15));

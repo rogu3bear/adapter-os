@@ -2,7 +2,7 @@
 ///!
 ///! Implements sliding window rate limiting with tenant-specific quotas.
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,8 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
     .await?;
 
     if let Some(mut bucket) = bucket {
-        let window_start = DateTime::parse_from_rfc3339(&bucket.window_start)?
+        let window_start = DateTime::parse_from_rfc3339(&bucket.window_start)
+            .map_err(|e| AosError::Validation(format!("Invalid RFC3339 timestamp: {}", e)))?
             .with_timezone(&Utc);
 
         // Check if window has expired
@@ -189,7 +190,8 @@ pub async fn get_rate_limit_status(db: &Db, tenant_id: &str) -> Result<Option<Ra
     .await?;
 
     if let Some(bucket) = bucket {
-        let window_start = DateTime::parse_from_rfc3339(&bucket.window_start)?
+        let window_start = DateTime::parse_from_rfc3339(&bucket.window_start)
+            .map_err(|e| AosError::Validation(format!("Invalid RFC3339 timestamp: {}", e)))?
             .with_timezone(&Utc);
         let window_duration = chrono::Duration::seconds(bucket.window_size_seconds);
         let reset_at = (window_start + window_duration).timestamp();

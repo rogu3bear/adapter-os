@@ -150,6 +150,42 @@ pub async fn register_git_repository(
         request.repo_id, request.path
     );
 
+    // Validate repository path for security (path traversal prevention)
+    let default_policy = PathPolicy {
+        allowlist: vec![],
+        denylist: vec![],
+    };
+    let validator = PathValidator::new(&default_policy);
+
+    validator
+        .validate_repo_path(&request.path, &claims.tenant_id)
+        .map_err(|e| {
+            tracing::warn!("Path validation failed: {}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Path validation failed")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Validate branch name if provided
+    if let Some(ref branch) = request.branch {
+        PathValidator::validate_branch_path(branch).map_err(|e| {
+            tracing::warn!("Branch validation failed: {}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("Branch validation failed")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    }
+
     // Check if path exists
     if !std::path::Path::new(&request.path).exists() {
         return Err((
@@ -166,7 +202,12 @@ pub async fn register_git_repository(
         .plugin_registry
         .is_enabled_for_tenant("git", &claims.tenant_id)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Plugin registry error").with_string_details(e.to_string())),
+            )
+        })?;
 
     let (analysis, fallback) = if !enabled {
         let empty_analysis = RepositoryAnalysis {
@@ -463,6 +504,7 @@ pub async fn train_repository_adapter(
         warmup_steps: None,
         max_seq_length: None,
         gradient_accumulation_steps: None,
+        weight_group_config: None,
     };
 
     let training_job = state
@@ -472,6 +514,7 @@ pub async fn train_repository_adapter(
             training_config,
             None, // template_id
             Some(repo_id.clone()),
+            None, // dataset_id
         )
         .await
         .map_err(|e| {
@@ -541,52 +584,234 @@ pub async fn train_repository_adapter(
 ///
 /// Evidence: docs/code-intelligence/code-policies.md:82-84
 /// Policy: Path restrictions and security validation
-#[allow(dead_code)] // TODO: Implement path validation in future iteration
-struct PathValidator {
+pub struct PathValidator {
     allowlist: Vec<glob::Pattern>,
     denylist: Vec<glob::Pattern>,
 }
 
 impl PathValidator {
-    #[allow(dead_code)] // TODO: Implement path validation in future iteration
-    fn new(config: &PathPolicy) -> Self {
+    /// Create a new PathValidator from a PathPolicy configuration
+    pub fn new(config: &PathPolicy) -> Self {
         Self {
             allowlist: config.allowlist.clone(),
             denylist: config.denylist.clone(),
         }
     }
 
-    #[allow(dead_code)] // TODO: Implement path validation in future iteration
-    fn validate_repo_path(
+    /// Validate a repository path for security and policy compliance
+    ///
+    /// Prevents path traversal attacks and enforces allowlist/denylist policies
+    pub fn validate_repo_path(
         &self,
         path: &str,
-        tenant_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        _tenant_id: &str,
+    ) -> Result<(), AosError> {
         // Evidence: docs/code-intelligence/code-policies.md:82-84
         // Policy: Path allowlist and denylist enforcement
+
+        // Check for path traversal attempts
+        if contains_path_traversal(path) {
+            return Err(AosError::Validation(format!(
+                "Path traversal attempt detected: {}",
+                path
+            )));
+        }
+
+        // Canonicalize to resolve symlinks and get absolute path
         let canonical_path = std::fs::canonicalize(path)
             .map_err(|e| AosError::Validation(format!("Invalid path: {}", e)))?;
 
-        // Check allowlist
-        let allowed = self.allowlist.iter().any(|pattern| pattern.matches(path));
-        if !allowed {
-            return Err(Box::new(AosError::Validation(format!(
-                "Path not allowed: {}",
-                path
-            ))));
+        let canonical_str = canonical_path.to_string_lossy();
+
+        // Check allowlist (if not empty)
+        if !self.allowlist.is_empty() {
+            let allowed = self
+                .allowlist
+                .iter()
+                .any(|pattern| pattern.matches(&canonical_str));
+            if !allowed {
+                return Err(AosError::Validation(format!(
+                    "Path not in allowlist: {}",
+                    path
+                )));
+            }
         }
 
         // Check denylist
-        let denied = self.denylist.iter().any(|pattern| pattern.matches(path));
+        let denied = self
+            .denylist
+            .iter()
+            .any(|pattern| pattern.matches(&canonical_str));
         if denied {
-            return Err(Box::new(AosError::Validation(format!(
-                "Path denied: {}",
-                path
-            ))));
+            return Err(AosError::Validation(format!("Path denied: {}", path)));
         }
 
         Ok(())
     }
+
+    /// Validate a branch name for security
+    ///
+    /// Prevents injection attacks via malicious branch names
+    pub fn validate_branch_path(branch: &str) -> Result<(), AosError> {
+        // Check for empty branch name
+        if branch.is_empty() {
+            return Err(AosError::Validation(
+                "Branch name cannot be empty".to_string(),
+            ));
+        }
+
+        // Check for path traversal in branch name
+        if contains_path_traversal(branch) {
+            return Err(AosError::Validation(format!(
+                "Path traversal in branch name: {}",
+                branch
+            )));
+        }
+
+        // Check for null bytes
+        if branch.contains('\0') {
+            return Err(AosError::Validation(format!(
+                "Null byte in branch name: {}",
+                branch
+            )));
+        }
+
+        // Disallow control characters
+        if branch.chars().any(|c| c.is_control()) {
+            return Err(AosError::Validation(format!(
+                "Control characters in branch name: {}",
+                branch
+            )));
+        }
+
+        // Disallow shell metacharacters that could be used for injection
+        let forbidden_chars = ['|', '&', ';', '$', '`', '>', '<', '!', '{', '}'];
+        if branch.chars().any(|c| forbidden_chars.contains(&c)) {
+            return Err(AosError::Validation(format!(
+                "Forbidden characters in branch name: {}",
+                branch
+            )));
+        }
+
+        // Branch name length limit
+        if branch.len() > 255 {
+            return Err(AosError::Validation(
+                "Branch name too long (max 255 characters)".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate a file path within a repository
+    ///
+    /// Ensures the file path is safe and doesn't escape the repository root
+    pub fn validate_file_path(repo_root: &str, file_path: &str) -> Result<(), AosError> {
+        // Check for path traversal attempts
+        if contains_path_traversal(file_path) {
+            return Err(AosError::Validation(format!(
+                "Path traversal in file path: {}",
+                file_path
+            )));
+        }
+
+        // Check for null bytes
+        if file_path.contains('\0') {
+            return Err(AosError::Validation(format!(
+                "Null byte in file path: {}",
+                file_path
+            )));
+        }
+
+        // Check for absolute paths (should be relative to repo)
+        if file_path.starts_with('/') || file_path.starts_with('\\') {
+            return Err(AosError::Validation(format!(
+                "File path must be relative: {}",
+                file_path
+            )));
+        }
+
+        // Construct full path and canonicalize
+        let full_path = std::path::Path::new(repo_root).join(file_path);
+
+        // Canonicalize repo root
+        let canonical_root = std::fs::canonicalize(repo_root)
+            .map_err(|e| AosError::Validation(format!("Invalid repo root: {}", e)))?;
+
+        // Canonicalize full path (if it exists)
+        let canonical_full = if full_path.exists() {
+            std::fs::canonicalize(&full_path)
+                .map_err(|e| AosError::Validation(format!("Invalid file path: {}", e)))?
+        } else {
+            // For non-existent files, normalize the path manually
+            let mut normalized = canonical_root.clone();
+            for component in std::path::Path::new(file_path).components() {
+                match component {
+                    std::path::Component::Normal(part) => normalized.push(part),
+                    std::path::Component::CurDir => {}
+                    std::path::Component::ParentDir => {
+                        return Err(AosError::Validation(format!(
+                            "Path traversal in file path: {}",
+                            file_path
+                        )));
+                    }
+                    _ => {
+                        return Err(AosError::Validation(format!(
+                            "Invalid path component in: {}",
+                            file_path
+                        )));
+                    }
+                }
+            }
+            normalized
+        };
+
+        // Ensure the resolved path is within the repo root
+        if !canonical_full.starts_with(&canonical_root) {
+            return Err(AosError::Validation(format!(
+                "File path escapes repository: {}",
+                file_path
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+/// Check if a path contains traversal sequences
+fn contains_path_traversal(path: &str) -> bool {
+    // Check for common traversal patterns
+    let traversal_patterns = [
+        "..",           // Parent directory
+        "./.",          // Hidden current directory tricks
+        "..\\",         // Windows-style traversal
+        "..%2f",        // URL-encoded forward slash
+        "..%5c",        // URL-encoded backslash
+        "%2e%2e",       // URL-encoded dots
+        "....//",       // Double-dot variations
+        "..;/",         // Semicolon bypass
+    ];
+
+    let path_lower = path.to_lowercase();
+    for pattern in traversal_patterns {
+        if path_lower.contains(pattern) {
+            return true;
+        }
+    }
+
+    // Check for consecutive dots that could indicate traversal
+    if path.contains("...") {
+        return true;
+    }
+
+    // Check path components for exact ".." matches
+    for component in std::path::Path::new(path).components() {
+        if let std::path::Component::ParentDir = component {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Analyze a Git repository for languages, frameworks, and evidence spans
@@ -645,8 +870,30 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>
         "unknown".to_string()
     };
 
-    // Get authors (simplified)
-    let authors = vec!["unknown".to_string()]; // TODO: Extract from commit history
+    // Extract unique authors from commit history
+    let authors = {
+        let mut author_set = std::collections::HashSet::new();
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push_head()?;
+
+        for oid in revwalk {
+            if let Ok(oid) = oid {
+                if let Ok(commit) = repo.find_commit(oid) {
+                    let author_name = commit.author().name().unwrap_or("unknown").to_string();
+                    author_set.insert(author_name);
+                }
+            }
+        }
+
+        let mut authors: Vec<String> = author_set.into_iter().collect();
+        authors.sort();
+
+        if authors.is_empty() {
+            vec!["unknown".to_string()]
+        } else {
+            authors
+        }
+    };
 
     Ok(GitInfo {
         branch: branch_name,

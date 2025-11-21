@@ -36,6 +36,7 @@ pub async fn list_tenants(
     let response: Vec<TenantResponse> = tenants
         .into_iter()
         .map(|t| TenantResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: t.id,
             name: t.name,
             itar_flag: t.itar_flag,
@@ -99,6 +100,7 @@ pub async fn create_tenant(
     .await;
 
     Ok(Json(TenantResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: tenant.id,
         name: tenant.name,
         itar_flag: tenant.itar_flag,

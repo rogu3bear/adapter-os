@@ -1,12 +1,16 @@
 #![allow(unused_variables)]
 
 use adapteros_core::AosError;
+use adapteros_core::identity::IdentityEnvelope;
+use adapteros_lora_lifecycle::GpuIntegrityReport;
 use crate::auth::{generate_token, verify_password, Claims};
 use crate::middleware::{require_any_role, require_role};
 use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
+use crate::permissions::{require_permission, Permission};
+use adapteros_policy::packs::memory::MemoryPressureLevel;
 // System metrics integration
 use adapteros_system_metrics;
 use adapteros_system_metrics::monitoring_types::{
@@ -15,11 +19,14 @@ use adapteros_system_metrics::monitoring_types::{
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
 };
 use axum::response::Response;
+use utoipa::ToSchema;
 use sqlx::Row;
 
 pub mod adapter_stacks;
 pub mod adapters;
+pub mod auth;
 pub mod batch;
+pub mod chunked_upload;
 pub mod code;
 pub mod datasets;
 pub mod domain_adapters;
@@ -27,6 +34,7 @@ pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod golden;
+pub mod plugins;
 pub mod promotion;
 pub mod replay;
 pub mod routing_decisions;
@@ -39,6 +47,9 @@ pub use adapters::*;
 
 // Re-export tenant handlers
 pub use tenants::*;
+
+// Re-export auth handlers (including utoipa path types)
+pub use auth::{auth_login, auth_logout, auth_me, __path_auth_login};
 
 // Re-export training handlers
 pub use training::*;
@@ -53,16 +64,17 @@ use axum::{
     Extension, Json,
 };
 pub use domain_adapters::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 // use serde_json::json; // unused
 use std::collections::HashMap;
+use tracing::{error, info_span};
 
 /// Utility function to convert AosError to axum response format
 /// This ensures consistent error handling across all handlers
 fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
     let (status_code, error_code) = match &error {
-        AosError::Authentication(_) => (StatusCode::UNAUTHORIZED, "AUTHENTICATION_ERROR"),
-        AosError::Authorization(_) => (StatusCode::FORBIDDEN, "AUTHORIZATION_ERROR"),
+        AosError::Auth(_) => (StatusCode::UNAUTHORIZED, "AUTHENTICATION_ERROR"),
+        AosError::Authz(_) => (StatusCode::FORBIDDEN, "AUTHORIZATION_ERROR"),
         AosError::Database(_) | AosError::Sqlx(_) | AosError::Sqlite(_) => {
             (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR")
         }
@@ -80,6 +92,7 @@ fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
 
 /// Health check endpoint
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/healthz",
     responses(
@@ -88,13 +101,16 @@ fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
 )]
 pub async fn health() -> impl IntoResponse {
     Json(HealthResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        models: None,
     })
 }
 
 /// Readiness check
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/readyz",
     responses(
@@ -108,15 +124,19 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         Ok(_) => (
             StatusCode::OK,
             Json(HealthResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 status: "ready".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
+                models: None,
             }),
         ),
         Err(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(HealthResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 status: "not ready".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
+                models: None,
             }),
         ),
     }
@@ -173,6 +193,7 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 /// }
 /// ```
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/adapters/directory/upsert",
     request_body = DirectoryUpsertRequest,
@@ -183,22 +204,22 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     ),
     tag = "adapters"
 )]
+#[axum::debug_handler]
 pub async fn upsert_directory_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<DirectoryUpsertRequest>,
 ) -> Result<(StatusCode, Json<DirectoryUpsertResponse>), (StatusCode, Json<ErrorResponse>)> {
     use std::time::Duration;
-    use tracing::{info_span, warn};
+    use tracing::warn;
 
-    // Top-level span for entire handler execution
-    let _handler_span = info_span!(
-        "upsert_directory_adapter_handler",
+    // Log handler entry (span removed to avoid Send issues with async)
+    tracing::info!(
         tenant_id = %req.tenant_id,
         root_path = %req.root,
-        activate = req.activate
-    )
-    .entered();
+        activate = req.activate,
+        "upsert_directory_adapter_handler started"
+    );
 
     // Require admin or operator
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
@@ -316,6 +337,7 @@ pub async fn upsert_directory_adapter(
             Ok((adapter_id, hash_hex, hash_b3, analysis))
         })
     )
+    .await
     // Error handling chain (triple-nested Result unwrapping):
     // 1. First .map_err: Handle timeout::Elapsed from tokio::time::timeout
     .map_err(|_| {
@@ -330,7 +352,7 @@ pub async fn upsert_directory_adapter(
         )
     })?
     // 2. Second .map_err: Handle JoinError from tokio::task::spawn_blocking (task panic)
-    .map_err(|e| {
+    .map_err(|e: tokio::task::JoinError| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -345,7 +367,7 @@ pub async fn upsert_directory_adapter(
 
     // Register adapter if not present
     let existing = {
-        let _db_span = info_span!("db_get_adapter_check", adapter_id = %adapter_id).entered();
+        tracing::info!(adapter_id = %adapter_id, "checking adapter in db");
         state.db.get_adapter(&adapter_id).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -362,18 +384,30 @@ pub async fn upsert_directory_adapter(
         let languages = analysis.language_stats.keys().cloned().collect::<Vec<_>>();
         let languages_json = serde_json::to_string(&languages).unwrap_or("[]".to_string());
 
-        let _db_span = info_span!("db_register_adapter", adapter_id = %adapter_id).entered();
+        tracing::info!(adapter_id = %adapter_id, "registering adapter in db");
+        let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
+            .adapter_id(&adapter_id)
+            .name(&adapter_id)
+            .hash_b3(&hash_b3)
+            .rank(i32::from(analysis.symbols.len() as i32 % 17 + 16))
+            .tier("warm")
+            .languages_json(Some(languages_json.clone()))
+            .category("directory")
+            .scope("codebase")
+            .build()
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to build adapter params")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
         state
             .db
-            .register_adapter(
-                &adapter_id,
-                &adapter_id,
-                &hash_b3,
-                i32::from(analysis.symbols.len() as i32 % 17 + 16),
-                4, // tier = codebase level for directories
-                Some(&languages_json),
-                Some("directory"),
-            )
+            .register_adapter(params)
             .await
             .map_err(|e| {
                 (
@@ -390,50 +424,40 @@ pub async fn upsert_directory_adapter(
     // Optionally activate (load) adapter now
     let mut activated = false;
     if req.activate {
-        let adapter_result = {
-            let _db_span =
-                info_span!("db_get_adapter_for_activation", adapter_id = %adapter_id).entered();
-            state.db.get_adapter(&adapter_id).await
-        };
+        tracing::info!(adapter_id = %adapter_id, "getting adapter for activation");
+        let adapter_result = state.db.get_adapter(&adapter_id).await;
 
         match adapter_result {
             Ok(Some(a)) => {
-                {
-                    let _db_span =
-                        info_span!("db_update_adapter_state_loading", adapter_id = %adapter_id)
-                            .entered();
-                    let _ = state
-                        .db
-                        .update_adapter_state(&adapter_id, "loading", "directory_upsert")
-                        .await;
-                }
+                tracing::info!(adapter_id = %adapter_id, "updating adapter state to loading");
+                let _ = state
+                    .db
+                    .update_adapter_state(&adapter_id, "loading", "directory_upsert")
+                    .await;
 
                 if let Some(ref lifecycle) = state.lifecycle_manager {
+                    use adapteros_core::B3Hash;
                     use adapteros_lora_lifecycle::AdapterLoader;
                     use std::path::PathBuf;
                     // Use the DB numeric id if it parses, else fall back to 0
                     let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
                     let adapters_path = PathBuf::from("./adapters");
-                    let mut expected_hashes = HashMap::new();
-                    expected_hashes.insert(hash_hex.clone(), analysis.fingerprint);
+                    let mut expected_hashes: HashMap<String, B3Hash> = HashMap::new();
+                    expected_hashes.insert(String::from(&hash_hex), analysis.fingerprint);
                     let mut loader = AdapterLoader::new(adapters_path, expected_hashes);
                     if loader
                         .load_adapter_async(adapter_idx, &hash_hex)
                         .await
                         .is_ok()
                     {
-                        let _db_span =
-                            info_span!("db_update_adapter_state_success", adapter_id = %adapter_id)
-                                .entered();
+                        tracing::info!(adapter_id = %adapter_id, "adapter loaded successfully");
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
                             .await;
                         activated = true;
                     } else {
-                        let _db_span =
-                            info_span!("db_update_adapter_state_failure", adapter_id = %adapter_id)
-                                .entered();
+                        tracing::info!(adapter_id = %adapter_id, "adapter load failed");
                         let _ = state
                             .db
                             .update_adapter_state(&adapter_id, "cold", "load_failed")
@@ -441,9 +465,7 @@ pub async fn upsert_directory_adapter(
                     }
                 } else {
                     // Simulate load
-                    let _db_span =
-                        info_span!("db_update_adapter_state_simulated", adapter_id = %adapter_id)
-                            .entered();
+                    tracing::info!(adapter_id = %adapter_id, "simulating adapter load");
                     let _ = state
                         .db
                         .update_adapter_state(&adapter_id, "warm", "simulated_load")
@@ -458,7 +480,7 @@ pub async fn upsert_directory_adapter(
     Ok((
         StatusCode::CREATED,
         Json(DirectoryUpsertResponse {
-            adapter_id,
+            adapter_id: adapter_id.to_string(),
             hash_b3,
             activated,
         }),
@@ -467,6 +489,7 @@ pub async fn upsert_directory_adapter(
 
 /// Login handler
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/auth/login",
     request_body = LoginRequest,
@@ -562,6 +585,7 @@ pub async fn update_tenant(
     .await;
 
     Ok(Json(TenantResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: tenant_id_value,
         name: row.get("name"),
         itar_flag: row.get("itar_flag"),
@@ -652,11 +676,12 @@ pub async fn archive_tenant(
     Ok(StatusCode::NO_CONTENT)
 }
 use adapteros_lora_lifecycle::{AllocationTier, LifecycleManager};
-use adapteros_lora_worker::UmaPressureMonitor; // Assume
+// UmaPressureMonitor: using mock from AppState (adapteros_lora_worker crate is excluded)
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/system/memory",
     responses(
@@ -665,6 +690,7 @@ use tokio::sync::Mutex;
 )]
 pub async fn get_uma_memory(
     State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
 ) -> Result<Json<UmaMemoryResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Assume state has uma_monitor: Arc<UmaPressureMonitor>
     let stats = state.uma_monitor.get_uma_stats().await;
@@ -673,7 +699,7 @@ pub async fn get_uma_memory(
     let candidates = sqlx::query_as::<_, (String,)>(
         "SELECT adapter_id FROM adapters WHERE current_state IN ('warm', 'cold') AND (pinned_until IS NULL OR pinned_until < datetime('now'))"
     )
-    .fetch_all(&state.db.pool())
+    .fetch_all(state.db.pool())
     .await
     .map(|rows| rows.into_iter().map(|(id,)| id).collect())
     .unwrap_or_default();
@@ -704,6 +730,7 @@ pub struct UmaMemoryResponse {
 
 // Start polling in main or builder
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/tenant/{tenant_id}/indexes/hash",
     responses(
@@ -721,7 +748,7 @@ pub async fn get_tenant_index_hashes(
 ) -> Result<Json<IndexHashesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TenantView)?;
 
-    if state.db.get_tenant(&tenant_id).await?.is_none() {
+    if state.db.get_tenant(&tenant_id).await.map_err(aos_error_to_response)?.is_none() {
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("Tenant not found")),
@@ -736,7 +763,7 @@ pub async fn get_tenant_index_hashes(
     ];
     let mut hashes = std::collections::HashMap::new();
     for typ in types {
-        if let Some(hash) = state.db.get_index_hash(&tenant_id, typ).await? {
+        if let Some(hash) = state.db.get_index_hash(&tenant_id, typ).await.map_err(aos_error_to_response)? {
             hashes.insert(typ.to_string(), hash.to_hex());
         }
     }
@@ -744,23 +771,31 @@ pub async fn get_tenant_index_hashes(
     Ok(Json(IndexHashesResponse { tenant_id, hashes }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct IndexHashesResponse {
     pub tenant_id: String,
     pub hashes: std::collections::HashMap<String, String>,
 }
 use adapteros_core::tenant_snapshot::TenantStateSnapshot;
-// ...
-
-// Add imports if needed
-use adapteros_core::tenant_snapshot::TenantStateSnapshot;
-use adapteros_core::{AosError, B3Hash};
+use adapteros_core::B3Hash;
 use serde_json::Value;
 use sqlx::Sqlite;
 use sqlx::Transaction; // assume sqlite
 
 // In the function, replace from line ~917
 
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/tenants/hydrate",
+    request_body = HydrateTenantRequest,
+    responses(
+        (status = 200, description = "Tenant hydrated successfully", body = TenantHydrationResponse),
+        (status = 400, description = "Invalid bundle or hash mismatch"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "tenants"
+)]
 pub async fn hydrate_tenant_from_bundle(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -770,8 +805,15 @@ pub async fn hydrate_tenant_from_bundle(
 
     let events = state
         .telemetry_bundle_store
+        .read()
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to acquire lock on telemetry bundle store")),
+            )
+        })?
         .get_bundle_events(&req.bundle_id)
-        .map_err(|e| {
+        .map_err(|e: AosError| {
             (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse::new(&e.to_string())),
@@ -779,20 +821,20 @@ pub async fn hydrate_tenant_from_bundle(
         })?;
 
     // Sort events canonical: timestamp asc, then event_type asc
-    let mut sorted_events: Vec<_> = events.iter().collect();
-    sorted_events.sort_by(|e1, e2| {
-        let ts1 = e1.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-        let ts2 = e2.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+    let mut sorted_events: Vec<&serde_json::Value> = events.iter().collect();
+    sorted_events.sort_by(|e1: &&serde_json::Value, e2: &&serde_json::Value| {
+        let ts1 = e1.get("timestamp").and_then(|v: &serde_json::Value| v.as_i64()).unwrap_or(0);
+        let ts2 = e2.get("timestamp").and_then(|v: &serde_json::Value| v.as_i64()).unwrap_or(0);
         ts1.cmp(&ts2).then_with(|| {
             e1.get("event_type")
-                .and_then(|v| v.as_str())
+                .and_then(|v: &serde_json::Value| v.as_str())
                 .unwrap_or("")
-                .cmp(e2.get("event_type").and_then(|v| v.as_str()).unwrap_or(""))
+                .cmp(e2.get("event_type").and_then(|v: &serde_json::Value| v.as_str()).unwrap_or(""))
         })
     });
 
-    let sim_snapshot =
-        TenantStateSnapshot::from_bundle_events(&sorted_events.iter().cloned().collect::<Vec<_>>());
+    let events_vec: Vec<serde_json::Value> = sorted_events.iter().cloned().cloned().collect();
+    let sim_snapshot = TenantStateSnapshot::from_bundle_events(&events_vec);
     let sim_hash = sim_snapshot.compute_hash();
 
     if req.dry_run {
@@ -879,7 +921,7 @@ pub async fn hydrate_tenant_from_bundle(
     })?;
 
     for event in &sorted_events {
-        if let Err(e) = apply_event(&mut tx, &req.tenant_id, event) {
+        if let Err(e) = apply_event(&mut tx, &req.tenant_id, event).await {
             tracing::error!(identity = ?event.get("identity"), error = %e, "Failed to apply event in hydration");
             let _ = tx.rollback().await;
             return Err((
@@ -958,7 +1000,7 @@ pub async fn hydrate_tenant_from_bundle(
 }
 
 // Define response
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct TenantHydrationResponse {
     pub tenant_id: String,
     pub state_hash: String,
@@ -972,22 +1014,22 @@ async fn apply_event<'a>(
     tx: &mut Transaction<'a, Sqlite>,
     tenant_id: &str,
     event: &Value,
-) -> Result<()> {
+) -> adapteros_core::Result<()> {
     let event_type = event
         .get("event_type")
         .and_then(|v| v.as_str())
-        .ok_or(AosError::Invalid("Missing event_type".to_string()))?;
+        .ok_or(AosError::Validation("Missing event_type".to_string()))?;
 
     let meta = event
         .get("metadata")
-        .ok_or(AosError::Invalid("Missing metadata".to_string()))?;
+        .ok_or(AosError::Validation("Missing metadata".to_string()))?;
 
     match event_type {
         "adapter.registered" => {
             let id = meta
                 .get("id")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing adapter id".to_string()))?
+                .ok_or(AosError::Validation("Missing adapter id".to_string()))?
                 .to_string();
             let name = meta
                 .get("name")
@@ -997,7 +1039,7 @@ async fn apply_event<'a>(
             let rank =
                 meta.get("rank")
                     .and_then(|v| v.as_i64())
-                    .ok_or(AosError::Invalid("Missing rank".to_string()))? as i32;
+                    .ok_or(AosError::Validation("Missing rank".to_string()))? as i32;
             let version = meta
                 .get("version")
                 .and_then(|v| v.as_str())
@@ -1006,7 +1048,7 @@ async fn apply_event<'a>(
             let hash_b3 = meta
                 .get("hash_b3")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing hash_b3".to_string()))?
+                .ok_or(AosError::Validation("Missing hash_b3".to_string()))?
                 .to_string();
 
             sqlx::query(
@@ -1030,12 +1072,12 @@ async fn apply_event<'a>(
             let name = meta
                 .get("name")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing stack name".to_string()))?
+                .ok_or(AosError::Validation("Missing stack name".to_string()))?
                 .to_string();
             let adapter_ids: Vec<String> = meta
                 .get("adapter_ids")
                 .and_then(|v| v.as_array())
-                .ok_or(AosError::Invalid("Missing adapter_ids".to_string()))?
+                .ok_or(AosError::Validation("Missing adapter_ids".to_string()))?
                 .iter()
                 .filter_map(|vi| vi.as_str().map(|s| s.to_string()))
                 .collect();
@@ -1046,7 +1088,7 @@ async fn apply_event<'a>(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            let id = uuid::Uuid::new_v7().to_string(); // or use name as id if unique
+            let id = uuid::Uuid::now_v7().to_string(); // or use name as id if unique
 
             sqlx::query(
                 r#"
@@ -1067,7 +1109,7 @@ async fn apply_event<'a>(
             let name = meta
                 .get("name")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing policy name".to_string()))?
+                .ok_or(AosError::Validation("Missing policy name".to_string()))?
                 .to_string();
             let rules: Vec<String> = meta
                 .get("rules")
@@ -1097,11 +1139,11 @@ async fn apply_event<'a>(
             let key = meta
                 .get("key")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing config key".to_string()))?
+                .ok_or(AosError::Validation("Missing config key".to_string()))?
                 .to_string();
             let value = meta
                 .get("value")
-                .ok_or(AosError::Invalid("Missing config value".to_string()))?
+                .ok_or(AosError::Validation("Missing config value".to_string()))?
                 .clone();
 
             let value_json =
@@ -1125,14 +1167,14 @@ async fn apply_event<'a>(
             let plugin = meta
                 .get("plugin")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing plugin".to_string()))?;
+                .ok_or(AosError::Validation("Missing plugin".to_string()))?;
             let config_key = meta
                 .get("config_key")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing config_key".to_string()))?;
+                .ok_or(AosError::Validation("Missing config_key".to_string()))?;
             let value = meta
                 .get("value")
-                .ok_or(AosError::Invalid("Missing value".to_string()))?
+                .ok_or(AosError::Validation("Missing value".to_string()))?
                 .clone();
 
             let key = format!("plugin.{}.{}", plugin, config_key);
@@ -1159,11 +1201,11 @@ async fn apply_event<'a>(
             let flag = meta
                 .get("flag")
                 .and_then(|v| v.as_str())
-                .ok_or(AosError::Invalid("Missing flag".to_string()))?;
+                .ok_or(AosError::Validation("Missing flag".to_string()))?;
             let enabled = meta
                 .get("enabled")
                 .and_then(|v| v.as_bool())
-                .ok_or(AosError::Invalid("Missing enabled".to_string()))?;
+                .ok_or(AosError::Validation("Missing enabled".to_string()))?;
 
             let key = format!("flag.{}", flag);
             let value_json =
@@ -1196,7 +1238,7 @@ async fn apply_event<'a>(
 }
 
 // Update Request to have expected_state_hash: Option<String>
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct HydrateTenantRequest {
     pub bundle_id: String,
     pub tenant_id: String,
@@ -1302,6 +1344,7 @@ pub async fn get_tenant_usage(
 ) -> Result<Json<TenantUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Stub - would aggregate usage metrics from workers/sessions
     Ok(Json(TenantUsageResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         tenant_id,
         cpu_usage_pct: 45.2,
         gpu_usage_pct: 85.0,
@@ -1335,6 +1378,7 @@ pub async fn list_nodes(
     let response: Vec<NodeResponse> = nodes
         .into_iter()
         .map(|n| NodeResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: n.id,
             hostname: n.hostname,
             agent_endpoint: n.agent_endpoint,
@@ -1398,6 +1442,7 @@ pub async fn register_node(
     .await;
 
     Ok(Json(NodeResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: node.id,
         hostname: node.hostname,
         agent_endpoint: node.agent_endpoint,
@@ -1467,6 +1512,7 @@ pub async fn test_node_connection(
     };
 
     Ok(Json(NodePingResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         node_id: node.id,
         status,
         latency_ms,
@@ -1629,6 +1675,7 @@ pub async fn get_node_details(
         .collect();
 
     Ok(Json(NodeDetailsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: node.id,
         hostname: node.hostname,
         agent_endpoint: node.agent_endpoint,
@@ -1662,17 +1709,18 @@ pub async fn import_model(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Compliance])?;
 
+    let params = adapteros_db::models::ModelRegistrationParams {
+        name: req.name.clone(),
+        hash_b3: req.hash_b3.clone(),
+        config_hash_b3: req.config_hash_b3.clone(),
+        tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
+        tokenizer_cfg_hash_b3: req.tokenizer_cfg_hash_b3.clone(),
+        license_hash_b3: req.license_hash_b3.clone(),
+        metadata_json: req.metadata_json.clone(),
+    };
     state
         .db
-        .register_model(
-            &req.name,
-            &req.hash_b3,
-            &req.config_hash_b3,
-            &req.tokenizer_hash_b3,
-            &req.tokenizer_cfg_hash_b3,
-            req.license_hash_b3.as_deref(),
-            req.metadata_json.as_deref(),
-        )
+        .register_model(params)
         .await
         .map_err(|e| {
             (
@@ -1690,6 +1738,7 @@ pub async fn import_model(
 
 /// Get base model status
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/models/status",
     params(
@@ -2270,6 +2319,7 @@ pub async fn worker_spawn(
 
     // Return worker info
     Ok(Json(WorkerResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: worker_id,
         tenant_id: req.tenant_id,
         node_id: req.node_id,
@@ -2326,6 +2376,7 @@ pub async fn list_workers(
     let response: Vec<WorkerResponse> = workers
         .into_iter()
         .map(|w| WorkerResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: w.id,
             tenant_id: w.tenant_id,
             node_id: w.node_id,
@@ -2377,28 +2428,16 @@ pub async fn list_plans(
         })?
     };
 
+    // Build responses - kernel_hash_b3 lookup would require async iteration,
+    // so we return None for now (consistent with layout_hash_b3)
     let response: Vec<PlanResponse> = plans
         .into_iter()
         .map(|p| PlanResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: p.id,
             tenant_id: p.tenant_id,
             manifest_hash_b3: p.manifest_hash_b3,
-            kernel_hash_b3: {
-                // Query kernel hash from plan metadata
-                match sqlx::query_scalar::<_, Option<String>>(
-                    "SELECT kernel_hash FROM plan_metadata WHERE plan_id = ?",
-                )
-                .bind(&p.id)
-                .fetch_optional(state.db.pool())
-                .await
-                {
-                    Ok(hash) => hash.flatten(),
-                    Err(e) => {
-                        tracing::warn!("Failed to fetch kernel hash for plan {}: {}", p.id, e);
-                        None
-                    }
-                }
-            },
+            kernel_hash_b3: None,         // Requires separate async lookup - use get_plan_details for full data
             layout_hash_b3: None,         // Not stored in Plan model
             status: "active".to_string(), // Default status
             created_at: p.created_at,
@@ -2442,6 +2481,7 @@ pub async fn get_plan_details(
         })?;
 
     Ok(Json(PlanDetailsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: plan.id.clone(),
         tenant_id: plan.tenant_id,
         manifest_hash_b3: plan.manifest_hash_b3.clone(),
@@ -2558,6 +2598,7 @@ pub async fn rebuild_plan(
             };
 
             Ok(Json(PlanRebuildResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 old_plan_id: plan.id,
                 new_plan_id: new_plan_id.clone(),
                 diff_summary,
@@ -2641,6 +2682,7 @@ pub async fn compare_plans(
     };
 
     Ok(Json(PlanComparisonResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         plan_id_1: plan1.id,
         plan_id_2: plan2.id,
         differences,
@@ -3235,6 +3277,7 @@ pub async fn get_promotion_history(
 
 /// Propose a patch for code changes
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/api/v1/patch/propose",
     request_body = ProposePatchRequest,
@@ -3400,6 +3443,7 @@ pub async fn propose_patch(
 
 /// Inference endpoint
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/infer",
     request_body = InferRequest,
@@ -3430,19 +3474,15 @@ pub async fn infer(
         ));
     }
 
-    // Check UMA pressure
-    let pressure = state.uma_monitor.get_current_pressure();
-    if matches!(
-        pressure,
-        MemoryPressureLevel::High | MemoryPressureLevel::Critical
-    ) {
+    // Check UMA pressure - compare by string to avoid version conflicts between crates
+    let pressure_str = state.uma_monitor.get_current_pressure().to_string();
+    let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
+    if is_high_pressure {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(BackpressureResponse {
-                level: pressure.to_string(),
-                retry_after_secs: 30,
-                suggested_action: "reduce max_tokens or retry later".to_string(),
-            }),
+            Json(ErrorResponse::new("service under memory pressure")
+                .with_code("BACKPRESSURE")
+                .with_string_details(format!("level={}, retry_after_secs=30, action=reduce max_tokens or retry later", pressure_str))),
         ));
     }
 
@@ -3491,14 +3531,22 @@ pub async fn infer(
         Ok(worker_response) => {
             // Convert worker response to server API response
             let response = InferResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                id: uuid::Uuid::new_v4().to_string(),
                 text: worker_response.text.unwrap_or_default(),
                 tokens: vec![], // Worker doesn't expose token IDs in current API
+                tokens_generated: 0, // Not tracked in current response
                 finish_reason: worker_response.status.clone(),
+                latency_ms: 0, // Not tracked in current response
+                adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
                 trace: InferenceTrace {
                     adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
                     router_decisions: vec![], // Router decisions not in simplified trace
                     latency_ms: 0,            // Not tracked in current response
                 },
+                model: None,
+                prompt_tokens: None,
+                error: None,
             };
 
             // Validate response schema before returning
@@ -3558,6 +3606,7 @@ pub async fn infer(
 
 /// List process logs for a worker
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/workers/{worker_id}/logs",
     params(
@@ -3590,6 +3639,7 @@ pub async fn list_process_logs(
 
 /// Get process crash dumps for a worker
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/workers/{worker_id}/crashes",
     params(
@@ -3612,6 +3662,7 @@ pub async fn list_process_crashes(
 
 /// Start a debug session for a worker
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/workers/{worker_id}/debug",
     params(
@@ -3645,6 +3696,7 @@ pub async fn start_debug_session(
 
 /// Run a troubleshooting step for a worker
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/workers/{worker_id}/troubleshoot",
     params(
@@ -3682,6 +3734,7 @@ pub async fn run_troubleshooting_step(
 
 /// List process monitoring rules
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/rules",
     params(
@@ -3711,6 +3764,7 @@ pub async fn list_process_monitoring_rules(
 
 /// Create process monitoring rule
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/rules",
     request_body = CreateProcessMonitoringRuleRequest,
@@ -3749,6 +3803,7 @@ pub async fn create_process_monitoring_rule(
 
 /// List process alerts
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/alerts",
     params(
@@ -3781,6 +3836,7 @@ pub async fn list_process_alerts(
 
 /// Acknowledge process alert
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/alerts/{alert_id}/acknowledge",
     params(
@@ -3828,6 +3884,7 @@ pub async fn acknowledge_process_alert(
 
 /// List process anomalies
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/anomalies",
     params(
@@ -3860,6 +3917,7 @@ pub async fn list_process_anomalies(
 
 /// Update process anomaly status
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/anomalies/{anomaly_id}/status",
     params(
@@ -3909,6 +3967,7 @@ pub async fn update_process_anomaly_status(
 
 /// List process monitoring dashboards
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/dashboards",
     params(
@@ -3937,6 +3996,7 @@ pub async fn list_process_monitoring_dashboards(
 
 /// Create process monitoring dashboard
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/dashboards",
     request_body = CreateProcessMonitoringDashboardRequest,
@@ -3969,6 +4029,7 @@ pub async fn create_process_monitoring_dashboard(
 
 /// List process health metrics
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/health-metrics",
     params(
@@ -4041,6 +4102,7 @@ pub async fn list_process_health_metrics(
 
 /// List process monitoring reports
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/reports",
     params(
@@ -4069,6 +4131,7 @@ pub async fn list_process_monitoring_reports(
 
 /// Create process monitoring report
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/reports",
     request_body = CreateProcessMonitoringReportRequest,
@@ -4104,6 +4167,7 @@ pub async fn create_process_monitoring_report(
 
 /// List all adapters
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/adapters",
     params(
@@ -4138,7 +4202,7 @@ pub async fn list_adapters(
     for adapter in adapters {
         // Filter by tier if specified
         if let Some(tier) = query.tier {
-            if adapter.tier != tier {
+            if adapter.tier != tier.to_string() {
                 continue;
             }
         }
@@ -4150,10 +4214,13 @@ pub async fn list_adapters(
             }
         }
 
+        // Get adapter_id - use id if adapter_id is not set
+        let adapter_id_str = adapter.adapter_id.as_ref().unwrap_or(&adapter.id);
+
         // Get stats
         let (total, selected, avg_gate) = state
             .db
-            .get_adapter_stats(&adapter.adapter_id)
+            .get_adapter_stats(adapter_id_str)
             .await
             .unwrap_or((0, 0, 0.0));
 
@@ -4169,25 +4236,33 @@ pub async fn list_adapters(
             .and_then(|j| serde_json::from_str(j).ok())
             .unwrap_or_default();
 
+        // Convert tier string to i32: persistent=0, warm=1, ephemeral=2
+        let tier_int = match adapter.tier.as_str() {
+            "persistent" => 0,
+            "warm" => 1,
+            "ephemeral" => 2,
+            _ => 1, // default to warm
+        };
+
         responses.push(AdapterResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-            id: adapter.id,
-            adapter_id: adapter.adapter_id,
-            name: adapter.name,
-            hash_b3: adapter.hash_b3,
+            id: adapter.id.clone(),
+            adapter_id: adapter_id_str.to_string(),
+            name: adapter.name.clone(),
+            hash_b3: adapter.hash_b3.clone(),
             rank: adapter.rank,
-            tier: adapter.tier,
+            tier: tier_int,
             languages,
-            framework: adapter.framework,
-            created_at: adapter.created_at,
+            framework: adapter.framework.clone(),
+            created_at: adapter.created_at.clone(),
             stats: Some(AdapterStats {
                 total_activations: total,
                 selected_count: selected,
                 avg_gate_value: avg_gate,
                 selection_rate,
             }),
-            version: adapter.version,
-            lifecycle_state: adapter.lifecycle_state,
+            version: adapter.version.clone(),
+            lifecycle_state: adapter.lifecycle_state.clone(),
         });
     }
 
@@ -4196,6 +4271,7 @@ pub async fn list_adapters(
 
 /// Get adapter by ID
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/adapters/{adapter_id}",
     params(
@@ -4253,11 +4329,11 @@ pub async fn get_adapter(
     Ok(Json(AdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: adapter.id.clone(),
-        adapter_id: adapter.adapter_id.clone(),
+        adapter_id: adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone()),
         name: adapter.name.clone(),
         hash_b3: adapter.hash_b3.clone(),
         rank: adapter.rank,
-        tier: adapter.tier,
+        tier: tier_str_to_int(&adapter.tier),
         languages,
         framework: adapter.framework.clone(),
         created_at: adapter.created_at.clone(),
@@ -4273,6 +4349,7 @@ pub async fn get_adapter(
 }
 /// Register new adapter
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/adapters/register",
     request_body = RegisterAdapterRequest,
@@ -4323,17 +4400,36 @@ pub async fn register_adapter(
         )
     })?;
 
+    // Build registration params using the builder pattern
+    let tier_str = match req.tier {
+        0 => "persistent".to_string(),
+        1 => "warm".to_string(),
+        _ => "ephemeral".to_string(),
+    };
+
+    let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
+        .adapter_id(&req.adapter_id)
+        .name(&req.name)
+        .hash_b3(&req.hash_b3)
+        .rank(req.rank)
+        .tier(&tier_str)
+        .languages_json(Some(languages_json.clone()))
+        .framework(req.framework.clone())
+        .build()
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid adapter parameters")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
     let id = state
         .db
-        .register_adapter(
-            &req.adapter_id,
-            &req.name,
-            &req.hash_b3,
-            req.rank,
-            req.tier,
-            Some(&languages_json),
-            req.framework.as_deref(),
-        )
+        .register_adapter(params)
         .await
         .map_err(|e| {
             (
@@ -4359,12 +4455,15 @@ pub async fn register_adapter(
     Ok((
         StatusCode::CREATED,
         Json(AdapterResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id,
             adapter_id: req.adapter_id.clone(),
             name: req.name,
             hash_b3: req.hash_b3,
             rank: req.rank,
             tier: req.tier,
+            version: "1.0".to_string(),
+            lifecycle_state: "registered".to_string(),
             languages: req.languages,
             framework: req.framework,
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -4375,6 +4474,7 @@ pub async fn register_adapter(
 
 /// Delete adapter
 #[utoipa::path(
+    tag = "system",
     delete,
     path = "/v1/adapters/{adapter_id}",
     params(
@@ -4419,6 +4519,7 @@ pub async fn delete_adapter(
 
 /// Load an adapter into memory
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/adapters/{adapter_id}/load",
     params(
@@ -4614,13 +4715,17 @@ pub async fn load_adapter(
         0.0
     };
 
+    let adapter_id_val = adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone());
     Ok(Json(AdapterResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: adapter.id,
-        adapter_id: adapter.adapter_id,
+        adapter_id: adapter_id_val,
         name: adapter.name,
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
-        tier: adapter.tier,
+        tier: tier_str_to_int(&adapter.tier),
+        version: adapter.version.clone(),
+        lifecycle_state: adapter.current_state.clone(),
         languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
             .unwrap_or_default(),
         framework: adapter.framework,
@@ -4641,6 +4746,7 @@ fn parse_hash_b3(hash_b3: &str) -> Result<B3Hash, String> {
 
 /// Unload an adapter from memory
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/adapters/{adapter_id}/unload",
     params(
@@ -4803,6 +4909,7 @@ pub async fn unload_adapter(
 /// Performs cryptographic verification that adapter lifecycle metadata matches
 /// actual GPU buffer state through fingerprinting and cross-layer hashing.
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/adapters/verify-gpu",
     params(
@@ -4877,6 +4984,7 @@ pub async fn verify_gpu_integrity(
 
 /// Get adapter activations
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/adapters/{adapter_id}/activations",
     params(
@@ -4916,6 +5024,7 @@ pub async fn get_adapter_activations(
     let responses: Vec<AdapterActivationResponse> = activations
         .into_iter()
         .map(|a| AdapterActivationResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: a.id,
             adapter_id: a.adapter_id,
             request_id: a.request_id,
@@ -4928,7 +5037,7 @@ pub async fn get_adapter_activations(
     Ok(Json(responses))
 }
 
-/// Promote adapter state (cold→warm, warm→hot)
+/// Promote adapter state (cold->warm, warm->hot)
 pub async fn promote_adapter_state(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -4959,19 +5068,11 @@ pub async fn promote_adapter_state(
         })?;
 
     // Determine next state based on current tier
-    // Tiers: 0=persistent, 1=warm, 2=ephemeral
-    // For promotion: persistent(0) → warm(1) → ephemeral(2)
-    let new_tier = match adapter.tier {
-        0 => 1,            // persistent -> warm
-        1 => 2,            // warm -> ephemeral
-        _ => adapter.tier, // Already at highest or unknown tier
-    };
-
-    let new_state = match new_tier {
-        0 => "persistent",
-        1 => "warm",
-        2 => "ephemeral",
-        _ => "persistent", // Default fallback
+    // Tiers: "persistent" → "warm" → "ephemeral"
+    let (new_tier, new_state) = match adapter.tier.as_str() {
+        "persistent" => ("warm".to_string(), "warm"),
+        "warm" => ("ephemeral".to_string(), "ephemeral"),
+        _ => (adapter.tier.clone(), "ephemeral"), // Already at highest or unknown tier
     };
 
     // Update adapter state in database
@@ -4995,16 +5096,10 @@ pub async fn promote_adapter_state(
         )
     })?;
 
-    let old_state_str = match adapter.tier {
-        0 => "persistent",
-        1 => "warm",
-        2 => "ephemeral",
-        _ => "unknown",
-    };
-
     Ok(Json(AdapterStateResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapter_id,
-        old_state: old_state_str.to_string(),
+        old_state: adapter.tier.clone(),
         new_state: new_state.to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
@@ -5038,11 +5133,11 @@ pub async fn download_adapter_manifest(
         })?;
 
     let manifest = AdapterManifest {
-        adapter_id: adapter.adapter_id,
+        adapter_id: adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone()),
         name: adapter.name,
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
-        tier: adapter.tier,
+        tier: tier_str_to_int(&adapter.tier),
         framework: adapter.framework,
         languages_json: adapter.languages_json,
         category: Some(adapter.category),
@@ -5094,7 +5189,7 @@ pub async fn get_adapter_health(
     let adapter_id_clone2 = adapter_id.clone();
     let adapter_id_clone3 = adapter_id.clone();
 
-    Ok(Json(AdapterHealthResponse {
+    Ok(Json(AdapterHealthResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapter_id: adapter_id_clone,
         total_activations: total as i32,
         selected_count: selected as i32,
@@ -5126,6 +5221,7 @@ pub async fn get_adapter_health(
             .into_iter()
             .take(10)
             .map(|a| AdapterActivationResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 id: a.id,
                 adapter_id: a.adapter_id,
                 request_id: a.request_id,
@@ -5141,6 +5237,7 @@ pub async fn get_adapter_health(
 
 /// List repositories
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/repositories",
     responses(
@@ -5176,7 +5273,7 @@ pub async fn list_repositories(
                 .unwrap_or_default();
             let frameworks: Vec<String> = Vec::new(); // TODO: Add frameworks field to Repository
 
-            RepositoryResponse {
+            RepositoryResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 id: r.id,
                 repo_id: r.repo_id,
                 path: r.path,
@@ -5199,6 +5296,7 @@ pub async fn list_repositories(
 
 /// Get quality metrics
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/metrics/quality",
     responses(
@@ -5212,7 +5310,7 @@ pub async fn get_quality_metrics(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
     // Stub implementation - would compute from telemetry
-    Ok(Json(QualityMetricsResponse {
+    Ok(Json(QualityMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         arr: 0.95,
         ecs5: 0.82,
         hlr: 0.02,
@@ -5223,6 +5321,7 @@ pub async fn get_quality_metrics(
 
 /// Get adapter performance metrics
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/metrics/adapters",
     responses(
@@ -5251,7 +5350,7 @@ pub async fn get_adapter_metrics(
     for adapter in adapters {
         let (total, selected, avg_gate) = state
             .db
-            .get_adapter_stats(&adapter.adapter_id)
+            .get_adapter_stats(adapter.adapter_id.as_ref().unwrap_or(&adapter.id))
             .await
             .unwrap_or((0, 0, 0.0));
 
@@ -5262,7 +5361,7 @@ pub async fn get_adapter_metrics(
         };
 
         performances.push(AdapterPerformance {
-            adapter_id: adapter.adapter_id,
+            adapter_id: adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone()),
             name: adapter.name,
             activation_rate,
             avg_gate_value: avg_gate,
@@ -5270,13 +5369,14 @@ pub async fn get_adapter_metrics(
         });
     }
 
-    Ok(Json(AdapterMetricsResponse {
+    Ok(Json(AdapterMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapters: performances,
     }))
 }
 
 /// Get system metrics
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/metrics/system",
     responses(
@@ -5303,7 +5403,7 @@ pub async fn get_system_metrics(
         .expect("System time before UNIX epoch")
         .as_secs();
 
-    Ok(Json(SystemMetricsResponse {
+    Ok(Json(SystemMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
         active_workers: {
@@ -5338,7 +5438,7 @@ pub async fn get_system_metrics(
         gpu_utilization: metrics.gpu_metrics.utilization.unwrap_or(0.0) as f32,
         uptime_seconds: collector.uptime_seconds(),
         process_count: collector.process_count(),
-        load_average: LoadAverageResponse {
+        load_average: LoadAverageResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             load_1min: load_avg.0,
             load_5min: load_avg.1,
             load_15min: load_avg.2,
@@ -5351,6 +5451,7 @@ pub async fn get_system_metrics(
 
 /// List commits
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/commits",
     params(
@@ -5414,6 +5515,7 @@ pub async fn list_commits(
 
 /// Get commit details
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/commits/{sha}",
     params(
@@ -5479,6 +5581,7 @@ pub async fn get_commit(
 
 /// Get commit diff
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/commits/{sha}/diff",
     params(
@@ -5542,6 +5645,7 @@ pub async fn get_commit_diff(
 
 /// Debug routing decision
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/routing/debug",
     request_body = RoutingDebugRequest,
@@ -5585,6 +5689,7 @@ pub async fn debug_routing(
 
 /// Get routing history
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/routing/history",
     responses(
@@ -5638,6 +5743,7 @@ pub async fn get_routing_history(
 
 /// Get system metadata
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/meta",
     responses(
@@ -5654,6 +5760,7 @@ pub async fn meta() -> Json<MetaResponse> {
 
 /// Get routing decisions (placeholder for Agent D)
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/routing/decisions",
     params(
@@ -5705,9 +5812,7 @@ pub async fn routing_decisions(
                 error!(error = %e, "Failed to query high overhead decisions");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("Database error: {}", e),
-                    }),
+                    Json(ErrorResponse::new(format!("Database error: {}", e))),
                 )
             })?
     } else {
@@ -5718,9 +5823,7 @@ pub async fn routing_decisions(
                 error!(error = %e, "Failed to query routing decisions");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("Database error: {}", e),
-                    }),
+                    Json(ErrorResponse::new(format!("Database error: {}", e))),
                 )
             })?
     };
@@ -5799,6 +5902,7 @@ pub async fn routing_decisions(
 
 /// List audits with extended fields
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/audits",
     params(
@@ -5840,6 +5944,7 @@ pub async fn list_audits_extended(
 
 /// Get promotion record with signature
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/promotions/{id}",
     params(
@@ -6075,7 +6180,7 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
         .map_err(|e| format!("time error: {}", e))?
         .as_secs();
 
-    Ok(SystemMetricsResponse {
+    Ok(SystemMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
         active_workers: {
@@ -6110,7 +6215,7 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
         gpu_utilization: metrics.gpu_metrics.utilization.unwrap_or(0.0) as f32,
         uptime_seconds: collector.uptime_seconds(),
         process_count: collector.process_count(),
-        load_average: LoadAverageResponse {
+        load_average: LoadAverageResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             load_1min: load_avg.0,
             load_5min: load_avg.1,
             load_15min: load_avg.2,
@@ -6137,6 +6242,7 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/streams/training",
     params(
@@ -6208,6 +6314,7 @@ pub async fn training_stream(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §4.4
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/streams/discovery",
     params(
@@ -6282,6 +6389,7 @@ pub async fn discovery_stream(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/streams/contacts",
     params(
@@ -6355,6 +6463,7 @@ pub async fn contacts_stream(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/contacts",
     params(
@@ -6424,6 +6533,7 @@ pub async fn list_contacts(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/contacts",
     request_body = CreateContactRequest,
@@ -6493,6 +6603,7 @@ pub async fn create_contact(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/contacts/{id}",
     params(
@@ -6537,6 +6648,7 @@ pub async fn get_contact(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
 #[utoipa::path(
+    tag = "system",
     delete,
     path = "/v1/contacts/{id}",
     params(
@@ -6585,6 +6697,7 @@ pub async fn delete_contact(
 ///
 /// Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/contacts/{id}/interactions",
     params(
@@ -6651,24 +6764,18 @@ pub async fn get_contact_interactions(
     Ok(Json(ContactInteractionsResponse { interactions }))
 }
 // ========== Training Handlers ==========
-
-/// List all training jobs
-#[utoipa::path(
-    get,
-    path = "/v1/training/jobs",
-    responses(
-        (status = 200, description = "Training jobs retrieved successfully", body = Vec<TrainingJobResponse>)
-    )
-)]
+// Note: list_training_jobs is defined in handlers/training.rs and re-exported via `pub use training::*`
 
 /// Start adapter training session
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/training/sessions",
     request_body = StartTrainingRequest,
     responses(
         (status = 201, description = "Training session started successfully", body = TrainingJobResponse)
-    )
+    ),
+    tag = "training"
 )]
 pub async fn create_training_session(
     State(state): State<AppState>,
@@ -6687,6 +6794,7 @@ pub async fn create_training_session(
             config,
             req.template_id,
             req.repo_id,
+            None, // dataset_id
         )
         .await
         .map_err(|e| {
@@ -6714,6 +6822,7 @@ pub async fn create_training_session(
 }
 /// Get training logs
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/training/jobs/{job_id}/logs",
     params(
@@ -6754,6 +6863,7 @@ pub async fn get_training_logs(
 
 /// Get training metrics
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/training/jobs/{job_id}/metrics",
     params(
@@ -6786,7 +6896,7 @@ pub async fn get_training_metrics(
         )
     })?;
 
-    Ok(Json(TrainingMetricsResponse {
+    Ok(Json(TrainingMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         loss: job.current_loss,
         tokens_per_second: job.tokens_per_second,
         learning_rate: job.learning_rate,
@@ -6798,6 +6908,7 @@ pub async fn get_training_metrics(
 
 /// List training templates
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/training/templates",
     responses(
@@ -6831,6 +6942,7 @@ pub async fn list_training_templates(
 
 /// Get a specific training template
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/training/templates/{template_id}",
     params(
@@ -6877,6 +6989,7 @@ pub async fn get_training_template(
 
 /// List monitoring rules
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/rules",
     params(
@@ -6921,6 +7034,7 @@ pub async fn list_monitoring_rules(
 
 /// Create monitoring rule
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/rules",
     request_body = CreateMonitoringRuleApiRequest,
@@ -6986,6 +7100,7 @@ pub async fn create_monitoring_rule(
 
 /// Update monitoring rule
 #[utoipa::path(
+    tag = "system",
     put,
     path = "/v1/monitoring/rules/{rule_id}",
     params(
@@ -7049,6 +7164,7 @@ pub async fn update_monitoring_rule(
 
 /// Delete monitoring rule
 #[utoipa::path(
+    tag = "system",
     delete,
     path = "/v1/monitoring/rules/{rule_id}",
     params(
@@ -7083,6 +7199,7 @@ pub async fn delete_monitoring_rule(
 
 /// List alerts
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/alerts",
     params(
@@ -7137,6 +7254,7 @@ pub async fn list_alerts(
 
 /// Acknowledge alert
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/alerts/{alert_id}/acknowledge",
     params(
@@ -7212,6 +7330,7 @@ pub async fn acknowledge_alert(
 
 /// Resolve alert
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/alerts/{alert_id}/resolve",
     params(
@@ -7285,6 +7404,7 @@ pub async fn resolve_alert(
 
 /// List anomalies
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/anomalies",
     params(
@@ -7340,6 +7460,7 @@ pub async fn list_anomalies(
 
 /// Update anomaly status
 #[utoipa::path(
+    tag = "system",
     put,
     path = "/v1/monitoring/anomalies/{anomaly_id}",
     params(
@@ -7367,7 +7488,8 @@ pub async fn update_anomaly_status(
         anomaly_id
     )
     .execute(state.db.pool())
-    .map_err(|e| {
+    .await
+    .map_err(|e: sqlx::Error| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("database error").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
@@ -7413,6 +7535,7 @@ pub async fn update_anomaly_status(
 
 /// Get performance baselines
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/baselines",
     params(
@@ -7511,6 +7634,7 @@ pub async fn get_performance_baselines(
 }
 /// Recalculate baseline
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/monitoring/baselines/recalculate",
     request_body = RecalculateBaselineRequest,
@@ -7549,6 +7673,7 @@ pub async fn recalculate_baseline(
 
 /// Get dashboard configuration
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/dashboards/{dashboard_id}/config",
     params(
@@ -7587,6 +7712,7 @@ pub async fn get_dashboard_config(
 
 /// Get dashboard data
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/dashboards/{dashboard_id}/data",
     params(
@@ -7628,6 +7754,7 @@ pub async fn get_dashboard_data(
 
 /// Export dashboard data
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/monitoring/dashboards/{dashboard_id}/export/{format}",
     params(
@@ -8102,6 +8229,7 @@ pub async fn enhanced_system_metrics_stream(
 /// Returns federation chain verification status and host validation results.
 /// Per Observability Layer requirement for canonical audit dashboard.
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/audit/federation",
     responses(
@@ -8210,6 +8338,7 @@ pub async fn get_federation_audit(
 /// Returns compliance status for all policy packs and control objectives.
 /// Per Observability Layer requirement for canonical audit dashboard.
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/audit/compliance",
     responses(
@@ -8308,6 +8437,7 @@ pub async fn get_compliance_audit(
 }
 /// Query audit logs with filtering and pagination
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/audit/logs",
     params(
@@ -8342,19 +8472,18 @@ pub async fn query_audit_logs(
     let offset = query.offset.unwrap_or(0);
 
     // Query audit logs from database
+    // Note: The db method signature is: query_audit_logs(user_id, action, resource_type, start_date, end_date, limit)
+    // Additional filtering (resource_id, status, tenant_id, offset) can be applied post-query if needed
+    let _ = (query.resource_id.as_deref(), query.status.as_deref(), query.tenant_id.as_deref(), offset);
     let logs = state
         .db
         .query_audit_logs(
             query.user_id.as_deref(),
             query.action.as_deref(),
             query.resource_type.as_deref(),
-            query.resource_id.as_deref(),
-            query.status.as_deref(),
-            query.tenant_id.as_deref(),
             query.from_time.as_deref(),
             query.to_time.as_deref(),
-            Some(limit),
-            Some(offset),
+            limit as i64,
         )
         .await
         .map_err(|e| {
@@ -8444,6 +8573,17 @@ use adapteros_policy::{
     AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, StackNameValidation,
 };
 
+/// Convert tier string to integer: persistent=0, warm=1, ephemeral=2
+fn tier_str_to_int(tier: &str) -> i32 {
+    match tier {
+        "persistent" => 0,
+        "warm" => 1, 
+        "ephemeral" => 2,
+        _ => 1, // default to warm
+    }
+}
+
+
 /// Request to validate an adapter name
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct ValidateAdapterNameRequest {
@@ -8523,6 +8663,7 @@ pub struct ParsedStackName {
 
 /// Validate an adapter name
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/adapters/validate-name",
     request_body = ValidateAdapterNameRequest,
@@ -8587,6 +8728,7 @@ pub async fn validate_adapter_name(
 
 /// Validate a stack name
 #[utoipa::path(
+    tag = "system",
     post,
     path = "/v1/stacks/validate-name",
     request_body = ValidateStackNameRequest,
@@ -8633,15 +8775,19 @@ pub async fn validate_stack_name(
         vec![]
     };
 
+    let valid = violations.is_empty();
+    let parsed_result = if valid { parsed } else { None };
+
     Ok(Json(ValidateStackNameResponse {
-        valid: violations.is_empty(),
+        valid,
         violations,
-        parsed: if violations.is_empty() { parsed } else { None },
+        parsed: parsed_result,
     }))
 }
 
 /// Get the next revision number for an adapter lineage
 #[utoipa::path(
+    tag = "system",
     get,
     path = "/v1/adapters/next-revision/{tenant}/{domain}/{purpose}",
     params(

@@ -51,7 +51,7 @@ impl ComponentHealth {
             details: None,
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .map_err(|e| format!("System time error: {}", e))?
+                .unwrap_or_default()
                 .as_secs(),
         }
     }
@@ -83,10 +83,10 @@ pub async fn check_router_health(State(state): State<AppState>) -> impl IntoResp
     let metrics_snapshot = state.metrics_exporter.snapshot();
 
     // Check if router has made any decisions
-    let has_decisions = metrics_snapshot.queue_depth > 0 || metrics_snapshot.total_requests > 0;
+    let has_decisions = metrics_snapshot.queue_depth > 0.0 || metrics_snapshot.total_requests > 0.0;
 
     // Check router overhead (should be reasonable, using queue depth as proxy)
-    let high_load = metrics_snapshot.queue_depth > 100;
+    let high_load = metrics_snapshot.queue_depth > 100.0;
 
     if !has_decisions {
         ComponentHealth::new(
@@ -317,7 +317,7 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
     let metrics_snapshot = state.metrics_exporter.snapshot();
 
     // Check if telemetry is recording recent activity
-    let has_activity = metrics_snapshot.total_requests > 0;
+    let has_activity = metrics_snapshot.total_requests > 0.0;
 
     // Check latency metrics as a proxy for telemetry health
     let latency_ok = metrics_snapshot.avg_latency_ms < 1000.0; // <1s is healthy
@@ -338,9 +338,7 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
             format!("High latency: {:.0}ms", metrics_snapshot.avg_latency_ms)
         ).with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
-            "avg_latency_ms": metrics_snapshot.avg_latency_ms,
-            "p95_latency_ms": metrics_snapshot.p95_latency_ms,
-            "p99_latency_ms": metrics_snapshot.p99_latency_ms
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms
         }))
     } else {
         ComponentHealth::new(
@@ -351,9 +349,7 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
                     metrics_snapshot.avg_latency_ms)
         ).with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
-            "avg_latency_ms": metrics_snapshot.avg_latency_ms,
-            "p95_latency_ms": metrics_snapshot.p95_latency_ms,
-            "p99_latency_ms": metrics_snapshot.p99_latency_ms
+            "avg_latency_ms": metrics_snapshot.avg_latency_ms
         }))
     }
 }
@@ -471,7 +467,7 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
         components: health_checks,
         timestamp: SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|e| format!("System time error: {}", e))?
+            .unwrap_or_default()
             .as_secs(),
     };
 

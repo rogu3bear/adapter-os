@@ -10,14 +10,15 @@
 
 use axum::{
     extract::State,
-    http::{header, HeaderMap, Method, Request, StatusCode},
+    http::{header, Method, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
 use std::collections::HashSet;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::{error, warn};
 
-use crate::security::rate_limiting::{check_rate_limit, RateLimitResult};
+use crate::security::rate_limiting::check_rate_limit;
 use crate::state::AppState;
 
 /// Security headers middleware
@@ -29,11 +30,15 @@ use crate::state::AppState;
 /// - Referrer-Policy
 /// - Permissions-Policy
 /// - Strict-Transport-Security (if HTTPS)
-pub async fn security_headers_middleware<B>(
-    mut req: Request<B>,
-    next: Next<B>,
-) -> Result<Response, StatusCode> {
+pub async fn security_headers_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
     let mut response = next.run(req).await;
+
+    // Extract status before mutable borrow to avoid borrow conflict
+    let status = response.status();
+    let should_add_cache_headers = matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN);
 
     let headers = response.headers_mut();
 
@@ -61,13 +66,13 @@ pub async fn security_headers_middleware<B>(
     );
 
     // Prevent caching of sensitive responses
-    if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+    if should_add_cache_headers {
         headers.insert("Cache-Control", "no-cache, no-store, must-revalidate".parse().unwrap());
         headers.insert("Pragma", "no-cache".parse().unwrap());
         headers.insert("Expires", "0".parse().unwrap());
     }
 
-    Ok(response)
+    response
 }
 
 /// Rate limiting middleware
@@ -76,11 +81,11 @@ pub async fn security_headers_middleware<B>(
 /// - Tenant-based limits for API usage fairness
 /// - IP-based limits for DoS protection
 /// - Configurable limits per endpoint type
-pub async fn rate_limiting_middleware<B>(
+pub async fn rate_limiting_middleware(
     State(state): State<AppState>,
-    req: Request<B>,
-    next: Next<B>,
-) -> Result<Response, StatusCode> {
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
     // Extract tenant from request (from JWT claims if authenticated)
     let tenant_id = req
         .extensions()
@@ -96,20 +101,22 @@ pub async fn rate_limiting_middleware<B>(
         .unwrap_or_else(|| "unknown".to_string());
 
     // Check rate limits
-    match check_rate_limit(&state.db, &tenant_id, &client_ip, &req.uri().path()).await {
-        Ok(RateLimitResult::Allowed { remaining, reset_time }) => {
+    match check_rate_limit(&state.db, &tenant_id).await {
+        Ok(result) if result.allowed => {
             // Add rate limit headers to response
             let mut response = next.run(req).await;
+            let remaining = result.limit - result.current_count;
 
             let headers = response.headers_mut();
             headers.insert("X-RateLimit-Remaining", remaining.to_string().parse().unwrap());
-            headers.insert("X-RateLimit-Reset", reset_time.to_string().parse().unwrap());
-            headers.insert("X-RateLimit-Limit", "1000".parse().unwrap()); // Configurable
+            headers.insert("X-RateLimit-Reset", result.reset_at.to_string().parse().unwrap());
+            headers.insert("X-RateLimit-Limit", result.limit.to_string().parse().unwrap());
 
-            Ok(response)
+            response
         }
-        Ok(RateLimitResult::Blocked { retry_after }) => {
+        Ok(result) => {
             // Rate limit exceeded
+            let retry_after = result.reset_at;
             tracing::warn!(
                 tenant_id = %tenant_id,
                 client_ip = %client_ip,
@@ -127,12 +134,12 @@ pub async fn rate_limiting_middleware<B>(
             headers.insert("Retry-After", retry_after.to_string().parse().unwrap());
             headers.insert("X-RateLimit-Reset", retry_after.to_string().parse().unwrap());
 
-            Ok(response)
+            response
         }
         Err(e) => {
             // Internal error - allow request but log
             tracing::error!(error = %e, "Rate limiting check failed, allowing request");
-            Ok(next.run(req).await)
+            next.run(req).await
         }
     }
 }
@@ -143,9 +150,9 @@ pub async fn rate_limiting_middleware<B>(
 /// - JSON payload limits
 /// - File upload limits
 /// - Streaming request protection
-pub async fn request_size_limit_middleware<B>(
-    req: Request<B>,
-    next: Next<B>,
+pub async fn request_size_limit_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
 ) -> Result<Response, StatusCode> {
     // Check Content-Length header
     if let Some(content_length) = req.headers().get("content-length") {
@@ -216,7 +223,6 @@ pub fn cors_layer() -> CorsLayer {
                 header::AUTHORIZATION,
                 header::CONTENT_TYPE,
                 header::ACCEPT,
-                header::X_REQUESTED_WITH,
             ])
             .max_age(std::time::Duration::from_secs(86400))
     }
@@ -249,7 +255,6 @@ pub fn cors_layer() -> CorsLayer {
                 header::AUTHORIZATION,
                 header::CONTENT_TYPE,
                 header::ACCEPT,
-                header::X_REQUESTED_WITH,
             ])
             .allow_credentials(true)
             .max_age(std::time::Duration::from_secs(86400))

@@ -8,7 +8,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -72,10 +72,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::code::list_repositories,
         handlers::code::get_repository,
         handlers::code::create_commit_delta,
-        // Federation handlers (TODO: integrate with AppState)
-        // handlers::federation::get_federation_status,
-        // handlers::federation::get_quarantine_status,
-        // handlers::federation::release_quarantine,
+        // Federation handlers
+        handlers::federation::get_federation_status,
+        handlers::federation::get_quarantine_status,
+        handlers::federation::release_quarantine,
         // Domain adapter handlers
         domain_adapters::list_domain_adapters,
         domain_adapters::get_domain_adapter,
@@ -221,6 +221,10 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::handlers::promotion::ApproveResponse,
         crate::handlers::promotion::RollbackRequest,
         crate::handlers::promotion::RollbackResponse,
+        // Federation types
+        crate::handlers::federation::FederationStatusResponse,
+        crate::handlers::federation::QuarantineStatusResponse,
+        crate::handlers::federation::QuarantineDetails,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -624,6 +628,12 @@ pub fn build(state: AppState) -> Router {
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
         .route("/v1/traces/:trace_id", get(handlers::telemetry::get_trace))
+        // Logs routes
+        .route("/api/logs/query", get(handlers::telemetry::query_logs))
+        .route("/api/logs/stream", get(handlers::telemetry::stream_logs))
+        // Metrics snapshot/series routes
+        .route("/api/metrics/snapshot", get(handlers::telemetry::get_metrics_snapshot))
+        .route("/api/metrics/series", get(handlers::telemetry::get_metrics_series))
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
@@ -667,10 +677,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/streams/file-changes",
             get(handlers::git::file_changes_stream),
         )
-        // Federation routes (TODO: integrate with AppState)
-        // .route("/v1/federation/status", get(handlers::federation::get_federation_status))
-        // .route("/v1/federation/quarantine", get(handlers::federation::get_quarantine_status))
-        // .route("/v1/federation/release-quarantine", post(handlers::federation::release_quarantine))
+        // Federation routes
+        .route("/v1/federation/status", get(handlers::federation::get_federation_status))
+        .route("/v1/federation/quarantine", get(handlers::federation::get_quarantine_status))
+        .route("/v1/federation/release-quarantine", post(handlers::federation::release_quarantine))
         // Audit endpoints
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
         .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
@@ -710,20 +720,18 @@ pub fn build(state: AppState) -> Router {
             auth_middleware,
         ));
 
-    // Apply security middleware layers (order matters: security first)
-    let security_layers = tower::ServiceBuilder::new()
-        .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers to all responses
-        .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
-        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limiting_middleware)) // Rate limiting
-        .layer(cors_layer()) // CORS configuration
-        .layer(TraceLayer::new_for_http()); // Request tracing
-
-    // Combine routes
+    // Combine routes and apply security middleware layers
+    // (layers are applied in reverse order - first layer applied processes last)
     Router::new()
         .merge(public_routes)
         .merge(metrics_route)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .layer(security_layers)
+        // Apply layers (innermost to outermost):
+        .layer(TraceLayer::new_for_http()) // Request tracing (innermost)
+        .layer(cors_layer()) // CORS configuration
+        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limiting_middleware)) // Rate limiting
+        .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
+        .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers (outermost)
         .with_state(state)
 }

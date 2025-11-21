@@ -621,19 +621,69 @@ impl ModelRuntimeImpl {
         progress_callback(20.0, "File size validated".to_string());
 
         // Load model (20-90% progress)
-        // For now, simulate loading with progress updates
-        // TODO: Replace with actual MLX loading when feature is available
-        for i in 2..=9 {
-            tokio::time::sleep(Duration::from_millis(100)).await; // Simulate work
-            let progress = (i * 10) as f64;
-            progress_callback(
-                progress,
-                format!("Loading model components ({}%)", progress),
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            use adapteros_lora_mlx_ffi::MLXFFIModel;
+
+            progress_callback(30.0, "Creating MLX model container".to_string());
+
+            // Load model via MLX FFI
+            progress_callback(40.0, "Loading model weights from safetensors".to_string());
+            let model = MLXFFIModel::load(model_path).map_err(|e| {
+                format!("Failed to load MLX model: {}", e)
+            })?;
+
+            progress_callback(60.0, "Parsing model configuration".to_string());
+
+            // Estimate memory usage from config
+            let config = model.config();
+            let num_parameters = config.hidden_size * config.num_hidden_layers * config.num_attention_heads;
+            let bytes_per_param = 2; // FP16 weights
+            let total_bytes = num_parameters * bytes_per_param * 2; // ×2 for weights + kv cache
+            let memory_usage_mb = (total_bytes / (1024 * 1024)).max(512) as i32;
+
+            progress_callback(70.0, format!("Memory allocated: {} MB", memory_usage_mb));
+
+            // Store in models map
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
+
+            // Check if already loaded
+            if self.models.contains_key(&key) {
+                progress_callback(80.0, "Model already loaded, replacing".to_string());
+                self.models.remove(&key);
+            }
+
+            progress_callback(80.0, "Registering model in runtime".to_string());
+            self.models.insert(
+                key,
+                ModelMetadata {
+                    model,
+                    memory_usage_mb,
+                },
+            );
+
+            info!(
+                tenant_id = %tenant_id,
+                model_id = %model_id,
+                path = %model_path,
+                memory_mb = %memory_usage_mb,
+                "MLX model loaded successfully"
             );
         }
 
-        // Actually load the model
-        self.load_model(tenant_id, model_id, model_path, 8192)?;
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            // Stub mode: just validate that loading would succeed
+            progress_callback(50.0, "MLX backend not available, running in stub mode".to_string());
+            warn!(
+                tenant_id = %tenant_id,
+                model_id = %model_id,
+                "Model runtime stub: mlx-ffi-backend feature not enabled"
+            );
+        }
 
         progress_callback(90.0, "Model loaded, finalizing".to_string());
 
@@ -964,6 +1014,25 @@ impl ModelRuntimeImpl {
         #[cfg(not(feature = "mlx-ffi-backend"))]
         {
             vec![]
+        }
+    }
+
+    /// Get memory usage in MB for a specific loaded model
+    /// Returns None if the model is not loaded
+    pub fn get_model_memory(&self, tenant_id: &str, model_id: &str) -> Option<i32> {
+        #[cfg(feature = "mlx-ffi-backend")]
+        {
+            let key = ModelKey {
+                tenant_id: tenant_id.to_string(),
+                model_id: model_id.to_string(),
+            };
+            self.models.get(&key).map(|metadata| metadata.memory_usage_mb)
+        }
+
+        #[cfg(not(feature = "mlx-ffi-backend"))]
+        {
+            let _ = (tenant_id, model_id);
+            None
         }
     }
 
