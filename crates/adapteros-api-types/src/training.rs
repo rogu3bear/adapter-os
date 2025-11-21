@@ -1,8 +1,8 @@
 //! Training types
 
-use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
+use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingTemplate};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::schema_version;
 
@@ -248,4 +248,45 @@ pub struct ValidateDatasetResponse {
     pub validation_status: String,
     pub errors: Option<Vec<String>>,
     pub validated_at: String,
+}
+
+// ===== Training Job List Types =====
+
+/// Training job list query parameters
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, IntoParams, Default)]
+pub struct TrainingListParams {
+    /// Filter by status (pending, running, completed, failed, cancelled)
+    pub status: Option<String>,
+    /// Page number (1-indexed)
+    pub page: Option<u32>,
+    /// Number of items per page (default: 20, max: 100)
+    pub page_size: Option<u32>,
+    /// Filter by adapter name
+    pub adapter_name: Option<String>,
+    /// Filter by template ID
+    pub template_id: Option<String>,
+}
+
+/// Training job list response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingJobListResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub jobs: Vec<TrainingJobResponse>,
+    pub total: usize,
+    pub page: u32,
+    pub page_size: u32,
+}
+
+impl Default for TrainingJobListResponse {
+    fn default() -> Self {
+        Self {
+            schema_version: schema_version(),
+            jobs: vec![],
+            total: 0,
+            page: 1,
+            page_size: 20,
+        }
+    }
 }

@@ -11,6 +11,8 @@ use crate::schema_version;
 pub struct InferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -21,7 +23,15 @@ pub struct InferRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub require_evidence: Option<bool>,
+    /// Adapter stack to use for inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_stack: Option<Vec<String>>,
+    /// Specific adapters to use (alternative to adapter_stack)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapters: Option<Vec<String>>,
 }
 
 /// Inference response
@@ -30,10 +40,27 @@ pub struct InferRequest {
 pub struct InferResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
+    /// Unique response identifier
+    pub id: String,
     pub text: String,
     pub tokens: Vec<u32>,
+    /// Number of tokens generated
+    pub tokens_generated: usize,
     pub finish_reason: String,
+    /// Latency in milliseconds (also available in trace)
+    pub latency_ms: u64,
+    /// Adapters used for this inference (also available in trace)
+    pub adapters_used: Vec<String>,
     pub trace: InferenceTrace,
+    /// Model used for inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Number of prompt tokens
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens: Option<usize>,
+    /// Error message if inference failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Inference trace for observability

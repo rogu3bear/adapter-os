@@ -9,6 +9,7 @@ use crate::schema_version;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct LoginRequest {
+    pub username: String,
     pub email: String,
     pub password: String,
 }
@@ -21,7 +22,9 @@ pub struct LoginResponse {
     pub schema_version: String,
     pub token: String,
     pub user_id: String,
+    pub tenant_id: String,
     pub role: String,
+    pub expires_in: u64,
 }
 
 /// User information response

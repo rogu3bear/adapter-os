@@ -1,6 +1,6 @@
 //! Telemetry types
 
-use adapteros_telemetry::TelemetryEvent;
+use adapteros_telemetry::unified_events::TelemetryEvent;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

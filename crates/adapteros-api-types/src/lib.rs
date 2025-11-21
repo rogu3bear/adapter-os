@@ -92,6 +92,22 @@ impl ErrorResponse {
     }
 }
 
+impl axum::response::IntoResponse for ErrorResponse {
+    fn into_response(self) -> axum::response::Response {
+        use axum::http::StatusCode;
+        let status = match self.code.as_str() {
+            "NOT_FOUND" => StatusCode::NOT_FOUND,
+            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
+            "FORBIDDEN" => StatusCode::FORBIDDEN,
+            "BAD_REQUEST" => StatusCode::BAD_REQUEST,
+            "CONFLICT" => StatusCode::CONFLICT,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+
+        (status, axum::Json(self)).into_response()
+    }
+}
+
 /// Health check response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct HealthResponse {

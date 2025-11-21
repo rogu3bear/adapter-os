@@ -6,9 +6,12 @@ edition = "2021"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa = { version = "5.4", features = ["axum_extras"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+axum = "0.8"
 adapteros-core = { path = "../adapteros-core" }
 adapteros-telemetry-types = { path = "../adapteros-telemetry-types", features = ["utoipa"] }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-types = { path = "../adapteros-types" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
