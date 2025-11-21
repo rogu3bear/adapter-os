@@ -36,6 +36,7 @@ pub mod lifecycle;
 pub mod naming;
 pub mod plugins;
 pub mod policy;
+pub mod retry_policy;
 pub mod seed;
 pub mod stack;
 pub mod status;
@@ -43,6 +44,7 @@ pub mod tenant_snapshot;
 pub mod time;
 pub mod timeout;
 pub mod training;
+pub mod validation;
 pub mod version;
 
 pub use circuit_breaker::{

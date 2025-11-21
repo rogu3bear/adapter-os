@@ -150,6 +150,9 @@ pub enum AosError {
     #[error("HTTP error: {0}")]
     Http(String),
 
+    #[error("Network error: {0}")]
+    Network(String),
+
     #[error("Configuration error: {0}")]
     Config(String),
 

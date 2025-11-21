@@ -139,6 +139,29 @@ impl schemars::JsonSchema for B3Hash {
     }
 }
 
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for B3Hash {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("B3Hash")
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for B3Hash {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::SchemaType::Type(
+                utoipa::openapi::schema::Type::String,
+            ))
+            .description(Some("BLAKE3 hash (64 hex characters)"))
+            .pattern(Some("[0-9a-f]{64}"))
+            .examples([serde_json::json!(
+                "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
+            )])
+            .into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

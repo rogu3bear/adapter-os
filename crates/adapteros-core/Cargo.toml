@@ -28,6 +28,7 @@ once_cell = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["sync", "time", "macros", "rt-multi-thread"] }
+fastrand = "2.0"
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -38,6 +39,11 @@ default = ["schemars-support"]
 test-utils = ["rand"]
 schemars-support = ["schemars"]
 sqlx = ["dep:sqlx"]
+utoipa = ["dep:utoipa"]
+
+[dependencies.utoipa]
+version = "5.4"
+optional = true
 
 [lib]
 name = "adapteros_core"

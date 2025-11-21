@@ -5,7 +5,6 @@
 
 use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker};
 use crate::{AosError, Result};
-use fastrand;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -445,7 +444,7 @@ impl RetryManager {
                         if policy.jitter {
                             let jitter_range = (delay.as_millis() as f64 * 0.1) as u64; // 10% jitter
                             if jitter_range > 0 {
-                                let jitter_amount = fastrand::u64(0..jitter_range);
+                                let jitter_amount = fastrand::Rng::new().u64(0..jitter_range);
                                 delay += Duration::from_millis(jitter_amount);
                             }
                         }
@@ -469,12 +468,13 @@ impl RetryManager {
     /// Determine if an error should be retried
     fn should_retry(&self, error: &AosError) -> bool {
         match error {
-            // Retry network errors
-            AosError::Network(_) => true,
-            // Retry timeout errors
-            AosError::Timeout { .. } => true,
-            // Retry connection errors (subset of network errors)
-            AosError::Io(err) if err.to_string().to_lowercase().contains("connection") => true,
+            // Retry IO errors that look like network/connection issues
+            AosError::Io(err) => {
+                let err_lower = err.to_lowercase();
+                err_lower.contains("connection") ||
+                err_lower.contains("timeout") ||
+                err_lower.contains("network")
+            }
             // Don't retry other errors
             _ => false,
         }

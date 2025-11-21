@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 /// Canonical health status for components across AdapterOS.
 ///
 /// Use this type for health checks across all subsystems.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HealthStatus {
     /// Component is functioning normally
     Healthy,
@@ -19,13 +19,8 @@ pub enum HealthStatus {
     /// Component is not functioning
     Unhealthy,
     /// Health status cannot be determined
+    #[default]
     Unknown,
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl std::fmt::Display for HealthStatus {
