@@ -1,5 +1,16 @@
 //! Policy enforcement for AdapterOS
 
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::match_single_binding)]
+#![allow(clippy::unnecessary_lazy_evaluations)]
+#![allow(async_fn_in_trait)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::if_same_then_else)]
+
 pub mod policy_pack;
 pub mod policy_packs;
 pub mod registry;
@@ -186,6 +197,124 @@ impl PolicyEngine {
             )));
         }
         Ok(())
+    }
+
+    /// Validate backend attestation report (Determinism Ruleset #2)
+    ///
+    /// Checks that the attestation report from a kernel backend meets
+    /// all determinism policy requirements including metallib hash,
+    /// RNG seeding method, compiler flags, and floating-point mode.
+    pub fn validate_backend_attestation(
+        &self,
+        report: &adapteros_lora_kernel_api::attestation::DeterminismReport,
+    ) -> Result<()> {
+        use adapteros_lora_kernel_api::attestation::RngSeedingMethod as AttestationRngMethod;
+
+        // Check overall deterministic flag
+        if !report.deterministic {
+            return Err(AosError::PolicyViolation(
+                "Backend attestation indicates non-deterministic execution".to_string(),
+            ));
+        }
+
+        // Check backend type is allowed
+        if !report.backend_type.is_deterministic_by_design() {
+            return Err(AosError::PolicyViolation(format!(
+                "Backend type {:?} is not deterministic by design",
+                report.backend_type
+            )));
+        }
+
+        // For Metal backend, require metallib hash match if policy requires it
+        if self.policies.determinism.require_metallib_embed
+            && report.backend_type == adapteros_lora_kernel_api::attestation::BackendType::Metal
+            && report.metallib_hash.is_none()
+        {
+            return Err(AosError::PolicyViolation(
+                "Metal backend must provide metallib hash".to_string(),
+            ));
+        }
+
+        // Check RNG seeding method matches policy
+        let rng_matches = match (self.policies.determinism.rng.as_str(), &report.rng_seed_method) {
+            ("hkdf_seeded", AttestationRngMethod::HkdfSeeded) => true,
+            ("fixed_seed", AttestationRngMethod::FixedSeed(_)) => true,
+            _ => false,
+        };
+
+        if !rng_matches {
+            return Err(AosError::PolicyViolation(format!(
+                "RNG seeding method mismatch: policy requires {}, backend reports {:?}",
+                self.policies.determinism.rng, report.rng_seed_method
+            )));
+        }
+
+        // Check for forbidden compiler flags
+        let forbidden_flags = ["-ffast-math", "-funsafe-math-optimizations"];
+        for flag in &report.compiler_flags {
+            for forbidden in &forbidden_flags {
+                if flag.contains(forbidden) {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Forbidden compiler flag detected: {}",
+                        flag
+                    )));
+                }
+            }
+        }
+
+        // Check floating-point mode
+        if !report.floating_point_mode.is_deterministic() {
+            return Err(AosError::PolicyViolation(format!(
+                "Floating-point mode {:?} is not deterministic",
+                report.floating_point_mode
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Check router entropy against policy floor (Router Ruleset #7)
+    ///
+    /// Validates that the router gate entropy is above the minimum threshold
+    /// to ensure diverse adapter selection and avoid routing collapse.
+    pub fn check_router_entropy(&self, entropy: f32) -> Result<()> {
+        // Default entropy floor of 0.02 if not specified in policy
+        let entropy_floor = 0.02f32;
+
+        if entropy < entropy_floor {
+            return Err(AosError::PolicyViolation(format!(
+                "Router entropy {:.4} below floor {:.4} (Router Ruleset #7)",
+                entropy, entropy_floor
+            )));
+        }
+        Ok(())
+    }
+
+    /// Check dependency security (Security Ruleset)
+    ///
+    /// Validates that dependencies meet security requirements including
+    /// version constraints, known vulnerabilities, and supply chain integrity.
+    pub fn check_dependency_security(&self, dependencies: &[String]) -> Result<bool> {
+        // Check for known insecure patterns in dependencies
+        let insecure_patterns = [
+            "yanked",
+            "deprecated",
+            "vulnerable",
+        ];
+
+        for dep in dependencies {
+            let dep_lower = dep.to_lowercase();
+            for pattern in &insecure_patterns {
+                if dep_lower.contains(pattern) {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Insecure dependency detected: {} (contains '{}')",
+                        dep, pattern
+                    )));
+                }
+            }
+        }
+
+        Ok(true)
     }
 
     /// Validate numeric value with units

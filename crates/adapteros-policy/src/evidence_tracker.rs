@@ -176,11 +176,17 @@ pub struct EvidenceTracker {
     sink: EvidenceSink,
 }
 
+/// Evidence output sink
+///
+/// Currently only Log sink is implemented. Database and File sinks are reserved
+/// for future persistent evidence storage and offline export capabilities.
+#[allow(dead_code)] // Database and File variants reserved for future implementation
 enum EvidenceSink {
-    Log(#[allow(dead_code)] tracing::Span),
-    #[allow(dead_code)]
+    /// Log to tracing span
+    Log(tracing::Span),
+    /// Store in database (reserved for persistent evidence storage)
     Database(adapteros_db::Db),
-    #[allow(dead_code)]
+    /// Write to file (reserved for offline evidence export)
     File(std::path::PathBuf),
 }
 
@@ -194,7 +200,16 @@ impl EvidenceTracker {
     }
 
     /// Record evidence (append-only)
+    ///
+    /// # Arguments
+    /// * `evidence` - The evidence record to store
+    /// * `tenant_id` - Optional tenant ID for database storage (defaults to "default")
     pub async fn record(&self, evidence: EvidenceRecord) -> Result<()> {
+        self.record_with_tenant(evidence, None).await
+    }
+
+    /// Record evidence with explicit tenant ID
+    pub async fn record_with_tenant(&self, evidence: EvidenceRecord, tenant_id: Option<&str>) -> Result<()> {
         // Add evidence to in-memory store
         {
             let mut ev = self.evidence.write().map_err(|_| {
@@ -213,7 +228,7 @@ impl EvidenceTracker {
             }
             EvidenceSink::Database(db) => {
                 let id = Uuid::now_v7().to_string();
-                let tenant_id = "default"; // TODO: Get from context when available
+                let tenant_id = tenant_id.unwrap_or("default");
 
                 let active_loras_json =
                     serde_json::to_string(&evidence.active_loras).map_err(|e| {

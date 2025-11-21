@@ -148,6 +148,9 @@ pub struct PolicyViolation {
 
     /// Remediation steps
     pub remediation: Option<Vec<String>>,
+
+    /// Violation timestamp
+    pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 /// Violation severity
@@ -410,6 +413,60 @@ impl UnifiedPolicyEnforcer {
             self.violation_history.remove(0);
         }
     }
+
+    /// Calculate compliance trends from historical violation data
+    fn calculate_compliance_trends(&self) -> Vec<ComplianceTrend> {
+        use chrono::{Duration, Utc};
+
+        let now = Utc::now();
+        let mut trends = Vec::new();
+
+        // Define time windows: last hour, last day, last week
+        let windows = [
+            ("Last Hour", Duration::hours(1)),
+            ("Last Day", Duration::days(1)),
+            ("Last Week", Duration::weeks(1)),
+        ];
+
+        let mut previous_score = None;
+
+        for (period, duration) in windows {
+            let cutoff = now - duration;
+            let violations_in_period = self
+                .violation_history
+                .iter()
+                .filter(|v| v.timestamp >= cutoff)
+                .count();
+
+            // Calculate compliance score for this period (100 - violations * 5, min 0)
+            let compliance_score = (100.0 - (violations_in_period as f64 * 5.0)).max(0.0);
+
+            // Determine trend direction compared to previous period
+            let trend = match previous_score {
+                Some(prev) if compliance_score > prev => TrendDirection::Improving,
+                Some(prev) if compliance_score < prev => TrendDirection::Declining,
+                _ => TrendDirection::Stable,
+            };
+
+            info!(
+                period = %period,
+                violations = violations_in_period,
+                compliance_score = compliance_score,
+                trend = ?trend,
+                "Calculated compliance trend"
+            );
+
+            trends.push(ComplianceTrend {
+                period: period.to_string(),
+                compliance_score,
+                trend,
+            });
+
+            previous_score = Some(compliance_score);
+        }
+
+        trends
+    }
 }
 
 impl PolicyEnforcer for UnifiedPolicyEnforcer {
@@ -439,6 +496,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                         message: format!("Policy pack validation failed: {}", e),
                         details: None,
                         remediation: Some(vec!["Check policy pack configuration".to_string()]),
+                        timestamp: chrono::Utc::now(),
                     });
                 }
             }
@@ -594,7 +652,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                     policy_pack: pack_name.clone(),
                     compliance_score,
                     violation_count,
-                    last_violation: violations.last().map(|_v| chrono::Utc::now()), // TODO: Use actual timestamp
+                    last_violation: violations.last().map(|v| v.timestamp),
                     status,
                 },
             );
@@ -606,6 +664,9 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
             (100.0 - (total_violations as f64 * 5.0)).max(0.0)
         };
 
+        // Calculate compliance trends from historical data
+        let compliance_trends = self.calculate_compliance_trends();
+
         Ok(PolicyComplianceReport {
             compliance_score: overall_compliance_score,
             policy_pack_compliance,
@@ -616,7 +677,7 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                 .take(10)
                 .cloned()
                 .collect(),
-            compliance_trends: Vec::new(), // TODO: Implement trend calculation
+            compliance_trends,
             timestamp: chrono::Utc::now(),
         })
     }
