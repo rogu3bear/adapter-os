@@ -1,9 +1,7 @@
 use crate::adapters::Adapter; // assume
 use crate::Db;
 use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
-use adapteros_core::AosError;
-use adapteros_core::B3Hash;
-use anyhow::Result;
+use adapteros_core::{AosError, B3Hash, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,7 +25,8 @@ impl Db {
             .bind(name)
             .bind(itar_flag)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
@@ -37,7 +36,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenant)
     }
 
@@ -46,7 +46,8 @@ impl Db {
             "SELECT id, name, itar_flag, created_at FROM tenants ORDER BY created_at DESC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenants)
     }
 
@@ -56,7 +57,8 @@ impl Db {
             .bind(new_name)
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -69,7 +71,8 @@ impl Db {
             .bind(tenant_id)
             .bind(state_hash.to_hex())
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -77,7 +80,8 @@ impl Db {
         let hash_str = sqlx::query("SELECT state_hash FROM tenant_snapshots WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 1")
             .bind(tenant_id)
             .fetch_optional(self.pool())
-            .await?
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?
             .map(|row| row.get::<String, _>(0));
         Ok(hash_str.and_then(|s| B3Hash::from_hex(&s).ok()))
     }

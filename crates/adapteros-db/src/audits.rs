@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -37,7 +37,8 @@ impl Db {
         .bind(result_json)
         .bind(status)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
@@ -46,7 +47,8 @@ impl Db {
             "SELECT id, tenant_id, cpid, suite_name, bundle_id, result_json, status, created_at FROM audits ORDER BY created_at DESC"
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(audits)
     }
 
@@ -56,7 +58,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(audit)
     }
 }

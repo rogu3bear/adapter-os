@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 
 impl Db {
     pub async fn create_artifact(
@@ -21,7 +21,8 @@ impl Db {
         .bind(size_bytes)
         .bind(stored_path)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create artifact: {}", e)))?;
         Ok(())
     }
 }

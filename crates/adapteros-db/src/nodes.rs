@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,7 +24,8 @@ impl Db {
         .bind(hostname)
         .bind(agent_endpoint)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
@@ -32,7 +33,8 @@ impl Db {
         sqlx::query("UPDATE nodes SET last_seen_at = datetime('now') WHERE id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -41,7 +43,8 @@ impl Db {
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes ORDER BY created_at DESC"
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(nodes)
     }
 
@@ -51,7 +54,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(node)
     }
 
@@ -60,7 +64,8 @@ impl Db {
             .bind(status)
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 }

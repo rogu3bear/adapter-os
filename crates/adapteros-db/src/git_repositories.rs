@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -49,7 +49,8 @@ impl Db {
         .bind("registered")
         .bind(created_by)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
@@ -59,13 +60,14 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn get_git_repository(&self, repo_id: &str) -> Result<Option<GitRepository>> {
         let repository = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
-                    security_scan_json, status, created_at, created_by 
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
+                    security_scan_json, status, created_at, created_by
              FROM git_repositories WHERE repo_id = ?",
         )
         .bind(repo_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repository)
     }
 
@@ -75,12 +77,13 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn list_git_repositories(&self) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
-                    security_scan_json, status, created_at, created_by 
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
+                    security_scan_json, status, created_at, created_by
              FROM git_repositories ORDER BY created_at DESC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
     }
 
@@ -93,7 +96,8 @@ impl Db {
             .bind(status)
             .bind(repo_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -109,8 +113,8 @@ impl Db {
         security_scan_json: &str,
     ) -> Result<()> {
         sqlx::query(
-            "UPDATE git_repositories 
-             SET analysis_json = ?, evidence_json = ?, security_scan_json = ? 
+            "UPDATE git_repositories
+             SET analysis_json = ?, evidence_json = ?, security_scan_json = ?
              WHERE repo_id = ?",
         )
         .bind(analysis_json)
@@ -118,7 +122,8 @@ impl Db {
         .bind(security_scan_json)
         .bind(repo_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -130,7 +135,8 @@ impl Db {
         sqlx::query("DELETE FROM git_repositories WHERE repo_id = ?")
             .bind(repo_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -140,13 +146,14 @@ impl Db {
     /// Pattern: Database schema for patch proposals
     pub async fn get_repositories_by_status(&self, status: &str) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
-                    security_scan_json, status, created_at, created_by 
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
+                    security_scan_json, status, created_at, created_by
              FROM git_repositories WHERE status = ? ORDER BY created_at DESC",
         )
         .bind(status)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
     }
 
@@ -159,13 +166,14 @@ impl Db {
         created_by: &str,
     ) -> Result<Vec<GitRepository>> {
         let repositories = sqlx::query_as::<_, GitRepository>(
-            "SELECT id, repo_id, path, branch, analysis_json, evidence_json, 
-                    security_scan_json, status, created_at, created_by 
+            "SELECT id, repo_id, path, branch, analysis_json, evidence_json,
+                    security_scan_json, status, created_at, created_by
              FROM git_repositories WHERE created_by = ? ORDER BY created_at DESC",
         )
         .bind(created_by)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
     }
 }

@@ -1,7 +1,7 @@
 //! Git integration database methods
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 
 /// Git session record
@@ -62,7 +62,8 @@ impl Db {
         .bind(branch_name)
         .bind(base_commit_sha)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -74,7 +75,7 @@ impl Db {
         merge_commit_sha: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
-            "UPDATE adapter_git_sessions 
+            "UPDATE adapter_git_sessions
              SET status = ?, ended_at = datetime('now'), merge_commit_sha = ?
              WHERE id = ?",
         )
@@ -82,7 +83,8 @@ impl Db {
         .bind(merge_commit_sha)
         .bind(session_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -92,7 +94,8 @@ impl Db {
             sqlx::query_as::<_, GitSession>("SELECT * FROM adapter_git_sessions WHERE id = ?")
                 .bind(session_id)
                 .fetch_optional(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(session)
     }
 
@@ -102,7 +105,8 @@ impl Db {
             "SELECT * FROM adapter_git_sessions WHERE status = 'active' ORDER BY started_at DESC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(sessions)
     }
 
@@ -113,7 +117,8 @@ impl Db {
         )
         .bind(adapter_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(sessions)
     }
 
@@ -137,7 +142,8 @@ impl Db {
         .bind(file_path)
         .bind(change_type)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -158,21 +164,23 @@ impl Db {
             query_builder = query_builder.bind(id);
         }
 
-        query_builder.execute(self.pool()).await?;
+        query_builder.execute(self.pool()).await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
     /// Get unbroadcasted file change events
     pub async fn get_unbroadcasted_events(&self, limit: i64) -> Result<Vec<FileChangeEvent>> {
         let events = sqlx::query_as::<_, FileChangeEvent>(
-            "SELECT * FROM file_change_events 
-             WHERE broadcasted = 0 
-             ORDER BY timestamp ASC 
+            "SELECT * FROM file_change_events
+             WHERE broadcasted = 0
+             ORDER BY timestamp ASC
              LIMIT ?",
         )
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(events)
     }
 
@@ -196,7 +204,8 @@ impl Db {
         .bind(message)
         .bind(files_changed)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -207,7 +216,8 @@ impl Db {
         )
         .bind(session_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(commits)
     }
 }

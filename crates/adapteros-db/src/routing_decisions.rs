@@ -147,31 +147,35 @@ impl Db {
             query.push_str(" AND timestamp <= ?");
             params.push(until.clone());
         }
-        if let Some(min_entropy) = filters.min_entropy {
-            query.push_str(&format!(" AND entropy >= {}", min_entropy));
+        if filters.min_entropy.is_some() {
+            query.push_str(" AND entropy >= ?");
         }
-        if let Some(max_overhead) = filters.max_overhead_pct {
-            query.push_str(&format!(" AND overhead_pct <= {}", max_overhead));
+        if filters.max_overhead_pct.is_some() {
+            query.push_str(" AND overhead_pct <= ?");
         }
 
         // Add ordering
         query.push_str(" ORDER BY timestamp DESC");
 
         // Add pagination
-        if let Some(limit) = filters.limit {
-            query.push_str(&format!(" LIMIT {}", limit));
-        } else {
-            query.push_str(" LIMIT 50"); // Default limit
-        }
-        if let Some(offset) = filters.offset {
-            query.push_str(&format!(" OFFSET {}", offset));
-        }
+        query.push_str(" LIMIT ?");
+        query.push_str(" OFFSET ?");
 
         // Execute query with parameter binding
         let mut sql_query = sqlx::query_as::<_, RoutingDecision>(&query);
         for param in &params {
             sql_query = sql_query.bind(param);
         }
+        if let Some(min_entropy) = filters.min_entropy {
+            sql_query = sql_query.bind(min_entropy);
+        }
+        if let Some(max_overhead) = filters.max_overhead_pct {
+            sql_query = sql_query.bind(max_overhead);
+        }
+        let limit = filters.limit.unwrap_or(50) as i64;
+        let offset = filters.offset.unwrap_or(0) as i64;
+        sql_query = sql_query.bind(limit);
+        sql_query = sql_query.bind(offset);
 
         let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to query routing decisions: {}", e))
@@ -232,39 +236,40 @@ impl Db {
         limit: usize,
     ) -> Result<Vec<RoutingDecision>> {
         // Use view instead for performance
-        let query = if tenant_id.is_some() {
-            format!(
+        // Using parameterized limit to prevent SQL injection
+        let limit = limit as i64;
+
+        let decisions = if let Some(tid) = tenant_id {
+            sqlx::query_as::<_, RoutingDecision>(
                 "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_high_overhead WHERE tenant_id = ? LIMIT {}",
-                limit
+                 FROM routing_decisions_high_overhead WHERE tenant_id = ? LIMIT ?"
             )
+            .bind(tid)
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
         } else {
-            format!(
+            sqlx::query_as::<_, RoutingDecision>(
                 "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_high_overhead LIMIT {}",
-                limit
+                 FROM routing_decisions_high_overhead LIMIT ?"
             )
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
         };
 
-        let mut sql_query = sqlx::query_as::<_, RoutingDecision>(&query);
-        if let Some(tid) = tenant_id {
-            sql_query = sql_query.bind(tid);
-        }
-
-        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+        decisions.map_err(|e| {
             adapteros_core::AosError::Database(format!(
                 "Failed to query high overhead decisions: {}",
                 e
             ))
-        })?;
-
-        Ok(decisions)
+        })
     }
 
     /// Get routing decisions with low entropy (<0.5)
@@ -276,39 +281,40 @@ impl Db {
         tenant_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<RoutingDecision>> {
-        let query = if tenant_id.is_some() {
-            format!(
+        // Using parameterized limit to prevent SQL injection
+        let limit = limit as i64;
+
+        let decisions = if let Some(tid) = tenant_id {
+            sqlx::query_as::<_, RoutingDecision>(
                 "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_low_entropy WHERE tenant_id = ? LIMIT {}",
-                limit
+                 FROM routing_decisions_low_entropy WHERE tenant_id = ? LIMIT ?"
             )
+            .bind(tid)
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
         } else {
-            format!(
+            sqlx::query_as::<_, RoutingDecision>(
                 "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_low_entropy LIMIT {}",
-                limit
+                 FROM routing_decisions_low_entropy LIMIT ?"
             )
+            .bind(limit)
+            .fetch_all(self.pool())
+            .await
         };
 
-        let mut sql_query = sqlx::query_as::<_, RoutingDecision>(&query);
-        if let Some(tid) = tenant_id {
-            sql_query = sql_query.bind(tid);
-        }
-
-        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+        decisions.map_err(|e| {
             adapteros_core::AosError::Database(format!(
                 "Failed to query low entropy decisions: {}",
                 e
             ))
-        })?;
-
-        Ok(decisions)
+        })
     }
 
     /// Delete old routing decisions (cleanup)

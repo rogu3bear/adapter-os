@@ -1,6 +1,5 @@
 use crate::Db;
-use adapteros_core::{derive_seed, B3Hash};
-use anyhow::Result;
+use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
@@ -95,7 +94,8 @@ impl Db {
         default_branch: &str,
     ) -> Result<Repository> {
         let id = generate_id();
-        let languages_json = serde_json::to_string(&languages)?;
+        let languages_json = serde_json::to_string(&languages)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize languages: {}", e)))?;
 
         sqlx::query(
             r#"
@@ -110,7 +110,8 @@ impl Db {
         .bind(&languages_json)
         .bind(default_branch)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to register repository: {}", e)))?;
 
         self.get_repository(&id).await
     }
@@ -128,7 +129,8 @@ impl Db {
         )
         .bind(id)
         .fetch_one(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get repository: {}", e)))?;
 
         Ok(repo)
     }
@@ -151,7 +153,8 @@ impl Db {
         .bind(tenant_id)
         .bind(repo_id)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get repository by repo_id: {}", e)))?;
 
         Ok(repo)
     }
@@ -178,7 +181,8 @@ impl Db {
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list repositories: {}", e)))?;
 
         Ok(repos)
     }
@@ -189,7 +193,8 @@ impl Db {
             sqlx::query_scalar("SELECT COUNT(*) FROM repositories WHERE tenant_id = ?")
                 .bind(tenant_id)
                 .fetch_one(&self.pool)
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to count repositories: {}", e)))?;
 
         Ok(count)
     }
@@ -206,7 +211,8 @@ impl Db {
         .bind(status)
         .bind(id)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update repository status: {}", e)))?;
 
         Ok(())
     }
@@ -233,7 +239,8 @@ impl Db {
         .bind(graph_hash)
         .bind(id)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update repository scan: {}", e)))?;
 
         Ok(())
     }
@@ -244,7 +251,8 @@ impl Db {
         id: &str,
         frameworks: &[String],
     ) -> Result<()> {
-        let frameworks_json = serde_json::to_string(frameworks)?;
+        let frameworks_json = serde_json::to_string(frameworks)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize frameworks: {}", e)))?;
 
         sqlx::query(
             r#"
@@ -256,7 +264,8 @@ impl Db {
         .bind(&frameworks_json)
         .bind(id)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update repository frameworks: {}", e)))?;
 
         Ok(())
     }
@@ -267,28 +276,33 @@ impl Db {
     /// This prevents partial deletion if any step fails.
     pub async fn delete_repository(&self, id: &str) -> Result<()> {
         // Begin transaction for atomic multi-step deletion
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin().await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
 
         // Delete related CodeGraph metadata first (if exists)
         sqlx::query("DELETE FROM code_graph_metadata WHERE repo_id = ?")
             .bind(id)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete code graph metadata: {}", e)))?;
 
         // Delete scan jobs
         sqlx::query("DELETE FROM scan_jobs WHERE repo_id = ?")
             .bind(id)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete scan jobs: {}", e)))?;
 
         // Delete repository
         sqlx::query("DELETE FROM repositories WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete repository: {}", e)))?;
 
         // Commit transaction - all deletions succeed together
-        tx.commit().await?;
+        tx.commit().await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(())
     }
@@ -310,7 +324,8 @@ impl Db {
         test_map_hash: Option<&str>,
     ) -> Result<String> {
         let id = generate_id();
-        let languages_json = serde_json::to_string(&languages)?;
+        let languages_json = serde_json::to_string(&languages)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize languages: {}", e)))?;
         let frameworks_json = frameworks.map(|f| f.to_string());
 
         sqlx::query(
@@ -337,7 +352,8 @@ impl Db {
         .bind(vector_index_hash)
         .bind(test_map_hash)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to store code graph metadata: {}", e)))?;
 
         Ok(id)
     }
@@ -360,7 +376,8 @@ impl Db {
         .bind(repo_id)
         .bind(commit_sha)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get code graph metadata: {}", e)))?;
 
         Ok(metadata)
     }
@@ -379,7 +396,8 @@ impl Db {
         .bind(repo_id)
         .bind(commit_sha)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create scan job: {}", e)))?;
 
         Ok(id)
     }
@@ -411,7 +429,8 @@ impl Db {
         .bind(status)
         .bind(job_id)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update scan job progress: {}", e)))?;
 
         Ok(())
     }
@@ -428,7 +447,8 @@ impl Db {
         )
         .bind(job_id)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get scan job: {}", e)))?;
 
         Ok(job)
     }
@@ -448,7 +468,8 @@ impl Db {
         .bind(repo_id)
         .bind(limit)
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list scan jobs: {}", e)))?;
 
         Ok(jobs)
     }

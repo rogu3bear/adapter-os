@@ -3,7 +3,7 @@ use adapteros_api_types::{
     DomainAdapterExecutionResponse, DomainAdapterManifestResponse, DomainAdapterResponse,
     EpsilonStatsResponse, TestDomainAdapterResponse,
 };
-use anyhow::{anyhow, Result};
+use adapteros_core::{AosError, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -100,22 +100,22 @@ impl DomainAdapterCreateBuilder {
     /// Build the domain adapter creation parameters
     pub fn build(self) -> Result<DomainAdapterCreateParams> {
         Ok(DomainAdapterCreateParams {
-            name: self.name.ok_or_else(|| anyhow!("name is required"))?,
-            version: self.version.ok_or_else(|| anyhow!("version is required"))?,
+            name: self.name.ok_or_else(|| AosError::Validation("name is required".to_string()))?,
+            version: self.version.ok_or_else(|| AosError::Validation("version is required".to_string()))?,
             description: self
                 .description
-                .ok_or_else(|| anyhow!("description is required"))?,
+                .ok_or_else(|| AosError::Validation("description is required".to_string()))?,
             domain_type: self
                 .domain_type
-                .ok_or_else(|| anyhow!("domain_type is required"))?,
-            model: self.model.ok_or_else(|| anyhow!("model is required"))?,
-            hash: self.hash.ok_or_else(|| anyhow!("hash is required"))?,
+                .ok_or_else(|| AosError::Validation("domain_type is required".to_string()))?,
+            model: self.model.ok_or_else(|| AosError::Validation("model is required".to_string()))?,
+            hash: self.hash.ok_or_else(|| AosError::Validation("hash is required".to_string()))?,
             input_format: self
                 .input_format
-                .ok_or_else(|| anyhow!("input_format is required"))?,
+                .ok_or_else(|| AosError::Validation("input_format is required".to_string()))?,
             output_format: self
                 .output_format
-                .ok_or_else(|| anyhow!("output_format is required"))?,
+                .ok_or_else(|| AosError::Validation("output_format is required".to_string()))?,
             config: self.config.unwrap_or_default(),
         })
     }
@@ -236,7 +236,8 @@ impl Db {
     /// Create a new domain adapter
     pub async fn create_domain_adapter(&self, params: DomainAdapterCreateParams) -> Result<String> {
         let id = Uuid::now_v7().to_string();
-        let config_json = serde_json::to_string(&params.config)?;
+        let config_json = serde_json::to_string(&params.config)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize config: {}", e)))?;
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -258,7 +259,8 @@ impl Db {
         .bind(&now)
         .bind(&now)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -273,7 +275,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(record.map(Into::into))
     }
@@ -288,7 +291,8 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(records.into_iter().map(Into::into).collect())
     }
@@ -302,7 +306,8 @@ impl Db {
             .bind(&now)
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -313,7 +318,8 @@ impl Db {
         id: &str,
         epsilon_stats: &EpsilonStatsResponse,
     ) -> Result<()> {
-        let epsilon_stats_json = serde_json::to_string(epsilon_stats)?;
+        let epsilon_stats_json = serde_json::to_string(epsilon_stats)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize epsilon_stats: {}", e)))?;
         let now = Utc::now().to_rfc3339();
 
         sqlx::query("UPDATE domain_adapters SET epsilon_stats = ?, updated_at = ? WHERE id = ?")
@@ -321,7 +327,8 @@ impl Db {
             .bind(&now)
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -337,7 +344,8 @@ impl Db {
         trace_events: &[String],
     ) -> Result<String> {
         let execution_id = Uuid::now_v7().to_string();
-        let trace_events_json = serde_json::to_string(trace_events)?;
+        let trace_events_json = serde_json::to_string(trace_events)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize trace_events: {}", e)))?;
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -355,7 +363,8 @@ impl Db {
         .bind(&trace_events_json)
         .bind(&now)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Update adapter's last execution and execution count
         sqlx::query(
@@ -367,7 +376,8 @@ impl Db {
         .bind(&now)
         .bind(adapter_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(execution_id)
     }
@@ -389,7 +399,8 @@ impl Db {
         .bind(adapter_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(records.into_iter().map(Into::into).collect())
     }
@@ -426,7 +437,8 @@ impl Db {
         .bind(execution_time_ms as i64)
         .bind(&now)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(test_id)
     }
@@ -448,7 +460,8 @@ impl Db {
         .bind(adapter_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(records.into_iter().map(Into::into).collect())
     }
@@ -459,19 +472,22 @@ impl Db {
         sqlx::query("DELETE FROM domain_adapter_executions WHERE adapter_id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete tests
         sqlx::query("DELETE FROM domain_adapter_tests WHERE adapter_id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete adapter
         sqlx::query("DELETE FROM domain_adapters WHERE id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -489,7 +505,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(record.map(|r| {
             let config: HashMap<String, serde_json::Value> =

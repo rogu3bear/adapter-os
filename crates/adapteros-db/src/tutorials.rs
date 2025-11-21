@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -30,7 +30,8 @@ impl Db {
         .bind(user_id)
         .bind(tutorial_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(status)
     }
 
@@ -46,7 +47,8 @@ impl Db {
         )
         .bind(user_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(statuses)
     }
 
@@ -63,7 +65,8 @@ impl Db {
         .bind(user_id)
         .bind(tutorial_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         // If no rows affected, insert new record
         if rows_affected.rows_affected() == 0 {
@@ -76,7 +79,8 @@ impl Db {
             .bind(user_id)
             .bind(tutorial_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         }
 
         Ok(())
@@ -100,7 +104,8 @@ impl Db {
                 .bind(user_id)
                 .bind(tutorial_id)
                 .execute(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             } else {
                 // Delete the record if no dismissed_at
                 sqlx::query(
@@ -112,7 +117,8 @@ impl Db {
                 .bind(user_id)
                 .bind(tutorial_id)
                 .execute(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             }
         }
 
@@ -132,7 +138,8 @@ impl Db {
         .bind(user_id)
         .bind(tutorial_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         // If no rows affected, insert new record
         if rows_affected.rows_affected() == 0 {
@@ -145,7 +152,8 @@ impl Db {
             .bind(user_id)
             .bind(tutorial_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         }
 
         Ok(())
@@ -169,7 +177,8 @@ impl Db {
                 .bind(user_id)
                 .bind(tutorial_id)
                 .execute(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             } else {
                 // Delete the record if no completed_at
                 sqlx::query(
@@ -181,7 +190,8 @@ impl Db {
                 .bind(user_id)
                 .bind(tutorial_id)
                 .execute(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             }
         }
 

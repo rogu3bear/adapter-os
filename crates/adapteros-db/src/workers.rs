@@ -1,5 +1,5 @@
 use crate::{models::Worker, Db};
-use anyhow::{anyhow, Result};
+use adapteros_core::{AosError, Result};
 
 /// Builder for creating worker insertion parameters
 #[derive(Debug, Default)]
@@ -76,17 +76,17 @@ impl WorkerInsertBuilder {
     /// Build the worker insertion parameters
     pub fn build(self) -> Result<WorkerInsertParams> {
         Ok(WorkerInsertParams {
-            id: self.id.ok_or_else(|| anyhow!("id is required"))?,
+            id: self.id.ok_or_else(|| AosError::Validation("id is required".to_string()))?,
             tenant_id: self
                 .tenant_id
-                .ok_or_else(|| anyhow!("tenant_id is required"))?,
-            node_id: self.node_id.ok_or_else(|| anyhow!("node_id is required"))?,
-            plan_id: self.plan_id.ok_or_else(|| anyhow!("plan_id is required"))?,
+                .ok_or_else(|| AosError::Validation("tenant_id is required".to_string()))?,
+            node_id: self.node_id.ok_or_else(|| AosError::Validation("node_id is required".to_string()))?,
+            plan_id: self.plan_id.ok_or_else(|| AosError::Validation("plan_id is required".to_string()))?,
             uds_path: self
                 .uds_path
-                .ok_or_else(|| anyhow!("uds_path is required"))?,
+                .ok_or_else(|| AosError::Validation("uds_path is required".to_string()))?,
             pid: self.pid,
-            status: self.status.ok_or_else(|| anyhow!("status is required"))?,
+            status: self.status.ok_or_else(|| AosError::Validation("status is required".to_string()))?,
         })
     }
 }
@@ -98,7 +98,8 @@ impl Db {
         )
         .bind(tenant_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
     }
 
@@ -107,7 +108,8 @@ impl Db {
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at FROM workers ORDER BY started_at DESC"
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
     }
 
@@ -117,7 +119,8 @@ impl Db {
         )
         .bind(node_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
     }
 
@@ -126,7 +129,8 @@ impl Db {
             .bind(status)
             .bind(worker_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -164,7 +168,8 @@ impl Db {
         .bind(params.pid)
         .bind(&params.status)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -177,12 +182,14 @@ impl Db {
             .bind(st)
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         } else {
             sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
                 .bind(id)
                 .execute(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
         }
         Ok(())
     }

@@ -2,7 +2,7 @@ use crate::{
     models::{BundleSignature, CpPointer},
     Db,
 };
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use uuid::Uuid;
 
 impl Db {
@@ -12,7 +12,8 @@ impl Db {
         )
         .bind(name)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get CP pointer by name: {}", e)))?;
         Ok(cp)
     }
 
@@ -22,7 +23,8 @@ impl Db {
         )
         .bind(tenant_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get active CP pointer: {}", e)))?;
         Ok(cp)
     }
 
@@ -30,7 +32,8 @@ impl Db {
         sqlx::query("UPDATE cp_pointers SET active = 0 WHERE tenant_id = ?")
             .bind(tenant_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to deactivate CP pointers: {}", e)))?;
         Ok(())
     }
 
@@ -40,7 +43,8 @@ impl Db {
         )
         .bind(id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to activate CP pointer: {}", e)))?;
         Ok(())
     }
 
@@ -53,7 +57,8 @@ impl Db {
             .bind(public_key_hex)
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update CP pointer signing key: {}", e)))?;
         Ok(())
     }
 
@@ -74,7 +79,8 @@ impl Db {
         .bind(signature_hex)
         .bind(public_key_hex)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create bundle signature: {}", e)))?;
         Ok(id)
     }
 
@@ -87,7 +93,8 @@ impl Db {
         )
         .bind(bundle_hash_b3)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get bundle signature: {}", e)))?;
         Ok(sig)
     }
 
@@ -109,7 +116,8 @@ impl Db {
         .bind(plan_id)
         .bind(if active { 1 } else { 0 })
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert CP pointer: {}", e)))?;
         Ok(())
     }
 
@@ -120,7 +128,8 @@ impl Db {
         )
         .bind(tenant_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list CP pointers: {}", e)))?;
         Ok(rows)
     }
 }

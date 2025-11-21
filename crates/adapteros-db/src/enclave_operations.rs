@@ -1,7 +1,7 @@
 //! Enclave operation audit trail
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
@@ -43,8 +43,8 @@ impl Db {
             .as_secs() as i64;
 
         sqlx::query(
-            "INSERT INTO enclave_operations 
-             (id, timestamp, operation, requester, artifact_hash, result, error_message) 
+            "INSERT INTO enclave_operations
+             (id, timestamp, operation, requester, artifact_hash, result, error_message)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
@@ -55,7 +55,8 @@ impl Db {
         .bind(result)
         .bind(error_message)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to log enclave operation: {}", e)))?;
 
         Ok(id)
     }
@@ -63,14 +64,15 @@ impl Db {
     /// List last N enclave operations
     pub async fn list_enclave_operations(&self, limit: i64) -> Result<Vec<EnclaveOperation>> {
         let operations = sqlx::query_as::<_, EnclaveOperation>(
-            "SELECT id, timestamp, operation, requester, artifact_hash, result, error_message, created_at 
-             FROM enclave_operations 
-             ORDER BY timestamp DESC 
+            "SELECT id, timestamp, operation, requester, artifact_hash, result, error_message, created_at
+             FROM enclave_operations
+             ORDER BY timestamp DESC
              LIMIT ?"
         )
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list enclave operations: {}", e)))?;
 
         Ok(operations)
     }
@@ -82,16 +84,17 @@ impl Db {
         limit: i64,
     ) -> Result<Vec<EnclaveOperation>> {
         let operations = sqlx::query_as::<_, EnclaveOperation>(
-            "SELECT id, timestamp, operation, requester, artifact_hash, result, error_message, created_at 
-             FROM enclave_operations 
+            "SELECT id, timestamp, operation, requester, artifact_hash, result, error_message, created_at
+             FROM enclave_operations
              WHERE operation = ?
-             ORDER BY timestamp DESC 
+             ORDER BY timestamp DESC
              LIMIT ?"
         )
         .bind(operation)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list enclave operations by type: {}", e)))?;
 
         Ok(operations)
     }
@@ -99,7 +102,7 @@ impl Db {
     /// Get operation statistics by type
     pub async fn get_operation_stats(&self) -> Result<Vec<OperationStats>> {
         let rows = sqlx::query(
-            "SELECT 
+            "SELECT
                 operation,
                 COUNT(*) as count,
                 SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END) as success_count,
@@ -109,7 +112,8 @@ impl Db {
              ORDER BY count DESC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get operation stats: {}", e)))?;
 
         let stats = rows
             .into_iter()
@@ -128,7 +132,8 @@ impl Db {
     pub async fn count_enclave_operations(&self) -> Result<i64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM enclave_operations")
             .fetch_one(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count enclave operations: {}", e)))?;
 
         Ok(count)
     }

@@ -1,7 +1,7 @@
 //! Model operations audit trail
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -51,7 +51,8 @@ impl Db {
         .bind(completed_at)
         .bind(duration_ms)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -66,7 +67,7 @@ impl Db {
         duration_ms: Option<i64>,
     ) -> Result<()> {
         sqlx::query(
-            "UPDATE model_operations 
+            "UPDATE model_operations
              SET status = ?, error_message = ?, completed_at = ?, duration_ms = ?
              WHERE id = ?",
         )
@@ -76,7 +77,8 @@ impl Db {
         .bind(duration_ms)
         .bind(operation_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -88,16 +90,17 @@ impl Db {
         limit: i64,
     ) -> Result<Vec<ModelOperation>> {
         let operations = sqlx::query_as::<_, ModelOperation>(
-            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms 
-             FROM model_operations 
+            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms
+             FROM model_operations
              WHERE tenant_id = ?
-             ORDER BY started_at DESC 
+             ORDER BY started_at DESC
              LIMIT ?",
         )
         .bind(tenant_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(operations)
     }
@@ -110,17 +113,18 @@ impl Db {
         limit: i64,
     ) -> Result<Vec<ModelOperation>> {
         let operations = sqlx::query_as::<_, ModelOperation>(
-            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms 
-             FROM model_operations 
+            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms
+             FROM model_operations
              WHERE tenant_id = ? AND model_id = ?
-             ORDER BY started_at DESC 
+             ORDER BY started_at DESC
              LIMIT ?",
         )
         .bind(tenant_id)
         .bind(model_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(operations)
     }
@@ -132,16 +136,17 @@ impl Db {
         model_id: &str,
     ) -> Result<Option<ModelOperation>> {
         let operation = sqlx::query_as::<_, ModelOperation>(
-            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms 
-             FROM model_operations 
+            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms
+             FROM model_operations
              WHERE tenant_id = ? AND model_id = ? AND status = 'in_progress'
-             ORDER BY started_at DESC 
+             ORDER BY started_at DESC
              LIMIT 1",
         )
         .bind(tenant_id)
         .bind(model_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(operation)
     }

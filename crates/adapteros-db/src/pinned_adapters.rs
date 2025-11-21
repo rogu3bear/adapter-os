@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -41,7 +41,8 @@ impl Db {
         .bind(reason)
         .bind(pinned_by)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
@@ -51,47 +52,51 @@ impl Db {
             .bind(tenant_id)
             .bind(adapter_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
     /// Check if an adapter is currently pinned
     pub async fn is_pinned(&self, tenant_id: &str, adapter_id: &str) -> Result<bool> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM pinned_adapters 
-             WHERE tenant_id = ? AND adapter_id = ? 
+            "SELECT COUNT(*) FROM pinned_adapters
+             WHERE tenant_id = ? AND adapter_id = ?
              AND (pinned_until IS NULL OR pinned_until > datetime('now'))",
         )
         .bind(tenant_id)
         .bind(adapter_id)
         .fetch_one(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(count > 0)
     }
 
     /// List all pinned adapters for a tenant
     pub async fn list_pinned_adapters(&self, tenant_id: &str) -> Result<Vec<PinnedAdapter>> {
         let adapters = sqlx::query_as::<_, PinnedAdapter>(
-            "SELECT id, tenant_id, adapter_id, pinned_until, reason, pinned_at, pinned_by 
-             FROM pinned_adapters 
-             WHERE tenant_id = ? 
+            "SELECT id, tenant_id, adapter_id, pinned_until, reason, pinned_at, pinned_by
+             FROM pinned_adapters
+             WHERE tenant_id = ?
              AND (pinned_until IS NULL OR pinned_until > datetime('now'))
              ORDER BY pinned_at DESC",
         )
         .bind(tenant_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
     }
 
     /// Clean up expired pins
     pub async fn cleanup_expired_pins(&self) -> Result<u64> {
         let result = sqlx::query(
-            "DELETE FROM pinned_adapters 
+            "DELETE FROM pinned_adapters
              WHERE pinned_until IS NOT NULL AND pinned_until <= datetime('now')",
         )
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(result.rows_affected())
     }
 }

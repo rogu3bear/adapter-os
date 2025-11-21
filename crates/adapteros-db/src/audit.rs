@@ -4,7 +4,7 @@
 //! Audit logs are immutable and queryable for compliance officers and administrators.
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -94,7 +94,8 @@ impl Db {
         .bind(ip_address)
         .bind(metadata_json)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -178,7 +179,7 @@ impl Db {
             q = q.bind(param);
         }
 
-        let logs = q.fetch_all(self.pool()).await?;
+        let logs = q.fetch_all(self.pool()).await.map_err(|e| AosError::Database(e.to_string()))?;
         Ok(logs)
     }
 
@@ -218,7 +219,8 @@ impl Db {
         .bind(resource_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(logs)
     }
@@ -266,7 +268,7 @@ impl Db {
             q = q.bind(param);
         }
 
-        let stats = q.fetch_all(self.pool()).await?;
+        let stats = q.fetch_all(self.pool()).await.map_err(|e| AosError::Database(e.to_string()))?;
         Ok(stats)
     }
 }

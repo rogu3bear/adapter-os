@@ -1,5 +1,5 @@
 use crate::{models::Manifest, Db};
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use uuid::Uuid;
 
 impl Db {
@@ -18,7 +18,8 @@ impl Db {
         .bind(hash_b3)
         .bind(body_json)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
@@ -28,7 +29,8 @@ impl Db {
         )
         .bind(hash_b3)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(manifest)
     }
 }

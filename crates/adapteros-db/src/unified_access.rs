@@ -8,7 +8,7 @@
 //! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
 //! - CLAUDE.md L50-55: "Database access patterns with SQLite"
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, HealthCheckResult, HealthStatus, Result};
 use async_trait::async_trait;
 use chrono;
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,9 @@ use sqlx::Column;
 use sqlx::Row;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
+
+/// Database health status - wraps canonical HealthCheckResult with chrono timestamp
+pub type DbHealthStatus = HealthCheckResult;
 
 /// Unified database access interface
 #[async_trait]
@@ -52,7 +55,7 @@ pub trait DatabaseAccess {
     async fn get_connection_info(&self) -> Result<ConnectionInfo>;
 
     /// Check database health
-    async fn health_check(&self) -> Result<HealthStatus>;
+    async fn health_check(&self) -> Result<HealthCheckResult>;
 
     /// Get database statistics
     async fn get_statistics(&self) -> Result<DatabaseStatistics>;
@@ -123,40 +126,9 @@ pub enum DatabaseType {
     InMemory,
 }
 
-/// Database health status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthStatus {
-    /// Overall health status
-    pub status: HealthState,
-
-    /// Health check timestamp
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-
-    /// Response time in milliseconds
-    pub response_time_ms: u64,
-
-    /// Error message if unhealthy
-    pub error: Option<String>,
-
-    /// Additional health metrics
-    pub metrics: HashMap<String, serde_json::Value>,
-}
-
-/// Health states
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum HealthState {
-    /// Healthy
-    Healthy,
-
-    /// Degraded
-    Degraded,
-
-    /// Unhealthy
-    Unhealthy,
-
-    /// Unknown
-    Unknown,
-}
+// Note: HealthStatus and HealthCheckResult are now imported from adapteros_core
+// The old HealthStatus struct has been replaced with DbHealthStatus type alias above
+// The old HealthState enum is replaced by adapteros_core::HealthStatus
 
 /// Database statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,7 +246,7 @@ pub struct UnifiedDatabaseAccess {
     connection_pool: sqlx::Pool<sqlx::Sqlite>,
 
     /// Database statistics
-    statistics: std::sync::Arc<std::sync::Mutex<DatabaseStatistics>>,
+    statistics: std::sync::Arc<tokio::sync::Mutex<DatabaseStatistics>>,
 
     /// Configuration
     config: DatabaseConfig,
@@ -317,7 +289,7 @@ impl UnifiedDatabaseAccess {
             .await
             .map_err(|e| AosError::Database(format!("Failed to create connection pool: {}", e)))?;
 
-        let statistics = std::sync::Arc::new(std::sync::Mutex::new(DatabaseStatistics {
+        let statistics = std::sync::Arc::new(tokio::sync::Mutex::new(DatabaseStatistics {
             total_queries: 0,
             total_commands: 0,
             total_transactions: 0,
@@ -342,40 +314,39 @@ impl UnifiedDatabaseAccess {
     }
 
     /// Update statistics
-    fn update_statistics(&self, operation: &str, duration_ms: u64, success: bool) {
-        if let Ok(mut stats) = self.statistics.lock() {
-            match operation {
-                "query" => {
-                    stats.total_queries += 1;
-                    if !success {
-                        stats.failed_queries += 1;
-                    }
-                    // Update average query time
-                    let total_time = stats.average_query_time_ms * (stats.total_queries - 1) as f64;
-                    stats.average_query_time_ms =
-                        (total_time + duration_ms as f64) / stats.total_queries as f64;
+    async fn update_statistics(&self, operation: &str, duration_ms: u64, success: bool) {
+        let mut stats = self.statistics.lock().await;
+        match operation {
+            "query" => {
+                stats.total_queries += 1;
+                if !success {
+                    stats.failed_queries += 1;
                 }
-                "command" => {
-                    stats.total_commands += 1;
-                    if !success {
-                        stats.failed_commands += 1;
-                    }
-                    // Update average command time
-                    let total_time =
-                        stats.average_command_time_ms * (stats.total_commands - 1) as f64;
-                    stats.average_command_time_ms =
-                        (total_time + duration_ms as f64) / stats.total_commands as f64;
-                }
-                "transaction" => {
-                    stats.total_transactions += 1;
-                    if !success {
-                        stats.failed_transactions += 1;
-                    }
-                }
-                _ => {}
+                // Update average query time
+                let total_time = stats.average_query_time_ms * (stats.total_queries - 1) as f64;
+                stats.average_query_time_ms =
+                    (total_time + duration_ms as f64) / stats.total_queries as f64;
             }
-            stats.timestamp = chrono::Utc::now();
+            "command" => {
+                stats.total_commands += 1;
+                if !success {
+                    stats.failed_commands += 1;
+                }
+                // Update average command time
+                let total_time =
+                    stats.average_command_time_ms * (stats.total_commands - 1) as f64;
+                stats.average_command_time_ms =
+                    (total_time + duration_ms as f64) / stats.total_commands as f64;
+            }
+            "transaction" => {
+                stats.total_transactions += 1;
+                if !success {
+                    stats.failed_transactions += 1;
+                }
+            }
+            _ => {}
         }
+        stats.timestamp = chrono::Utc::now();
     }
 }
 
@@ -413,7 +384,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("query", duration.as_millis() as u64, success);
+        self.update_statistics("query", duration.as_millis() as u64, success).await;
 
         match result {
             Ok(rows) => {
@@ -475,7 +446,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("query", duration.as_millis() as u64, success);
+        self.update_statistics("query", duration.as_millis() as u64, success).await;
 
         match result {
             Ok(row) => {
@@ -526,7 +497,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("command", duration.as_millis() as u64, success);
+        self.update_statistics("command", duration.as_millis() as u64, success).await;
 
         match result {
             Ok(result) => {
@@ -565,7 +536,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("transaction", duration.as_millis() as u64, success);
+        self.update_statistics("transaction", duration.as_millis() as u64, success).await;
 
         match result {
             Ok(transaction) => {
@@ -604,7 +575,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         })
     }
 
-    async fn health_check(&self) -> Result<HealthStatus> {
+    async fn health_check(&self) -> Result<HealthCheckResult> {
         let start_time = std::time::Instant::now();
 
         let result = sqlx::query("SELECT 1")
@@ -619,10 +590,10 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
                     response_time_ms = duration.as_millis(),
                     "Database health check passed"
                 );
-                Ok(HealthStatus {
-                    status: HealthState::Healthy,
-                    timestamp: chrono::Utc::now(),
-                    response_time_ms: duration.as_millis() as u64,
+                Ok(HealthCheckResult {
+                    status: HealthStatus::Healthy,
+                    timestamp: std::time::SystemTime::now(),
+                    response_time: duration,
                     error: None,
                     metrics: HashMap::new(),
                 })
@@ -633,10 +604,10 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
                     response_time_ms = duration.as_millis(),
                     "Database health check failed"
                 );
-                Ok(HealthStatus {
-                    status: HealthState::Unhealthy,
-                    timestamp: chrono::Utc::now(),
-                    response_time_ms: duration.as_millis() as u64,
+                Ok(HealthCheckResult {
+                    status: HealthStatus::Unhealthy,
+                    timestamp: std::time::SystemTime::now(),
+                    response_time: duration,
                     error: Some(e.to_string()),
                     metrics: HashMap::new(),
                 })
@@ -645,7 +616,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
     }
 
     async fn get_statistics(&self) -> Result<DatabaseStatistics> {
-        let stats = self.statistics.lock().unwrap().clone();
+        let stats = self.statistics.lock().await.clone();
         Ok(stats)
     }
 }
@@ -801,6 +772,6 @@ mod tests {
 
         let db_access = UnifiedDatabaseAccess::new(config).await.unwrap();
         let health = db_access.health_check().await.unwrap();
-        assert_eq!(health.status, HealthState::Healthy);
+        assert_eq!(health.status, HealthStatus::Healthy);
     }
 }

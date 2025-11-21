@@ -1,5 +1,4 @@
-use adapteros_core::AosError;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
@@ -266,28 +265,28 @@ impl Db {
             }
         }
 
-        // 2. Clean up invalid activation percentages
+        // 2. Clean up invalid activation counts (negative values)
         let reset_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM adapters WHERE activation_pct > 1.0 OR activation_pct < 0.0",
+            "SELECT COUNT(*) FROM adapters WHERE activation_count < 0",
         )
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
-            AosError::Database(format!("Failed to query invalid activation_pct: {}", e))
+            AosError::Database(format!("Failed to query invalid activation_count: {}", e))
         })?;
 
         if reset_count > 0 {
             warn!(
-                "Found {} adapters with invalid activation_pct - resetting",
+                "Found {} adapters with invalid activation_count - resetting",
                 reset_count
             );
 
             sqlx::query(
-                "UPDATE adapters SET activation_pct = 0.0 WHERE activation_pct > 1.0 OR activation_pct < 0.0",
+                "UPDATE adapters SET activation_count = 0 WHERE activation_count < 0",
             )
             .execute(&self.pool)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to reset activation_pct: {}", e)))?;
+            .map_err(|e| AosError::Database(format!("Failed to reset activation_count: {}", e)))?;
 
             recovery_actions.push(format!(
                 "Reset {} adapters with invalid activation percentages",
@@ -427,7 +426,7 @@ impl Db {
         let argon2 = Argon2::default();
         let password_hash = argon2
             .hash_password("password".as_bytes(), &salt)
-            .map_err(|e| anyhow::anyhow!("failed to hash password: {}", e))?
+            .map_err(|e| AosError::Crypto(format!("failed to hash password: {}", e)))?
             .to_string();
 
         let users = vec![
@@ -650,6 +649,8 @@ pub use users::{Role, User};
 
 // Re-export unified access types
 pub use unified_access::{
-    ConnectionInfo, DatabaseAccess, DatabaseStatistics, DatabaseType, HealthState, HealthStatus,
+    ConnectionInfo, DatabaseAccess, DatabaseStatistics, DatabaseType, DbHealthStatus,
     SqlParameter, ToSql, Transaction, UnifiedDatabaseAccess, UnifiedTransaction,
 };
+// Re-export canonical health types from adapteros-core
+pub use adapteros_core::{HealthCheckResult, HealthStatus};

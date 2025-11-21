@@ -3,7 +3,7 @@
 //! Handles lifecycle state transitions and version history for adapters and stacks.
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -53,14 +53,16 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.pool().begin().await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Get current state and version
         let row = sqlx::query("SELECT lifecycle_state, version FROM adapters WHERE adapter_id = ?")
             .bind(adapter_id)
             .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Adapter not found: {}", adapter_id))?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
         let current_state: String = row.get(0);
         let current_version: String = row.get(1);
@@ -81,9 +83,11 @@ impl Db {
             .bind(reason)
             .bind(initiated_by)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
-            tx.commit().await?;
+            tx.commit().await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             return Ok(current_version);
         }
 
@@ -100,7 +104,8 @@ impl Db {
         .bind(&new_version)
         .bind(adapter_id)
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Record in history
         sqlx::query(
@@ -115,9 +120,11 @@ impl Db {
         .bind(reason)
         .bind(initiated_by)
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await?;
+        tx.commit().await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(new_version)
     }
 
@@ -131,7 +138,8 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.pool().begin().await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Get current state, version, and adapter composition
         let row = sqlx::query(
@@ -139,8 +147,9 @@ impl Db {
         )
         .bind(stack_id)
         .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Stack not found: {}", stack_id))?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?
+        .ok_or_else(|| AosError::NotFound(format!("Stack not found: {}", stack_id)))?;
 
         let current_state: String = row.get(0);
         let current_version: String = row.get(1);
@@ -161,9 +170,11 @@ impl Db {
             .bind(reason)
             .bind(initiated_by)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
-            tx.commit().await?;
+            tx.commit().await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             return Ok(current_version);
         }
 
@@ -180,7 +191,8 @@ impl Db {
         .bind(&new_version)
         .bind(stack_id)
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Record in history (with adapter composition snapshot)
         sqlx::query(
@@ -196,9 +208,11 @@ impl Db {
         .bind(reason)
         .bind(initiated_by)
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await?;
+        tx.commit().await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(new_version)
     }
 
@@ -226,7 +240,8 @@ impl Db {
         )
         .bind(adapter_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(events)
     }
@@ -255,7 +270,8 @@ impl Db {
         )
         .bind(stack_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(events)
     }
@@ -276,7 +292,8 @@ impl Db {
         )
         .bind(format!("%{}%", adapter_id))
         .fetch_all(self.pool())
-        .await?
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?
         .into_iter()
         .map(|row| StackReference {
             stack_id: row.get(0),
@@ -316,7 +333,8 @@ impl Db {
         )
         .bind(lifecycle_state)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(adapters)
     }
@@ -331,7 +349,8 @@ impl Db {
         )
         .bind(lifecycle_state)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(stacks)
     }

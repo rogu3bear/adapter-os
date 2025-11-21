@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::{anyhow, Result};
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;
@@ -81,11 +81,11 @@ impl ContactUpsertBuilder {
         Ok(ContactUpsertParams {
             tenant_id: self
                 .tenant_id
-                .ok_or_else(|| anyhow!("tenant_id is required"))?,
-            name: self.name.ok_or_else(|| anyhow!("name is required"))?,
+                .ok_or_else(|| AosError::Validation("tenant_id is required".to_string()))?,
+            name: self.name.ok_or_else(|| AosError::Validation("name is required".to_string()))?,
             category: self
                 .category
-                .ok_or_else(|| anyhow!("category is required"))?,
+                .ok_or_else(|| AosError::Validation("category is required".to_string()))?,
             email: self.email,
             role: self.role,
             metadata_json: self.metadata_json,
@@ -158,10 +158,11 @@ impl Db {
         .bind(&params.name)
         .bind(&params.category)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some(row) = existing {
-            let id: String = row.try_get("id")?;
+            let id: String = row.try_get("id").map_err(|e| AosError::Database(e.to_string()))?;
 
             // Update existing contact
             sqlx::query(
@@ -177,7 +178,8 @@ impl Db {
             .bind(&params.metadata_json)
             .bind(&id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
             Ok(id)
         } else {
@@ -196,7 +198,8 @@ impl Db {
             .bind(&params.metadata_json)
             .bind(&params.discovered_by)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
             Ok(id)
         }
@@ -218,7 +221,8 @@ impl Db {
         .bind(tenant_id)
         .bind(name)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(contact)
     }
@@ -234,7 +238,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(contact)
     }
@@ -259,7 +264,8 @@ impl Db {
         .bind(limit)
         .bind(offset)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(contacts)
     }
@@ -292,7 +298,8 @@ impl Db {
 
         // Insert interaction entry
         let id = Uuid::now_v7().to_string();
-        let context_json = context.map(serde_json::to_string).transpose()?;
+        let context_json = context.map(serde_json::to_string).transpose()
+            .map_err(|e| AosError::Validation(format!("Failed to serialize context: {}", e)))?;
 
         sqlx::query(
             "INSERT INTO contact_interactions (id, contact_id, trace_id, cpid, interaction_type, context_json)
@@ -305,7 +312,8 @@ impl Db {
         .bind(interaction_type)
         .bind(context_json)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -326,7 +334,8 @@ impl Db {
         .bind(contact_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(interactions)
     }
@@ -338,10 +347,10 @@ impl Db {
         limit: i64,
     ) -> Result<Vec<(Contact, i64)>> {
         let rows = sqlx::query(
-            "SELECT c.id, c.tenant_id, c.name, c.email, c.category, c.role, 
+            "SELECT c.id, c.tenant_id, c.name, c.email, c.category, c.role,
                     c.metadata_json, c.avatar_url, c.discovered_at, c.discovered_by,
                     c.last_interaction, c.interaction_count, c.permissions_json,
-                    c.created_at, c.updated_at, 
+                    c.created_at, c.updated_at,
                     COUNT(ci.id) as logged_interaction_count
              FROM contacts c
              LEFT JOIN contact_interactions ci ON c.id = ci.contact_id
@@ -353,26 +362,27 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         let mut result = Vec::new();
         for row in rows {
             let contact = Contact {
-                id: row.try_get("id")?,
-                tenant_id: row.try_get("tenant_id")?,
-                name: row.try_get("name")?,
-                email: row.try_get("email")?,
-                category: row.try_get("category")?,
-                role: row.try_get("role")?,
-                metadata_json: row.try_get("metadata_json")?,
-                avatar_url: row.try_get("avatar_url")?,
-                discovered_at: row.try_get("discovered_at")?,
-                discovered_by: row.try_get("discovered_by")?,
-                last_interaction: row.try_get("last_interaction")?,
-                interaction_count: row.try_get("interaction_count")?,
-                permissions_json: row.try_get("permissions_json")?,
-                created_at: row.try_get("created_at")?,
-                updated_at: row.try_get("updated_at")?,
+                id: row.try_get("id").map_err(|e| AosError::Database(e.to_string()))?,
+                tenant_id: row.try_get("tenant_id").map_err(|e| AosError::Database(e.to_string()))?,
+                name: row.try_get("name").map_err(|e| AosError::Database(e.to_string()))?,
+                email: row.try_get("email").map_err(|e| AosError::Database(e.to_string()))?,
+                category: row.try_get("category").map_err(|e| AosError::Database(e.to_string()))?,
+                role: row.try_get("role").map_err(|e| AosError::Database(e.to_string()))?,
+                metadata_json: row.try_get("metadata_json").map_err(|e| AosError::Database(e.to_string()))?,
+                avatar_url: row.try_get("avatar_url").map_err(|e| AosError::Database(e.to_string()))?,
+                discovered_at: row.try_get("discovered_at").map_err(|e| AosError::Database(e.to_string()))?,
+                discovered_by: row.try_get("discovered_by").map_err(|e| AosError::Database(e.to_string()))?,
+                last_interaction: row.try_get("last_interaction").map_err(|e| AosError::Database(e.to_string()))?,
+                interaction_count: row.try_get("interaction_count").map_err(|e| AosError::Database(e.to_string()))?,
+                permissions_json: row.try_get("permissions_json").map_err(|e| AosError::Database(e.to_string()))?,
+                created_at: row.try_get("created_at").map_err(|e| AosError::Database(e.to_string()))?,
+                updated_at: row.try_get("updated_at").map_err(|e| AosError::Database(e.to_string()))?,
             };
             let count: i64 = row.try_get("logged_interaction_count").unwrap_or(0);
             result.push((contact, count));
@@ -387,13 +397,15 @@ impl Db {
         sqlx::query("DELETE FROM contact_interactions WHERE contact_id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete contact
         sqlx::query("DELETE FROM contacts WHERE id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -413,9 +425,10 @@ impl Db {
         )
         .bind(contact_id)
         .fetch_one(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
-        let total: i64 = row.try_get("total")?;
+        let total: i64 = row.try_get("total").map_err(|e| AosError::Database(e.to_string()))?;
         let first: Option<String> = row.try_get("first_interaction").ok();
         let last: Option<String> = row.try_get("last_interaction").ok();
 

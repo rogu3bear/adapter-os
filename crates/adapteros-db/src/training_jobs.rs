@@ -5,7 +5,7 @@
 //! Pattern: Database schema for training jobs
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -56,7 +56,7 @@ impl Db {
             tokens_per_second: 0.0,
             error_message: None,
         };
-        let progress_json = serde_json::to_string(&progress)?;
+        let progress_json = serde_json::to_string(&progress).map_err(AosError::Serialization)?;
 
         sqlx::query(
             "INSERT INTO repository_training_jobs 
@@ -70,7 +70,8 @@ impl Db {
         .bind(&progress_json)
         .bind(created_by)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -81,13 +82,14 @@ impl Db {
     /// Pattern: Database schema for training jobs
     pub async fn get_training_job(&self, job_id: &str) -> Result<Option<TrainingJobRecord>> {
         let job = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by 
+            "SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(job)
     }
@@ -101,17 +103,18 @@ impl Db {
         job_id: &str,
         progress: &TrainingProgress,
     ) -> Result<()> {
-        let progress_json = serde_json::to_string(progress)?;
+        let progress_json = serde_json::to_string(progress).map_err(AosError::Serialization)?;
 
         sqlx::query(
-            "UPDATE repository_training_jobs 
-             SET progress_json = ? 
+            "UPDATE repository_training_jobs
+             SET progress_json = ?
              WHERE id = ?",
         )
         .bind(&progress_json)
         .bind(job_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -136,7 +139,8 @@ impl Db {
         .bind(completed_at)
         .bind(job_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }
@@ -147,15 +151,16 @@ impl Db {
     /// Pattern: Database schema for training jobs
     pub async fn list_training_jobs(&self, repo_id: &str) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by 
-             FROM repository_training_jobs 
-             WHERE repo_id = ? 
+            "SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by
+             FROM repository_training_jobs
+             WHERE repo_id = ?
              ORDER BY started_at DESC",
         )
         .bind(repo_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(jobs)
     }
@@ -169,15 +174,16 @@ impl Db {
         status: &str,
     ) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT id, repo_id, training_config_json, status, progress_json, 
-                    started_at, completed_at, created_by 
-             FROM repository_training_jobs 
-             WHERE status = ? 
+            "SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by
+             FROM repository_training_jobs
+             WHERE status = ?
              ORDER BY started_at DESC",
         )
         .bind(status)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(jobs)
     }
@@ -190,7 +196,8 @@ impl Db {
         sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
             .bind(job_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }

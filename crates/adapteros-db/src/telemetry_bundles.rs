@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::{anyhow, Result};
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
@@ -123,16 +123,16 @@ impl TelemetryBatchBuilder {
         Ok(TelemetryBatchParams {
             tenant_id: self
                 .tenant_id
-                .ok_or_else(|| anyhow!("tenant_id is required"))?,
+                .ok_or_else(|| AosError::Validation("tenant_id is required".into()))?,
             event_type: self
                 .event_type
-                .ok_or_else(|| anyhow!("event_type is required"))?,
+                .ok_or_else(|| AosError::Validation("event_type is required".into()))?,
             event_data: self
                 .event_data
-                .ok_or_else(|| anyhow!("event_data is required"))?,
+                .ok_or_else(|| AosError::Validation("event_data is required".into()))?,
             timestamp: self
                 .timestamp
-                .ok_or_else(|| anyhow!("timestamp is required"))?,
+                .ok_or_else(|| AosError::Validation("timestamp is required".into()))?,
             source: self.source,
             user_id: self.user_id,
             session_id: self.session_id,
@@ -172,7 +172,8 @@ impl Db {
     /// ```
     pub async fn record_telemetry_batch(&self, params: TelemetryBatchParams) -> Result<String> {
         let id = Uuid::now_v7().to_string();
-        let event_data_json = serde_json::to_string(&params.event_data)?;
+        let event_data_json = serde_json::to_string(&params.event_data)
+            .map_err(|e| AosError::Validation(format!("Failed to serialize event_data: {}", e)))?;
         let metadata_json = params.metadata.as_ref().map(|m| m.to_string());
         let tags_json = params.tags.as_ref().map(|t| t.to_string());
 
@@ -197,7 +198,8 @@ impl Db {
         .bind(&tags_json)
         .bind(&params.priority)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to record telemetry batch: {}", e)))?;
 
         Ok(id)
     }
@@ -221,7 +223,8 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get telemetry by tenant: {}", e)))?;
 
         Ok(records)
     }
@@ -245,7 +248,8 @@ impl Db {
         .bind(event_type)
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get telemetry by event type: {}", e)))?;
 
         Ok(records)
     }

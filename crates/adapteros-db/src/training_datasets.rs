@@ -1,7 +1,7 @@
 //! Training dataset database operations
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -73,7 +73,8 @@ impl Db {
         .bind(storage_path)
         .bind(created_by)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create training dataset: {}", e)))?;
         Ok(id)
     }
 
@@ -88,7 +89,8 @@ impl Db {
         )
         .bind(dataset_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get training dataset: {}", e)))?;
         Ok(dataset)
     }
 
@@ -104,7 +106,8 @@ impl Db {
         )
         .bind(limit)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list training datasets: {}", e)))?;
         Ok(datasets)
     }
 
@@ -113,7 +116,8 @@ impl Db {
         sqlx::query("DELETE FROM training_datasets WHERE id = ?")
             .bind(dataset_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete training dataset: {}", e)))?;
         Ok(())
     }
 
@@ -140,7 +144,8 @@ impl Db {
         .bind(hash_b3)
         .bind(mime_type)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to add dataset file: {}", e)))?;
 
         // Update dataset file count and size
         sqlx::query(
@@ -153,7 +158,8 @@ impl Db {
         .bind(size_bytes)
         .bind(dataset_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update dataset file count: {}", e)))?;
 
         Ok(id)
     }
@@ -168,7 +174,8 @@ impl Db {
         )
         .bind(dataset_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get dataset files: {}", e)))?;
         Ok(files)
     }
 
@@ -188,7 +195,8 @@ impl Db {
         .bind(errors)
         .bind(dataset_id)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update dataset validation: {}", e)))?;
         Ok(())
     }
 
@@ -217,7 +225,8 @@ impl Db {
         .bind(file_type_distribution)
         .bind(total_tokens)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to store dataset statistics: {}", e)))?;
         Ok(())
     }
 
@@ -234,7 +243,8 @@ impl Db {
         )
         .bind(dataset_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get dataset statistics: {}", e)))?;
         Ok(stats)
     }
 }

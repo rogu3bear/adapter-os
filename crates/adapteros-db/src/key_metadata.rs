@@ -1,7 +1,7 @@
 //! Key metadata for lifecycle tracking
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -36,7 +36,8 @@ impl Db {
         .bind(source)
         .bind(key_type)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to upsert key metadata: {}", e)))?;
 
         Ok(())
     }
@@ -44,13 +45,14 @@ impl Db {
     /// Get key metadata by label
     pub async fn get_key_metadata(&self, key_label: &str) -> Result<Option<KeyMetadata>> {
         let metadata = sqlx::query_as::<_, KeyMetadata>(
-            "SELECT key_label, created_at, source, key_type, last_checked 
-             FROM key_metadata 
+            "SELECT key_label, created_at, source, key_type, last_checked
+             FROM key_metadata
              WHERE key_label = ?",
         )
         .bind(key_label)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get key metadata: {}", e)))?;
 
         Ok(metadata)
     }
@@ -58,12 +60,13 @@ impl Db {
     /// List all keys
     pub async fn list_all_keys(&self) -> Result<Vec<KeyMetadata>> {
         let keys = sqlx::query_as::<_, KeyMetadata>(
-            "SELECT key_label, created_at, source, key_type, last_checked 
-             FROM key_metadata 
+            "SELECT key_label, created_at, source, key_type, last_checked
+             FROM key_metadata
              ORDER BY created_at ASC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list all keys: {}", e)))?;
 
         Ok(keys)
     }
@@ -77,14 +80,15 @@ impl Db {
             - (threshold_days * 86400);
 
         let keys = sqlx::query_as::<_, KeyMetadata>(
-            "SELECT key_label, created_at, source, key_type, last_checked 
-             FROM key_metadata 
+            "SELECT key_label, created_at, source, key_type, last_checked
+             FROM key_metadata
              WHERE created_at < ?
              ORDER BY created_at ASC",
         )
         .bind(threshold_timestamp)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list old keys: {}", e)))?;
 
         Ok(keys)
     }

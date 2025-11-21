@@ -6,7 +6,7 @@
 /// Citation: PRD-02 (2025-11-17)
 use crate::metadata::{validate_state_transition, validate_version, LifecycleState};
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::Result;
 use std::str::FromStr;
 
 impl Db {

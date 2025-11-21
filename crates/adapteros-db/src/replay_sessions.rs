@@ -3,7 +3,7 @@
 //! Manages deterministic replay sessions with full system state snapshots.
 
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -30,7 +30,7 @@ impl ReplaySession {
     /// Restore RNG state from JSON
     pub fn restore_rng_state(&self) -> Result<serde_json::Value> {
         serde_json::from_str(&self.rng_state_json)
-            .map_err(|e| anyhow::anyhow!("Failed to parse RNG state: {}", e))
+            .map_err(|e| AosError::Validation(format!("Failed to parse RNG state: {}", e)))
     }
 
     /// Get global nonce from RNG state
@@ -39,7 +39,7 @@ impl ReplaySession {
         state
             .get("global_nonce")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing global_nonce in RNG state"))
+            .ok_or_else(|| AosError::Validation("Missing global_nonce in RNG state".into()))
     }
 }
 
@@ -59,11 +59,13 @@ impl Db {
             sqlx::query_as::<_, ReplaySession>(query)
                 .bind(tid)
                 .fetch_all(self.pool())
-                .await?
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to list replay sessions: {}", e)))?
         } else {
             sqlx::query_as::<_, ReplaySession>(query)
                 .fetch_all(self.pool())
-                .await?
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to list replay sessions: {}", e)))?
         };
 
         Ok(sessions)
@@ -75,7 +77,8 @@ impl Db {
             sqlx::query_as::<_, ReplaySession>("SELECT * FROM replay_sessions WHERE id = ?")
                 .bind(session_id)
                 .fetch_optional(self.pool())
-                .await?;
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get replay session: {}", e)))?;
 
         Ok(session)
     }
@@ -87,8 +90,8 @@ impl Db {
                 id, tenant_id, cpid, plan_id, snapshot_at, seed_global_b3,
                 manifest_hash_b3, policy_hash_b3, kernel_hash_b3,
                 telemetry_bundle_ids_json, adapter_state_json,
-                routing_decisions_json, inference_traces_json, signature
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                routing_decisions_json, inference_traces_json, rng_state_json, signature
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.id)
         .bind(&session.tenant_id)
@@ -103,9 +106,11 @@ impl Db {
         .bind(&session.adapter_state_json)
         .bind(&session.routing_decisions_json)
         .bind(&session.inference_traces_json)
+        .bind(&session.rng_state_json)
         .bind(&session.signature)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create replay session: {}", e)))?;
 
         Ok(())
     }
@@ -115,7 +120,8 @@ impl Db {
         sqlx::query("DELETE FROM replay_sessions WHERE id = ?")
             .bind(session_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete replay session: {}", e)))?;
         Ok(())
     }
 }

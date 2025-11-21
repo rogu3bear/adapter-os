@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 
 /// Database row for ephemeral adapter
 #[derive(Debug, sqlx::FromRow)]
@@ -13,13 +13,14 @@ impl Db {
     /// Save an ephemeral adapter to the database
     pub async fn save_ephemeral_adapter(&self, id: &str, adapter_json: &str) -> Result<()> {
         sqlx::query(
-            "INSERT INTO ephemeral_adapters (id, adapter_data) VALUES (?, ?) 
+            "INSERT INTO ephemeral_adapters (id, adapter_data) VALUES (?, ?)
              ON CONFLICT(id) DO UPDATE SET adapter_data = excluded.adapter_data",
         )
         .bind(id)
         .bind(adapter_json)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to save ephemeral adapter: {}", e)))?;
         Ok(())
     }
 
@@ -30,7 +31,8 @@ impl Db {
         )
         .bind(id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get ephemeral adapter: {}", e)))?;
         Ok(row)
     }
 
@@ -40,7 +42,8 @@ impl Db {
             "SELECT id, adapter_data, created_at FROM ephemeral_adapters ORDER BY created_at DESC",
         )
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list ephemeral adapters: {}", e)))?;
         Ok(rows)
     }
 
@@ -49,7 +52,8 @@ impl Db {
         sqlx::query("DELETE FROM ephemeral_adapters WHERE id = ?")
             .bind(id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete ephemeral adapter: {}", e)))?;
         Ok(())
     }
 }

@@ -1,5 +1,5 @@
 use crate::Db;
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,7 +28,8 @@ impl Db {
         )
         .bind(tenant_id)
         .fetch_optional(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(policy)
     }
 
@@ -46,14 +47,15 @@ impl Db {
         sqlx::query("UPDATE code_policies SET active = 0 WHERE tenant_id = ? AND active = 1")
             .bind(tenant_id)
             .execute(self.pool())
-            .await?;
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Insert new policy
         let id = Uuid::now_v7().to_string();
         sqlx::query(
-            "INSERT INTO code_policies 
-             (id, tenant_id, evidence_config_json, auto_apply_config_json, 
-              path_permissions_json, secret_patterns_json, patch_limits_json, active) 
+            "INSERT INTO code_policies
+             (id, tenant_id, evidence_config_json, auto_apply_config_json,
+              path_permissions_json, secret_patterns_json, patch_limits_json, active)
              VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
         )
         .bind(&id)
@@ -64,21 +66,23 @@ impl Db {
         .bind(secret_patterns_json)
         .bind(patch_limits_json)
         .execute(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
     }
 
     /// List all code policies for a tenant (including inactive)
     pub async fn list_code_policies(&self, tenant_id: &str) -> Result<Vec<CodePolicy>> {
         let policies = sqlx::query_as::<_, CodePolicy>(
-            "SELECT id, tenant_id, evidence_config_json, auto_apply_config_json, 
-                    path_permissions_json, secret_patterns_json, patch_limits_json, 
-                    active, created_at, updated_at 
+            "SELECT id, tenant_id, evidence_config_json, auto_apply_config_json,
+                    path_permissions_json, secret_patterns_json, patch_limits_json,
+                    active, created_at, updated_at
              FROM code_policies WHERE tenant_id = ? ORDER BY created_at DESC",
         )
         .bind(tenant_id)
         .fetch_all(self.pool())
-        .await?;
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(policies)
     }
 }
