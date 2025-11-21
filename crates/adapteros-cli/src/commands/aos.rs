@@ -28,6 +28,7 @@ use adapteros_single_file_adapter::{
 };
 use adapteros_single_file_adapter::{TrainingConfig, TrainingExample};
 use clap::{Parser, Subcommand};
+use std::convert::TryInto;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser, Clone)]
@@ -192,13 +193,8 @@ pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
     }
 }
 
-async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
+pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     output.info("Creating .aos adapter file...");
-
-    // Load weights from source
-    let _weights = tokio::fs::read(&args.source)
-        .await
-        .map_err(|e| AosError::Io(format!("Failed to read source adapter file: {}", e)))?;
 
     // Load training data if provided
     let training_data = if let Some(training_path) = &args.training_data {
@@ -273,42 +269,138 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         }
     };
 
-    // Create adapter weights structure (simplified - in production would parse from source)
+    // Create adapter weights structure from source file
     use adapteros_single_file_adapter::{
         AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata,
     };
 
-    // For now, create a placeholder adapter - in production this would parse weights properly
-    // This is a simplified implementation
-    let adapter_weights = AdapterWeights {
-        positive: WeightGroup {
-            lora_a: vec![],
-            lora_b: vec![],
-            metadata: WeightMetadata {
-                example_count: training_data.len(),
-                avg_loss: 0.0,
-                training_time_ms: 0,
-                group_type: WeightGroupType::Positive,
-                created_at: chrono::Utc::now().to_rfc3339(),
-            },
-        },
-        negative: WeightGroup {
-            lora_a: vec![],
-            lora_b: vec![],
-            metadata: WeightMetadata {
-                example_count: 0,
-                avg_loss: 0.0,
-                training_time_ms: 0,
-                group_type: WeightGroupType::Negative,
-                created_at: chrono::Utc::now().to_rfc3339(),
-            },
-        },
-        combined: None,
-    };
+    // Parse weights from safetensors format or raw binary
+    let weights_bytes = tokio::fs::read(&args.source)
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to read source weights file: {}", e)))?;
 
-    // Note: SingleFileAdapter::create expects weights as Vec<u8> (raw bytes), but we need AdapterWeights
-    // This is a simplified implementation - in production, weights would be parsed from the source file
-    // For now, we'll create an adapter with empty weight structures as a placeholder
+    let rank = config.rank;
+    let hidden_dim = config.hidden_dim;
+    let expected_floats = rank * hidden_dim * 2;
+    let expected_bytes = expected_floats * std::mem::size_of::<f32>();
+
+    let adapter_weights = if weights_bytes.len() >= expected_bytes {
+        // Parse weights from raw binary format (legacy)
+        let floats: Vec<f32> = weights_bytes
+            .chunks_exact(4)
+            .take(expected_floats)
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("chunk is 4 bytes")))
+            .collect();
+
+        let (a_slice, b_slice) = floats.split_at(rank * hidden_dim);
+
+        let mut lora_a = Vec::with_capacity(rank);
+        for r in 0..rank {
+            let start = r * hidden_dim;
+            let end = start + hidden_dim;
+            lora_a.push(a_slice[start..end].to_vec());
+        }
+
+        let mut lora_b = Vec::with_capacity(hidden_dim);
+        for h in 0..hidden_dim {
+            let start = h * rank;
+            let end = start + rank;
+            lora_b.push(b_slice[start..end].to_vec());
+        }
+
+        let created_at = chrono::Utc::now().to_rfc3339();
+        AdapterWeights {
+            positive: WeightGroup {
+                lora_a: lora_a.clone(),
+                lora_b: lora_b.clone(),
+                metadata: WeightMetadata {
+                    example_count: training_data.len(),
+                    avg_loss: 0.0,
+                    training_time_ms: 0,
+                    group_type: WeightGroupType::Positive,
+                    created_at: created_at.clone(),
+                },
+            },
+            negative: WeightGroup {
+                lora_a: vec![vec![0.0; hidden_dim]; rank],
+                lora_b: vec![vec![0.0; rank]; hidden_dim],
+                metadata: WeightMetadata {
+                    example_count: 0,
+                    avg_loss: 0.0,
+                    training_time_ms: 0,
+                    group_type: WeightGroupType::Negative,
+                    created_at: created_at.clone(),
+                },
+            },
+            combined: Some(WeightGroup {
+                lora_a,
+                lora_b,
+                metadata: WeightMetadata {
+                    example_count: training_data.len(),
+                    avg_loss: 0.0,
+                    training_time_ms: 0,
+                    group_type: WeightGroupType::Combined,
+                    created_at,
+                },
+            }),
+        }
+    } else {
+        // Try to parse as JSON-serialized weight payload
+        match serde_json::from_slice::<adapteros_single_file_adapter::weights::WeightGroupPayload>(
+            &weights_bytes,
+        ) {
+            Ok(payload) => {
+                let created_at = chrono::Utc::now().to_rfc3339();
+                AdapterWeights {
+                    positive: WeightGroup {
+                        lora_a: payload.lora_a.clone(),
+                        lora_b: payload.lora_b.clone(),
+                        metadata: WeightMetadata {
+                            example_count: training_data.len(),
+                            avg_loss: 0.0,
+                            training_time_ms: 0,
+                            group_type: WeightGroupType::Positive,
+                            created_at: created_at.clone(),
+                        },
+                    },
+                    negative: WeightGroup {
+                        lora_a: vec![
+                            vec![0.0; payload.lora_a.get(0).map(|v| v.len()).unwrap_or(0)];
+                            payload.lora_a.len()
+                        ],
+                        lora_b: vec![
+                            vec![0.0; payload.lora_b.get(0).map(|v| v.len()).unwrap_or(0)];
+                            payload.lora_b.len()
+                        ],
+                        metadata: WeightMetadata {
+                            example_count: 0,
+                            avg_loss: 0.0,
+                            training_time_ms: 0,
+                            group_type: WeightGroupType::Negative,
+                            created_at: created_at.clone(),
+                        },
+                    },
+                    combined: Some(WeightGroup {
+                        lora_a: payload.lora_a,
+                        lora_b: payload.lora_b,
+                        metadata: WeightMetadata {
+                            example_count: training_data.len(),
+                            avg_loss: 0.0,
+                            training_time_ms: 0,
+                            group_type: WeightGroupType::Combined,
+                            created_at,
+                        },
+                    }),
+                }
+            }
+            Err(_) => {
+                return Err(AosError::Parse(format!(
+                    "Source file is not valid weights format. Expected {} bytes for raw binary or valid JSON payload, got {} bytes",
+                    expected_bytes, weights_bytes.len()
+                )));
+            }
+        }
+    };
     let mut adapter = adapteros_single_file_adapter::SingleFileAdapter::create(
         args.adapter_id.clone(),
         adapter_weights,
@@ -386,7 +478,7 @@ async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     Ok(())
 }
 
-async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
+pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
     output.info("Loading .aos adapter file...");
 
     // Load and validate .aos file
@@ -399,19 +491,76 @@ async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
         ));
     }
 
-    // TODO: Register with control plane
-    output.info("AOS adapter loaded successfully");
-    output.info(&format!("Adapter ID: {}", adapter.manifest.adapter_id));
-    output.info(&format!("Version: {}", adapter.manifest.version));
+    // Register with control plane
     output.info(&format!(
-        "Training examples: {}",
-        adapter.training_data.len()
+        "Registering adapter with control plane at {}...",
+        args.base_url
     ));
+
+    let adapter_id = args
+        .adapter_id
+        .unwrap_or_else(|| adapter.manifest.adapter_id.clone());
+
+    // Compute hash of weights for registration
+    let weights_hash = adapter.manifest.weights_hash.clone();
+
+    // Build registration request
+    let register_request = serde_json::json!({
+        "adapter_id": adapter_id,
+        "name": adapter.manifest.adapter_id.clone(),
+        "hash_b3": weights_hash,
+        "rank": adapter.manifest.rank,
+        "tier": match adapter.manifest.tier.as_str() {
+            "tier_1" => 1,
+            "tier_2" => 2,
+            "tier_3" => 3,
+            _ => 1,
+        },
+        "languages": ["rust", "python"],  // Default languages, could be extracted from manifest
+        "framework": adapter.manifest.category.clone(),
+    });
+
+    // Send registration request to control plane
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/adapters/register", args.base_url);
+
+    let response = client
+        .post(&url)
+        .json(&register_request)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| AosError::Network(format!("Failed to connect to control plane: {}", e)))?;
+
+    if response.status().is_success() {
+        let response_json: serde_json::Value = response.json().await.map_err(|e| {
+            AosError::Parse(format!("Failed to parse registration response: {}", e))
+        })?;
+
+        output.success("AOS adapter registered successfully");
+        output.info(&format!("Adapter ID: {}", adapter_id));
+        output.info(&format!("Version: {}", adapter.manifest.version));
+        output.info(&format!(
+            "Training examples: {}",
+            adapter.training_data.len()
+        ));
+        output.info(&format!("Control plane response: {}", response_json));
+    } else {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(AosError::Network(format!(
+            "Failed to register adapter with control plane: HTTP {} - {}",
+            status, error_text
+        )));
+    }
 
     Ok(())
 }
 
-async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
+pub async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
     output.info("Verifying .aos adapter file...");
 
     let result = SingleFileAdapterValidator::validate(&args.path).await?;

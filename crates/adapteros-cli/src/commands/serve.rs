@@ -303,6 +303,7 @@ pub async fn run(
     output.success(format!("{:?} backend initialized", backend));
 
     // Load LoRA adapters if using MLX backend
+    #[cfg(feature = "experimental-backends")]
     if matches!(backend, BackendType::Mlx) {
         output.info("Loading LoRA adapters for MLX backend...");
         let mut adapters_loaded = 0;
@@ -327,7 +328,7 @@ pub async fn run(
                     adapter_spec.id.clone(),
                     config,
                 ) {
-                    Ok(adapter) => {
+                    Ok(_adapter) => {
                         // Load adapter weights into backend
                         // For now, we skip this as it requires extending the trait
                         output.verbose(format!(
@@ -348,7 +349,16 @@ pub async fn run(
             }
         }
         output.success(format!("{} adapters loaded successfully", adapters_loaded));
-    } else {
+    }
+
+    #[cfg(not(feature = "experimental-backends"))]
+    if matches!(backend, BackendType::Mlx) {
+        return Err(anyhow::anyhow!(
+            "MLX backend requires 'experimental-backends' feature"
+        ));
+    }
+
+    if !matches!(backend, BackendType::Mlx) {
         output.verbose("Metal backend: adapters loaded from plan");
     }
 

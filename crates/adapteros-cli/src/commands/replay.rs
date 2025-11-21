@@ -2,7 +2,7 @@
 
 use crate::output::OutputWriter;
 use adapteros_replay::{compare_traces, replay_trace, ReplaySession, VerificationMode};
-use adapteros_telemetry::{find_divergence, format_divergence, load_replay_bundle};
+use adapteros_telemetry::load_replay_bundle;
 use anyhow::Result;
 use std::path::Path;
 

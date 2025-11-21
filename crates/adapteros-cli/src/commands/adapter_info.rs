@@ -20,7 +20,7 @@ pub async fn run(adapter_id: &str) -> Result<()> {
         println!("Registered: {}", adapter.registered_at);
 
         // Query provenance from database if available
-        if let Ok(db) = adapteros_db::Database::connect_env().await {
+        if let Ok(db) = adapteros_db::Db::connect_env().await {
             // Try to get provenance information
             match get_provenance(&db, adapter_id).await {
                 Ok(Some(prov)) => {
@@ -74,10 +74,7 @@ struct ProvenanceInfo {
 }
 
 /// Get provenance information from database
-async fn get_provenance(
-    db: &adapteros_db::Database,
-    adapter_id: &str,
-) -> Result<Option<ProvenanceInfo>> {
+async fn get_provenance(db: &adapteros_db::Db, adapter_id: &str) -> Result<Option<ProvenanceInfo>> {
     let pool = db.deref().pool();
     get_provenance_sqlite(pool, adapter_id).await
 }

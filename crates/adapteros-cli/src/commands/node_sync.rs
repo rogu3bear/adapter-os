@@ -32,7 +32,7 @@ async fn verify_sync(from: &str, to: &str) -> Result<()> {
     println!();
 
     // Get nodes from database
-    let db = adapteros_db::Database::connect_env().await?;
+    let db = adapteros_db::Db::connect_env().await?;
     let from_node = db
         .get_node(from)
         .await?
@@ -90,7 +90,7 @@ async fn push_adapters(to: &str, adapters: &[String]) -> Result<()> {
     println!();
 
     // Get target node
-    let db = adapteros_db::Database::connect_env().await?;
+    let db = adapteros_db::Db::connect_env().await?;
     let to_node = db
         .get_node(to)
         .await?
@@ -119,7 +119,7 @@ async fn pull_adapters(from: &str, adapters: &[String]) -> Result<()> {
     println!();
 
     // Get source node
-    let db = adapteros_db::Database::connect_env().await?;
+    let db = adapteros_db::Db::connect_env().await?;
     let from_node = db
         .get_node(from)
         .await?
@@ -224,23 +224,60 @@ struct ArtifactInfo {
 
 /// Create replication manifest
 async fn create_replication_manifest(
-    _cas_store: &adapteros_artifacts::CasStore,
+    cas_store: &adapteros_artifacts::CasStore,
     adapters: &[String],
 ) -> Result<ReplicationManifest> {
-    // Mock implementation
-    let artifacts: Vec<ArtifactInfo> = adapters
-        .iter()
-        .map(|id| ArtifactInfo {
+    // Build artifact info from actual CAS store
+    let mut artifacts: Vec<ArtifactInfo> = Vec::with_capacity(adapters.len());
+
+    for id in adapters {
+        // Compute hash from adapter ID
+        let hash = B3Hash::hash(id.as_bytes());
+
+        // Try to load artifact to get size, fallback to 0 if not found
+        let size_bytes = match cas_store.load("adapter", &hash) {
+            Ok(bytes) => bytes.len() as u64,
+            Err(_) => 0, // Artifact not in store or error
+        };
+
+        artifacts.push(ArtifactInfo {
             adapter_id: id.clone(),
-            hash: B3Hash::hash(id.as_bytes()).to_hex(),
-            size_bytes: 1024 * 1024, // Mock 1MB
-        })
-        .collect();
+            hash: hash.to_hex(),
+            size_bytes,
+        });
+    }
+
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create manifest content to sign
+    let manifest_content = serde_json::json!({
+        "session_id": session_id,
+        "artifacts": artifacts,
+    });
+    let manifest_bytes = serde_json::to_vec(&manifest_content)
+        .context("Failed to serialize manifest for signing")?;
+
+    // Sign with Ed25519
+    // Try to load signing key from environment or generate ephemeral one
+    let signature = match std::env::var("AOS_SIGNING_KEY") {
+        Ok(key_hex) => {
+            // Use configured signing key
+            let sig_bytes = adapteros_crypto::signature::sign_data(&manifest_bytes, &key_hex)
+                .map_err(|e| anyhow::anyhow!("Failed to sign manifest: {}", e))?;
+            hex::encode(sig_bytes)
+        }
+        Err(_) => {
+            // Generate ephemeral keypair for this session
+            let keypair = adapteros_crypto::Keypair::generate();
+            let sig = keypair.sign(&manifest_bytes);
+            hex::encode(sig.to_bytes())
+        }
+    };
 
     Ok(ReplicationManifest {
-        session_id: uuid::Uuid::new_v4().to_string(),
+        session_id,
         artifacts,
-        signature: "mock_signature".to_string(),
+        signature,
     })
 }
 

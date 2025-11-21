@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
-use tracing::{debug, error, info, warn};
-use zip::write::FileOptions;
+use tracing::{error, info, warn};
 use zip::ZipWriter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +43,7 @@ struct DiagResult {
 }
 
 struct DiagnosticRunner {
+    #[allow(dead_code)]
     profile: DiagProfile,
     tenant_id: Option<String>,
     results: Vec<DiagResult>,

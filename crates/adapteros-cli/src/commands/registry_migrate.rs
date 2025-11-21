@@ -215,10 +215,7 @@ async fn migrate_data(
             info!("[DRY RUN] Would migrate tenant: {}", tenant.id);
             stats.tenants_migrated += 1;
         } else {
-            match registry
-                .register_tenant(&tenant.id, tenant.uid as u32, tenant.gid as u32)
-                .await
-            {
+            match registry.register_tenant(&tenant.id, tenant.uid as u32, tenant.gid as u32) {
                 Ok(_) => {
                     info!("✓ Migrated tenant: {}", tenant.id);
                     stats.tenants_migrated += 1;
@@ -246,33 +243,22 @@ async fn migrate_data(
             match adapter.to_new_params() {
                 Ok((
                     id,
-                    tenant_id,
+                    _tenant_id,
                     hash,
-                    name,
+                    _name,
                     rank,
-                    activation_pct,
+                    _activation_pct,
                     acl,
                     tier,
-                    path,
-                    backend,
-                    quantization,
+                    _path,
+                    _backend,
+                    _quantization,
                 )) => {
-                    match registry
-                        .register_adapter_full(
-                            &id,
-                            &tenant_id,
-                            &hash,
-                            &name,
-                            rank,
-                            activation_pct,
-                            &acl,
-                            tier.as_deref(),
-                            path.as_deref(),
-                            backend.as_deref(),
-                            quantization.as_deref(),
-                        )
-                        .await
-                    {
+                    // Parse ACL from JSON string to Vec<String>
+                    let acl_vec: Vec<String> = serde_json::from_str(&acl).unwrap_or_default();
+                    let tier_str = tier.as_deref().unwrap_or("tier_1");
+
+                    match registry.register_adapter(&id, &hash, tier_str, rank, &acl_vec) {
                         Ok(_) => {
                             info!("✓ Migrated adapter: {}", id);
                             stats.adapters_migrated += 1;
@@ -300,8 +286,8 @@ async fn migrate_data(
 
 /// Run registry migration
 pub async fn run(args: RegistryMigrateArgs, output: &OutputWriter) -> Result<()> {
-    output.info("AdapterOS Registry Migration Tool")?;
-    output.info("==================================")?;
+    output.info("AdapterOS Registry Migration Tool");
+    output.info("==================================");
 
     // Validate inputs
     if !args.from_db.exists() {
@@ -322,21 +308,21 @@ pub async fn run(args: RegistryMigrateArgs, output: &OutputWriter) -> Result<()>
     let (adapters, tenants) = extract_old_data(&args.from_db)?;
 
     if adapters.is_empty() && tenants.is_empty() {
-        output.info("No data found in old database. Nothing to migrate.")?;
+        output.info("No data found in old database. Nothing to migrate.");
         return Ok(());
     }
 
     // Create new registry (unless dry run)
     let registry = if args.dry_run {
-        output.info("DRY RUN: Skipping registry creation")?;
+        output.info("DRY RUN: Skipping registry creation");
         None
     } else {
-        match Registry::open(&args.to_db).await {
+        match Registry::open(&args.to_db) {
             Ok(reg) => {
                 output.success(&format!(
-                    "✓ New registry database created at {:?}",
+                    "New registry database created at {:?}",
                     args.to_db
-                ))?;
+                ));
                 Some(reg)
             }
             Err(e) => {
@@ -363,27 +349,27 @@ pub async fn run(args: RegistryMigrateArgs, output: &OutputWriter) -> Result<()>
     };
 
     // Report results
-    output.info("")?;
-    output.info("Migration Complete")?;
-    output.info("==================")?;
-    output.info(&format!("Tenants:"))?;
-    output.info(&format!("  Processed: {}", stats.tenants_processed))?;
-    output.info(&format!("  Migrated:  {}", stats.tenants_migrated))?;
-    output.info(&format!("  Skipped:   {}", stats.tenants_skipped))?;
-    output.info(&format!("  Failed:    {}", stats.tenants_failed))?;
-    output.info(&format!("Adapters:"))?;
-    output.info(&format!("  Processed: {}", stats.adapters_processed))?;
-    output.info(&format!("  Migrated:  {}", stats.adapters_migrated))?;
-    output.info(&format!("  Skipped:   {}", stats.adapters_skipped))?;
-    output.info(&format!("  Failed:    {}", stats.adapters_failed))?;
+    output.info("");
+    output.info("Migration Complete");
+    output.info("==================");
+    output.info(&format!("Tenants:"));
+    output.info(&format!("  Processed: {}", stats.tenants_processed));
+    output.info(&format!("  Migrated:  {}", stats.tenants_migrated));
+    output.info(&format!("  Skipped:   {}", stats.tenants_skipped));
+    output.info(&format!("  Failed:    {}", stats.tenants_failed));
+    output.info(&format!("Adapters:"));
+    output.info(&format!("  Processed: {}", stats.adapters_processed));
+    output.info(&format!("  Migrated:  {}", stats.adapters_migrated));
+    output.info(&format!("  Skipped:   {}", stats.adapters_skipped));
+    output.info(&format!("  Failed:    {}", stats.adapters_failed));
 
     if stats.adapters_failed > 0 || stats.tenants_failed > 0 {
-        output.warn("Some records failed to migrate. Check logs above for details.")?;
+        output.warning("Some records failed to migrate. Check logs above for details.");
         if !args.dry_run {
-            output.warn("You may need to manually migrate failed records.")?;
+            output.warning("You may need to manually migrate failed records.");
         }
     } else {
-        output.success("✓ All records migrated successfully!")?;
+        output.success("All records migrated successfully!");
     }
 
     Ok(())

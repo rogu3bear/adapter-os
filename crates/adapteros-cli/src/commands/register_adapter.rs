@@ -80,17 +80,24 @@ pub async fn run(id: &str, hash: &str, tier: &str, rank: u32, output: &OutputWri
     output.progress(&format!("Adapter file size: {} bytes", adapter_size));
 
     // Store metadata in the registry database
-    db.register_adapter(
-        id,
-        &adapter_path.file_name().unwrap().to_string_lossy(),
-        &adapter_hash.to_string(),
-        rank.try_into().unwrap(),
-        tier.parse::<i32>().unwrap(),
-        None, // languages_json
-        None, // framework
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("Failed to store adapter in database: {}", e))?;
+    use adapteros_db::adapters::AdapterRegistrationBuilder;
+    let params = AdapterRegistrationBuilder::new()
+        .adapter_id(id)
+        .name(
+            adapter_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+        )
+        .hash_b3(adapter_hash.to_string())
+        .rank(rank.try_into().unwrap())
+        .tier(tier)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
+    db.register_adapter(params)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to store adapter in database: {}", e))?;
 
     output.success("Adapter registered successfully");
 

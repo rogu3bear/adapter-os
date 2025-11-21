@@ -12,7 +12,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use serde::Serialize;
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System, SystemExt};
+use sysinfo::System;
 
 /// Top-level `status` command.
 #[derive(Debug, Args, Clone)]
@@ -311,18 +311,12 @@ struct MemoryStatus {
 }
 
 fn memory_status(output: &OutputWriter) -> Result<()> {
-    let mut sys = System::new_with_specifics(
-        RefreshKind::new()
-            .with_memory(MemoryRefreshKind::new())
-            .with_cpu(CpuRefreshKind::new()),
-    );
+    let mut sys = System::new();
     sys.refresh_memory();
 
-    let total_kib = sys.total_memory();
-    let used_kib = sys.used_memory();
-
-    let total_bytes = total_kib.saturating_mul(1024);
-    let used_bytes = used_kib.saturating_mul(1024);
+    // In sysinfo 0.30, memory is already in bytes
+    let total_bytes = sys.total_memory();
+    let used_bytes = sys.used_memory();
 
     let used_percent = if total_bytes > 0 {
         (used_bytes as f64) * 100.0 / (total_bytes as f64)

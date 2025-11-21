@@ -1,8 +1,57 @@
 //! CLI telemetry helpers
 
+use adapteros_core::identity::IdentityEnvelope;
+use adapteros_telemetry::{
+    EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter, UnifiedTelemetryEvent,
+};
 use anyhow::Result;
+use once_cell::sync::OnceCell;
 use serde_json::json;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
+
+/// Global telemetry writer for CLI operations
+static CLI_TELEMETRY_WRITER: OnceCell<Arc<TelemetryWriter>> = OnceCell::new();
+
+/// Initialize the CLI telemetry writer
+///
+/// Should be called once at CLI startup. Uses var/telemetry as the default output directory.
+pub fn init_cli_telemetry() -> Result<()> {
+    let telemetry_dir = std::env::var("AOS_TELEMETRY_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("var/telemetry"));
+
+    // Create directory if it doesn't exist
+    std::fs::create_dir_all(&telemetry_dir)?;
+
+    let writer = TelemetryWriter::new(
+        telemetry_dir,
+        1000,    // max events per bundle
+        1 << 20, // 1MB max bundle size
+    )?;
+
+    CLI_TELEMETRY_WRITER
+        .set(Arc::new(writer))
+        .map_err(|_| anyhow::anyhow!("CLI telemetry already initialized"))?;
+
+    Ok(())
+}
+
+/// Get the CLI telemetry writer (initializes if needed)
+fn get_telemetry_writer() -> Option<Arc<TelemetryWriter>> {
+    CLI_TELEMETRY_WRITER.get().cloned()
+}
+
+/// Create a CLI identity envelope for telemetry events
+fn cli_identity(command: &str, tenant: Option<&str>) -> IdentityEnvelope {
+    IdentityEnvelope::new(
+        tenant.unwrap_or("system").to_string(),
+        "cli".to_string(),
+        command.to_string(),
+        "1.0".to_string(),
+    )
+}
 
 /// Emit a CLI error event to telemetry and return event ID
 pub async fn emit_cli_error(
@@ -25,16 +74,6 @@ pub async fn emit_cli_error(
     );
     let event_id = hex::encode(blake3::hash(event_id_source.as_bytes()).as_bytes());
 
-    let event = json!({
-        "event_id": event_id,
-        "event_type": "cli.error",
-        "code": code,
-        "command": command,
-        "tenant": tenant,
-        "error_message": error_message,
-        "timestamp": timestamp,
-    });
-
     // Log to tracing (if enabled)
     tracing::error!(
         code = code,
@@ -44,21 +83,49 @@ pub async fn emit_cli_error(
         error_message
     );
 
-    // In a real implementation, this would write to the telemetry system
-    // For now, we'll just log it. The actual telemetry integration would
-    // happen in mplora-telemetry crate and be called from here.
+    // Emit to telemetry system via adapteros-telemetry
+    if let Some(writer) = get_telemetry_writer() {
+        let identity = cli_identity(command, tenant);
+        let metadata = json!({
+            "event_id": event_id,
+            "code": code,
+            "error_message": error_message,
+            "timestamp": timestamp,
+        });
 
-    // TODO: Integrate with mplora-telemetry::emit_event when available
-    // For now, just write to a simple log file if var/telemetry exists
-    if let Ok(telemetry_dir) = std::env::var("AOS_TELEMETRY_DIR") {
-        let log_path = std::path::Path::new(&telemetry_dir).join("cli_errors.jsonl");
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
-            use std::io::Write;
-            let _ = writeln!(file, "{}", event);
+        let event = TelemetryEventBuilder::new(
+            EventType::Custom("cli.error".to_string()),
+            LogLevel::Error,
+            format!("CLI error in {}: {}", command, error_message),
+            identity,
+        )
+        .metadata(metadata)
+        .build();
+
+        if let Err(e) = writer.log_event(event) {
+            tracing::warn!(error = %e, "Failed to emit CLI error event to telemetry");
+        }
+    } else {
+        // Fallback: write to simple log file if telemetry not initialized
+        if let Ok(telemetry_dir) = std::env::var("AOS_TELEMETRY_DIR") {
+            let log_path = std::path::Path::new(&telemetry_dir).join("cli_errors.jsonl");
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                use std::io::Write;
+                let event = json!({
+                    "event_id": event_id,
+                    "event_type": "cli.error",
+                    "code": code,
+                    "command": command,
+                    "tenant": tenant,
+                    "error_message": error_message,
+                    "timestamp": timestamp,
+                });
+                let _ = writeln!(file, "{}", event);
+            }
         }
     }
 
@@ -71,14 +138,6 @@ pub async fn emit_cli_command(command: &str, tenant: Option<&str>, success: bool
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_secs();
 
-    let event = json!({
-        "event_type": "cli.command",
-        "command": command,
-        "tenant": tenant,
-        "success": success,
-        "timestamp": timestamp,
-    });
-
     tracing::info!(
         command = command,
         tenant = tenant,
@@ -86,15 +145,56 @@ pub async fn emit_cli_command(command: &str, tenant: Option<&str>, success: bool
         "CLI command executed"
     );
 
-    if let Ok(telemetry_dir) = std::env::var("AOS_TELEMETRY_DIR") {
-        let log_path = std::path::Path::new(&telemetry_dir).join("cli_commands.jsonl");
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
-            use std::io::Write;
-            let _ = writeln!(file, "{}", event);
+    // Emit to telemetry system via adapteros-telemetry
+    if let Some(writer) = get_telemetry_writer() {
+        let identity = cli_identity(command, tenant);
+        let metadata = json!({
+            "command": command,
+            "success": success,
+            "timestamp": timestamp,
+        });
+
+        let level = if success {
+            LogLevel::Info
+        } else {
+            LogLevel::Warn
+        };
+
+        let event = TelemetryEventBuilder::new(
+            EventType::Custom("cli.command".to_string()),
+            level,
+            format!(
+                "CLI command {} {}",
+                command,
+                if success { "succeeded" } else { "failed" }
+            ),
+            identity,
+        )
+        .metadata(metadata)
+        .build();
+
+        if let Err(e) = writer.log_event(event) {
+            tracing::warn!(error = %e, "Failed to emit CLI command event to telemetry");
+        }
+    } else {
+        // Fallback: write to simple log file if telemetry not initialized
+        if let Ok(telemetry_dir) = std::env::var("AOS_TELEMETRY_DIR") {
+            let log_path = std::path::Path::new(&telemetry_dir).join("cli_commands.jsonl");
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                use std::io::Write;
+                let event = json!({
+                    "event_type": "cli.command",
+                    "command": command,
+                    "tenant": tenant,
+                    "success": success,
+                    "timestamp": timestamp,
+                });
+                let _ = writeln!(file, "{}", event);
+            }
         }
     }
 

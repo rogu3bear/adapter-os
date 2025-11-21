@@ -42,6 +42,7 @@ pub enum Commands {
 }
 
 impl Cli {
+    /// Get identity envelope from CLI arguments
     pub fn get_identity(&self) -> IdentityEnvelope {
         let revision = self
             .revision

@@ -3,6 +3,8 @@
 pub mod adapter;
 pub mod adapter_info;
 pub mod adapter_swap;
+pub mod adapters;
+pub mod aos;
 pub mod audit;
 pub mod audit_determinism;
 pub mod backend_status;
@@ -29,6 +31,7 @@ pub mod maintenance;
 pub mod manual;
 pub mod status;
 // pub mod metrics;  // Temporarily disabled - depends on adapteros-system-metrics
+pub mod infer;
 pub mod node_list;
 pub mod node_sync;
 pub mod node_verify;
@@ -41,13 +44,14 @@ pub mod replay;
 pub mod report;
 pub mod rollback;
 pub mod router;
+#[cfg(feature = "secd-support")]
 pub mod secd_audit;
+#[cfg(feature = "secd-support")]
 pub mod secd_status;
 pub mod serve;
 pub mod sync_registry;
 pub mod telemetry_list;
-// pub mod telemetry_show;  // TODO: Implement telemetry_show command
-pub mod infer;
+pub mod telemetry_show;
 pub mod trace;
 pub mod train;
 pub mod tutorial;

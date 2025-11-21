@@ -301,6 +301,7 @@ async fn deploy_aos_adapter(
     } else {
         let verify_args = crate::commands::aos::VerifyArgs {
             path: aos_file.to_path_buf(),
+            format: "text".to_string(),
         };
         let verify_output = OutputWriter::new(output.mode(), output.is_verbose());
         crate::commands::aos::verify_aos(verify_args, &verify_output).await?;
@@ -354,7 +355,8 @@ async fn deploy_aos_adapter(
     if !args.dry_run {
         let load_args = crate::commands::aos::LoadArgs {
             path: target_path.clone(),
-            adapters_root: Some(args.adapters_dir.clone()),
+            adapter_id: None,
+            base_url: "http://127.0.0.1:8080/api".to_string(),
         };
         let load_output = OutputWriter::new(output.mode(), output.is_verbose());
         if crate::commands::aos::load_aos(load_args, &load_output)

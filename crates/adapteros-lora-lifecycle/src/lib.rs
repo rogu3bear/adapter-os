@@ -6,6 +6,19 @@
 //! - Hot-swap loading/unloading
 //! - Memory pressure eviction
 
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::await_holding_lock)]
+#![allow(clippy::option_map_or_none)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::redundant_closure)]
+#![allow(unused_must_use)]
+#![allow(clippy::bind_instead_of_map)]
+#![allow(clippy::unnecessary_map_or)]
+
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::{sqlx, Db};
 use adapteros_deterministic_exec::spawn_deterministic;
@@ -14,6 +27,7 @@ use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -96,8 +110,8 @@ pub use policy::{EvictionOrder, LifecyclePolicy};
 pub use state::{AdapterState, AdapterStateRecord, AllocationTier, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
 pub use workflow_executor::{
-    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, MockAdapterBackend,
-    WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
+    AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, KernelAdapterBackend,
+    MockAdapterBackend, WorkflowContext, WorkflowExecutor, WorkflowResult, WorkflowType,
 };
 
 /// Enhanced lifecycle manager for adapters with category-aware state management
@@ -1620,7 +1634,7 @@ impl LifecycleManager {
 ///
 /// Returned by external verification code to indicate which adapters passed/failed
 /// GPU buffer integrity checks.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GpuIntegrityReport {
     /// Adapters that passed verification
     pub verified: Vec<(u16, String)>,

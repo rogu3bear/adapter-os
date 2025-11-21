@@ -63,20 +63,21 @@ pub async fn run(output_path: &Path, cpid: Option<&str>, full_db: bool) -> Resul
 }
 
 fn collect_system_info(zip: &mut ZipWriter<File>, options: FileOptions) -> Result<()> {
-    use sysinfo::{System, SystemExt, CpuExt};
+    use sysinfo::System;
 
     let mut sys = System::new_all();
     sys.refresh_all();
 
     let mut info = String::new();
-    info.push_str(&format!("OS: {} {}\n", sys.name().unwrap_or_default(), sys.os_version().unwrap_or_default()));
-    info.push_str(&format!("Kernel: {}\n", sys.kernel_version().unwrap_or_default()));
-    info.push_str(&format!("Hostname: {}\n", sys.host_name().unwrap_or_default()));
+    info.push_str(&format!("OS: {} {}\n", sysinfo::System::name().unwrap_or_default(), sysinfo::System::os_version().unwrap_or_default()));
+    info.push_str(&format!("Kernel: {}\n", sysinfo::System::kernel_version().unwrap_or_default()));
+    info.push_str(&format!("Hostname: {}\n", sysinfo::System::host_name().unwrap_or_default()));
     info.push_str(&format!("CPU: {}\n", sys.cpus().first().map(|cpu| cpu.brand()).unwrap_or("Unknown")));
     info.push_str(&format!("CPU Cores: {}\n", sys.cpus().len()));
+    // In sysinfo 0.30, memory is in bytes
     info.push_str(&format!("Total Memory: {} MB\n", sys.total_memory() / 1024 / 1024));
     info.push_str(&format!("Available Memory: {} MB\n", sys.available_memory() / 1024 / 1024));
-    info.push_str(&format!("Uptime: {} seconds\n", sys.uptime()));
+    info.push_str(&format!("Uptime: {} seconds\n", System::uptime()));
 
     zip.start_file("system_info.txt", options)?;
     zip.write_all(info.as_bytes())?;
@@ -203,7 +204,7 @@ async fn collect_database_state(
     full_db: bool,
 ) -> Result<()> {
     // Connect to database
-    let db = adapteros_db::Database::connect_env().await?;
+    let db = adapteros_db::Db::connect_env().await?;
 
     let mut info = String::new();
 

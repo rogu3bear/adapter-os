@@ -60,10 +60,10 @@ pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("MLX backend requires --model-path argument"))?;
             BackendChoice::Mlx {
-                model_path: std::path::PathBuf::from(model_path),
+                model_path: model_path.to_string(),
             }
         }
-        "coreml" => BackendChoice::CoreML,
+        "coreml" => BackendChoice::CoreML { model_path: None },
         other => {
             return Err(anyhow::anyhow!("Unknown backend type: {}", other));
         }

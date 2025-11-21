@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 /// Code repository information
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct CodeRepository {
     pub repo_id: String,
     pub path: String,
@@ -21,6 +22,7 @@ pub struct CodeRepository {
 
 /// Scan job status
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ScanJobStatus {
     pub job_id: String,
     pub status: String,

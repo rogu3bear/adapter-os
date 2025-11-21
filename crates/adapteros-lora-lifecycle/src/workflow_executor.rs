@@ -6,8 +6,7 @@
 //! - UpstreamDownstream: Two-phase execution with upstream adapters first, then downstream
 
 use adapteros_core::Result;
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-// use adapteros_lora_worker::adapter_hotswap::AdapterTable; // FIXME: circular dependency
+use adapteros_lora_kernel_api::{AdapterLookup, FusedKernels, IoBuffers, RouterRing};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -337,6 +336,7 @@ pub struct AdapterExecutionResult {
 }
 
 /// Mock execution backend for testing
+#[derive(Default)]
 pub struct MockAdapterBackend;
 
 impl AdapterExecutionBackend for MockAdapterBackend {
@@ -398,15 +398,104 @@ impl AdapterExecutionBackend for MockAdapterBackend {
 /// 1. **Option A**: Refactor Worker to store `kernels: Arc<Mutex<K>>` instead of `K`
 /// 2. **Option B**: Create workflows outside Worker with separate kernel instances
 /// 3. **Option C**: Use MockAdapterBackend for testing (current Worker approach)
-// FIXME: circular dependency with adapteros-lora-worker
-// pub struct KernelAdapterBackend<K: FusedKernels> {
-//     table: Arc<AdapterTable>,
-//     kernels: Arc<Mutex<K>>,
-//     adapter_name_to_index: HashMap<String, u16>,
-//     vocab_size: usize,
-// }
+///
+/// Real kernel-based execution backend
+///
+/// Uses the `AdapterLookup` trait to break circular dependency with adapteros-lora-worker.
+/// The worker crate implements `AdapterLookup` for its `AdapterTable`.
+pub struct KernelAdapterBackend<K: FusedKernels, L: AdapterLookup> {
+    /// Adapter lookup (abstracts AdapterTable)
+    lookup: Arc<L>,
+    /// Fused kernels for execution
+    kernels: Arc<Mutex<K>>,
+    /// Adapter name to routing index mapping
+    adapter_name_to_index: HashMap<String, u16>,
+    /// Vocabulary size for output buffers
+    vocab_size: usize,
+}
 
-// FIXME: KernelAdapterBackend temporarily removed due to circular dependency
+impl<K: FusedKernels, L: AdapterLookup> KernelAdapterBackend<K, L> {
+    /// Create a new kernel adapter backend
+    ///
+    /// # Arguments
+    /// * `kernels` - Fused kernels for GPU execution
+    /// * `lookup` - Adapter lookup implementation
+    /// * `adapter_names` - List of adapter names in routing order
+    /// * `vocab_size` - Model vocabulary size
+    pub fn new(
+        kernels: Arc<Mutex<K>>,
+        lookup: Arc<L>,
+        adapter_names: Vec<String>,
+        vocab_size: usize,
+    ) -> Self {
+        let adapter_name_to_index: HashMap<String, u16> = adapter_names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, i as u16))
+            .collect();
+
+        Self {
+            lookup,
+            kernels,
+            adapter_name_to_index,
+            vocab_size,
+        }
+    }
+}
+
+impl<K: FusedKernels + 'static, L: AdapterLookup + 'static> AdapterExecutionBackend
+    for KernelAdapterBackend<K, L>
+{
+    async fn execute_adapter(
+        &self,
+        adapter_id: &str,
+        input_tokens: &[u32],
+        _model_state: &HashMap<String, Vec<f32>>,
+    ) -> Result<AdapterExecutionResult> {
+        // Get adapter index for routing
+        let adapter_index = self
+            .adapter_name_to_index
+            .get(adapter_id)
+            .copied()
+            .or_else(|| self.lookup.get_adapter_index(adapter_id))
+            .ok_or_else(|| {
+                adapteros_core::AosError::NotFound(format!("Adapter not found: {}", adapter_id))
+            })?;
+
+        // Create router ring with single adapter
+        let mut ring = RouterRing::new(1);
+        ring.set(&[adapter_index], &[i16::MAX]); // Full weight to single adapter
+
+        // Create IO buffers
+        let mut io = IoBuffers::new(self.vocab_size);
+        io.input_ids = input_tokens.to_vec();
+
+        // Execute kernel
+        {
+            let mut kernels = self.kernels.lock().await;
+            kernels.run_step(&ring, &mut io)?;
+        }
+
+        // Convert logits to output tokens (simplified: argmax)
+        let output_tokens = if io.output_logits.is_empty() {
+            vec![]
+        } else {
+            // Find argmax
+            let (max_idx, _) = io
+                .output_logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or((0, &0.0));
+            vec![max_idx as u32]
+        };
+
+        Ok(AdapterExecutionResult {
+            output_tokens,
+            state_updates: HashMap::new(),
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

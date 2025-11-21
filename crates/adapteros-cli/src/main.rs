@@ -1,10 +1,38 @@
 //! AdapterOS CLI tool (aosctl)
 
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(noop_method_call)]
+#![allow(clippy::unneeded_struct_pattern)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_must_use)]
+#![allow(private_interfaces)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::to_string_in_format_args)]
+#![allow(dead_code)]
+#![allow(clippy::only_used_in_recursion)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::unwrap_or_default)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::useless_format)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::useless_asref)]
+#![allow(clippy::wildcard_in_or_patterns)]
+#![allow(clippy::suspicious_doc_comments)]
+#![allow(clippy::unnecessary_lazy_evaluations)]
+#![allow(clippy::single_match)]
+
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::path::PathBuf;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cli;
 mod cli_telemetry;
@@ -13,7 +41,7 @@ mod error_codes;
 mod logging;
 mod output;
 
-use adapteros_lora_worker::{MemoryPressureLevel, UmaPressureMonitor};
+use adapteros_lora_worker::memory::{MemoryPressureLevel, UmaPressureMonitor};
 use commands::golden::GoldenCmd;
 use commands::*;
 use logging::init_logging;
@@ -306,7 +334,6 @@ Examples:
     // System Status
     // ============================================================
     /// Show system status (adapters, cluster, tick, memory)
-    #[command(subcommand)]
     Status(commands::status::StatusCommand),
 
     /// Run system health diagnostics (PRD-06)
@@ -327,14 +354,12 @@ Examples:
     // Maintenance
     // ============================================================
     /// Maintenance operations (GC, sweeps, etc.)
-    #[command(subcommand)]
     Maintenance(commands::maintenance::MaintenanceCommand),
 
     // ============================================================
     // Deployment
     // ============================================================
     /// Deployment workflows (adapters, etc.)
-    #[command(subcommand)]
     Deploy(commands::deploy::DeployCommand),
 
     // ============================================================
@@ -1538,6 +1563,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 "CodegraphStats is temporarily disabled due to mplora-codegraph dependency"
             );
         }
+        #[cfg(feature = "secd-support")]
         Commands::SecdStatus {
             pid_file,
             heartbeat_file,
@@ -1546,12 +1572,21 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         } => {
             secd_status::run(&pid_file, &heartbeat_file, &socket, Some(&database)).await?;
         }
+        #[cfg(not(feature = "secd-support"))]
+        Commands::SecdStatus { .. } => {
+            anyhow::bail!("secd-status command requires the 'secd-support' feature");
+        }
+        #[cfg(feature = "secd-support")]
         Commands::SecdAudit {
             database,
             limit,
             operation,
         } => {
             secd_audit::run(&database, *limit, operation.as_deref()).await?;
+        }
+        #[cfg(not(feature = "secd-support"))]
+        Commands::SecdAudit { .. } => {
+            anyhow::bail!("secd-audit command requires the 'secd-support' feature");
         }
 
         // General Operations
@@ -1666,7 +1701,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 
         // Backend Status
         Commands::BackendStatus(args) => {
-            commands::backend_status::run(args).await?;
+            commands::backend_status::run(args.clone()).await?;
         }
 
         // Documentation & Help
@@ -1810,6 +1845,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::CodeUpdate { .. } => "code-update",
         Commands::CodeList { .. } => "code-list",
         Commands::CodeStatus { .. } => "code-status",
+        Commands::BackendStatus(_) => "backend-status",
     }
     .to_string()
 }

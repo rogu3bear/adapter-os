@@ -19,7 +19,9 @@ pub enum OutputMode {
 
 impl OutputMode {
     /// Detect output mode from environment
-    #[allow(dead_code)] // TODO: Implement environment detection in future iteration
+    ///
+    /// Returns Quiet mode when running in CI environments (detected via standard
+    /// CI environment variables), otherwise returns Text mode for interactive use.
     pub fn from_env() -> Self {
         if is_ci() {
             Self::Quiet
@@ -202,6 +204,28 @@ impl OutputWriter {
         }
     }
 
+    /// Print a line (alias for print that returns Result for consistency)
+    pub fn print_line(&self, msg: impl AsRef<str>) -> Result<(), std::io::Error> {
+        if !self.mode.is_quiet() && !self.mode.is_json() {
+            println!("{}", msg.as_ref());
+        }
+        Ok(())
+    }
+
+    /// Print JSON data (alias for json method)
+    pub fn print_json<T: serde::Serialize>(&self, data: &T) -> Result<(), serde_json::Error> {
+        println!("{}", serde_json::to_string_pretty(data)?);
+        Ok(())
+    }
+
+    /// Print a warning message (alias for warning)
+    pub fn warn(&self, msg: impl AsRef<str>) -> Result<(), std::io::Error> {
+        if !self.mode.is_quiet() {
+            warn!("{}", msg.as_ref());
+        }
+        Ok(())
+    }
+
     /// Print a table (human) or JSON (machine)
     pub fn table<T: serde::Serialize>(
         &self,
@@ -220,9 +244,19 @@ impl OutputWriter {
 }
 
 /// Detect if running in CI environment
-#[allow(dead_code)] // TODO: Implement CI detection in future iteration
+///
+/// Checks common CI environment variables:
+/// - CI (generic, set by most CI systems)
+/// - GITHUB_ACTIONS (GitHub Actions)
+/// - JENKINS_URL (Jenkins)
+/// - CIRCLECI (CircleCI)
+/// - TRAVIS (Travis CI)
+/// - GITLAB_CI (GitLab CI)
+/// - BUILDKITE (Buildkite)
+/// - TEAMCITY_VERSION (TeamCity)
+/// - BITBUCKET_PIPELINE (Bitbucket Pipelines)
+/// - AZURE_PIPELINES (Azure Pipelines)
 pub fn is_ci() -> bool {
-    // Check common CI environment variables
     env::var("CI")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false)
@@ -232,6 +266,9 @@ pub fn is_ci() -> bool {
         || env::var("TRAVIS").is_ok()
         || env::var("GITLAB_CI").is_ok()
         || env::var("BUILDKITE").is_ok()
+        || env::var("TEAMCITY_VERSION").is_ok()
+        || env::var("BITBUCKET_BUILD_NUMBER").is_ok()
+        || env::var("TF_BUILD").is_ok()
 }
 
 /// Print a command header (convenience function for legacy code)

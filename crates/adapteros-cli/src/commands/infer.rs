@@ -1,13 +1,10 @@
 //! CLI inference command over AdapterOS UDS
 
-use adapteros_lora_worker::UmaPressureMonitor;
-use anyhow::{Context, Result};
+use adapteros_lora_worker::memory::UmaPressureMonitor;
+use anyhow::Result;
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::PathBuf;
-use std::str::FromStr;
-use std::time::Duration;
-use tokio::time::timeout;
 
 /// Run a local inference against the worker UDS server
 pub async fn run(

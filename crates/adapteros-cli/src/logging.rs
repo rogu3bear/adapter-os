@@ -21,7 +21,8 @@
 //! }
 //! ```
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::Result;
 use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -73,10 +74,17 @@ pub fn init_logging() -> Result<()> {
 pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>) {
     match result {
         Ok(_) => {
-            let event = TelemetryEventBuilder::new(
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "cli".to_string(),
+                "command".to_string(),
+                "1.0".to_string(),
+            );
+            let _event = TelemetryEventBuilder::new(
                 EventType::UserAction,
                 LogLevel::Info,
                 format!("CLI command executed successfully: {}", command),
+                identity,
             )
             .component("adapteros-cli".to_string())
             .metadata(serde_json::json!({
@@ -93,10 +101,17 @@ pub fn log_command_execution(command: &str, args: &[String], result: &Result<()>
             );
         }
         Err(e) => {
-            let event = TelemetryEventBuilder::new(
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "cli".to_string(),
+                "command".to_string(),
+                "1.0".to_string(),
+            );
+            let _event = TelemetryEventBuilder::new(
                 EventType::UserError,
                 LogLevel::Error,
                 format!("CLI command failed: {}", command),
+                identity,
             )
             .component("adapteros-cli".to_string())
             .metadata(serde_json::json!({

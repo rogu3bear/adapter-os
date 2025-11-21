@@ -6,7 +6,7 @@
 use crate::output::OutputWriter;
 use anyhow::{Context, Result};
 use clap::Args;
-use comfy_table::{presets::UTF8_FULL, Cell, CellAlignment, Color, Table};
+use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 

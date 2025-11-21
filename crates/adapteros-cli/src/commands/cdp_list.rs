@@ -14,11 +14,13 @@ pub struct CdpListArgs {
     pub storage: PathBuf,
 }
 
+/// Execute the CDP list command
+///
+/// Reserved: Awaiting code intelligence integration (CDP store implementation)
 pub async fn execute(args: CdpListArgs) -> anyhow::Result<()> {
-    // CdpStore implementation will be added when code intelligence is integrated
-    println!(
-        "CDP listing not yet implemented for repository: {}",
-        args.repo_id
+    tracing::warn!(
+        repo_id = %args.repo_id,
+        "CDP listing not yet implemented - awaiting code intelligence integration"
     );
     Ok(())
 }

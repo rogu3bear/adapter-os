@@ -3,13 +3,12 @@
 //! Ingests PDF and Markdown documents for RAG indexing and/or adapter training.
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::Db;
 use adapteros_ingest_docs::{
-    default_ingest_options, generate_revision, generate_training_data_from_documents,
-    load_tokenizer, prepare_documents_for_rag, ChunkingOptions, DocumentIngestor,
-    SimpleEmbeddingModel, TrainingGenConfig, TrainingStrategy, EMBEDDING_DIMENSION,
+    generate_revision, generate_training_data_from_documents, load_tokenizer,
+    prepare_documents_for_rag, ChunkingOptions, DocumentIngestor, SimpleEmbeddingModel,
+    TrainingGenConfig, TrainingStrategy, EMBEDDING_DIMENSION,
 };
-use adapteros_lora_rag::pgvector::{DocumentBuilder, PgVectorIndex};
+use adapteros_lora_rag::pgvector::PgVectorIndex;
 use clap::Args;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -175,9 +174,10 @@ impl IngestDocsArgs {
             as Arc<dyn adapteros_ingest_docs::EmbeddingModel>;
 
         // Prepare documents for RAG
-        let rev = self.rev.as_deref().or_else(|| Some(&generate_revision()));
+        let default_rev = generate_revision();
+        let rev = self.rev.as_deref().unwrap_or(&default_rev);
         let rag_params =
-            prepare_documents_for_rag(tenant_id, documents, &embedding_model, rev).await?;
+            prepare_documents_for_rag(tenant_id, documents, &embedding_model, Some(rev)).await?;
 
         info!("Prepared {} chunks for RAG indexing", rag_params.len());
 
@@ -234,17 +234,18 @@ impl IngestDocsArgs {
 
         // Insert each chunk
         for params in rag_params {
-            let doc_params = DocumentBuilder::new()
-                .tenant_id(&params.tenant_id)
-                .doc_id(&params.doc_id)
-                .text(&params.text)
-                .embedding(params.embedding.clone())
-                .rev(&params.rev)
-                .effectivity(&params.effectivity)
-                .source_type(&params.source_type)
-                .build();
-
-            index.add_document(doc_params).await?;
+            index
+                .add_document(
+                    &params.tenant_id,
+                    params.doc_id.clone(),
+                    params.text.clone(),
+                    params.embedding.clone(),
+                    params.rev.clone(),
+                    params.effectivity.clone(),
+                    params.source_type.clone(),
+                    None, // superseded_by
+                )
+                .await?;
         }
 
         info!(
@@ -278,17 +279,18 @@ impl IngestDocsArgs {
 
         // Insert each chunk
         for params in rag_params {
-            let doc_params = DocumentBuilder::new()
-                .tenant_id(&params.tenant_id)
-                .doc_id(&params.doc_id)
-                .text(&params.text)
-                .embedding(params.embedding.clone())
-                .rev(&params.rev)
-                .effectivity(&params.effectivity)
-                .source_type(&params.source_type)
-                .build();
-
-            index.add_document(doc_params).await?;
+            index
+                .add_document(
+                    &params.tenant_id,
+                    params.doc_id.clone(),
+                    params.text.clone(),
+                    params.embedding.clone(),
+                    params.rev.clone(),
+                    params.effectivity.clone(),
+                    params.source_type.clone(),
+                    None, // superseded_by
+                )
+                .await?;
         }
 
         info!("Successfully indexed {} chunks in SQLite", rag_params.len());
@@ -324,9 +326,8 @@ impl IngestDocsArgs {
 
         // Write to output file
         let output_path = self.training_output.as_ref().unwrap();
-        let json = serde_json::to_string_pretty(&training_data).map_err(|e| {
-            AosError::Serialization(format!("Failed to serialize training data: {}", e))
-        })?;
+        let json =
+            serde_json::to_string_pretty(&training_data).map_err(|e| AosError::Serialization(e))?;
 
         fs::write(output_path, json).map_err(|e| {
             AosError::Io(format!(

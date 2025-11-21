@@ -519,7 +519,6 @@ pub fn find_by_aos_error(error_name: &str) -> Option<ErrorCode> {
 }
 
 /// Map AosError variant names to error codes (fallback to E9000)
-#[allow(dead_code)] // TODO: Implement error mapping in future iteration
 pub fn map_aos_error(name: &str) -> &'static str {
     match name {
         "PolicyViolation" => "E2001",
@@ -529,6 +528,253 @@ pub fn map_aos_error(name: &str) -> &'static str {
         "SignatureInvalid" => "E1001",
         "AdapterIncompatible" => "E6003",
         _ => "E9000", // OS/env
+    }
+}
+
+/// Numeric exit codes for CLI commands
+///
+/// Categories:
+/// - 1-9: General errors
+/// - 10-19: Configuration errors
+/// - 20-29: Database errors
+/// - 30-39: Network errors
+/// - 40-49: Crypto errors
+/// - 50-59: Policy errors
+/// - 60-69: Validation errors
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExitCode {
+    // General errors (1-9)
+    Success = 0,
+    GeneralError = 1,
+    InternalError = 2,
+    NotFound = 3,
+    Timeout = 4,
+    ResourceExhaustion = 5,
+    Unavailable = 6,
+    FeatureDisabled = 7,
+    Other = 8,
+
+    // Configuration errors (10-19)
+    Config = 10,
+    InvalidManifest = 11,
+    Parse = 12,
+    Toolchain = 13,
+
+    // Database errors (20-29)
+    Database = 20,
+    Sqlite = 21,
+    Sqlx = 22,
+    Registry = 23,
+
+    // Network errors (30-39)
+    Network = 30,
+    Http = 31,
+    UdsConnection = 32,
+    WorkerNotResponding = 33,
+    CircuitBreakerOpen = 34,
+    InvalidResponse = 35,
+
+    // Crypto errors (40-49)
+    Crypto = 40,
+    InvalidHash = 41,
+    Encryption = 42,
+    Decryption = 43,
+    InvalidSealedData = 44,
+
+    // Policy errors (50-59)
+    PolicyViolation = 50,
+    Policy = 51,
+    DeterminismViolation = 52,
+    EgressViolation = 53,
+    IsolationViolation = 54,
+    PerformanceViolation = 55,
+    Quarantined = 56,
+    PolicyHashMismatch = 57,
+
+    // Validation errors (60-69)
+    Validation = 60,
+    InvalidCPID = 61,
+    AdapterHashMismatch = 62,
+    KernelLayoutMismatch = 63,
+    RngError = 64,
+
+    // Auth errors (70-79)
+    Auth = 70,
+    Authz = 71,
+
+    // Worker/Job errors (80-89)
+    Worker = 80,
+    Job = 81,
+    Node = 82,
+    Lifecycle = 83,
+
+    // Subsystem errors (90-99)
+    Io = 90,
+    Serialization = 91,
+    Memory = 92,
+    MemoryPressure = 93,
+    Kernel = 94,
+    Mtl = 95,
+    CoreML = 96,
+    Mlx = 97,
+
+    // Domain errors (100-119)
+    Telemetry = 100,
+    Artifact = 101,
+    Plan = 102,
+    Replay = 103,
+    Verification = 104,
+    Rag = 105,
+    Git = 106,
+    Training = 107,
+    Autograd = 108,
+    Quantization = 109,
+    ChatTemplate = 110,
+    BaseLLM = 111,
+    Promotion = 112,
+    Anomaly = 113,
+    System = 114,
+    DeterministicExecutor = 115,
+}
+
+impl From<&adapteros_core::AosError> for ExitCode {
+    fn from(error: &adapteros_core::AosError) -> Self {
+        use adapteros_core::AosError;
+        match error {
+            // General errors (1-9)
+            AosError::Internal(_) => ExitCode::InternalError,
+            AosError::NotFound(_) => ExitCode::NotFound,
+            AosError::Timeout { .. } => ExitCode::Timeout,
+            AosError::ResourceExhaustion(_) => ExitCode::ResourceExhaustion,
+            AosError::Unavailable(_) => ExitCode::Unavailable,
+            AosError::FeatureDisabled { .. } => ExitCode::FeatureDisabled,
+            AosError::Other(_) => ExitCode::Other,
+            AosError::WithContext { source, .. } => ExitCode::from(source.as_ref()),
+
+            // Configuration errors (10-19)
+            AosError::Config(_) => ExitCode::Config,
+            AosError::InvalidManifest(_) => ExitCode::InvalidManifest,
+            AosError::Parse(_) => ExitCode::Parse,
+            AosError::Toolchain(_) => ExitCode::Toolchain,
+
+            // Database errors (20-29)
+            AosError::Database(_) | AosError::DatabaseError { .. } => ExitCode::Database,
+            AosError::Sqlite(_) => ExitCode::Sqlite,
+            AosError::Sqlx(_) => ExitCode::Sqlx,
+            AosError::Registry(_) => ExitCode::Registry,
+
+            // Network errors (30-39)
+            AosError::Network(_) => ExitCode::Network,
+            AosError::Http(_) => ExitCode::Http,
+            AosError::UdsConnectionFailed { .. } => ExitCode::UdsConnection,
+            AosError::WorkerNotResponding { .. } => ExitCode::WorkerNotResponding,
+            AosError::CircuitBreakerOpen { .. } | AosError::CircuitBreakerHalfOpen { .. } => {
+                ExitCode::CircuitBreakerOpen
+            }
+            AosError::InvalidResponse { .. } => ExitCode::InvalidResponse,
+
+            // Crypto errors (40-49)
+            AosError::Crypto(_) => ExitCode::Crypto,
+            AosError::InvalidHash(_) => ExitCode::InvalidHash,
+            AosError::EncryptionFailed { .. } => ExitCode::Encryption,
+            AosError::DecryptionFailed { .. } => ExitCode::Decryption,
+            AosError::InvalidSealedData { .. } => ExitCode::InvalidSealedData,
+
+            // Policy errors (50-59)
+            AosError::PolicyViolation(_) => ExitCode::PolicyViolation,
+            AosError::Policy(_) => ExitCode::Policy,
+            AosError::DeterminismViolation(_) => ExitCode::DeterminismViolation,
+            AosError::EgressViolation(_) => ExitCode::EgressViolation,
+            AosError::IsolationViolation(_) => ExitCode::IsolationViolation,
+            AosError::PerformanceViolation(_) => ExitCode::PerformanceViolation,
+            AosError::Quarantined(_) => ExitCode::Quarantined,
+            AosError::PolicyHashMismatch { .. } => ExitCode::PolicyHashMismatch,
+
+            // Validation errors (60-69)
+            AosError::Validation(_) => ExitCode::Validation,
+            AosError::InvalidCPID(_) => ExitCode::InvalidCPID,
+            AosError::AdapterHashMismatch { .. } => ExitCode::AdapterHashMismatch,
+            AosError::KernelLayoutMismatch { .. } => ExitCode::KernelLayoutMismatch,
+            AosError::RngError { .. } => ExitCode::RngError,
+
+            // Auth errors (70-79)
+            AosError::Auth(_) => ExitCode::Auth,
+            AosError::Authz(_) => ExitCode::Authz,
+
+            // Worker/Job errors (80-89)
+            AosError::Worker(_) => ExitCode::Worker,
+            AosError::Job(_) => ExitCode::Job,
+            AosError::Node(_) => ExitCode::Node,
+            AosError::Lifecycle(_) => ExitCode::Lifecycle,
+
+            // Subsystem errors (90-99)
+            AosError::Io(_) => ExitCode::Io,
+            AosError::Serialization(_) => ExitCode::Serialization,
+            AosError::Memory(_) => ExitCode::Memory,
+            AosError::MemoryPressure(_) => ExitCode::MemoryPressure,
+            AosError::Kernel(_) => ExitCode::Kernel,
+            AosError::Mtl(_) => ExitCode::Mtl,
+            AosError::CoreML(_) => ExitCode::CoreML,
+            AosError::Mlx(_) => ExitCode::Mlx,
+
+            // Domain errors (100-119)
+            AosError::Telemetry(_) => ExitCode::Telemetry,
+            AosError::Artifact(_) => ExitCode::Artifact,
+            AosError::Plan(_) => ExitCode::Plan,
+            AosError::Replay(_) => ExitCode::Replay,
+            AosError::Verification(_) => ExitCode::Verification,
+            AosError::Rag(_) => ExitCode::Rag,
+            AosError::Git(_) => ExitCode::Git,
+            AosError::Training(_) => ExitCode::Training,
+            AosError::Autograd(_) => ExitCode::Autograd,
+            AosError::Quantization(_) => ExitCode::Quantization,
+            AosError::ChatTemplate(_) => ExitCode::ChatTemplate,
+            AosError::BaseLLM(_) => ExitCode::BaseLLM,
+            AosError::Promotion(_) => ExitCode::Promotion,
+            AosError::Anomaly(_) => ExitCode::Anomaly,
+            AosError::System(_) => ExitCode::System,
+            AosError::DeterministicExecutor(_) => ExitCode::DeterministicExecutor,
+        }
+    }
+}
+
+impl From<adapteros_core::AosError> for ExitCode {
+    fn from(error: adapteros_core::AosError) -> Self {
+        ExitCode::from(&error)
+    }
+}
+
+impl From<ExitCode> for i32 {
+    fn from(code: ExitCode) -> Self {
+        code as i32
+    }
+}
+
+impl ExitCode {
+    /// Convert to process exit code
+    pub fn as_exit_code(self) -> std::process::ExitCode {
+        std::process::ExitCode::from(self as u8)
+    }
+
+    /// Get the category name for this exit code
+    pub fn category(&self) -> &'static str {
+        let code = *self as u8;
+        match code {
+            0 => "Success",
+            1..=9 => "General",
+            10..=19 => "Configuration",
+            20..=29 => "Database",
+            30..=39 => "Network",
+            40..=49 => "Crypto",
+            50..=59 => "Policy",
+            60..=69 => "Validation",
+            70..=79 => "Auth",
+            80..=89 => "Worker/Job",
+            90..=99 => "Subsystem",
+            100..=119 => "Domain",
+            _ => "Unknown",
+        }
     }
 }
 
@@ -576,5 +822,62 @@ mod tests {
                 _ => panic!("Invalid code prefix: {}", prefix),
             }
         }
+    }
+
+    #[test]
+    fn test_exit_code_categories() {
+        assert_eq!(ExitCode::Success.category(), "Success");
+        assert_eq!(ExitCode::GeneralError.category(), "General");
+        assert_eq!(ExitCode::Config.category(), "Configuration");
+        assert_eq!(ExitCode::Database.category(), "Database");
+        assert_eq!(ExitCode::Network.category(), "Network");
+        assert_eq!(ExitCode::Crypto.category(), "Crypto");
+        assert_eq!(ExitCode::PolicyViolation.category(), "Policy");
+        assert_eq!(ExitCode::Validation.category(), "Validation");
+        assert_eq!(ExitCode::Auth.category(), "Auth");
+        assert_eq!(ExitCode::Worker.category(), "Worker/Job");
+        assert_eq!(ExitCode::Io.category(), "Subsystem");
+        assert_eq!(ExitCode::Telemetry.category(), "Domain");
+    }
+
+    #[test]
+    fn test_exit_code_from_aos_error() {
+        use adapteros_core::AosError;
+
+        // Test various error types map to correct exit codes
+        let config_err = AosError::Config("test".to_string());
+        assert_eq!(ExitCode::from(&config_err), ExitCode::Config);
+
+        let db_err = AosError::Database("test".to_string());
+        assert_eq!(ExitCode::from(&db_err), ExitCode::Database);
+
+        let policy_err = AosError::PolicyViolation("test".to_string());
+        assert_eq!(ExitCode::from(&policy_err), ExitCode::PolicyViolation);
+
+        let crypto_err = AosError::Crypto("test".to_string());
+        assert_eq!(ExitCode::from(&crypto_err), ExitCode::Crypto);
+
+        let validation_err = AosError::Validation("test".to_string());
+        assert_eq!(ExitCode::from(&validation_err), ExitCode::Validation);
+    }
+
+    #[test]
+    fn test_exit_code_numeric_values() {
+        // Verify exit codes fall within their category ranges
+        assert_eq!(ExitCode::Success as u8, 0);
+        assert!((1..=9).contains(&(ExitCode::GeneralError as u8)));
+        assert!((10..=19).contains(&(ExitCode::Config as u8)));
+        assert!((20..=29).contains(&(ExitCode::Database as u8)));
+        assert!((30..=39).contains(&(ExitCode::Network as u8)));
+        assert!((40..=49).contains(&(ExitCode::Crypto as u8)));
+        assert!((50..=59).contains(&(ExitCode::PolicyViolation as u8)));
+        assert!((60..=69).contains(&(ExitCode::Validation as u8)));
+    }
+
+    #[test]
+    fn test_exit_code_to_i32() {
+        let code = ExitCode::Config;
+        let value: i32 = code.into();
+        assert_eq!(value, 10);
     }
 }

@@ -166,6 +166,7 @@ impl TrainArgs {
                     .into_iter()
                     .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
                     .collect(),
+                weight: 1.0,
             })
             .collect();
 

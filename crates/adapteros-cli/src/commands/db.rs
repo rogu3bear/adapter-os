@@ -70,7 +70,7 @@ async fn run_migrate(
     verify_only: bool,
     output: &OutputWriter,
 ) -> Result<()> {
-    use adapteros_db::Database;
+    use adapteros_db::Db;
 
     // Determine database path
     let db_url = if let Some(path) = db_path {
@@ -82,29 +82,29 @@ async fn run_migrate(
     };
 
     if verify_only {
-        output.info("Verifying migration signatures...")?;
+        output.info("Verifying migration signatures...");
 
         // Just verify signatures without running migrations
         use adapteros_db::migration_verify::MigrationVerifier;
         let verifier = MigrationVerifier::new("migrations")?;
         verifier.verify_all()?;
 
-        output.success("All migration signatures verified")?;
+        output.success("All migration signatures verified");
         return Ok(());
     }
 
-    output.info(&format!("Running database migrations on: {}", db_url))?;
+    output.info(&format!("Running database migrations on: {}", db_url));
 
     // Connect to database and run migrations
-    let db = Database::connect(&db_url).await?;
+    let db = Db::connect(&db_url).await?;
     db.migrate().await?;
 
-    output.success("Database migrations completed successfully")?;
+    output.success("Database migrations completed successfully");
     Ok(())
 }
 
 async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter) -> Result<()> {
-    use adapteros_db::Database;
+    use adapteros_db::Db;
     use std::io::{self, Write};
 
     // Determine database path
@@ -120,36 +120,36 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
     // Safety check: ensure this is not being run in production
     let db_path_str = db_file_path.display().to_string();
     if db_path_str.contains("/prod") || db_path_str.contains("production") {
-        output.error("❌ Refusing to reset database with 'prod' or 'production' in path")?;
-        output.error("This command is for DEVELOPMENT ONLY")?;
+        output.error("Refusing to reset database with 'prod' or 'production' in path");
+        output.error("This command is for DEVELOPMENT ONLY");
         return Err(anyhow::anyhow!("Cannot reset production database"));
     }
 
     // Confirmation prompt (unless --force)
     if !force {
         output.warning(&format!(
-            "⚠️  This will DELETE the database at: {}",
+            "This will DELETE the database at: {}",
             db_path_str
-        ))?;
-        output.warning("⚠️  ALL DATA WILL BE PERMANENTLY LOST")?;
-        output.info("")?;
-        output.info("Type 'yes' to confirm: ")?;
+        ));
+        output.warning("ALL DATA WILL BE PERMANENTLY LOST");
+        output.info("");
+        output.info("Type 'yes' to confirm: ");
 
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
 
         if input.trim() != "yes" {
-            output.info("Reset cancelled")?;
+            output.info("Reset cancelled");
             return Ok(());
         }
     }
 
-    output.info("Resetting database...")?;
+    output.info("Resetting database...");
 
     // Step 1: Delete database file and WAL files
     if db_file_path.exists() {
         std::fs::remove_file(&db_file_path)?;
-        output.info(&format!("✓ Deleted {}", db_path_str))?;
+        output.info(&format!("Deleted {}", db_path_str));
     }
 
     // Also remove WAL and SHM files if they exist
@@ -158,16 +158,16 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
 
     if wal_path.exists() {
         std::fs::remove_file(&wal_path)?;
-        output.info("✓ Deleted WAL file")?;
+        output.info("Deleted WAL file");
     }
 
     if shm_path.exists() {
         std::fs::remove_file(&shm_path)?;
-        output.info("✓ Deleted SHM file")?;
+        output.info("Deleted SHM file");
     }
 
     // Step 2: Recreate database with all migrations
-    output.info("Creating fresh database...")?;
+    output.info("Creating fresh database...");
 
     let db_url = if let Some(path) = db_path {
         format!("sqlite://{}", path.display())
@@ -177,11 +177,11 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
         "sqlite://./var/aos-cp.sqlite3".to_string()
     };
 
-    let db = Database::connect(&db_url).await?;
+    let db = Db::connect(&db_url).await?;
     db.migrate().await?;
 
-    output.success("✓ Database reset complete")?;
-    output.info("All migrations (0001-0070) applied successfully")?;
+    output.success("Database reset complete");
+    output.info("All migrations (0001-0070) applied successfully");
 
     Ok(())
 }

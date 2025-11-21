@@ -1341,15 +1341,15 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             ttl_hours,
             reason,
         } => {
-            let db = adapteros_db::Database::connect_env().await?;
+            let db = adapteros_db::Db::connect_env().await?;
             pin::pin_adapter(&db, tenant, adapter, *ttl_hours, reason, output).await?;
         }
         Commands::AdapterUnpin { tenant, adapter } => {
-            let db = adapteros_db::Database::connect_env().await?;
+            let db = adapteros_db::Db::connect_env().await?;
             pin::unpin_adapter(&db, tenant, adapter, output).await?;
         }
         Commands::AdapterListPinned { tenant } => {
-            let db = adapteros_db::Database::connect_env().await?;
+            let db = adapteros_db::Db::connect_env().await?;
             pin::list_pinned(&db, tenant, output).await?;
         }
         Commands::AdapterSwap {
@@ -1508,6 +1508,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::CodegraphStats { codegraph_db } => {
             codegraph_stats::run(codegraph_db.to_path_buf(), output).await?;
         }
+        #[cfg(feature = "secd-support")]
         Commands::SecdStatus {
             pid_file,
             heartbeat_file,
@@ -1516,6 +1517,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         } => {
             secd_status::run(pid_file, heartbeat_file, socket, Some(database)).await?;
         }
+        #[cfg(feature = "secd-support")]
         Commands::SecdAudit {
             database,
             limit,

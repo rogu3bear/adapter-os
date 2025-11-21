@@ -2,8 +2,9 @@
 
 use crate::output::OutputWriter;
 use adapteros_client::{AdapterOSClient, UdsClient};
+use adapteros_core::validation;
+use adapteros_core::AosError;
 use adapteros_core::Result;
-use adapteros_core::{validation, AosError};
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use std::time::Duration;
@@ -1293,12 +1294,12 @@ async fn lineage_adapter(
         .get(&url)
         .send()
         .await
-        .map_err(|e| AosError::Network(format!("Failed to fetch lineage: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to fetch lineage: {}", e)))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        return Err(AosError::Network(format!(
+        return Err(AosError::Io(format!(
             "API error {}: {}",
             status, error_text
         )));
@@ -1307,7 +1308,7 @@ async fn lineage_adapter(
     let lineage_data: Value = response
         .json()
         .await
-        .map_err(|e| AosError::Network(format!("Failed to parse response: {}", e)))?;
+        .map_err(|e| AosError::Io(format!("Failed to parse response: {}", e)))?;
 
     // Output based on format
     if json_output {
@@ -1316,9 +1317,10 @@ async fn lineage_adapter(
     }
 
     // Parse lineage structure
-    let ancestors = lineage_data["ancestors"].as_array().unwrap_or(&vec![]);
+    let empty_vec = vec![];
+    let ancestors = lineage_data["ancestors"].as_array().unwrap_or(&empty_vec);
     let self_node = &lineage_data["self_node"];
-    let descendants = lineage_data["descendants"].as_array().unwrap_or(&vec![]);
+    let descendants = lineage_data["descendants"].as_array().unwrap_or(&empty_vec);
     let total_nodes = lineage_data["total_nodes"].as_u64().unwrap_or(0);
 
     output.info(&format!("Lineage tree for adapter: {}", adapter_id));

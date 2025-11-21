@@ -38,7 +38,7 @@ pub async fn run(all: bool, node_ids: Option<Vec<String>>) -> Result<()> {
 
     // Collect hashes from each node
     let mut hash_map: HashMap<String, Vec<(String, B3Hash)>> = HashMap::new();
-    let mut errors = Vec::new();
+    let mut errors: Vec<(String, String)> = Vec::new();
 
     for node in &nodes {
         print!("  Querying {}... ", node.hostname);

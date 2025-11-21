@@ -91,6 +91,11 @@ pub enum VerifyCommand {
     },
 }
 
+/// Run bundle verification (public entry point for Commands::Verify)
+pub async fn run(bundle_path: &Path, output: &OutputWriter) -> Result<()> {
+    run_bundle(bundle_path, output).await
+}
+
 /// Handle verify commands
 pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) -> Result<()> {
     match cmd {
@@ -114,7 +119,9 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
         }
         VerifyCommand::Telemetry { bundle_dir } => {
             use crate::commands::verify_telemetry;
-            verify_telemetry::verify_telemetry_chain(&bundle_dir, output).await
+            verify_telemetry::verify_telemetry_chain(&bundle_dir, output)
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))
         }
         VerifyCommand::Federation {
             bundle_dir,
