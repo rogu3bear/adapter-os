@@ -110,7 +110,10 @@ pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: A
     let app = Router::new()
         .route("/inference", post(inference_handler::<K>))
         .route("/v1/completions", post(completion_handler::<K>))
-        .route("/v1/chat/completions", post(streaming_inference_handler::<K>))
+        .route(
+            "/v1/chat/completions",
+            post(streaming_inference_handler::<K>),
+        )
         .route("/health", get(health_handler))
         .layer(
             ServiceBuilder::new()
@@ -254,8 +257,7 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string(), None),
         };
 
-        let response = ErrorResponse::new(error)
-            .with_details(serde_json::json!(details));
+        let response = ErrorResponse::new(error).with_details(serde_json::json!(details));
         (status, Json(response)).into_response()
     }
 }

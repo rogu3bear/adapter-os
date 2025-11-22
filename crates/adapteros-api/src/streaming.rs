@@ -460,6 +460,8 @@ mod tests {
             stop: vec![],
             stream: default_stream(),
             adapter_stack: None,
+            stack_id: None,
+            stack_version: None,
         };
 
         assert_eq!(req.max_tokens, 512);

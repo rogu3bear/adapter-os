@@ -96,6 +96,24 @@ pub enum Permission {
     DatasetUpload,
     DatasetValidate,
     DatasetDelete,
+
+    // Workspace permissions
+    WorkspaceView,
+    WorkspaceManage,
+    WorkspaceMemberManage,
+    WorkspaceResourceManage,
+
+    // Notification permissions
+    NotificationView,
+    NotificationManage,
+
+    // Dashboard permissions
+    DashboardView,
+    DashboardManage,
+
+    // Activity permissions
+    ActivityView,
+    ActivityCreate,
 }
 
 /// Check if a role has a specific permission
@@ -141,6 +159,10 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Viewer, Permission::TelemetryView) => true,
         (Role::Viewer, Permission::ContactView) => true,
         (Role::Viewer, Permission::DatasetView) => true,
+        (Role::Viewer, Permission::WorkspaceView) => true,
+        (Role::Viewer, Permission::NotificationView) => true,
+        (Role::Viewer, Permission::DashboardView) => true,
+        (Role::Viewer, Permission::ActivityView) => true,
         (Role::Viewer, _) => false, // All write operations blocked
 
         // ========== OPERATOR ROLE ==========
@@ -179,6 +201,16 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Operator, Permission::DatasetUpload) => true,
         (Role::Operator, Permission::DatasetValidate) => true,
         (Role::Operator, Permission::DatasetDelete) => false, // Cannot delete (Admin only)
+        (Role::Operator, Permission::WorkspaceView) => true,
+        (Role::Operator, Permission::WorkspaceManage) => true,
+        (Role::Operator, Permission::WorkspaceMemberManage) => true,
+        (Role::Operator, Permission::WorkspaceResourceManage) => true,
+        (Role::Operator, Permission::NotificationView) => true,
+        (Role::Operator, Permission::NotificationManage) => true,
+        (Role::Operator, Permission::DashboardView) => true,
+        (Role::Operator, Permission::DashboardManage) => true,
+        (Role::Operator, Permission::ActivityView) => true,
+        (Role::Operator, Permission::ActivityCreate) => true,
         (Role::Operator, _) => false,
 
         // ========== SRE ROLE ==========
@@ -212,6 +244,12 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::SRE, Permission::ReplayManage) => true, // Can create/verify replay sessions for debugging
         (Role::SRE, Permission::FederationView) => true,
         (Role::SRE, Permission::DatasetView) => true,
+        (Role::SRE, Permission::WorkspaceView) => true,
+        (Role::SRE, Permission::NotificationView) => true,
+        (Role::SRE, Permission::NotificationManage) => true,
+        (Role::SRE, Permission::DashboardView) => true,
+        (Role::SRE, Permission::DashboardManage) => true,
+        (Role::SRE, Permission::ActivityView) => true,
         (Role::SRE, _) => false,
 
         // ========== COMPLIANCE ROLE ==========
@@ -246,6 +284,12 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         (Role::Compliance, Permission::ContactView) => true,
         (Role::Compliance, Permission::DatasetView) => true,
         (Role::Compliance, Permission::DatasetValidate) => true, // Can validate datasets
+        (Role::Compliance, Permission::WorkspaceView) => true,
+        (Role::Compliance, Permission::NotificationView) => true,
+        (Role::Compliance, Permission::NotificationManage) => true,
+        (Role::Compliance, Permission::DashboardView) => true,
+        (Role::Compliance, Permission::DashboardManage) => true,
+        (Role::Compliance, Permission::ActivityView) => true,
         (Role::Compliance, _) => false,
     }
 }

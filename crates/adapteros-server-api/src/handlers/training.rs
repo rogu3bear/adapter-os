@@ -9,12 +9,12 @@ use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
+    extract::State,
     extract::{Extension, Path, Query},
     http::StatusCode,
     response::Json,
-    extract::State,
 };
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// List training jobs with optional filters
 #[utoipa::path(
@@ -36,7 +36,10 @@ pub async fn list_training_jobs(
         error!(error = %e, "Failed to list training jobs");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(&format!("Failed to list jobs: {}", e)).with_code("DATABASE_ERROR")),
+            Json(
+                ErrorResponse::new(&format!("Failed to list jobs: {}", e))
+                    .with_code("DATABASE_ERROR"),
+            ),
         )
     })?;
 
@@ -113,12 +116,18 @@ pub async fn get_training_job(
         if error_str.contains("not found") || error_str.contains("NotFound") {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(&format!("Training job not found: {}", job_id)).with_code("NOT_FOUND")),
+                Json(
+                    ErrorResponse::new(&format!("Training job not found: {}", job_id))
+                        .with_code("NOT_FOUND"),
+                ),
             )
         } else {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&format!("Failed to get job: {}", e)).with_code("DATABASE_ERROR")),
+                Json(
+                    ErrorResponse::new(&format!("Failed to get job: {}", e))
+                        .with_code("DATABASE_ERROR"),
+                ),
             )
         }
     })?;
@@ -203,28 +212,40 @@ pub async fn cancel_training(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    state.training_service.cancel_job(&job_id).await.map_err(|e| {
-        error!(job_id = %job_id, error = %e, "Failed to cancel training job");
-        let error_str = e.to_string();
-        if error_str.contains("not found") || error_str.contains("NotFound") {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(&format!("Training job not found: {}", job_id)).with_code("NOT_FOUND")),
-            )
-        } else if error_str.contains("cannot be cancelled") || error_str.contains("already") {
-            (
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new(&format!("Job cannot be cancelled: {}", e)).with_code("INVALID_STATE")),
-            )
-        } else {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&format!("Failed to cancel job: {}", e)).with_code("DATABASE_ERROR")),
-            )
-        }
-    })?;
+    state
+        .training_service
+        .cancel_job(&job_id)
+        .await
+        .map_err(|e| {
+            error!(job_id = %job_id, error = %e, "Failed to cancel training job");
+            let error_str = e.to_string();
+            if error_str.contains("not found") || error_str.contains("NotFound") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&format!("Training job not found: {}", job_id))
+                            .with_code("NOT_FOUND"),
+                    ),
+                )
+            } else if error_str.contains("cannot be cancelled") || error_str.contains("already") {
+                (
+                    StatusCode::CONFLICT,
+                    Json(
+                        ErrorResponse::new(&format!("Job cannot be cancelled: {}", e))
+                            .with_code("INVALID_STATE"),
+                    ),
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new(&format!("Failed to cancel job: {}", e))
+                            .with_code("DATABASE_ERROR"),
+                    ),
+                )
+            }
+        })?;
 
     info!(job_id = %job_id, user_id = %claims.sub, "Cancelled training job");
     Ok(StatusCode::NO_CONTENT)
 }
-

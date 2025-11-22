@@ -23,47 +23,34 @@ use utoipa::ToSchema;
 /// Metrics snapshot event for SSE streaming
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricsSnapshotEvent {
-    /// Timestamp of the snapshot (Unix seconds)
-    pub timestamp: u64,
-    /// Latency metrics
-    pub latency: LatencyMetrics,
+    /// Timestamp of the snapshot (milliseconds)
+    pub timestamp_ms: u64,
+    /// Latency metrics (percentiles)
+    pub latency: StreamingLatencyMetrics,
     /// Throughput metrics
-    pub throughput: ThroughputMetrics,
+    pub throughput: StreamingThroughputMetrics,
     /// System resource metrics
-    pub system: SystemResourceMetrics,
-    /// Queue depth metrics
-    pub queue_depth: QueueDepthMetrics,
+    pub system: StreamingSystemMetrics,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct LatencyMetrics {
-    pub inference_p50_ms: f64,
-    pub inference_p95_ms: f64,
-    pub inference_p99_ms: f64,
-    pub router_p50_ms: f64,
-    pub router_p95_ms: f64,
-    pub router_p99_ms: f64,
+pub struct StreamingLatencyMetrics {
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ThroughputMetrics {
+pub struct StreamingThroughputMetrics {
     pub tokens_per_second: f64,
-    pub tokens_generated_total: u64,
-    pub sessions_per_minute: f64,
+    pub inferences_per_second: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct SystemResourceMetrics {
-    pub active_sessions: f64,
-    pub memory_usage_mb: f64,
-    pub cpu_usage_percent: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct QueueDepthMetrics {
-    pub request_queue: f64,
-    pub adapter_queue: f64,
-    pub kernel_queue: f64,
+pub struct StreamingSystemMetrics {
+    pub cpu_percent: f64,
+    pub memory_percent: f64,
+    pub disk_percent: f64,
 }
 
 /// Telemetry event for SSE streaming
@@ -112,33 +99,24 @@ pub async fn system_metrics_stream(
         tokio::time::sleep(Duration::from_secs(5)).await;
 
         // Collect metrics from the MetricsCollector
-        let snapshot = state.metrics_collector.get_metrics_snapshot().await;
+        let snapshot = state.metrics_collector.snapshot();
 
         // Convert to our streaming event format
         let event = MetricsSnapshotEvent {
-            timestamp: snapshot.timestamp,
-            latency: LatencyMetrics {
-                inference_p50_ms: snapshot.latency.inference_p50_ms,
-                inference_p95_ms: snapshot.latency.inference_p95_ms,
-                inference_p99_ms: snapshot.latency.inference_p99_ms,
-                router_p50_ms: snapshot.latency.router_p50_ms,
-                router_p95_ms: snapshot.latency.router_p95_ms,
-                router_p99_ms: snapshot.latency.router_p99_ms,
+            timestamp_ms: snapshot.timestamp_ms,
+            latency: StreamingLatencyMetrics {
+                p50_ms: snapshot.latency.p50_ms,
+                p95_ms: snapshot.latency.p95_ms,
+                p99_ms: snapshot.latency.p99_ms,
             },
-            throughput: ThroughputMetrics {
+            throughput: StreamingThroughputMetrics {
                 tokens_per_second: snapshot.throughput.tokens_per_second,
-                tokens_generated_total: snapshot.throughput.tokens_generated_total,
-                sessions_per_minute: snapshot.throughput.sessions_per_minute,
+                inferences_per_second: snapshot.throughput.inferences_per_second,
             },
-            system: SystemResourceMetrics {
-                active_sessions: snapshot.system.active_sessions,
-                memory_usage_mb: snapshot.system.memory_usage_mb,
-                cpu_usage_percent: snapshot.system.cpu_usage_percent,
-            },
-            queue_depth: QueueDepthMetrics {
-                request_queue: snapshot.queue_depth.request_queue,
-                adapter_queue: snapshot.queue_depth.adapter_queue,
-                kernel_queue: snapshot.queue_depth.kernel_queue,
+            system: StreamingSystemMetrics {
+                cpu_percent: snapshot.system.cpu_usage_percent,
+                memory_percent: snapshot.system.memory_usage_percent,
+                disk_percent: snapshot.system.disk_usage_percent,
             },
         };
 

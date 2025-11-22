@@ -1,7 +1,6 @@
 ///! Token revocation management for JWT security
 ///!
 ///! Provides blacklist functionality for revoked tokens to prevent reuse.
-
 use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::Utc;
@@ -22,12 +21,10 @@ pub struct RevokedToken {
 
 /// Check if a token has been revoked
 pub async fn is_token_revoked(db: &Db, jti: &str) -> Result<bool> {
-    let result = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?"
-    )
-    .bind(jti)
-    .fetch_one(db.pool())
-    .await?;
+    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?")
+        .bind(jti)
+        .fetch_one(db.pool())
+        .await?;
 
     Ok(result > 0)
 }
@@ -80,7 +77,7 @@ pub async fn revoke_all_user_tokens(
 ) -> Result<usize> {
     // Get all active sessions for the user
     let sessions = sqlx::query_as::<_, (String, String)>(
-        "SELECT jti, expires_at FROM user_sessions WHERE user_id = ? AND tenant_id = ?"
+        "SELECT jti, expires_at FROM user_sessions WHERE user_id = ? AND tenant_id = ?",
     )
     .bind(user_id)
     .bind(tenant_id)
@@ -90,7 +87,16 @@ pub async fn revoke_all_user_tokens(
     let count = sessions.len();
 
     for (jti, expires_at) in sessions {
-        revoke_token(db, &jti, user_id, tenant_id, &expires_at, Some(revoked_by), Some(reason)).await?;
+        revoke_token(
+            db,
+            &jti,
+            user_id,
+            tenant_id,
+            &expires_at,
+            Some(revoked_by),
+            Some(reason),
+        )
+        .await?;
     }
 
     info!(
@@ -108,12 +114,10 @@ pub async fn revoke_all_user_tokens(
 pub async fn cleanup_expired_revocations(db: &Db) -> Result<usize> {
     let now = Utc::now().to_rfc3339();
 
-    let result = sqlx::query(
-        "DELETE FROM revoked_tokens WHERE expires_at < ?"
-    )
-    .bind(&now)
-    .execute(db.pool())
-    .await?;
+    let result = sqlx::query("DELETE FROM revoked_tokens WHERE expires_at < ?")
+        .bind(&now)
+        .execute(db.pool())
+        .await?;
 
     let count = result.rows_affected() as usize;
 
@@ -125,17 +129,13 @@ pub async fn cleanup_expired_revocations(db: &Db) -> Result<usize> {
 }
 
 /// Get revocation history for a user
-pub async fn get_user_revocations(
-    db: &Db,
-    user_id: &str,
-    limit: i64,
-) -> Result<Vec<RevokedToken>> {
+pub async fn get_user_revocations(db: &Db, user_id: &str, limit: i64) -> Result<Vec<RevokedToken>> {
     let tokens = sqlx::query_as::<_, RevokedToken>(
         "SELECT jti, user_id, tenant_id, revoked_at, revoked_by, reason, expires_at
          FROM revoked_tokens
          WHERE user_id = ?
          ORDER BY revoked_at DESC
-         LIMIT ?"
+         LIMIT ?",
     )
     .bind(user_id)
     .bind(limit.min(100))
@@ -152,7 +152,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_token_revocation() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         let jti = "test-jti-123";
         let user_id = "user-1";
@@ -160,20 +162,34 @@ mod tests {
         let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
 
         // Initially not revoked
-        assert!(!is_token_revoked(&db, jti).await.expect("Failed to check token revocation"));
+        assert!(!is_token_revoked(&db, jti)
+            .await
+            .expect("Failed to check token revocation"));
 
         // Revoke token
-        revoke_token(&db, jti, user_id, tenant_id, &expires_at, Some("admin"), Some("logout"))
-            .await
-            .expect("Failed to revoke token");
+        revoke_token(
+            &db,
+            jti,
+            user_id,
+            tenant_id,
+            &expires_at,
+            Some("admin"),
+            Some("logout"),
+        )
+        .await
+        .expect("Failed to revoke token");
 
         // Now revoked
-        assert!(is_token_revoked(&db, jti).await.expect("Failed to check token revocation"));
+        assert!(is_token_revoked(&db, jti)
+            .await
+            .expect("Failed to check token revocation"));
     }
 
     #[tokio::test]
     async fn test_cleanup_expired() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         let past_expiry = (Utc::now() - Duration::hours(1)).to_rfc3339();
 
@@ -191,10 +207,14 @@ mod tests {
         .expect("Failed to add revocation");
 
         // Cleanup
-        let count = cleanup_expired_revocations(&db).await.expect("Failed to cleanup expired revocations");
+        let count = cleanup_expired_revocations(&db)
+            .await
+            .expect("Failed to cleanup expired revocations");
         assert_eq!(count, 1);
 
         // Verify cleaned up
-        assert!(!is_token_revoked(&db, "expired-jti").await.expect("Failed to check expired token revocation"));
+        assert!(!is_token_revoked(&db, "expired-jti")
+            .await
+            .expect("Failed to check expired token revocation"));
     }
 }

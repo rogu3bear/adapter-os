@@ -21,7 +21,10 @@ pub mod validation;
 pub use plugin_registry::PluginRegistry;
 
 pub use state::{AppState, CryptoState};
-pub use telemetry::{spawn_telemetry_workers, TelemetryWorkerConfig, SpanStatus, TraceSearchQuery, TraceEvent, TraceBuffer};
+pub use telemetry::{
+    spawn_telemetry_workers, SpanStatus, TelemetryWorkerConfig, TraceBuffer, TraceEvent,
+    TraceSearchQuery,
+};
 pub use telemetry_ext::StackMetadataExt;
 pub use types::*;
 pub use uds_client::{UdsClient, UdsClientError};

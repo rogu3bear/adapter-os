@@ -222,6 +222,31 @@ pub mod actions {
     pub const DATASET_UPLOAD: &str = "dataset.upload";
     pub const DATASET_VALIDATE: &str = "dataset.validate";
     pub const DATASET_DELETE: &str = "dataset.delete";
+    pub const DATASET_CHUNKED_UPLOAD_INIT: &str = "dataset.chunked_upload.init";
+    pub const DATASET_CHUNKED_UPLOAD_CHUNK: &str = "dataset.chunked_upload.chunk";
+    pub const DATASET_CHUNKED_UPLOAD_COMPLETE: &str = "dataset.chunked_upload.complete";
+    pub const DATASET_CHUNKED_UPLOAD_CANCEL: &str = "dataset.chunked_upload.cancel";
+
+    // Workspace actions
+    pub const WORKSPACE_CREATE: &str = "workspace.create";
+    pub const WORKSPACE_UPDATE: &str = "workspace.update";
+    pub const WORKSPACE_DELETE: &str = "workspace.delete";
+    pub const WORKSPACE_MEMBER_ADD: &str = "workspace.member.add";
+    pub const WORKSPACE_MEMBER_UPDATE: &str = "workspace.member.update";
+    pub const WORKSPACE_MEMBER_REMOVE: &str = "workspace.member.remove";
+    pub const WORKSPACE_RESOURCE_SHARE: &str = "workspace.resource.share";
+    pub const WORKSPACE_RESOURCE_UNSHARE: &str = "workspace.resource.unshare";
+
+    // Notification actions
+    pub const NOTIFICATION_READ: &str = "notification.read";
+    pub const NOTIFICATION_READ_ALL: &str = "notification.read_all";
+
+    // Dashboard actions
+    pub const DASHBOARD_CONFIG_UPDATE: &str = "dashboard.config.update";
+    pub const DASHBOARD_CONFIG_RESET: &str = "dashboard.config.reset";
+
+    // Activity actions
+    pub const ACTIVITY_EVENT_CREATE: &str = "activity.event.create";
 }
 
 /// Resource types as constants
@@ -250,4 +275,10 @@ pub mod resources {
     pub const TELEMETRY_BUNDLE: &str = "telemetry_bundle";
     pub const STREAM_ENDPOINT: &str = "stream_endpoint";
     pub const DATASET: &str = "dataset";
+    pub const WORKSPACE: &str = "workspace";
+    pub const WORKSPACE_MEMBER: &str = "workspace_member";
+    pub const WORKSPACE_RESOURCE: &str = "workspace_resource";
+    pub const NOTIFICATION: &str = "notification";
+    pub const DASHBOARD_CONFIG: &str = "dashboard_config";
+    pub const ACTIVITY_EVENT: &str = "activity_event";
 }

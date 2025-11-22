@@ -198,8 +198,8 @@ impl UploadSessionManager {
     /// Check if upload is complete
     pub async fn is_upload_complete(&self, session_id: &str) -> Result<bool> {
         let session = self.get_session(session_id).await?;
-        let expected_chunks = (session.total_size + (session.chunk_size as u64 - 1))
-            / (session.chunk_size as u64);
+        let expected_chunks =
+            (session.total_size + (session.chunk_size as u64 - 1)) / (session.chunk_size as u64);
         Ok(session.received_chunks.len() == expected_chunks as usize)
     }
 
@@ -217,12 +217,12 @@ impl UploadSessionManager {
 
         let expired: Vec<String> = sessions
             .iter()
-            .filter_map(|(id, session)| {
-                match now.duration_since(session.created_at) {
+            .filter_map(
+                |(id, session)| match now.duration_since(session.created_at) {
                     Ok(duration) if duration.as_secs() > UPLOAD_TIMEOUT_SECS => Some(id.clone()),
                     _ => None,
-                }
-            })
+                },
+            )
             .collect();
 
         let count = expired.len();
@@ -271,8 +271,14 @@ impl ChunkWriter {
 
     /// Flush and return hash
     pub async fn finalize(mut self) -> Result<String> {
-        self.file.flush().await.context("Failed to flush chunk file")?;
-        self.file.sync_all().await.context("Failed to sync chunk file")?;
+        self.file
+            .flush()
+            .await
+            .context("Failed to flush chunk file")?;
+        self.file
+            .sync_all()
+            .await
+            .context("Failed to sync chunk file")?;
         Ok(self.hasher.finalize().to_hex().to_string())
     }
 }
@@ -294,7 +300,8 @@ impl ChunkAssembler {
         total_size: u64,
         compression: CompressionFormat,
     ) -> Self {
-        let expected_chunks = ((total_size + (chunk_size as u64 - 1)) / (chunk_size as u64)) as usize;
+        let expected_chunks =
+            ((total_size + (chunk_size as u64 - 1)) / (chunk_size as u64)) as usize;
         Self {
             output_path,
             chunk_dir,
@@ -342,8 +349,14 @@ impl ChunkAssembler {
             }
         }
 
-        output_file.flush().await.context("Failed to flush output file")?;
-        output_file.sync_all().await.context("Failed to sync output file")?;
+        output_file
+            .flush()
+            .await
+            .context("Failed to flush output file")?;
+        output_file
+            .sync_all()
+            .await
+            .context("Failed to sync output file")?;
 
         let final_hash = final_hasher.finalize().to_hex().to_string();
         info!(
@@ -363,8 +376,7 @@ pub struct CompressionHandler;
 impl CompressionHandler {
     /// Decompress gzip file to directory
     pub async fn decompress_gzip(input_path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
-        let input_file = std::fs::File::open(input_path)
-            .context("Failed to open gzip file")?;
+        let input_file = std::fs::File::open(input_path).context("Failed to open gzip file")?;
         let decoder = flate2::read::GzDecoder::new(input_file);
         let mut archive = tar::Archive::new(decoder);
 
@@ -388,10 +400,8 @@ impl CompressionHandler {
 
     /// Decompress zip file to directory
     pub async fn decompress_zip(input_path: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
-        let file = std::fs::File::open(input_path)
-            .context("Failed to open zip file")?;
-        let mut archive = ZipArchive::new(file)
-            .context("Failed to parse zip archive")?;
+        let file = std::fs::File::open(input_path).context("Failed to open zip file")?;
+        let mut archive = ZipArchive::new(file).context("Failed to parse zip archive")?;
 
         let mut files = Vec::new();
 
@@ -417,9 +427,7 @@ impl CompressionHandler {
 
             let mut buffer = vec![0; 8192];
             loop {
-                let n = file
-                    .read(&mut buffer)
-                    .context("Failed to read zip entry")?;
+                let n = file.read(&mut buffer).context("Failed to read zip entry")?;
                 if n == 0 {
                     break;
                 }
@@ -466,10 +474,7 @@ impl FileValidator {
     /// Validate file format based on content and extension
     pub fn validate_format(file_path: &Path, format: &str) -> Result<()> {
         let path = Path::new(file_path);
-        let extension = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
         match format {
             "jsonl" => {
@@ -506,9 +511,7 @@ impl FileValidator {
         }
 
         // Read first chunk for validation
-        let mut file = File::open(file_path)
-            .await
-            .context("Failed to open file")?;
+        let mut file = File::open(file_path).await.context("Failed to open file")?;
 
         let read_size = (metadata.len() as usize).min(max_bytes);
         let mut buffer = vec![0u8; read_size];

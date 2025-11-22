@@ -79,9 +79,10 @@ impl ResponseSchemaValidator {
     ) -> Result<ValidationResult> {
         let start_time = std::time::Instant::now();
 
-        let schema = self.schemas.get(schema_name).ok_or_else(|| {
-            AosError::Validation(format!("Unknown schema: {}", schema_name))
-        })?;
+        let schema = self
+            .schemas
+            .get(schema_name)
+            .ok_or_else(|| AosError::Validation(format!("Unknown schema: {}", schema_name)))?;
 
         let response_size = serde_json::to_string(response)
             .map(|s| s.len())
@@ -262,18 +263,29 @@ impl ResponseSchemaValidator {
     async fn emit_validation_telemetry(&self, result: &ValidationResult) {
         if let Some(ref telemetry) = self.telemetry {
             let event = if result.valid {
-                schema_validation_success(&result.schema_name, result.response_size, result.validation_time_us)
+                schema_validation_success(
+                    &result.schema_name,
+                    result.response_size,
+                    result.validation_time_us,
+                )
             } else {
                 schema_validation_failure(
                     &result.schema_name,
                     &result.errors.join("; "),
                     result.response_size,
-                    result.validation_time_us
+                    result.validation_time_us,
                 )
             };
 
-            if let Err(e) = telemetry.log_event(event) {
-                tracing::warn!("Failed to log validation telemetry: {}", e);
+            match event {
+                Ok(e) => {
+                    if let Err(log_err) = telemetry.log_event(e) {
+                        tracing::warn!("Failed to log validation telemetry: {}", log_err);
+                    }
+                }
+                Err(build_err) => {
+                    tracing::warn!("Failed to build validation telemetry event: {}", build_err);
+                }
             }
         }
     }
@@ -304,12 +316,11 @@ impl ResponseValidationMiddleware {
     }
 
     /// Validate a response and return error if invalid
-    pub async fn validate_and_handle(
-        &self,
-        response: &Value,
-        schema_name: &str,
-    ) -> Result<()> {
-        let validation_result = self.validator.validate_response(response, schema_name).await?;
+    pub async fn validate_and_handle(&self, response: &Value, schema_name: &str) -> Result<()> {
+        let validation_result = self
+            .validator
+            .validate_response(response, schema_name)
+            .await?;
 
         if !validation_result.valid {
             return Err(AosError::Validation(format!(
@@ -328,7 +339,9 @@ impl ResponseValidationMiddleware {
         response: &Value,
         schema_name: &str,
     ) -> ValidationResult {
-        self.validator.validate_response(response, schema_name).await
+        self.validator
+            .validate_response(response, schema_name)
+            .await
             .unwrap_or_else(|_| ValidationResult {
                 valid: false,
                 errors: vec!["Validation system error".to_string()],
@@ -406,7 +419,9 @@ mod tests {
             }
         });
 
-        let result = validator.validate_response(&response, "inference_response").await;
+        let result = validator
+            .validate_response(&response, "inference_response")
+            .await;
         assert!(result.is_ok());
         assert!(result.expect("Validation failed").valid);
     }
@@ -420,7 +435,9 @@ mod tests {
             // Missing token_count and latency_ms
         });
 
-        let result = validator.validate_response(&response, "inference_response").await;
+        let result = validator
+            .validate_response(&response, "inference_response")
+            .await;
         assert!(result.is_ok());
         let validation = result.expect("Validation failed");
         assert!(!validation.valid);
@@ -437,7 +454,9 @@ mod tests {
             "latency_ms": 150
         });
 
-        let result = validator.validate_response(&response, "inference_response").await;
+        let result = validator
+            .validate_response(&response, "inference_response")
+            .await;
         assert!(result.is_ok());
         let validation = result.expect("Validation failed");
         assert!(!validation.valid);
@@ -450,7 +469,9 @@ mod tests {
 
         let response = json!({"test": "value"});
 
-        let result = validator.validate_response(&response, "unknown_schema").await;
+        let result = validator
+            .validate_response(&response, "unknown_schema")
+            .await;
         assert!(result.is_err());
     }
 

@@ -2,7 +2,9 @@
 //!
 //! Provides API endpoints for unified notification center (system alerts, messages, mentions, activity).
 
+use crate::audit_helper::{actions, log_success, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
+use crate::permissions::{require_permission, Permission};
 use adapteros_db::notifications::NotificationType;
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -40,6 +42,8 @@ pub async fn list_notifications(
     Extension(claims): Extension<Claims>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<NotificationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::NotificationView)?;
+
     let workspace_id = params.get("workspace_id").map(|s| s.as_str());
     let type_filter = params
         .get("type")
@@ -105,6 +109,8 @@ pub async fn get_notification_summary(
     Extension(claims): Extension<Claims>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<NotificationSummary>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::NotificationView)?;
+
     let workspace_id = params.get("workspace_id").map(|s| s.as_str());
 
     let unread_count = state
@@ -150,6 +156,8 @@ pub async fn mark_notification_read(
     Extension(claims): Extension<Claims>,
     Path(notification_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::NotificationManage)?;
+
     // Verify notification belongs to user
     let notification = state
         .db
@@ -194,6 +202,16 @@ pub async fn mark_notification_read(
             )
         })?;
 
+    log_success(
+        &state.db,
+        &claims,
+        actions::NOTIFICATION_READ,
+        resources::NOTIFICATION,
+        Some(&notification_id),
+    )
+    .await
+    .ok();
+
     Ok(Json(serde_json::json!({"status": "read"})))
 }
 
@@ -203,6 +221,8 @@ pub async fn mark_all_notifications_read(
     Extension(claims): Extension<Claims>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::NotificationManage)?;
+
     let workspace_id = params.get("workspace_id").map(|s| s.as_str());
 
     let count = state
@@ -219,6 +239,16 @@ pub async fn mark_all_notifications_read(
                 ),
             )
         })?;
+
+    log_success(
+        &state.db,
+        &claims,
+        actions::NOTIFICATION_READ_ALL,
+        resources::NOTIFICATION,
+        workspace_id,
+    )
+    .await
+    .ok();
 
     Ok(Json(serde_json::json!({"status": "read", "count": count})))
 }

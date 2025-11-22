@@ -31,8 +31,27 @@ use tracing::warn;
 pub async fn get_metrics_snapshot(
     State(state): State<AppState>,
 ) -> Result<Json<MetricsSnapshotResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let snapshot = state.metrics_collector.get_metrics_snapshot().await;
-    Ok(Json(MetricsSnapshotResponse::from(snapshot)))
+    // Use metrics_exporter snapshot and convert to response format
+    let exporter_snapshot = state.metrics_exporter.snapshot();
+
+    // Create a MetricsSnapshotResponse from the exporter snapshot
+    let response = MetricsSnapshotResponse {
+        timestamp: Some(exporter_snapshot.timestamp.to_string()),
+        counters: std::collections::HashMap::from([(
+            "total_requests".to_string(),
+            exporter_snapshot.total_requests,
+        )]),
+        gauges: std::collections::HashMap::from([
+            ("queue_depth".to_string(), exporter_snapshot.queue_depth),
+            (
+                "avg_latency_ms".to_string(),
+                exporter_snapshot.avg_latency_ms,
+            ),
+        ]),
+        histograms: std::collections::HashMap::new(),
+    };
+
+    Ok(Json(response))
 }
 
 /// Query parameters for metrics series endpoint
@@ -236,7 +255,10 @@ pub async fn search_traces(
 pub async fn get_trace(
     State(state): State<AppState>,
     Path(trace_id): Path<String>,
-) -> Result<Json<Option<crate::telemetry::TraceEvent>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
+) -> Result<
+    Json<Option<crate::telemetry::TraceEvent>>,
+    (StatusCode, Json<crate::types::ErrorResponse>),
+> {
     // Get trace from the trace buffer
     let trace = state.trace_buffer.get_trace(&trace_id);
     Ok(Json(trace))

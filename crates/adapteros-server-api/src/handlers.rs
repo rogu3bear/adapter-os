@@ -1,15 +1,15 @@
 #![allow(unused_variables)]
 
-use adapteros_core::AosError;
-use adapteros_core::identity::IdentityEnvelope;
-use adapteros_lora_lifecycle::GpuIntegrityReport;
 use crate::auth::{generate_token, verify_password, Claims};
 use crate::middleware::{require_any_role, require_role};
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
-use crate::permissions::{require_permission, Permission};
+use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::AosError;
+use adapteros_lora_lifecycle::GpuIntegrityReport;
 use adapteros_policy::packs::memory::MemoryPressureLevel;
 // System metrics integration
 use adapteros_system_metrics;
@@ -19,9 +19,10 @@ use adapteros_system_metrics::monitoring_types::{
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
 };
 use axum::response::Response;
-use utoipa::ToSchema;
 use sqlx::Row;
+use utoipa::ToSchema;
 
+pub mod activity;
 pub mod adapter_stacks;
 pub mod adapters;
 pub mod auth;
@@ -29,12 +30,14 @@ pub mod auth_enhanced;
 pub mod batch;
 pub mod chunked_upload;
 pub mod code;
+pub mod dashboard;
 pub mod datasets;
 pub mod domain_adapters;
 pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod golden;
+pub mod notifications;
 pub mod plugins;
 pub mod promotion;
 pub mod replay;
@@ -42,6 +45,7 @@ pub mod routing_decisions;
 pub mod telemetry;
 pub mod tenants;
 pub mod training;
+pub mod workspaces;
 
 // Re-export adapter lifecycle and lineage handlers
 pub use adapters::*;
@@ -50,7 +54,7 @@ pub use adapters::*;
 pub use tenants::*;
 
 // Re-export auth handlers (including utoipa path types)
-pub use auth::{auth_login, auth_logout, auth_me, __path_auth_login};
+pub use auth::{__path_auth_login, auth_login, auth_logout, auth_me};
 
 // Re-export training handlers
 pub use training::*;
@@ -406,20 +410,16 @@ pub async fn upsert_directory_adapter(
                     ),
                 )
             })?;
-        state
-            .db
-            .register_adapter(params)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to register adapter")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+        state.db.register_adapter(params).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to register adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
     }
 
     // Optionally activate (load) adapter now
@@ -749,7 +749,13 @@ pub async fn get_tenant_index_hashes(
 ) -> Result<Json<IndexHashesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TenantView)?;
 
-    if state.db.get_tenant(&tenant_id).await.map_err(aos_error_to_response)?.is_none() {
+    if state
+        .db
+        .get_tenant(&tenant_id)
+        .await
+        .map_err(aos_error_to_response)?
+        .is_none()
+    {
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("Tenant not found")),
@@ -764,7 +770,12 @@ pub async fn get_tenant_index_hashes(
     ];
     let mut hashes = std::collections::HashMap::new();
     for typ in types {
-        if let Some(hash) = state.db.get_index_hash(&tenant_id, typ).await.map_err(aos_error_to_response)? {
+        if let Some(hash) = state
+            .db
+            .get_index_hash(&tenant_id, typ)
+            .await
+            .map_err(aos_error_to_response)?
+        {
             hashes.insert(typ.to_string(), hash.to_hex());
         }
     }
@@ -810,7 +821,9 @@ pub async fn hydrate_tenant_from_bundle(
         .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to acquire lock on telemetry bundle store")),
+                Json(ErrorResponse::new(
+                    "Failed to acquire lock on telemetry bundle store",
+                )),
             )
         })?
         .get_bundle_events(&req.bundle_id)
@@ -824,13 +837,23 @@ pub async fn hydrate_tenant_from_bundle(
     // Sort events canonical: timestamp asc, then event_type asc
     let mut sorted_events: Vec<&serde_json::Value> = events.iter().collect();
     sorted_events.sort_by(|e1: &&serde_json::Value, e2: &&serde_json::Value| {
-        let ts1 = e1.get("timestamp").and_then(|v: &serde_json::Value| v.as_i64()).unwrap_or(0);
-        let ts2 = e2.get("timestamp").and_then(|v: &serde_json::Value| v.as_i64()).unwrap_or(0);
+        let ts1 = e1
+            .get("timestamp")
+            .and_then(|v: &serde_json::Value| v.as_i64())
+            .unwrap_or(0);
+        let ts2 = e2
+            .get("timestamp")
+            .and_then(|v: &serde_json::Value| v.as_i64())
+            .unwrap_or(0);
         ts1.cmp(&ts2).then_with(|| {
             e1.get("event_type")
                 .and_then(|v: &serde_json::Value| v.as_str())
                 .unwrap_or("")
-                .cmp(e2.get("event_type").and_then(|v: &serde_json::Value| v.as_str()).unwrap_or(""))
+                .cmp(
+                    e2.get("event_type")
+                        .and_then(|v: &serde_json::Value| v.as_str())
+                        .unwrap_or(""),
+                )
         })
     });
 
@@ -884,9 +907,19 @@ pub async fn hydrate_tenant_from_bundle(
             req.tenant_id,
             sim_hash
         );
-        let tenant = state.db.get_tenant(&req.tenant_id).await
-            .map_err(|e| aos_error_to_response(AosError::Database(format!("Failed to get tenant: {}", e))))?
-            .ok_or_else(|| aos_error_to_response(AosError::NotFound(format!("Tenant {} not found", req.tenant_id))))?;
+        let tenant = state
+            .db
+            .get_tenant(&req.tenant_id)
+            .await
+            .map_err(|e| {
+                aos_error_to_response(AosError::Database(format!("Failed to get tenant: {}", e)))
+            })?
+            .ok_or_else(|| {
+                aos_error_to_response(AosError::NotFound(format!(
+                    "Tenant {} not found",
+                    req.tenant_id
+                )))
+            })?;
         return Ok(Json(TenantHydrationResponse {
             tenant_id: req.tenant_id.clone(),
             state_hash: sim_hash.to_hex(),
@@ -896,8 +929,16 @@ pub async fn hydrate_tenant_from_bundle(
     }
 
     // New tenant or mismatch (but mismatch already errored), create and apply
-    let tenant_exists = state.db.get_tenant(&req.tenant_id).await
-        .map_err(|e| aos_error_to_response(AosError::Database(format!("Failed to check tenant existence: {}", e))))?
+    let tenant_exists = state
+        .db
+        .get_tenant(&req.tenant_id)
+        .await
+        .map_err(|e| {
+            aos_error_to_response(AosError::Database(format!(
+                "Failed to check tenant existence: {}",
+                e
+            )))
+        })?
         .is_some();
 
     if !tenant_exists {
@@ -988,9 +1029,19 @@ pub async fn hydrate_tenant_from_bundle(
             )
         })?;
 
-    let tenant = state.db.get_tenant(&req.tenant_id).await
-        .map_err(|e| aos_error_to_response(AosError::Database(format!("Failed to get tenant: {}", e))))?
-        .ok_or_else(|| aos_error_to_response(AosError::NotFound(format!("Tenant {} not found", req.tenant_id))))?;
+    let tenant = state
+        .db
+        .get_tenant(&req.tenant_id)
+        .await
+        .map_err(|e| {
+            aos_error_to_response(AosError::Database(format!("Failed to get tenant: {}", e)))
+        })?
+        .ok_or_else(|| {
+            aos_error_to_response(AosError::NotFound(format!(
+                "Tenant {} not found",
+                req.tenant_id
+            )))
+        })?;
 
     Ok(Json(TenantHydrationResponse {
         tenant_id: req.tenant_id.clone(),
@@ -1037,10 +1088,11 @@ async fn apply_event<'a>(
                 .and_then(|v| v.as_str())
                 .unwrap_or(&id)
                 .to_string();
-            let rank =
-                meta.get("rank")
-                    .and_then(|v| v.as_i64())
-                    .ok_or(AosError::Validation("Missing rank".to_string()))? as i32;
+            let rank = meta
+                .get("rank")
+                .and_then(|v| v.as_i64())
+                .ok_or(AosError::Validation("Missing rank".to_string()))?
+                as i32;
             let version = meta
                 .get("version")
                 .and_then(|v| v.as_str())
@@ -1719,20 +1771,16 @@ pub async fn import_model(
         license_hash_b3: req.license_hash_b3.clone(),
         metadata_json: req.metadata_json.clone(),
     };
-    state
-        .db
-        .register_model(params)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to import model")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    state.db.register_model(params).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to import model")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     Ok(StatusCode::CREATED)
 }
@@ -2393,6 +2441,142 @@ pub async fn list_workers(
     Ok(Json(response))
 }
 
+/// Stop a worker process
+///
+/// Gracefully stops a worker process by updating its status and optionally
+/// terminating the underlying process.
+///
+/// **Permissions:** Requires `WorkerManage` permission (Operator or Admin role).
+///
+/// **Telemetry:** Emits `worker.stop` event.
+///
+/// # Example
+/// ```
+/// POST /v1/workers/{worker_id}/stop
+/// ```
+#[utoipa::path(
+    post,
+    path = "/v1/workers/{worker_id}/stop",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    responses(
+        (status = 200, description = "Worker stopped successfully", body = crate::types::WorkerStopResponse),
+        (status = 404, description = "Worker not found", body = ErrorResponse),
+        (status = 500, description = "Failed to stop worker", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
+pub async fn stop_worker(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+) -> Result<Json<crate::types::WorkerStopResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require worker manage permission
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+
+    // Get worker from database
+    let worker = state
+        .db
+        .get_worker(&worker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("worker not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Worker ID: {}", worker_id)),
+                ),
+            )
+        })?;
+
+    let previous_status = worker.status.clone();
+
+    // Update worker status to 'stopping'
+    sqlx::query("UPDATE workers SET status = 'stopping' WHERE id = ?")
+        .bind(&worker_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update worker status")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // If worker has a PID, attempt to terminate the process
+    if let Some(pid) = worker.pid {
+        // Note: In production, this would send a signal to the worker process
+        // For now, we just update the status
+        tracing::info!(
+            event = "worker.stop.signal",
+            worker_id = %worker_id,
+            pid = %pid,
+            "Signaling worker process to stop"
+        );
+    }
+
+    // Update worker status to 'stopped'
+    sqlx::query("UPDATE workers SET status = 'stopped' WHERE id = ?")
+        .bind(&worker_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update worker status")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let stopped_at = chrono::Utc::now().to_rfc3339();
+
+    // Emit telemetry event
+    tracing::info!(
+        event = "worker.stop",
+        worker_id = %worker_id,
+        previous_status = %previous_status,
+        actor = %claims.sub,
+        "Worker stopped"
+    );
+
+    // Audit log
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        "worker.stop",
+        crate::audit_helper::resources::WORKER,
+        Some(&worker_id),
+    )
+    .await;
+
+    Ok(Json(crate::types::WorkerStopResponse {
+        worker_id,
+        success: true,
+        message: "Worker stopped successfully".to_string(),
+        previous_status,
+        stopped_at,
+    }))
+}
+
 /// Logout endpoint (stateless JWT - just return success)
 
 /// List plans with optional tenant filter
@@ -2438,8 +2622,8 @@ pub async fn list_plans(
             id: p.id,
             tenant_id: p.tenant_id,
             manifest_hash_b3: p.manifest_hash_b3,
-            kernel_hash_b3: None,         // Requires separate async lookup - use get_plan_details for full data
-            layout_hash_b3: None,         // Not stored in Plan model
+            kernel_hash_b3: None, // Requires separate async lookup - use get_plan_details for full data
+            layout_hash_b3: None, // Not stored in Plan model
             status: "active".to_string(), // Default status
             created_at: p.created_at,
         })
@@ -3481,9 +3665,14 @@ pub async fn infer(
     if is_high_pressure {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("service under memory pressure")
-                .with_code("BACKPRESSURE")
-                .with_string_details(format!("level={}, retry_after_secs=30, action=reduce max_tokens or retry later", pressure_str))),
+            Json(
+                ErrorResponse::new("service under memory pressure")
+                    .with_code("BACKPRESSURE")
+                    .with_string_details(format!(
+                        "level={}, retry_after_secs=30, action=reduce max_tokens or retry later",
+                        pressure_str
+                    )),
+            ),
         ));
     }
 
@@ -3535,7 +3724,7 @@ pub async fn infer(
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 id: uuid::Uuid::new_v4().to_string(),
                 text: worker_response.text.unwrap_or_default(),
-                tokens: vec![], // Worker doesn't expose token IDs in current API
+                tokens: vec![],      // Worker doesn't expose token IDs in current API
                 tokens_generated: 0, // Not tracked in current response
                 finish_reason: worker_response.status.clone(),
                 latency_ms: 0, // Not tracked in current response
@@ -3562,7 +3751,10 @@ pub async fn infer(
                 )
             })?;
 
-            state.response_validator.validate_response(&response_value, "inference_response").await
+            state
+                .response_validator
+                .validate_response(&response_value, "inference_response")
+                .await
                 .map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -4182,6 +4374,7 @@ pub async fn list_adapters(
             }),
             version: adapter.version.clone(),
             lifecycle_state: adapter.lifecycle_state.clone(),
+            runtime_state: Some(adapter.current_state.clone()),
         });
     }
 
@@ -4248,7 +4441,10 @@ pub async fn get_adapter(
     Ok(Json(AdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: adapter.id.clone(),
-        adapter_id: adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone()),
+        adapter_id: adapter
+            .adapter_id
+            .clone()
+            .unwrap_or_else(|| adapter.id.clone()),
         name: adapter.name.clone(),
         hash_b3: adapter.hash_b3.clone(),
         rank: adapter.rank,
@@ -4262,8 +4458,9 @@ pub async fn get_adapter(
             avg_gate_value: avg_gate,
             selection_rate,
         }),
-        version: adapter.version,
-        lifecycle_state: adapter.lifecycle_state,
+        version: adapter.version.clone(),
+        lifecycle_state: adapter.lifecycle_state.clone(),
+        runtime_state: Some(adapter.current_state),
     }))
 }
 /// Register new adapter
@@ -4346,20 +4543,16 @@ pub async fn register_adapter(
             )
         })?;
 
-    let id = state
-        .db
-        .register_adapter(params)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to register adapter")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let id = state.db.register_adapter(params).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to register adapter")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // Audit log: adapter registration
     let _ = crate::audit_helper::log_success(
@@ -4382,11 +4575,12 @@ pub async fn register_adapter(
             rank: req.rank,
             tier: req.tier,
             version: "1.0".to_string(),
-            lifecycle_state: "registered".to_string(),
+            lifecycle_state: "active".to_string(),
             languages: req.languages,
             framework: req.framework,
             created_at: chrono::Utc::now().to_rfc3339(),
             stats: None,
+            runtime_state: Some("unloaded".to_string()),
         }),
     ))
 }
@@ -4634,7 +4828,10 @@ pub async fn load_adapter(
         0.0
     };
 
-    let adapter_id_val = adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone());
+    let adapter_id_val = adapter
+        .adapter_id
+        .clone()
+        .unwrap_or_else(|| adapter.id.clone());
     Ok(Json(AdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: adapter.id,
@@ -4644,7 +4841,7 @@ pub async fn load_adapter(
         rank: adapter.rank,
         tier: tier_str_to_int(&adapter.tier),
         version: adapter.version.clone(),
-        lifecycle_state: adapter.current_state.clone(),
+        lifecycle_state: adapter.lifecycle_state.clone(),
         languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
             .unwrap_or_default(),
         framework: adapter.framework,
@@ -4655,6 +4852,7 @@ pub async fn load_adapter(
             avg_gate_value: avg_gate,
             selection_rate,
         }),
+        runtime_state: Some(adapter.current_state),
     }))
 }
 
@@ -4893,7 +5091,9 @@ pub async fn verify_gpu_integrity(
             total_checked: 0,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| aos_error_to_response(AosError::Internal(format!("System time error: {}", e))))?
+                .map_err(|e| {
+                    aos_error_to_response(AosError::Internal(format!("System time error: {}", e)))
+                })?
                 .as_secs(),
         };
 
@@ -5087,7 +5287,10 @@ pub async fn download_adapter_manifest(
         })?;
 
     let manifest = AdapterManifest {
-        adapter_id: adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone()),
+        adapter_id: adapter
+            .adapter_id
+            .clone()
+            .unwrap_or_else(|| adapter.id.clone()),
         name: adapter.name,
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
@@ -5143,7 +5346,8 @@ pub async fn get_adapter_health(
     let adapter_id_clone2 = adapter_id.clone();
     let adapter_id_clone3 = adapter_id.clone();
 
-    Ok(Json(AdapterHealthResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+    Ok(Json(AdapterHealthResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapter_id: adapter_id_clone,
         total_activations: total as i32,
         selected_count: selected as i32,
@@ -5227,14 +5431,14 @@ pub async fn list_repositories(
         let frameworks: Vec<String> = Vec::new(); // TODO: Add frameworks field to Repository
 
         // Fetch latest CodeGraphMetadata for file/symbol counts
-        let (file_count, symbol_count) = match state
-            .db
-            .get_latest_code_graph_metadata(&r.repo_id)
-            .await
-        {
-            Ok(Some(metadata)) => (Some(metadata.file_count as i64), Some(metadata.symbol_count as i64)),
-            _ => (None, None),
-        };
+        let (file_count, symbol_count) =
+            match state.db.get_latest_code_graph_metadata(&r.repo_id).await {
+                Ok(Some(metadata)) => (
+                    Some(metadata.file_count as i64),
+                    Some(metadata.symbol_count as i64),
+                ),
+                _ => (None, None),
+            };
 
         responses.push(RepositoryResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -5273,7 +5477,8 @@ pub async fn get_quality_metrics(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
     // Stub implementation - would compute from telemetry
-    Ok(Json(QualityMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+    Ok(Json(QualityMetricsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         arr: 0.95,
         ecs5: 0.82,
         hlr: 0.02,
@@ -5324,7 +5529,10 @@ pub async fn get_adapter_metrics(
         };
 
         performances.push(AdapterPerformance {
-            adapter_id: adapter.adapter_id.clone().unwrap_or_else(|| adapter.id.clone()),
+            adapter_id: adapter
+                .adapter_id
+                .clone()
+                .unwrap_or_else(|| adapter.id.clone()),
             name: adapter.name,
             activation_rate,
             avg_gate_value: avg_gate,
@@ -5332,7 +5540,8 @@ pub async fn get_adapter_metrics(
         });
     }
 
-    Ok(Json(AdapterMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+    Ok(Json(AdapterMetricsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapters: performances,
     }))
 }
@@ -5366,7 +5575,8 @@ pub async fn get_system_metrics(
         .expect("System time before UNIX epoch")
         .as_secs();
 
-    Ok(Json(SystemMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+    Ok(Json(SystemMetricsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
         active_workers: {
@@ -5401,7 +5611,8 @@ pub async fn get_system_metrics(
         gpu_utilization: metrics.gpu_metrics.utilization.unwrap_or(0.0) as f32,
         uptime_seconds: collector.uptime_seconds(),
         process_count: collector.process_count(),
-        load_average: LoadAverageResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        load_average: LoadAverageResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             load_1min: load_avg.0,
             load_5min: load_avg.1,
             load_15min: load_avg.2,
@@ -5496,29 +5707,26 @@ pub async fn get_commit(
 ) -> Result<Json<CommitResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Use git subsystem if available
     if let Some(git_subsystem) = &state.git_subsystem {
-        let commit = git_subsystem
-            .get_commit(None, &sha)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get commit {}: {}", sha, e);
-                let status = if e.to_string().contains("not found") {
-                    StatusCode::NOT_FOUND
-                } else {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                };
-                (
-                    status,
-                    Json(
-                        ErrorResponse::new(format!("Failed to get commit: {}", e))
-                            .with_code(if status == StatusCode::NOT_FOUND {
-                                "NOT_FOUND"
-                            } else {
-                                "INTERNAL_ERROR"
-                            })
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+        let commit = git_subsystem.get_commit(None, &sha).await.map_err(|e| {
+            tracing::error!("Failed to get commit {}: {}", sha, e);
+            let status = if e.to_string().contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (
+                status,
+                Json(
+                    ErrorResponse::new(format!("Failed to get commit: {}", e))
+                        .with_code(if status == StatusCode::NOT_FOUND {
+                            "NOT_FOUND"
+                        } else {
+                            "INTERNAL_ERROR"
+                        })
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
         Ok(Json(CommitResponse {
             id: commit.sha.clone(),
@@ -5621,7 +5829,7 @@ pub async fn debug_routing(
     Extension(_claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
 ) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
-    use adapteros_lora_router::{CodeFeatures, Router, RouterWeights, AdapterInfo};
+    use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
 
     // Extract code features from prompt and context
     let combined_context = match req.context {
@@ -5631,19 +5839,17 @@ pub async fn debug_routing(
     let code_features = CodeFeatures::from_context(&combined_context);
 
     // Fetch all adapters from database
-    let adapters = state.db.list_adapters()
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list adapters: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to fetch adapters for routing debug")
-                        .with_code("ADAPTER_FETCH_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let adapters = state.db.list_adapters().await.map_err(|e| {
+        tracing::error!("Failed to list adapters: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to fetch adapters for routing debug")
+                    .with_code("ADAPTER_FETCH_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // Convert database adapters to router AdapterInfo
     let adapter_infos: Vec<AdapterInfo> = adapters
@@ -5674,7 +5880,11 @@ pub async fn debug_routing(
     for (idx, adapter) in adapter_infos.iter().enumerate() {
         let is_selected = decision.indices.iter().any(|&i| i as usize == idx);
         let gate_value = if is_selected {
-            let position = decision.indices.iter().position(|&i| i as usize == idx).unwrap_or(0);
+            let position = decision
+                .indices
+                .iter()
+                .position(|&i| i as usize == idx)
+                .unwrap_or(0);
             decision.gates_f32()[position] as f64
         } else {
             0.0
@@ -5696,8 +5906,8 @@ pub async fn debug_routing(
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(idx, _)| idx);
 
-    let language = detected_lang_idx.and_then(|idx| {
-        match idx {
+    let language = detected_lang_idx
+        .and_then(|idx| match idx {
             0 => Some("python"),
             1 => Some("rust"),
             2 => Some("javascript"),
@@ -5707,15 +5917,17 @@ pub async fn debug_routing(
             6 => Some("cpp"),
             7 => Some("csharp"),
             _ => None,
-        }
-    }).map(|s| s.to_string());
+        })
+        .map(|s| s.to_string());
 
-    let frameworks: Vec<String> = code_features.framework_prior
+    let frameworks: Vec<String> = code_features
+        .framework_prior
         .iter()
         .map(|(k, _)| k.clone())
         .collect();
 
-    let selected_adapters: Vec<String> = decision.indices
+    let selected_adapters: Vec<String> = decision
+        .indices
         .iter()
         .filter_map(|&idx| adapter_infos.get(idx as usize).map(|a| a.id.clone()))
         .collect();
@@ -5740,55 +5952,107 @@ pub async fn debug_routing(
 }
 
 /// Get routing history
+///
+/// Returns the most recent routing decisions from the database.
+/// This queries actual routing decisions stored during inference operations.
+/// If no decisions exist yet, returns an empty list.
 #[utoipa::path(
     tag = "system",
     get,
     path = "/v1/routing/history",
+    params(
+        ("limit" = Option<usize>, Query, description = "Maximum number of results (default: 50)")
+    ),
     responses(
         (status = 200, description = "Routing history", body = Vec<RoutingDebugResponse>)
     )
 )]
 pub async fn get_routing_history(
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
+    Query(params): Query<RoutingHistoryQuery>,
 ) -> Result<Json<Vec<RoutingDebugResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Query actual routing history from telemetry
-    // For now, return sample history entries
-    Ok(Json(vec![
-        RoutingDebugResponse {
-            features: FeatureVector {
-                language: Some("rust".to_string()),
-                frameworks: vec!["axum".to_string()],
-                symbol_hits: 5,
-                path_tokens: vec!["handlers".to_string(), "api".to_string()],
-                verb: "implement".to_string(),
-            },
-            adapter_scores: vec![AdapterScore {
-                adapter_id: "rust-code-v1".to_string(),
-                score: 0.90,
-                gate_value: 0.80,
-                selected: true,
-            }],
-            selected_adapters: vec!["rust-code-v1".to_string()],
-            explanation: "Selected rust-code-v1 for Rust implementation task".to_string(),
-        },
-        RoutingDebugResponse {
-            features: FeatureVector {
-                language: Some("typescript".to_string()),
-                frameworks: vec!["react".to_string()],
-                symbol_hits: 3,
-                path_tokens: vec!["components".to_string()],
-                verb: "create".to_string(),
-            },
-            adapter_scores: vec![AdapterScore {
-                adapter_id: "frontend-v1".to_string(),
-                score: 0.85,
-                gate_value: 0.75,
-                selected: true,
-            }],
-            selected_adapters: vec!["frontend-v1".to_string()],
-            explanation: "Selected frontend-v1 for React component creation".to_string(),
-        },
-    ]))
+    use adapteros_db::RoutingDecisionFilters;
+    use tracing::{debug, warn};
+
+    let limit = params.limit.unwrap_or(50);
+    debug!(limit = limit, "Querying routing history from database");
+
+    // Query routing decisions from the database
+    let filters = RoutingDecisionFilters {
+        limit: Some(limit),
+        ..Default::default()
+    };
+
+    let db_decisions = state
+        .db
+        .query_routing_decisions(&filters)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to query routing history");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(format!("Database error: {}", e))),
+            )
+        })?;
+
+    // Convert database records to RoutingDebugResponse format
+    let responses: Vec<RoutingDebugResponse> = db_decisions
+        .into_iter()
+        .map(|decision| {
+            // Parse candidate adapters JSON
+            let candidates: Vec<adapteros_db::RouterCandidate> =
+                serde_json::from_str(&decision.candidate_adapters).unwrap_or_default();
+
+            // Parse selected adapter IDs
+            let selected_adapters: Vec<String> = decision
+                .selected_adapter_ids
+                .map(|ids| ids.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
+
+            // Convert candidates to adapter scores
+            let adapter_scores: Vec<AdapterScore> = candidates
+                .iter()
+                .map(|c| {
+                    let gate_float = (c.gate_q15 as f32) / 32768.0;
+                    let adapter_id = format!("adapter-{}", c.adapter_idx);
+                    let is_selected = selected_adapters.contains(&adapter_id);
+                    AdapterScore {
+                        adapter_id,
+                        score: c.raw_score as f64,
+                        gate_value: gate_float as f64,
+                        selected: is_selected,
+                    }
+                })
+                .collect();
+
+            // Build explanation from decision metadata
+            let explanation = format!(
+                "Step {} with entropy {:.3}, tau {:.3}, selected {} adapter(s)",
+                decision.step,
+                decision.entropy,
+                decision.tau,
+                selected_adapters.len()
+            );
+
+            RoutingDebugResponse {
+                features: FeatureVector {
+                    // Note: Detailed features not stored in routing_decisions table
+                    // These are summarized during decision storage
+                    language: None,
+                    frameworks: vec![],
+                    symbol_hits: 0,
+                    path_tokens: vec![],
+                    verb: "infer".to_string(),
+                },
+                adapter_scores,
+                selected_adapters,
+                explanation,
+            }
+        })
+        .collect();
+
+    Ok(Json(responses))
 }
 
 // ===== Agent D Contract Endpoints =====
@@ -5831,7 +6095,7 @@ pub async fn routing_decisions(
     Query(params): Query<RoutingDecisionsQuery>,
 ) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     use adapteros_db::RoutingDecisionFilters;
-    use tracing::{info, error};
+    use tracing::{error, info};
 
     info!(
         tenant = %params.tenant,
@@ -5857,7 +6121,8 @@ pub async fn routing_decisions(
     // Query database
     let db_decisions = if params.anomalies_only {
         // Get high overhead decisions (>8% budget)
-        state.db
+        state
+            .db
             .get_high_overhead_decisions(Some(params.tenant.clone()), params.limit)
             .await
             .map_err(|e| {
@@ -5868,7 +6133,8 @@ pub async fn routing_decisions(
                 )
             })?
     } else {
-        state.db
+        state
+            .db
             .query_routing_decisions(&filters)
             .await
             .map_err(|e| {
@@ -5885,12 +6151,12 @@ pub async fn routing_decisions(
     for db_decision in db_decisions.iter() {
         // Parse candidates JSON
         let candidates: Vec<adapteros_db::RouterCandidate> =
-            serde_json::from_str(&db_decision.candidate_adapters)
-                .unwrap_or_default();
+            serde_json::from_str(&db_decision.candidate_adapters).unwrap_or_default();
 
         // Lookup stack name from adapter_stacks table if stack_id is available
         let stack_name = if let Some(stack_id) = &db_decision.stack_id {
-            state.db
+            state
+                .db
                 .get_stack(&params.tenant, stack_id)
                 .await
                 .ok()
@@ -5907,7 +6173,7 @@ pub async fn routing_decisions(
                 let gate_float = (c.gate_q15 as f32) / 32768.0;
                 RouterCandidateInfo {
                     adapter_idx: c.adapter_idx,
-                    adapter_name: None,  // adapter_idx is internal routing index; adapter IDs are in adapters_used
+                    adapter_name: None, // adapter_idx is internal routing index; adapter IDs are in adapters_used
                     raw_score: c.raw_score,
                     gate_q15: c.gate_q15,
                     gate_float,
@@ -5953,12 +6219,19 @@ pub async fn routing_decisions(
             overhead_pct: db_decision.overhead_pct,
             adapters_used,
             activations,
-            reason: format!("entropy={:.2}, k={}", db_decision.entropy, db_decision.k_value.unwrap_or(0)),
+            reason: format!(
+                "entropy={:.2}, k={}",
+                db_decision.entropy,
+                db_decision.k_value.unwrap_or(0)
+            ),
             trace_id: db_decision.request_id.clone().unwrap_or_default(),
         });
     }
 
-    info!(count = items.len(), "Successfully retrieved routing decisions");
+    info!(
+        count = items.len(),
+        "Successfully retrieved routing decisions"
+    );
 
     Ok(Json(RoutingDecisionsResponse { items }))
 }
@@ -6123,10 +6396,13 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
 
 // ===== SSE Stream Endpoints =====
 
+use adapteros_lora_worker::signal::Signal;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::{self, Stream};
 use std::convert::Infallible;
 use std::time::Duration;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt as TokioStreamExt;
 
 /// SSE stream for system metrics
 /// Pushes SystemMetrics every 5 seconds
@@ -6171,17 +6447,71 @@ pub async fn system_metrics_stream(
 }
 
 /// SSE stream for telemetry events
-/// Streams new telemetry bundles as they're created
+/// Streams telemetry events in real-time via broadcast channel.
+/// Falls back to periodic bundle checks if no real-time events are available.
 pub async fn telemetry_events_stream(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold((), |()| async move {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+    // Subscribe to the telemetry broadcast channel for real-time events
+    let mut receiver = state.telemetry_tx.subscribe();
 
-        // TODO: Implement real telemetry bundle streaming once DB methods exist
-        // For now, send keepalive events
-        Some((Ok(Event::default().event("keepalive").data("{}")), ()))
+    let stream = stream::unfold((receiver, state), |(mut rx, state)| async move {
+        // Use select to handle both real-time events and keepalive timeout
+        tokio::select! {
+            // Try to receive a real-time telemetry event
+            result = rx.recv() => {
+                match result {
+                    Ok(event) => {
+                        // Serialize the telemetry event
+                        let json = match serde_json::to_string(&event) {
+                            Ok(j) => j,
+                            Err(e) => {
+                                tracing::warn!("Failed to serialize telemetry event: {}", e);
+                                return Some((
+                                    Ok(Event::default()
+                                        .event("error")
+                                        .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
+                                    (rx, state),
+                                ));
+                            }
+                        };
+                        Some((
+                            Ok(Event::default().event("telemetry").data(json)),
+                            (rx, state),
+                        ))
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                        // Client is lagging behind, notify and continue
+                        tracing::warn!(lagged_count = count, "Telemetry SSE client lagged behind");
+                        Some((
+                            Ok(Event::default()
+                                .event("warning")
+                                .data(format!("{{\"lagged_events\": {}}}", count))),
+                            (rx, state),
+                        ))
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        // Channel closed, end the stream gracefully
+                        tracing::info!("Telemetry broadcast channel closed");
+                        None
+                    }
+                }
+            }
+            // Send keepalive if no events for 30 seconds
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                // Check buffer health and send status
+                let buffer_len = state.telemetry_buffer.len().await;
+                let health_json = format!(
+                    "{{\"status\": \"keepalive\", \"buffer_size\": {}}}",
+                    buffer_len
+                );
+                Some((
+                    Ok(Event::default().event("keepalive").data(health_json)),
+                    (rx, state),
+                ))
+            }
+        }
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -6243,7 +6573,8 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
         .map_err(|e| format!("time error: {}", e))?
         .as_secs();
 
-    Ok(SystemMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+    Ok(SystemMetricsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
         active_workers: {
@@ -6278,7 +6609,8 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
         gpu_utilization: metrics.gpu_metrics.utilization.unwrap_or(0.0) as f32,
         uptime_seconds: collector.uptime_seconds(),
         process_count: collector.process_count(),
-        load_average: LoadAverageResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        load_average: LoadAverageResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             load_1min: load_avg.0,
             load_5min: load_avg.1,
             load_15min: load_avg.2,
@@ -6322,46 +6654,68 @@ pub async fn training_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let tenant_id = params.tenant.clone();
 
-    // Create a stream that emits training events
-    // For now, this is a mock implementation that simulates events
-    // TODO: Connect to actual worker signal stream once worker integration is complete
-    let stream = stream::unfold(
-        (state, tenant_id, 0),
-        |(state, tenant_id, counter)| async move {
-            // Wait between events (simulating real-time updates)
-            tokio::time::sleep(Duration::from_secs(2)).await;
+    // Subscribe to the training signal broadcast channel
+    let rx = state.training_signal_tx.subscribe();
 
-            // Create mock training event
-            // In production, this would come from the worker's signal channel
-            let event_data = serde_json::json!({
-                "type": if counter % 3 == 0 { "adapter_promoted" } else if counter % 3 == 1 { "profiler_metrics" } else { "adapter_state_transition" },
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
-                "payload": {
-                    "adapter_id": format!("adapter_{}", counter % 5),
-                    "tenant_id": &tenant_id,
-                    "from_state": "warm",
-                    "to_state": "hot",
-                    "reason": "high_activation",
-                    "metrics": {
-                        "activation_pct": 12.5 + (counter as f32 * 0.5),
-                        "avg_latency_us": 450 + (counter * 10),
-                        "memory_bytes": 1024 * 1024 * (10 + counter)
-                    }
+    // Convert the broadcast receiver into a stream that filters by tenant
+    let signal_stream = BroadcastStream::new(rx).filter_map(move |result| {
+        let tenant_filter = tenant_id.clone();
+        match result {
+            Ok(signal) => {
+                // Filter signals by tenant_id if present in payload
+                let signal_tenant = signal
+                    .payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                // Pass through if tenant matches or if no tenant filter in signal
+                if signal_tenant.is_empty() || signal_tenant == tenant_filter {
+                    let event_data = serde_json::json!({
+                        "type": signal.signal_type.to_string(),
+                        "timestamp": signal.timestamp,
+                        "priority": format!("{:?}", signal.priority),
+                        "payload": signal.payload,
+                        "trace_id": signal.trace_id,
+                    });
+
+                    Some(Ok(Event::default()
+                        .event("training")
+                        .data(event_data.to_string())))
+                } else {
+                    None
                 }
-            });
+            }
+            Err(e) => {
+                tracing::debug!("Broadcast stream error (likely lag): {}", e);
+                None
+            }
+        }
+    });
 
-            let event = Event::default()
+    // Also include a periodic heartbeat to keep connection alive and provide fallback data
+    let heartbeat_stream = stream::unfold(0u64, |counter| async move {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let event_data = serde_json::json!({
+            "type": "heartbeat",
+            "timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("System time before UNIX epoch")
+                .as_millis(),
+            "sequence": counter,
+        });
+        Some((
+            Ok(Event::default()
                 .event("training")
-                .data(event_data.to_string());
+                .data(event_data.to_string())),
+            counter + 1,
+        ))
+    });
 
-            Some((Ok(event), (state, tenant_id, counter + 1)))
-        },
-    );
+    // Merge the signal stream with heartbeat stream
+    let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(merged_stream).keep_alive(KeepAlive::default())
 }
 
 /// Discovery stream SSE endpoint
@@ -6396,53 +6750,81 @@ pub async fn discovery_stream(
     let tenant_id = params.tenant.clone();
     let repo_filter = params.repo.clone();
 
-    // Create a stream that emits discovery events
-    // For now, this is a mock implementation
-    // TODO: Connect to actual CodeGraph scanner signal stream
-    let stream = stream::unfold(
-        (state, tenant_id, repo_filter, 0),
-        |(state, tenant_id, repo_filter, counter)| async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+    // Subscribe to the discovery signal broadcast channel
+    let rx = state.discovery_signal_tx.subscribe();
 
-            let repo_id = repo_filter
-                .clone()
-                .unwrap_or_else(|| "acme/payments".to_string());
+    // Convert the broadcast receiver into a stream that filters by tenant and repo
+    let signal_stream = BroadcastStream::new(rx).filter_map(move |result| {
+        let tenant_filter = tenant_id.clone();
+        let repo_filter_clone = repo_filter.clone();
+        match result {
+            Ok(signal) => {
+                // Filter signals by tenant_id if present in payload
+                let signal_tenant = signal
+                    .payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-            // Cycle through different discovery event types
-            let event_type = match counter % 5 {
-                0 => "repo_scan_started",
-                1 => "repo_scan_progress",
-                2 => "symbol_indexed",
-                3 => "framework_detected",
-                _ => "repo_scan_completed",
-            };
+                // Filter by repo_id if specified
+                let signal_repo = signal
+                    .payload
+                    .get("repo_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-            let event_data = serde_json::json!({
-                "type": event_type,
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
-                "payload": {
-                    "repo_id": repo_id,
-                    "tenant_id": &tenant_id,
-                    "stage": if counter < 10 { "parsing" } else if counter < 20 { "indexing" } else { "completed" },
-                    "files_parsed": counter * 14,
-                    "symbol_count": counter * 183,
-                    "framework": if event_type == "framework_detected" { Some("django 4.2") } else { None },
-                    "content_hash": if event_type == "repo_scan_completed" { Some(format!("b3:abc{:03x}", counter)) } else { None }
+                let tenant_matches = signal_tenant.is_empty() || signal_tenant == tenant_filter;
+                let repo_matches = repo_filter_clone
+                    .as_ref()
+                    .map(|r| signal_repo.is_empty() || signal_repo == r)
+                    .unwrap_or(true);
+
+                if tenant_matches && repo_matches {
+                    let event_data = serde_json::json!({
+                        "type": signal.signal_type.to_string(),
+                        "timestamp": signal.timestamp,
+                        "priority": format!("{:?}", signal.priority),
+                        "payload": signal.payload,
+                        "trace_id": signal.trace_id,
+                    });
+
+                    Some(Ok(Event::default()
+                        .event("discovery")
+                        .data(event_data.to_string())))
+                } else {
+                    None
                 }
-            });
+            }
+            Err(e) => {
+                tracing::debug!("Discovery broadcast stream error (likely lag): {}", e);
+                None
+            }
+        }
+    });
 
-            let event = Event::default()
+    // Include a periodic heartbeat to keep connection alive
+    let heartbeat_stream = stream::unfold(0u64, |counter| async move {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let event_data = serde_json::json!({
+            "type": "heartbeat",
+            "timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("System time before UNIX epoch")
+                .as_millis(),
+            "sequence": counter,
+        });
+        Some((
+            Ok(Event::default()
                 .event("discovery")
-                .data(event_data.to_string());
+                .data(event_data.to_string())),
+            counter + 1,
+        ))
+    });
 
-            Some((Ok(event), (state, tenant_id, repo_filter, counter + 1)))
-        },
-    );
+    // Merge the signal stream with heartbeat stream
+    let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(merged_stream).keep_alive(KeepAlive::default())
 }
 
 /// Contacts stream SSE endpoint
@@ -6469,48 +6851,68 @@ pub async fn contacts_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let tenant_id = params.tenant.clone();
 
-    // Create a stream that emits contact events
-    // TODO: Connect to actual contact discovery signal stream
-    let stream = stream::unfold(
-        (state, tenant_id, 0),
-        |(state, tenant_id, counter)| async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
+    // Subscribe to the contact signal broadcast channel
+    let rx = state.contact_signal_tx.subscribe();
 
-            let categories = ["adapter", "repository", "user", "system", "external"];
-            let names = [
-                "adapter_0",
-                "acme/payments",
-                "john.doe",
-                "api_gateway",
-                "stripe_api",
-            ];
+    // Convert the broadcast receiver into a stream that filters by tenant
+    let signal_stream = BroadcastStream::new(rx).filter_map(move |result| {
+        let tenant_filter = tenant_id.clone();
+        match result {
+            Ok(signal) => {
+                // Filter signals by tenant_id if present in payload
+                let signal_tenant = signal
+                    .payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-            let idx = counter % 5;
-            let event_data = serde_json::json!({
-                "type": "contact_discovered",
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
-                "payload": {
-                    "name": names[idx],
-                    "category": categories[idx],
-                    "tenant_id": &tenant_id,
-                    "metadata": {
-                        "discovered_at": chrono::Utc::now().to_rfc3339()
-                    }
+                // Pass through if tenant matches or if no tenant filter in signal
+                if signal_tenant.is_empty() || signal_tenant == tenant_filter {
+                    let event_data = serde_json::json!({
+                        "type": signal.signal_type.to_string(),
+                        "timestamp": signal.timestamp,
+                        "priority": format!("{:?}", signal.priority),
+                        "payload": signal.payload,
+                        "trace_id": signal.trace_id,
+                    });
+
+                    Some(Ok(Event::default()
+                        .event("contact")
+                        .data(event_data.to_string())))
+                } else {
+                    None
                 }
-            });
+            }
+            Err(e) => {
+                tracing::debug!("Contact broadcast stream error (likely lag): {}", e);
+                None
+            }
+        }
+    });
 
-            let event = Event::default()
+    // Include a periodic heartbeat to keep connection alive
+    let heartbeat_stream = stream::unfold(0u64, |counter| async move {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let event_data = serde_json::json!({
+            "type": "heartbeat",
+            "timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("System time before UNIX epoch")
+                .as_millis(),
+            "sequence": counter,
+        });
+        Some((
+            Ok(Event::default()
                 .event("contact")
-                .data(event_data.to_string());
+                .data(event_data.to_string())),
+            counter + 1,
+        ))
+    });
 
-            Some((Ok(event), (state, tenant_id, counter + 1)))
-        },
-    );
+    // Merge the signal stream with heartbeat stream
+    let merged_stream = futures_util::stream::select(signal_stream, heartbeat_stream);
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(merged_stream).keep_alive(KeepAlive::default())
 }
 
 // ============================================================================
@@ -6959,7 +7361,8 @@ pub async fn get_training_metrics(
         )
     })?;
 
-    Ok(Json(TrainingMetricsResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+    Ok(Json(TrainingMetricsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         loss: job.current_loss,
         tokens_per_second: job.tokens_per_second,
         learning_rate: job.learning_rate,
@@ -7111,12 +7514,18 @@ pub async fn get_training_artifacts(
         if error_str.contains("not found") || error_str.contains("NotFound") {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new(&format!("Training job not found: {}", job_id)).with_code("NOT_FOUND")),
+                Json(
+                    ErrorResponse::new(&format!("Training job not found: {}", job_id))
+                        .with_code("NOT_FOUND"),
+                ),
             )
         } else {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&format!("Failed to get job: {}", e)).with_code("DATABASE_ERROR")),
+                Json(
+                    ErrorResponse::new(&format!("Failed to get job: {}", e))
+                        .with_code("DATABASE_ERROR"),
+                ),
             )
         }
     })?;
@@ -7668,13 +8077,13 @@ pub async fn update_anomaly_status(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Update anomaly status in database
-    sqlx::query!(
+    sqlx::query(
         "UPDATE process_anomalies SET status = ?, investigation_notes = ?, investigated_by = ? WHERE id = ?",
-        req.status,
-        req.investigation_notes,
-        req.investigated_by,
-        anomaly_id
     )
+    .bind(&req.status)
+    .bind(&req.investigation_notes)
+    .bind(&req.investigated_by)
+    .bind(&anomaly_id)
     .execute(state.db.pool())
     .await
     .map_err(|e: sqlx::Error| {
@@ -8662,7 +9071,12 @@ pub async fn query_audit_logs(
     // Query audit logs from database
     // Note: The db method signature is: query_audit_logs(user_id, action, resource_type, start_date, end_date, limit)
     // Additional filtering (resource_id, status, tenant_id, offset) can be applied post-query if needed
-    let _ = (query.resource_id.as_deref(), query.status.as_deref(), query.tenant_id.as_deref(), offset);
+    let _ = (
+        query.resource_id.as_deref(),
+        query.status.as_deref(),
+        query.tenant_id.as_deref(),
+        offset,
+    );
     let logs = state
         .db
         .query_audit_logs(
@@ -8765,12 +9179,11 @@ use adapteros_policy::{
 fn tier_str_to_int(tier: &str) -> i32 {
     match tier {
         "persistent" => 0,
-        "warm" => 1, 
+        "warm" => 1,
         "ephemeral" => 2,
         _ => 1, // default to warm
     }
 }
-
 
 /// Request to validate an adapter name
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]

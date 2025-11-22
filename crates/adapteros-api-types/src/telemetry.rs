@@ -73,4 +73,3 @@ pub struct BundleVerificationResponse {
     pub signature_match: bool,
     pub timestamp: String,
 }
-

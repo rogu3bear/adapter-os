@@ -3,7 +3,9 @@
 //! Provides API endpoints for workspace CRUD, membership management, and resource sharing.
 //! Workspaces enable cross-tenant collaboration while maintaining tenant isolation.
 
+use crate::audit_helper::{actions, log_success, resources};
 use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
+use crate::permissions::{require_permission, Permission};
 use adapteros_db::users::Role;
 use adapteros_db::workspaces::{ResourceType, WorkspaceRole};
 use axum::{
@@ -62,10 +64,7 @@ pub async fn list_workspaces(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<WorkspaceResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(
-        &claims,
-        &[Role::Admin, Role::Operator, Role::Compliance, Role::Viewer],
-    )?;
+    require_permission(&claims, Permission::WorkspaceView)?;
 
     let workspaces = state.db.list_workspaces().await.map_err(|e| {
         error!("Failed to list workspaces: {}", e);
@@ -99,6 +98,8 @@ pub async fn list_user_workspaces(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<WorkspaceResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceView)?;
+
     let tenant_id = claims.tenant_id.clone();
     let user_id = claims.sub.clone();
 
@@ -139,7 +140,7 @@ pub async fn create_workspace(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    require_permission(&claims, Permission::WorkspaceManage)?;
 
     info!("Creating workspace: {} by user: {}", req.name, claims.sub);
 
@@ -200,6 +201,16 @@ pub async fn create_workspace(
             )
         })?;
 
+    // Audit log successful creation
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_CREATE,
+        resources::WORKSPACE,
+        Some(&workspace_id),
+    )
+    .await;
+
     Ok(Json(WorkspaceResponse {
         id: workspace.id,
         name: workspace.name,
@@ -216,6 +227,8 @@ pub async fn get_workspace(
     Extension(claims): Extension<Claims>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceView)?;
+
     // Check workspace access
     let role = state
         .db
@@ -274,6 +287,8 @@ pub async fn update_workspace(
     Path(workspace_id): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceManage)?;
+
     // Check workspace access - must be owner or member
     let role = state
         .db
@@ -348,6 +363,16 @@ pub async fn update_workspace(
             )
         })?;
 
+    // Audit log successful update
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_UPDATE,
+        resources::WORKSPACE,
+        Some(&workspace_id),
+    )
+    .await;
+
     Ok(Json(WorkspaceResponse {
         id: workspace.id,
         name: workspace.name,
@@ -364,6 +389,8 @@ pub async fn delete_workspace(
     Extension(claims): Extension<Claims>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceManage)?;
+
     // Only owners can delete workspaces
     let role = state
         .db
@@ -407,6 +434,16 @@ pub async fn delete_workspace(
             )
         })?;
 
+    // Audit log successful deletion
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_DELETE,
+        resources::WORKSPACE,
+        Some(&workspace_id),
+    )
+    .await;
+
     Ok(Json(
         serde_json::json!({"status": "deleted", "id": workspace_id}),
     ))
@@ -418,6 +455,8 @@ pub async fn list_workspace_members(
     Extension(claims): Extension<Claims>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceView)?;
+
     // Check workspace access
     let role = state
         .db
@@ -482,6 +521,8 @@ pub async fn add_workspace_member(
     Path(workspace_id): Path<String>,
     Json(req): Json<AddWorkspaceMemberRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceMemberManage)?;
+
     // Only owners and members can add members
     let role = state
         .db
@@ -547,6 +588,17 @@ pub async fn add_workspace_member(
             )
         })?;
 
+    let user_id = req.user_id.clone().unwrap_or_else(|| req.tenant_id.clone());
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_MEMBER_ADD,
+        resources::WORKSPACE_MEMBER,
+        Some(&format!("{}:{}", workspace_id, user_id)),
+    )
+    .await
+    .ok();
+
     Ok(Json(
         serde_json::json!({"id": member_id, "status": "added"}),
     ))
@@ -559,6 +611,8 @@ pub async fn update_workspace_member(
     Path((workspace_id, member_id)): Path<(String, String)>,
     Json(req): Json<UpdateWorkspaceMemberRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceMemberManage)?;
+
     // Only owners can update member roles
     let role = state
         .db
@@ -647,6 +701,16 @@ pub async fn update_workspace_member(
             )
         })?;
 
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_MEMBER_UPDATE,
+        resources::WORKSPACE_MEMBER,
+        Some(&format!("{}:{}", workspace_id, member_id)),
+    )
+    .await
+    .ok();
+
     Ok(Json(serde_json::json!({"status": "updated"})))
 }
 
@@ -656,6 +720,8 @@ pub async fn remove_workspace_member(
     Extension(claims): Extension<Claims>,
     Path((workspace_id, member_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceMemberManage)?;
+
     // Only owners can remove members
     let role = state
         .db
@@ -728,6 +794,16 @@ pub async fn remove_workspace_member(
             )
         })?;
 
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_MEMBER_REMOVE,
+        resources::WORKSPACE_MEMBER,
+        Some(&format!("{}:{}", workspace_id, member_id)),
+    )
+    .await
+    .ok();
+
     Ok(Json(serde_json::json!({"status": "removed"})))
 }
 
@@ -737,6 +813,8 @@ pub async fn list_workspace_resources(
     Extension(claims): Extension<Claims>,
     Path(workspace_id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceView)?;
+
     // Check workspace access
     let role = state
         .db
@@ -800,6 +878,8 @@ pub async fn share_workspace_resource(
     Path(workspace_id): Path<String>,
     Json(req): Json<ShareResourceRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceResourceManage)?;
+
     // Check workspace access - must be member or owner
     let role = state
         .db
@@ -832,9 +912,6 @@ pub async fn share_workspace_resource(
     }
 
     // Validate resource exists and belongs to tenant
-    // TODO: Add resource validation based on resource_type
-    // For now, trust that the resource_id is valid
-
     let resource_type = ResourceType::from_str(&req.resource_type).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
@@ -846,6 +923,105 @@ pub async fn share_workspace_resource(
         )
     })?;
 
+    // Validate resource exists and belongs to the tenant
+    match resource_type {
+        ResourceType::Adapter => {
+            let adapter = state.db.get_adapter(&req.resource_id).await.map_err(|e| {
+                error!("Failed to check adapter existence: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate resource")
+                            .with_code("INTERNAL_ERROR"),
+                    ),
+                )
+            })?;
+
+            match adapter {
+                Some(a) if a.tenant_id == claims.tenant_id => {
+                    // Adapter exists and belongs to tenant
+                }
+                Some(_) => {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        Json(
+                            ErrorResponse::new("Resource belongs to a different tenant")
+                                .with_code("FORBIDDEN"),
+                        ),
+                    ));
+                }
+                None => {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(
+                            ErrorResponse::new("Adapter not found")
+                                .with_code("NOT_FOUND")
+                                .with_string_details(format!(
+                                    "Adapter '{}' does not exist",
+                                    req.resource_id
+                                )),
+                        ),
+                    ));
+                }
+            }
+        }
+        ResourceType::Node => {
+            let node = state.db.get_node(&req.resource_id).await.map_err(|e| {
+                error!("Failed to check node existence: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate resource")
+                            .with_code("INTERNAL_ERROR"),
+                    ),
+                )
+            })?;
+
+            if node.is_none() {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Node not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!(
+                                "Node '{}' does not exist",
+                                req.resource_id
+                            )),
+                    ),
+                ));
+            }
+            // Note: Nodes don't have tenant_id, so we only check existence
+        }
+        ResourceType::Model => {
+            let model = state.db.get_model(&req.resource_id).await.map_err(|e| {
+                error!("Failed to check model existence: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to validate resource")
+                            .with_code("INTERNAL_ERROR"),
+                    ),
+                )
+            })?;
+
+            if model.is_none() {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Model not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!(
+                                "Model '{}' does not exist",
+                                req.resource_id
+                            )),
+                    ),
+                ));
+            }
+            // Note: Models are shared across tenants, so we only check existence
+        }
+    }
+
+    // Resource validation passed - proceed with sharing
     let resource_id = state
         .db
         .add_workspace_resource(
@@ -868,6 +1044,16 @@ pub async fn share_workspace_resource(
             )
         })?;
 
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_RESOURCE_SHARE,
+        resources::WORKSPACE_RESOURCE,
+        Some(&req.resource_id),
+    )
+    .await
+    .ok();
+
     Ok(Json(
         serde_json::json!({"id": resource_id, "status": "shared"}),
     ))
@@ -880,6 +1066,8 @@ pub async fn unshare_workspace_resource(
     Path((workspace_id, resource_id)): Path<(String, String)>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceResourceManage)?;
+
     // Check workspace access - must be member or owner
     let role = state
         .db
@@ -944,6 +1132,16 @@ pub async fn unshare_workspace_resource(
                 ),
             )
         })?;
+
+    log_success(
+        &state.db,
+        &claims,
+        actions::WORKSPACE_RESOURCE_UNSHARE,
+        resources::WORKSPACE_RESOURCE,
+        Some(&resource_id),
+    )
+    .await
+    .ok();
 
     Ok(Json(serde_json::json!({"status": "unshared"})))
 }

@@ -1,13 +1,11 @@
 mod assets;
-mod plugin_registry;
 
-use adapteros_core::index_snapshot::IndexSnapshot;
-use adapteros_core::{derive_seed, AosError, B3Hash, PluginConfig};
+use adapteros_core::{derive_seed, AosError, B3Hash};
 use adapteros_db::Db;
 use adapteros_deterministic_exec::{
     init_global_executor, select::select_2, spawn_deterministic, ExecutorConfig,
 };
-use adapteros_lora_worker::UmaPressureMonitor;
+use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
@@ -15,8 +13,6 @@ use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
 use anyhow::Result;
 use clap::Parser;
-use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -159,7 +155,7 @@ async fn main() -> Result<()> {
 
     // Load configuration early (needed for production mode check)
     info!("Loading configuration from {}", cli.config);
-    let config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+    let server_config = Arc::new(RwLock::new(Config::load(&cli.config)?));
 
     // Initialize deterministic executor with manifest-derived seed
     info!("Initializing deterministic executor");
@@ -228,7 +224,7 @@ async fn main() -> Result<()> {
 
     // Production mode enforcement: require valid manifest
     {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
 
@@ -256,25 +252,38 @@ async fn main() -> Result<()> {
         "Derived deterministic executor seed"
     );
 
-    let config = ExecutorConfig {
+    let executor_config = ExecutorConfig {
         global_seed,
         enable_event_logging: true,
         max_ticks_per_task: 10000,
         ..Default::default()
     };
-    init_global_executor(config)?;
+    init_global_executor(executor_config)?;
     info!("Deterministic executor initialized with manifest-derived seed");
+
+    // Initialize MLX runtime (idempotent, safe to call multiple times)
+    #[cfg(feature = "multi-backend")]
+    {
+        if let Err(e) = adapteros_lora_mlx_ffi::mlx_runtime_init() {
+            tracing::warn!(
+                "MLX runtime initialization failed: {}. Continuing with Metal/CoreML fallback.",
+                e
+            );
+        } else {
+            tracing::info!("MLX runtime initialized successfully");
+        }
+    }
 
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
     {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.security.require_pf_deny && !cli.skip_pf_check {
             PfGuard::preflight(&cfg.security)?;
         } else if cli.skip_pf_check {
-            warn!("⚠️  PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
+            warn!("PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
         }
     }
 
@@ -300,7 +309,7 @@ async fn main() -> Result<()> {
                     AosError::Validation(format!("Failed to load baseline fingerprint: {}", e))
                 })?;
 
-            let cfg = config
+            let cfg = server_config
                 .read()
                 .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
 
@@ -336,7 +345,7 @@ async fn main() -> Result<()> {
                     );
                 }
             } else {
-                info!("✓ No environment drift detected");
+                info!("No environment drift detected");
             }
         } else {
             // First run: auto-create baseline
@@ -355,12 +364,12 @@ async fn main() -> Result<()> {
             current_fp
                 .save_signed(&baseline_path, &keypair)
                 .map_err(|e| AosError::Io(format!("Failed to save baseline fingerprint: {}", e)))?;
-            info!("✓ Baseline fingerprint created at {:?}", baseline_path);
+            info!("Baseline fingerprint created at {:?}", baseline_path);
         }
     }
 
     // Connect to database
-    let db_path = config
+    let db_path = server_config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
         .db
@@ -371,7 +380,7 @@ async fn main() -> Result<()> {
 
     // Audit log: Executor bootstrap event
     {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
 
@@ -422,41 +431,24 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Create API config (subset needed by handlers) - before SIGHUP handler
+    // Create API config (subset needed by handlers)
     let api_config = {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         Arc::new(RwLock::new(adapteros_server_api::state::ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: cfg.metrics.enabled,
                 bearer_token: cfg.metrics.bearer_token.clone(),
-                system_metrics_interval_secs: 30,
-                telemetry_buffer_capacity: 10000,
-                telemetry_channel_capacity: 1000,
-                trace_buffer_capacity: 1000,
-                server_port: 9090,
-                server_enabled: true,
             },
             directory_analysis_timeout_secs: 120,
-            golden_gate: None,
-            bundles_root: cfg.paths.bundles_root.clone(),
-            repository_paths: adapteros_server_api::state::RepositoryPathsConfig::default(),
-            model_load_timeout_secs: 300,
-            model_unload_timeout_secs: 60,
-            operation_retry: adapteros_server_api::state::OperationRetryConfig::default(),
-            security: adapteros_server_api::state::SecurityConfig::default(),
-            mlx: adapteros_server_api::state::MlxConfig::default(),
-            production_mode: cfg.server.production_mode,
-            rate_limits: adapteros_server_api::state::RateLimitsConfig::default(),
-            path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
         }))
     };
 
     // Setup SIGHUP handler for config reload
     #[cfg(unix)]
     {
-        let config_clone = Arc::clone(&config);
+        let config_clone = Arc::clone(&server_config);
         let api_config_clone = Arc::clone(&api_config);
         let config_path = cli.config.clone();
         let _ = spawn_deterministic("SIGHUP handler".to_string(), async move {
@@ -504,7 +496,7 @@ async fn main() -> Result<()> {
 
     // Spawn alert watcher if enabled
     {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.alerting.enabled {
@@ -518,7 +510,7 @@ async fn main() -> Result<()> {
         info!("Initializing policy hash watcher");
 
         // Create telemetry writer
-        let bundles_path = config
+        let bundles_path = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
             .paths
@@ -537,7 +529,7 @@ async fn main() -> Result<()> {
         // Create policy hash watcher
         let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(
             Arc::new(db.clone()),
-            telemetry,
+            telemetry.clone(),
             None, // cpid - will be set per-tenant
         ));
 
@@ -553,6 +545,36 @@ async fn main() -> Result<()> {
             .start_background_watcher(Duration::from_secs(60), policy_hashes.clone());
 
         info!("Policy hash watcher started (60s interval)");
+
+        // Initialize Federation Daemon
+        {
+            info!("Initializing federation daemon");
+
+            let federation_keypair = adapteros_crypto::Keypair::generate();
+            let federation_manager = Arc::new(adapteros_federation::FederationManager::new(
+                db.clone(),
+                federation_keypair,
+            )?);
+
+            // Create federation daemon config (5 minute interval per spec)
+            let federation_config = adapteros_orchestrator::FederationDaemonConfig {
+                interval_secs: 300, // 5 minutes
+                max_hosts_per_sweep: 10,
+                enable_quarantine: true,
+            };
+
+            // Create and start daemon
+            let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
+                federation_manager,
+                policy_watcher.clone(),
+                telemetry.clone(),
+                Arc::new(db.clone()),
+                federation_config,
+            ));
+
+            let _federation_handle = federation_daemon.start();
+            info!("Federation daemon started (300s interval)");
+        }
     }
 
     // Initialize UDS metrics exporter (zero-network metrics per Egress Ruleset #1)
@@ -571,29 +593,35 @@ async fn main() -> Result<()> {
         let mut uds_exporter = adapteros_telemetry::UdsMetricsExporter::new(socket_path.clone())?;
 
         // Register default metrics
-        uds_exporter.register_metric(adapteros_telemetry::MetricMetadata {
-            name: "adapteros_inference_requests_total".to_string(),
-            help: "Total inference requests".to_string(),
-            metric_type: "counter".to_string(),
-            labels: std::collections::HashMap::new(),
-            value: adapteros_telemetry::MetricValue::Counter(0.0),
-        });
+        uds_exporter
+            .register_metric(adapteros_telemetry::MetricMetadata {
+                name: "adapteros_inference_requests_total".to_string(),
+                help: "Total inference requests".to_string(),
+                metric_type: "counter".to_string(),
+                labels: std::collections::HashMap::new(),
+                value: adapteros_telemetry::MetricValue::Counter(0.0),
+            })
+            .await;
 
-        uds_exporter.register_metric(adapteros_telemetry::MetricMetadata {
-            name: "adapteros_memory_usage_bytes".to_string(),
-            help: "Current memory usage".to_string(),
-            metric_type: "gauge".to_string(),
-            labels: std::collections::HashMap::new(),
-            value: adapteros_telemetry::MetricValue::Gauge(0.0),
-        });
+        uds_exporter
+            .register_metric(adapteros_telemetry::MetricMetadata {
+                name: "adapteros_memory_usage_bytes".to_string(),
+                help: "Current memory usage".to_string(),
+                metric_type: "gauge".to_string(),
+                labels: std::collections::HashMap::new(),
+                value: adapteros_telemetry::MetricValue::Gauge(0.0),
+            })
+            .await;
 
-        uds_exporter.register_metric(adapteros_telemetry::MetricMetadata {
-            name: "adapteros_quarantine_active".to_string(),
-            help: "System quarantine status (1 = active, 0 = not active)".to_string(),
-            metric_type: "gauge".to_string(),
-            labels: std::collections::HashMap::new(),
-            value: adapteros_telemetry::MetricValue::Gauge(0.0),
-        });
+        uds_exporter
+            .register_metric(adapteros_telemetry::MetricMetadata {
+                name: "adapteros_quarantine_active".to_string(),
+                help: "System quarantine status (1 = active, 0 = not active)".to_string(),
+                metric_type: "gauge".to_string(),
+                labels: std::collections::HashMap::new(),
+                value: adapteros_telemetry::MetricValue::Gauge(0.0),
+            })
+            .await;
 
         // Bind and start serving in background
         uds_exporter.bind().await?;
@@ -615,39 +643,9 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Initialize Federation Daemon
-    {
-        info!("Initializing federation daemon");
-
-        // Reuse telemetry and policy_watcher from above
-        let federation_keypair = adapteros_crypto::Keypair::generate();
-        let federation_manager = Arc::new(
-            adapteros_federation::FederationManager::new(db.clone(), federation_keypair)?
-        );
-
-        // Create federation daemon config (5 minute interval per spec)
-        let federation_config = adapteros_orchestrator::FederationDaemonConfig {
-            interval_secs: 300, // 5 minutes
-            max_hosts_per_sweep: 10,
-            enable_quarantine: true,
-        };
-
-        // Create and start daemon
-        let federation_daemon = Arc::new(adapteros_orchestrator::FederationDaemon::new(
-            federation_manager,
-            policy_watcher.clone(),
-            telemetry.clone(),
-            Arc::new(db.clone()),
-            federation_config,
-        ));
-
-        let _federation_handle = federation_daemon.start();
-        info!("Federation daemon started (300s interval)");
-    }
-
     // Create metrics exporter
     let metrics_exporter = {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         Arc::new(adapteros_metrics_exporter::MetricsExporter::new(
@@ -656,22 +654,24 @@ async fn main() -> Result<()> {
     };
 
     // Build application state
-    let jwt_secret = config
+    let jwt_secret = server_config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
         .security
         .jwt_secret
         .clone();
 
-    let uma_monitor = Arc::new(UmaPressureMonitor::new(15, Some(metrics_exporter.clone())));
+    // UMA monitor for memory pressure detection
+    // Start polling before wrapping in Arc since start_polling requires &mut self
+    let mut uma_monitor = UmaPressureMonitor::new(15, None);
+    uma_monitor.start_polling().await;
+    let uma_monitor = Arc::new(uma_monitor);
 
     // Create metrics collector and registry for AppState
-    let metrics_collector = Arc::new(
-        adapteros_telemetry::MetricsCollector::new()
-            .map_err(|e| AosError::Config(format!("Failed to create metrics collector: {}", e)))?
-    );
+    let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new(
+        adapteros_telemetry::MetricsConfig::default(),
+    ));
     let metrics_registry = Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new());
-    uma_monitor.start_polling().await;
 
     // Create broadcast channel for dataset progress (capacity 100)
     let (dataset_progress_tx, _) = tokio::sync::broadcast::channel(100);
@@ -687,12 +687,12 @@ async fn main() -> Result<()> {
     )
     .with_dataset_progress(dataset_progress_tx);
 
-    state = state.with_plugin_registry(Arc::new(plugin_registry::PluginRegistry::new(db.clone())));
-
-    let registry = state.plugin_registry.clone();
+    state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
+        db.clone(),
+    )));
 
     // Git subsystem initialization
-    let git_enabled = config
+    let git_enabled = server_config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
         .git
@@ -702,7 +702,7 @@ async fn main() -> Result<()> {
 
     if git_enabled {
         info!("Initializing Git subsystem");
-        let git_config = config
+        let git_config = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
             .git
@@ -715,9 +715,6 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Config(format!("Failed to initialize Git subsystem: {}", e)))?;
 
         let git_arc = Arc::new(git_subsystem);
-
-        // Note: GitSubsystem doesn't implement Clone, so we skip plugin registry registration.
-        // The git subsystem is managed directly via AppState.with_git() instead.
 
         // Create broadcast channel for file change events
         let (file_change_tx, _) = tokio::sync::broadcast::channel(1000);
@@ -744,7 +741,6 @@ async fn main() -> Result<()> {
     }
 
     // Spawn TTL cleanup background task
-    // Citation: Agent G Stability Reinforcement Plan - Patch 2.1
     {
         let db_clone = db.clone();
         let _ = spawn_deterministic("TTL cleanup".to_string(), async move {
@@ -759,9 +755,13 @@ async fn main() -> Result<()> {
                             info!(count = expired.len(), "Found expired adapters, cleaning up");
 
                             for adapter in expired {
+                                let adapter_id_display =
+                                    adapter.adapter_id.as_deref().unwrap_or("unknown");
+                                let name_display = &adapter.name;
+
                                 info!(
-                                    adapter_id = %adapter.adapter_id,
-                                    name = %adapter.name,
+                                    adapter_id = adapter_id_display,
+                                    name = name_display,
                                     expired_at = ?adapter.expires_at,
                                     "Deleting expired adapter"
                                 );
@@ -769,7 +769,7 @@ async fn main() -> Result<()> {
                                 // Delete the expired adapter
                                 if let Err(e) = db_clone.delete_adapter(&adapter.id).await {
                                     warn!(
-                                        adapter_id = %adapter.adapter_id,
+                                        adapter_id = adapter_id_display,
                                         error = %e,
                                         "Failed to delete expired adapter"
                                     );
@@ -798,7 +798,6 @@ async fn main() -> Result<()> {
     }
 
     // Spawn heartbeat recovery background task
-    // Citation: Agent G Stability Reinforcement Plan - Phase 2 Heartbeat Mechanism
     {
         let db_clone = db.clone();
         let _ = spawn_deterministic("Heartbeat recovery".to_string(), async move {
@@ -828,17 +827,6 @@ async fn main() -> Result<()> {
         info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
     }
 
-    // After DB init
-    let index_rebuilder = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5min
-        loop {
-            interval.tick().await;
-            if let Err(e) = rebuild_all_indexes(&db).await {
-                warn!("Index rebuild failed: {}", e);
-            }
-        }
-    });
-
     // Build router with UI
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
@@ -849,15 +837,19 @@ async fn main() -> Result<()> {
 
     // Bind and serve
     let (production_mode, uds_socket, port) = {
-        let cfg = config
+        let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
-        (cfg.server.production_mode, cfg.server.uds_socket.clone(), cfg.server.port)
+        (
+            cfg.server.production_mode,
+            cfg.server.uds_socket.clone(),
+            cfg.server.port,
+        )
     };
 
     // Egress policy: production_mode requires UDS-only
     if production_mode {
-        let socket_path = uds_socket.ok_or_else(|| {
+        let socket_path: String = uds_socket.ok_or_else(|| {
             AosError::PolicyViolation(
                 "Egress policy violation: production_mode requires uds_socket configuration".into(),
             )
@@ -889,26 +881,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn rebuild_all_indexes(db: &Db) -> Result<()> {
-    let tenants = db.list_tenants().await?;
-    for tenant in tenants {
-        let types = vec!["adapter_graph", "stacks" /* ... */];
-        for typ in types {
-            let snapshot = build_index_snapshot(&tenant.id, typ, db).await?;
-            let hash = snapshot.compute_hash();
-            db.store_index_hash(&tenant.id, typ, &hash).await?;
-            // Verify
-            if !db.verify_index(&tenant.id, typ).await? {
-                warn!(
-                    "Index verification failed for tenant {} type {}",
-                    tenant.id, typ
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
 async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
@@ -932,4 +904,11 @@ async fn shutdown_signal() {
     let _ = select_2(ctrl_c, terminate).await;
 
     info!("Shutdown signal received");
+
+    // Graceful MLX runtime shutdown (idempotent)
+    #[cfg(feature = "multi-backend")]
+    {
+        adapteros_lora_mlx_ffi::mlx_runtime_shutdown();
+        tracing::info!("MLX runtime shut down");
+    }
 }

@@ -2,10 +2,10 @@
 //!
 //! REST endpoints for federation verification status and management.
 
+use crate::state::AppState;
 use adapteros_core::AosError;
 use adapteros_db::Db;
 use adapteros_orchestrator::FederationVerificationReport;
-use crate::state::AppState;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -74,9 +74,10 @@ pub async fn get_federation_status(
 ) -> std::result::Result<Json<FederationStatusResponse>, AppError> {
     info!("Fetching federation status");
 
-    let daemon = state.federation_daemon.as_ref().ok_or_else(|| {
-        AppError(AosError::Config("Federation daemon not configured".into()))
-    })?;
+    let daemon = state
+        .federation_daemon
+        .as_ref()
+        .ok_or_else(|| AppError(AosError::Config("Federation daemon not configured".into())))?;
 
     // Get latest verification report
     let latest_verification = match daemon.get_latest_report().await {
@@ -102,7 +103,8 @@ pub async fn get_federation_status(
         operational: !quarantined && latest_verification.as_ref().map(|r| r.ok).unwrap_or(false),
         quarantined,
         quarantine_reason,
-        latest_verification: latest_verification.map(|r| serde_json::to_string(&r).unwrap_or_default()),
+        latest_verification: latest_verification
+            .map(|r| serde_json::to_string(&r).unwrap_or_default()),
         total_hosts,
         timestamp: chrono::Utc::now().to_rfc3339(),
     };
@@ -127,9 +129,10 @@ pub async fn get_quarantine_status(
 ) -> std::result::Result<Json<QuarantineStatusResponse>, AppError> {
     info!("Fetching quarantine status");
 
-    let daemon = state.federation_daemon.as_ref().ok_or_else(|| {
-        AppError(AosError::Config("Federation daemon not configured".into()))
-    })?;
+    let daemon = state
+        .federation_daemon
+        .as_ref()
+        .ok_or_else(|| AppError(AosError::Config("Federation daemon not configured".into())))?;
 
     let quarantined = daemon.is_quarantined();
 
@@ -284,7 +287,8 @@ mod tests {
             timestamp: "2025-01-01T00:00:00Z".to_string(),
         };
 
-        let json = serde_json::to_string(&response).expect("Failed to serialize federation response");
+        let json =
+            serde_json::to_string(&response).expect("Failed to serialize federation response");
         assert!(json.contains("operational"));
         assert!(json.contains("quarantined"));
     }
@@ -301,7 +305,8 @@ mod tests {
             }),
         };
 
-        let json = serde_json::to_string(&response).expect("Failed to serialize federation response");
+        let json =
+            serde_json::to_string(&response).expect("Failed to serialize federation response");
         assert!(json.contains("quarantined"));
         assert!(json.contains("Test reason"));
     }

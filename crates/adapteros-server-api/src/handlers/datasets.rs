@@ -1,8 +1,10 @@
-use crate::auth::Claims;
 use super::chunked_upload::{
-    CompressionFormat, FileValidator, UploadSession, UploadSessionManager, DEFAULT_CHUNK_SIZE,
-    MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
+    ChunkAssembler, ChunkUploadResult, ChunkWriter, CompressionFormat, FileValidator, ResumeToken,
+    UploadSession, UploadSessionManager, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
+use crate::audit_helper::{actions, log_failure, log_success, resources};
+use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::{AppState, DatasetProgressEvent};
 use crate::types::*;
 use adapteros_db::training_datasets::DatasetFile;
@@ -89,6 +91,93 @@ pub struct InitiateChunkedUploadResponse {
     pub compression_format: String,
 }
 
+/// Query parameters for uploading a chunk
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, IntoParams)]
+pub struct UploadChunkQuery {
+    /// Index of this chunk (0-based)
+    pub chunk_index: usize,
+}
+
+/// Response from uploading a chunk
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UploadChunkResponse {
+    /// Session ID
+    pub session_id: String,
+    /// Chunk index that was uploaded
+    pub chunk_index: usize,
+    /// BLAKE3 hash of this chunk
+    pub chunk_hash: String,
+    /// Total chunks received so far
+    pub chunks_received: usize,
+    /// Total expected chunks
+    pub expected_chunks: usize,
+    /// Is upload complete (all chunks received)?
+    pub is_complete: bool,
+    /// Resume token for resuming from next chunk (if not complete)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_token: Option<String>,
+}
+
+/// Request to complete a chunked upload and create the dataset
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CompleteChunkedUploadRequest {
+    /// Dataset name (optional, defaults to file name)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Dataset description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Dataset format (e.g., "jsonl", "json", "csv")
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+fn default_format() -> String {
+    "jsonl".to_string()
+}
+
+/// Response from completing a chunked upload
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CompleteChunkedUploadResponse {
+    /// Created dataset ID
+    pub dataset_id: String,
+    /// Dataset name
+    pub name: String,
+    /// Final BLAKE3 hash of assembled file
+    pub hash: String,
+    /// Total file size in bytes
+    pub total_size_bytes: i64,
+    /// Storage path
+    pub storage_path: String,
+    /// Timestamp when dataset was created
+    pub created_at: String,
+}
+
+/// Response for getting upload session status
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UploadSessionStatusResponse {
+    /// Session ID
+    pub session_id: String,
+    /// Original file name
+    pub file_name: String,
+    /// Total file size in bytes
+    pub total_size: u64,
+    /// Chunk size for this upload
+    pub chunk_size: usize,
+    /// Expected number of chunks
+    pub expected_chunks: usize,
+    /// Number of chunks received
+    pub chunks_received: usize,
+    /// List of chunk indices that have been received
+    pub received_chunk_indices: Vec<usize>,
+    /// Whether all chunks have been received
+    pub is_complete: bool,
+    /// Session creation timestamp (RFC3339)
+    pub created_at: String,
+    /// Compression format detected
+    pub compression_format: String,
+}
+
 /// Upload files to create a new dataset
 #[utoipa::path(
     post,
@@ -115,13 +204,19 @@ pub async fn upload_dataset(
     let files_path = dataset_path.join("files");
     let temp_path = PathBuf::from(&storage_root).join("temp").join(&dataset_id);
 
-    fs::create_dir_all(&files_path)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create dataset directory: {}", e)))?;
+    fs::create_dir_all(&files_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create dataset directory: {}", e),
+        )
+    })?;
 
-    fs::create_dir_all(&temp_path)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp directory: {}", e)))?;
+    fs::create_dir_all(&temp_path).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create temp directory: {}", e),
+        )
+    })?;
 
     // Send initial progress event
     send_progress_event(
@@ -147,45 +242,65 @@ pub async fn upload_dataset(
 
     // Process multipart form
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Failed to read multipart field: {}", e))
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read multipart field: {}", e),
+        )
     })? {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "name" => {
                 dataset_name = field.text().await.map_err(|e| {
-                    (StatusCode::BAD_REQUEST, format!("Failed to read name field: {}", e))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("Failed to read name field: {}", e),
+                    )
                 })?;
             }
             "description" => {
                 dataset_description = field.text().await.map_err(|e| {
-                    (StatusCode::BAD_REQUEST, format!("Failed to read description field: {}", e))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("Failed to read description field: {}", e),
+                    )
                 })?;
             }
             "format" => {
                 dataset_format = field.text().await.map_err(|e| {
-                    (StatusCode::BAD_REQUEST, format!("Failed to read format field: {}", e))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("Failed to read format field: {}", e),
+                    )
                 })?;
             }
             "file" | "files" => {
-                let file_name = field.file_name()
+                let file_name = field
+                    .file_name()
                     .ok_or((StatusCode::BAD_REQUEST, "File must have a name".to_string()))?
                     .to_string();
 
-                let content_type = field.content_type()
+                let content_type = field
+                    .content_type()
                     .map(|ct| ct.to_string())
                     .unwrap_or_else(|| "application/octet-stream".to_string());
 
                 // Stream file to temporary location
                 let temp_file_path = temp_path.join(&file_name);
                 let mut temp_file = fs::File::create(&temp_file_path).await.map_err(|e| {
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp file: {}", e))
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to create temp file: {}", e),
+                    )
                 })?;
 
                 let mut hasher = Hasher::new();
                 let mut file_size = 0usize;
                 let data = field.bytes().await.map_err(|e| {
-                    (StatusCode::BAD_REQUEST, format!("Failed to read file data: {}", e))
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("Failed to read file data: {}", e),
+                    )
                 })?;
 
                 file_size = data.len();
@@ -193,31 +308,55 @@ pub async fn upload_dataset(
                 // Check file size limits
                 if file_size > MAX_FILE_SIZE {
                     fs::remove_dir_all(&temp_path).await.ok();
-                    return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("File {} exceeds maximum size of {}MB", file_name, MAX_FILE_SIZE / 1024 / 1024)));
+                    return Err((
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        format!(
+                            "File {} exceeds maximum size of {}MB",
+                            file_name,
+                            MAX_FILE_SIZE / 1024 / 1024
+                        ),
+                    ));
                 }
 
                 total_size += file_size;
                 if total_size > MAX_TOTAL_SIZE {
                     fs::remove_dir_all(&temp_path).await.ok();
-                    return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("Total upload size exceeds maximum of {}MB", MAX_TOTAL_SIZE / 1024 / 1024)));
+                    return Err((
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        format!(
+                            "Total upload size exceeds maximum of {}MB",
+                            MAX_TOTAL_SIZE / 1024 / 1024
+                        ),
+                    ));
                 }
 
                 // Write and hash file
                 hasher.update(&data);
                 temp_file.write_all(&data).await.map_err(|e| {
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e))
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to write file: {}", e),
+                    )
                 })?;
                 temp_file.flush().await.map_err(|e| {
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to flush file: {}", e))
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to flush file: {}", e),
+                    )
                 })?;
 
                 let file_hash = hasher.finalize().to_hex().to_string();
 
                 // Move file to permanent location
                 let permanent_path = files_path.join(&file_name);
-                fs::rename(&temp_file_path, &permanent_path).await.map_err(|e| {
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to move file to permanent location: {}", e))
-                })?;
+                fs::rename(&temp_file_path, &permanent_path)
+                    .await
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Failed to move file to permanent location: {}", e),
+                        )
+                    })?;
 
                 file_count += 1;
 
@@ -228,7 +367,11 @@ pub async fn upload_dataset(
                         dataset_id: dataset_id.clone(),
                         event_type: "upload".to_string(),
                         current_file: Some(file_name.clone()),
-                        percentage_complete: if file_count > 0 { (file_count as f32 / 10.0).min(100.0) } else { 0.0 },
+                        percentage_complete: if file_count > 0 {
+                            (file_count as f32 / 10.0).min(100.0)
+                        } else {
+                            0.0
+                        },
                         total_files: None,
                         files_processed: Some(file_count),
                         message: format!("Uploaded {} ({} bytes)", file_name, file_size),
@@ -247,7 +390,10 @@ pub async fn upload_dataset(
                     created_at: chrono::Utc::now().to_rfc3339(),
                 });
 
-                info!("Uploaded file {} ({} bytes) for dataset {}", file_name, file_size, dataset_id);
+                info!(
+                    "Uploaded file {} ({} bytes) for dataset {}",
+                    file_name, file_size, dataset_id
+                );
             }
             _ => {
                 // Ignore unknown fields
@@ -276,40 +422,66 @@ pub async fn upload_dataset(
     let dataset_hash = dataset_hasher.finalize().to_hex().to_string();
 
     // Store in database
-    let dataset_id_result = state.db.create_training_dataset(
-        &dataset_name,
-        if dataset_description.is_empty() { None } else { Some(&dataset_description) },
-        &dataset_format,
-        &dataset_hash,
-        &dataset_path.to_string_lossy(),
-        Some(&claims.sub),
-    ).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create dataset record: {}", e))
-    })?;
+    let dataset_id_result = state
+        .db
+        .create_training_dataset(
+            &dataset_name,
+            if dataset_description.is_empty() {
+                None
+            } else {
+                Some(&dataset_description)
+            },
+            &dataset_format,
+            &dataset_hash,
+            &dataset_path.to_string_lossy(),
+            Some(&claims.sub),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create dataset record: {}", e),
+            )
+        })?;
 
     // Add file records to database
     for file in &uploaded_files {
-        state.db.add_dataset_file(
-            &dataset_id,
-            &file.file_name,
-            &file.file_path,
-            file.size_bytes,
-            &file.hash_b3,
-            file.mime_type.as_deref(),
-        ).await.map_err(|e| {
-            error!("Failed to add file record: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add file record: {}", e))
-        })?;
+        state
+            .db
+            .add_dataset_file(
+                &dataset_id,
+                &file.file_name,
+                &file.file_path,
+                file.size_bytes,
+                &file.hash_b3,
+                file.mime_type.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to add file record: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to add file record: {}", e),
+                )
+            })?;
     }
 
-    info!("Created dataset {} with {} files, total size {} bytes",
-          dataset_id, uploaded_files.len(), total_size);
+    info!(
+        "Created dataset {} with {} files, total size {} bytes",
+        dataset_id,
+        uploaded_files.len(),
+        total_size
+    );
 
     Ok(Json(UploadDatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: dataset_id.clone(),
         name: dataset_name,
-        description: if dataset_description.is_empty() { None } else { Some(dataset_description) },
+        description: if dataset_description.is_empty() {
+            None
+        } else {
+            Some(dataset_description)
+        },
         file_count: uploaded_files.len() as i32,
         total_size_bytes: total_size as i64,
         format: dataset_format,
@@ -336,11 +508,20 @@ pub async fn initiate_chunked_upload(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Validate total size
     if request.total_size == 0 {
-        return Err((StatusCode::BAD_REQUEST, "File size must be greater than 0".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "File size must be greater than 0".to_string(),
+        ));
     }
 
     if request.total_size > MAX_TOTAL_SIZE as u64 {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("File size exceeds maximum of {}MB", MAX_TOTAL_SIZE / 1024 / 1024)));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "File size exceeds maximum of {}MB",
+                MAX_TOTAL_SIZE / 1024 / 1024
+            ),
+        ));
     }
 
     // Determine chunk size
@@ -348,35 +529,44 @@ pub async fn initiate_chunked_upload(
     let chunk_size = chunk_size.max(MIN_CHUNK_SIZE).min(MAX_CHUNK_SIZE);
 
     // Calculate expected chunks
-    let expected_chunks = ((request.total_size + (chunk_size as u64 - 1)) / (chunk_size as u64)) as usize;
+    let expected_chunks =
+        ((request.total_size + (chunk_size as u64 - 1)) / (chunk_size as u64)) as usize;
 
     // Detect compression
-    let content_type = request.content_type.unwrap_or_else(|| "application/octet-stream".to_string());
+    let content_type = request
+        .content_type
+        .unwrap_or_else(|| "application/octet-stream".to_string());
     let compression = CompressionFormat::from_content_type(&content_type);
 
-    // Create upload session
+    // Create upload session using the shared session manager
     let storage_root = std::env::var("DATASET_STORAGE_PATH")
         .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
     let temp_base = PathBuf::from(&storage_root).join("chunked");
 
-    fs::create_dir_all(&temp_base)
+    fs::create_dir_all(&temp_base).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create temp directory: {}", e),
+        )
+    })?;
+
+    // Use shared session manager from AppState
+    let session = state
+        .upload_session_manager
+        .create_session(
+            request.file_name.clone(),
+            request.total_size,
+            content_type.clone(),
+            chunk_size,
+            &temp_base,
+        )
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp directory: {}", e)))?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let manager = UploadSessionManager::new(1000); // Max 1000 concurrent sessions
-    let session_result: anyhow::Result<UploadSession> = manager.create_session(
-        request.file_name.clone(),
-        request.total_size,
-        content_type.clone(),
-        chunk_size,
-        &temp_base,
-    )
-    .await;
-    let session = session_result
-        .map_err(|e: anyhow::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    info!("Initiated chunked upload session {} for file {} ({} bytes, {} chunks)",
-          session.session_id, request.file_name, request.total_size, expected_chunks);
+    info!(
+        "Initiated chunked upload session {} for file {} ({} bytes, {} chunks)",
+        session.session_id, request.file_name, request.total_size, expected_chunks
+    );
 
     Ok(Json(InitiateChunkedUploadResponse {
         session_id: session.session_id,
@@ -404,26 +594,32 @@ pub async fn list_datasets(
     let limit = params.limit.unwrap_or(50).min(100);
     let _offset = params.offset.unwrap_or(0);
 
-    let datasets = state.db.list_training_datasets(limit)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to list datasets: {}", e)))?;
+    let datasets = state.db.list_training_datasets(limit).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to list datasets: {}", e),
+        )
+    })?;
 
-    let responses: Vec<DatasetResponse> = datasets.into_iter().map(|d| DatasetResponse {
-        schema_version: "1.0".to_string(),
-        dataset_id: d.id,
-        name: d.name,
-        description: d.description,
-        file_count: d.file_count,
-        total_size_bytes: d.total_size_bytes,
-        format: d.format,
-        hash: d.hash_b3,
-        storage_path: d.storage_path,
-        validation_status: d.validation_status,
-        validation_errors: d.validation_errors,
-        created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
-        created_at: d.created_at,
-        updated_at: d.updated_at,
-    }).collect();
+    let responses: Vec<DatasetResponse> = datasets
+        .into_iter()
+        .map(|d| DatasetResponse {
+            schema_version: "1.0".to_string(),
+            dataset_id: d.id,
+            name: d.name,
+            description: d.description,
+            file_count: d.file_count,
+            total_size_bytes: d.total_size_bytes,
+            format: d.format,
+            hash: d.hash_b3,
+            storage_path: d.storage_path,
+            validation_status: d.validation_status,
+            validation_errors: d.validation_errors,
+            created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
+            created_at: d.created_at,
+            updated_at: d.updated_at,
+        })
+        .collect();
 
     Ok(Json(responses))
 }
@@ -446,9 +642,16 @@ pub async fn get_dataset(
     State(state): State<AppState>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dataset = state.db.get_training_dataset(&dataset_id)
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get dataset: {}", e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
     Ok(Json(DatasetResponse {
@@ -488,25 +691,38 @@ pub async fn get_dataset_files(
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Verify dataset exists
-    let _dataset = state.db.get_training_dataset(&dataset_id)
+    let _dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get dataset: {}", e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
-    let files = state.db.get_dataset_files(&dataset_id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset files: {}", e)))?;
+    let files = state.db.get_dataset_files(&dataset_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get dataset files: {}", e),
+        )
+    })?;
 
-    let responses: Vec<DatasetFileResponse> = files.into_iter().map(|f| DatasetFileResponse {
-        schema_version: "1.0".to_string(),
-        file_id: f.id,
-        file_name: f.file_name,
-        file_path: f.file_path,
-        size_bytes: f.size_bytes,
-        hash: f.hash_b3,
-        mime_type: f.mime_type,
-        created_at: f.created_at,
-    }).collect();
+    let responses: Vec<DatasetFileResponse> = files
+        .into_iter()
+        .map(|f| DatasetFileResponse {
+            schema_version: "1.0".to_string(),
+            file_id: f.id,
+            file_name: f.file_name,
+            file_path: f.file_path,
+            size_bytes: f.size_bytes,
+            hash: f.hash_b3,
+            mime_type: f.mime_type,
+            created_at: f.created_at,
+        })
+        .collect();
 
     Ok(Json(responses))
 }
@@ -530,15 +746,32 @@ pub async fn get_dataset_statistics(
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Verify dataset exists
-    let _dataset = state.db.get_training_dataset(&dataset_id)
+    let _dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get dataset: {}", e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
-    let stats = state.db.get_dataset_statistics(&dataset_id)
+    let stats = state
+        .db
+        .get_dataset_statistics(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get statistics: {}", e)))?
-        .ok_or((StatusCode::NOT_FOUND, "Statistics not computed for this dataset".to_string()))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get statistics: {}", e),
+            )
+        })?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "Statistics not computed for this dataset".to_string(),
+        ))?;
 
     Ok(Json(DatasetStatisticsResponse {
         schema_version: "1.0".to_string(),
@@ -546,8 +779,12 @@ pub async fn get_dataset_statistics(
         num_examples: stats.num_examples,
         avg_input_length: stats.avg_input_length,
         avg_target_length: stats.avg_target_length,
-        language_distribution: stats.language_distribution.and_then(|s| serde_json::from_str(&s).ok()),
-        file_type_distribution: stats.file_type_distribution.and_then(|s| serde_json::from_str(&s).ok()),
+        language_distribution: stats
+            .language_distribution
+            .and_then(|s| serde_json::from_str(&s).ok()),
+        file_type_distribution: stats
+            .file_type_distribution
+            .and_then(|s| serde_json::from_str(&s).ok()),
         total_tokens: stats.total_tokens,
         computed_at: stats.computed_at,
     }))
@@ -573,9 +810,16 @@ pub async fn validate_dataset(
     Path(dataset_id): Path<String>,
     Json(request): Json<ValidateDatasetRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dataset = state.db.get_training_dataset(&dataset_id)
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get dataset: {}", e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
     // Send initial validation event
@@ -594,9 +838,12 @@ pub async fn validate_dataset(
     );
 
     // Get dataset files
-    let files = state.db.get_dataset_files(&dataset_id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset files: {}", e)))?;
+    let files = state.db.get_dataset_files(&dataset_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get dataset files: {}", e),
+        )
+    })?;
 
     let mut validation_errors = Vec::new();
     let mut is_valid = true;
@@ -606,8 +853,14 @@ pub async fn validate_dataset(
     // Validate each file
     for file in &files {
         // Check file exists
-        if !tokio::fs::try_exists(&file.file_path).await.unwrap_or(false) {
-            validation_errors.push(format!("File {} does not exist at path {}", file.file_name, file.file_path));
+        if !tokio::fs::try_exists(&file.file_path)
+            .await
+            .unwrap_or(false)
+        {
+            validation_errors.push(format!(
+                "File {} does not exist at path {}",
+                file.file_name, file.file_path
+            ));
             is_valid = false;
             processed_files += 1;
             send_progress_event(
@@ -616,7 +869,11 @@ pub async fn validate_dataset(
                     dataset_id: dataset_id.clone(),
                     event_type: "validation".to_string(),
                     current_file: Some(file.file_name.clone()),
-                    percentage_complete: if total_files > 0.0 { (processed_files as f32 / total_files) * 100.0 } else { 0.0 },
+                    percentage_complete: if total_files > 0.0 {
+                        (processed_files as f32 / total_files) * 100.0
+                    } else {
+                        0.0
+                    },
                     total_files: Some(files.len() as i32),
                     files_processed: Some(processed_files as i32),
                     message: format!("Validating {}", file.file_name),
@@ -627,18 +884,18 @@ pub async fn validate_dataset(
         }
 
         // Verify file hash with streaming to avoid loading entire file
-        match validate_file_hash_streaming(std::path::Path::new(&file.file_path), &file.hash_b3).await {
+        match validate_file_hash_streaming(std::path::Path::new(&file.file_path), &file.hash_b3)
+            .await
+        {
             Ok(matches) => {
                 if !matches {
-                    validation_errors.push(format!(
-                        "File {} hash mismatch",
-                        file.file_name
-                    ));
+                    validation_errors.push(format!("File {} hash mismatch", file.file_name));
                     is_valid = false;
                 }
             }
             Err(e) => {
-                validation_errors.push(format!("Failed to validate file {}: {}", file.file_name, e));
+                validation_errors
+                    .push(format!("Failed to validate file {}: {}", file.file_name, e));
                 is_valid = false;
                 continue;
             }
@@ -646,8 +903,17 @@ pub async fn validate_dataset(
 
         // Format-specific validation with quick checks
         if request.check_format.unwrap_or(true) {
-            if let Err(e) = FileValidator::quick_validate(std::path::Path::new(&file.file_path), &dataset.format, STREAM_BUFFER_SIZE).await {
-                validation_errors.push(format!("File {} format validation failed: {}", file.file_name, e));
+            if let Err(e) = FileValidator::quick_validate(
+                std::path::Path::new(&file.file_path),
+                &dataset.format,
+                STREAM_BUFFER_SIZE,
+            )
+            .await
+            {
+                validation_errors.push(format!(
+                    "File {} format validation failed: {}",
+                    file.file_name, e
+                ));
                 is_valid = false;
             }
         }
@@ -661,7 +927,11 @@ pub async fn validate_dataset(
                 dataset_id: dataset_id.clone(),
                 event_type: "validation".to_string(),
                 current_file: Some(file.file_name.clone()),
-                percentage_complete: if total_files > 0.0 { (processed_files as f32 / total_files) * 100.0 } else { 0.0 },
+                percentage_complete: if total_files > 0.0 {
+                    (processed_files as f32 / total_files) * 100.0
+                } else {
+                    0.0
+                },
                 total_files: Some(files.len() as i32),
                 files_processed: Some(processed_files as i32),
                 message: format!("Validated {}", file.file_name),
@@ -678,20 +948,31 @@ pub async fn validate_dataset(
         Some(validation_errors.join("; "))
     };
 
-    state.db.update_dataset_validation(
-        &dataset_id,
-        validation_status,
-        validation_errors_str.as_deref(),
-    ).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update validation status: {}", e))
-    })?;
+    state
+        .db
+        .update_dataset_validation(
+            &dataset_id,
+            validation_status,
+            validation_errors_str.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to update validation status: {}", e),
+            )
+        })?;
 
     Ok(Json(ValidateDatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id,
         is_valid,
         validation_status: validation_status.to_string(),
-        errors: if validation_errors.is_empty() { None } else { Some(validation_errors) },
+        errors: if validation_errors.is_empty() {
+            None
+        } else {
+            Some(validation_errors)
+        },
         validated_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -716,19 +997,30 @@ pub async fn preview_dataset(
     Path(dataset_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let limit = params.get("limit")
+    let limit = params
+        .get("limit")
         .and_then(|l| l.parse::<usize>().ok())
         .unwrap_or(10)
         .min(100);
 
-    let dataset = state.db.get_training_dataset(&dataset_id)
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get dataset: {}", e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
-    let files = state.db.get_dataset_files(&dataset_id)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset files: {}", e)))?;
+    let files = state.db.get_dataset_files(&dataset_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get dataset files: {}", e),
+        )
+    })?;
 
     let mut examples = Vec::new();
     let mut count = 0;
@@ -739,7 +1031,13 @@ pub async fn preview_dataset(
             break;
         }
 
-        match stream_preview_file(std::path::Path::new(&file.file_path), &dataset.format, limit - count).await {
+        match stream_preview_file(
+            std::path::Path::new(&file.file_path),
+            &dataset.format,
+            limit - count,
+        )
+        .await
+        {
             Ok(mut file_examples) => {
                 count += file_examples.len();
                 examples.append(&mut file_examples);
@@ -778,25 +1076,46 @@ pub async fn delete_dataset(
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Get dataset to find storage path
-    let dataset = state.db.get_training_dataset(&dataset_id)
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get dataset: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get dataset: {}", e),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
 
     // Delete from database (cascades to files and statistics)
-    state.db.delete_training_dataset(&dataset_id)
+    state
+        .db
+        .delete_training_dataset(&dataset_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete dataset: {}", e)))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete dataset: {}", e),
+            )
+        })?;
 
     // Delete files from filesystem
-    if tokio::fs::try_exists(&dataset.storage_path).await.unwrap_or(false) {
+    if tokio::fs::try_exists(&dataset.storage_path)
+        .await
+        .unwrap_or(false)
+    {
         tokio::fs::remove_dir_all(&dataset.storage_path)
             .await
             .map_err(|e| {
-                error!("Failed to delete dataset files at {}: {}", dataset.storage_path, e);
+                error!(
+                    "Failed to delete dataset files at {}: {}",
+                    dataset.storage_path, e
+                );
                 // Don't fail the request if filesystem cleanup fails
                 e
-            }).ok();
+            })
+            .ok();
     }
 
     info!("Deleted dataset {} and its files", dataset_id);
@@ -891,7 +1210,10 @@ pub async fn dataset_upload_progress(
 // ===== Optimization Helper Functions =====
 
 /// Validate file hash using streaming to avoid loading entire file into memory
-async fn validate_file_hash_streaming(file_path: &std::path::Path, expected_hash: &str) -> Result<bool, String> {
+async fn validate_file_hash_streaming(
+    file_path: &std::path::Path,
+    expected_hash: &str,
+) -> Result<bool, String> {
     let mut file = fs::File::open(file_path)
         .await
         .map_err(|e| format!("Failed to open file: {}", e))?;
@@ -900,7 +1222,8 @@ async fn validate_file_hash_streaming(file_path: &std::path::Path, expected_hash
     let mut buffer = vec![0u8; STREAM_BUFFER_SIZE];
 
     loop {
-        let n = file.read(&mut buffer)
+        let n = file
+            .read(&mut buffer)
             .await
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -923,14 +1246,18 @@ async fn batch_add_files(
 ) -> Result<(), String> {
     for batch in files.chunks(VALIDATION_BATCH_SIZE) {
         for file in batch {
-            state.db.add_dataset_file(
-                dataset_id,
-                &file.file_name,
-                &file.file_path,
-                file.size_bytes,
-                &file.hash_b3,
-                file.mime_type.as_deref(),
-            ).await.map_err(|e| format!("Failed to add file record: {}", e))?;
+            state
+                .db
+                .add_dataset_file(
+                    dataset_id,
+                    &file.file_name,
+                    &file.file_path,
+                    file.size_bytes,
+                    &file.hash_b3,
+                    file.mime_type.as_deref(),
+                )
+                .await
+                .map_err(|e| format!("Failed to add file record: {}", e))?;
         }
     }
     Ok(())
@@ -951,7 +1278,8 @@ async fn stream_preview_file(
     let mut count = 0;
 
     loop {
-        let n = file.read(&mut buffer)
+        let n = file
+            .read(&mut buffer)
             .await
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -1004,4 +1332,569 @@ async fn stream_preview_file(
     }
 
     Ok(examples)
+}
+
+// ===== Chunked Upload Handlers =====
+
+/// Upload a single chunk for a chunked upload session
+///
+/// This endpoint receives a single chunk of data for an ongoing chunked upload.
+/// Chunks can be uploaded in any order and the system will track which chunks
+/// have been received. The session must have been initiated first with the
+/// initiate_chunked_upload endpoint.
+///
+/// ## Error Cases
+/// - 404: Session not found or expired (sessions expire after 24 hours)
+/// - 400: Invalid chunk index (negative or exceeds expected chunks)
+/// - 409: Chunk already uploaded (duplicate chunk index)
+/// - 413: Chunk size exceeds the session's configured chunk size
+/// - 500: Failed to write chunk to disk
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/chunked-upload/{session_id}/chunk",
+    params(
+        ("session_id" = String, Path, description = "Upload session ID"),
+        UploadChunkQuery,
+    ),
+    request_body(content = Vec<u8>, content_type = "application/octet-stream"),
+    responses(
+        (status = 200, description = "Chunk uploaded successfully", body = UploadChunkResponse),
+        (status = 400, description = "Invalid chunk index or data"),
+        (status = 404, description = "Session not found or expired"),
+        (status = 409, description = "Chunk already uploaded"),
+        (status = 413, description = "Chunk too large"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn upload_chunk(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Query(query): Query<UploadChunkQuery>,
+    body: axum::body::Bytes,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Check permission
+    require_permission(&claims, Permission::DatasetUpload).map_err(|e| (e.0, e.1.error.clone()))?;
+
+    let chunk_index = query.chunk_index;
+
+    // Get session from manager
+    let session = state
+        .upload_session_manager
+        .get_session(&session_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+
+    // Calculate expected chunks
+    let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
+        / (session.chunk_size as u64)) as usize;
+
+    // Validate chunk index
+    if chunk_index >= expected_chunks {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Invalid chunk index {}. Expected 0-{} for {} total chunks",
+                chunk_index,
+                expected_chunks - 1,
+                expected_chunks
+            ),
+        ));
+    }
+
+    // Check for duplicate chunk
+    if session.received_chunks.contains_key(&chunk_index) {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Chunk {} has already been uploaded", chunk_index),
+        ));
+    }
+
+    // Validate chunk size (last chunk may be smaller)
+    let is_last_chunk = chunk_index == expected_chunks - 1;
+    let expected_chunk_size = if is_last_chunk {
+        let remainder = session.total_size % (session.chunk_size as u64);
+        if remainder == 0 {
+            session.chunk_size
+        } else {
+            remainder as usize
+        }
+    } else {
+        session.chunk_size
+    };
+
+    if body.len() > session.chunk_size {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "Chunk size {} exceeds maximum chunk size {}",
+                body.len(),
+                session.chunk_size
+            ),
+        ));
+    }
+
+    // Write chunk to temp directory
+    let chunk_path = session.temp_dir.join(format!("chunk_{:08}", chunk_index));
+    let mut writer = ChunkWriter::new(&chunk_path).await.map_err(|e| {
+        error!("Failed to create chunk writer: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create chunk file: {}", e),
+        )
+    })?;
+
+    writer.write_chunk(&body).await.map_err(|e| {
+        error!("Failed to write chunk data: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to write chunk: {}", e),
+        )
+    })?;
+
+    let chunk_hash = writer.finalize().await.map_err(|e| {
+        error!("Failed to finalize chunk: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to finalize chunk: {}", e),
+        )
+    })?;
+
+    // Update session with received chunk
+    state
+        .upload_session_manager
+        .add_chunk(&session_id, chunk_index, chunk_hash.clone())
+        .await
+        .map_err(|e| {
+            error!("Failed to update session: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to update session: {}", e),
+            )
+        })?;
+
+    // Check if upload is complete
+    let is_complete = state
+        .upload_session_manager
+        .is_upload_complete(&session_id)
+        .await
+        .unwrap_or(false);
+
+    // Get updated session for chunk count
+    let updated_session = state
+        .upload_session_manager
+        .get_session(&session_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let chunks_received = updated_session.received_chunks.len();
+
+    // Generate resume token if not complete
+    let resume_token = if !is_complete {
+        // Find next missing chunk
+        let next_chunk = (0..expected_chunks)
+            .find(|i| !updated_session.received_chunks.contains_key(i))
+            .unwrap_or(expected_chunks);
+
+        Some(
+            serde_json::to_string(&ResumeToken {
+                session_id: session_id.clone(),
+                next_chunk,
+                hash_state: chunk_hash.clone(),
+            })
+            .unwrap_or_default(),
+        )
+    } else {
+        None
+    };
+
+    // Send progress event
+    send_progress_event(
+        state.dataset_progress_tx.as_ref(),
+        DatasetProgressEvent {
+            dataset_id: session_id.clone(),
+            event_type: "upload".to_string(),
+            current_file: Some(session.file_name.clone()),
+            percentage_complete: (chunks_received as f32 / expected_chunks as f32) * 100.0,
+            total_files: Some(expected_chunks as i32),
+            files_processed: Some(chunks_received as i32),
+            message: format!(
+                "Uploaded chunk {}/{} for {}",
+                chunk_index + 1,
+                expected_chunks,
+                session.file_name
+            ),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        },
+    );
+
+    info!(
+        "Uploaded chunk {}/{} for session {} ({} bytes, hash: {})",
+        chunk_index + 1,
+        expected_chunks,
+        session_id,
+        body.len(),
+        chunk_hash
+    );
+
+    Ok(Json(UploadChunkResponse {
+        session_id,
+        chunk_index,
+        chunk_hash,
+        chunks_received,
+        expected_chunks,
+        is_complete,
+        resume_token,
+    }))
+}
+
+/// Complete a chunked upload and create the dataset
+///
+/// This endpoint assembles all uploaded chunks into the final file and creates
+/// a dataset entry in the database. All chunks must have been uploaded before
+/// calling this endpoint.
+///
+/// ## Cleanup Strategy
+/// - On success: Temporary chunk files are deleted during assembly
+/// - On failure: Temporary files remain for retry; session expires after 24 hours
+/// - Abandoned sessions: Background cleanup runs every hour to remove expired sessions
+///   and their temporary files (see UPLOAD_TIMEOUT_SECS in chunked_upload.rs)
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/chunked-upload/{session_id}/complete",
+    params(
+        ("session_id" = String, Path, description = "Upload session ID"),
+    ),
+    request_body = CompleteChunkedUploadRequest,
+    responses(
+        (status = 200, description = "Dataset created successfully", body = CompleteChunkedUploadResponse),
+        (status = 400, description = "Upload not complete or validation failed"),
+        (status = 404, description = "Session not found or expired"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn complete_chunked_upload(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Json(request): Json<CompleteChunkedUploadRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Check permission
+    require_permission(&claims, Permission::DatasetUpload).map_err(|e| (e.0, e.1.error.clone()))?;
+
+    // Get session
+    let session = state
+        .upload_session_manager
+        .get_session(&session_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+
+    // Verify upload is complete
+    let is_complete = state
+        .upload_session_manager
+        .is_upload_complete(&session_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if !is_complete {
+        let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
+            / (session.chunk_size as u64)) as usize;
+        let received = session.received_chunks.len();
+
+        // Find missing chunks for error message
+        let missing: Vec<usize> = (0..expected_chunks)
+            .filter(|i| !session.received_chunks.contains_key(i))
+            .take(10)
+            .collect();
+
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Upload not complete. Received {}/{} chunks. Missing chunks: {:?}{}",
+                received,
+                expected_chunks,
+                missing,
+                if missing.len() < expected_chunks - received {
+                    "..."
+                } else {
+                    ""
+                }
+            ),
+        ));
+    }
+
+    // Prepare output paths
+    let storage_root = std::env::var("DATASET_STORAGE_PATH")
+        .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
+    let dataset_id = Uuid::now_v7().to_string();
+    let dataset_path = PathBuf::from(&storage_root).join(&dataset_id);
+    let files_path = dataset_path.join("files");
+
+    fs::create_dir_all(&files_path).await.map_err(|e| {
+        error!("Failed to create dataset directory: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create dataset directory: {}", e),
+        )
+    })?;
+
+    let output_path = files_path.join(&session.file_name);
+
+    // Assemble chunks
+    let assembler = ChunkAssembler::new(
+        output_path.clone(),
+        session.temp_dir.clone(),
+        session.chunk_size,
+        session.total_size,
+        session.compression.clone(),
+    );
+
+    let (file_hash, total_bytes) = assembler.assemble().await.map_err(|e| {
+        let error_msg = e.to_string();
+        error!("Failed to assemble chunks: {}", error_msg);
+        // Log audit failure
+        let _ = tokio::spawn({
+            let db = state.db.clone();
+            let claims = claims.clone();
+            let error_msg_clone = error_msg.clone();
+            async move {
+                let _ = log_failure(
+                    &db,
+                    &claims,
+                    actions::DATASET_UPLOAD,
+                    resources::DATASET,
+                    None,
+                    &error_msg_clone,
+                )
+                .await;
+            }
+        });
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to assemble file: {}", error_msg),
+        )
+    })?;
+
+    // Validate file format if requested
+    if let Err(e) =
+        FileValidator::quick_validate(&output_path, &request.format, STREAM_BUFFER_SIZE).await
+    {
+        warn!("File format validation warning: {}", e);
+        // Continue anyway - validation is advisory for chunked uploads
+    }
+
+    // Determine dataset name
+    let dataset_name = request.name.unwrap_or_else(|| session.file_name.clone());
+
+    // Create dataset in database
+    let _dataset_db_id = state
+        .db
+        .create_training_dataset(
+            &dataset_name,
+            request.description.as_deref(),
+            &request.format,
+            &file_hash,
+            &dataset_path.to_string_lossy(),
+            Some(&claims.sub),
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to create dataset record: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create dataset record: {}", e),
+            )
+        })?;
+
+    // Add file record
+    state
+        .db
+        .add_dataset_file(
+            &dataset_id,
+            &session.file_name,
+            &output_path.to_string_lossy(),
+            total_bytes as i64,
+            &file_hash,
+            Some(&session.content_type),
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to add file record: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to add file record: {}", e),
+            )
+        })?;
+
+    // Clean up session
+    let _ = state
+        .upload_session_manager
+        .remove_session(&session_id)
+        .await;
+
+    // Clean up temp directory
+    let _ = fs::remove_dir_all(&session.temp_dir).await;
+
+    // Log audit success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        actions::DATASET_UPLOAD,
+        resources::DATASET,
+        Some(&dataset_id),
+    )
+    .await;
+
+    // Send completion event
+    send_progress_event(
+        state.dataset_progress_tx.as_ref(),
+        DatasetProgressEvent {
+            dataset_id: dataset_id.clone(),
+            event_type: "upload".to_string(),
+            current_file: Some(session.file_name.clone()),
+            percentage_complete: 100.0,
+            total_files: Some(1),
+            files_processed: Some(1),
+            message: format!(
+                "Completed chunked upload for {} ({} bytes)",
+                session.file_name, total_bytes
+            ),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        },
+    );
+
+    info!(
+        "Completed chunked upload for session {}. Created dataset {} with {} bytes",
+        session_id, dataset_id, total_bytes
+    );
+
+    Ok(Json(CompleteChunkedUploadResponse {
+        dataset_id,
+        name: dataset_name,
+        hash: file_hash,
+        total_size_bytes: total_bytes as i64,
+        storage_path: dataset_path.to_string_lossy().to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Get the status of an upload session
+///
+/// Returns information about an ongoing chunked upload session, including
+/// which chunks have been received and whether the upload is complete.
+#[utoipa::path(
+    get,
+    path = "/v1/datasets/chunked-upload/{session_id}/status",
+    params(
+        ("session_id" = String, Path, description = "Upload session ID"),
+    ),
+    responses(
+        (status = 200, description = "Session status", body = UploadSessionStatusResponse),
+        (status = 404, description = "Session not found or expired"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn get_upload_session_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Check permission
+    require_permission(&claims, Permission::DatasetView).map_err(|e| (e.0, e.1.error.clone()))?;
+
+    let session = state
+        .upload_session_manager
+        .get_session(&session_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+
+    let expected_chunks = ((session.total_size + (session.chunk_size as u64 - 1))
+        / (session.chunk_size as u64)) as usize;
+
+    let chunks_received = session.received_chunks.len();
+    let received_chunk_indices: Vec<usize> = session.received_chunks.keys().cloned().collect();
+    let is_complete = chunks_received == expected_chunks;
+
+    let created_at = session
+        .created_at
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| chrono::DateTime::from_timestamp(d.as_secs() as i64, 0))
+        .ok()
+        .flatten()
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+    Ok(Json(UploadSessionStatusResponse {
+        session_id,
+        file_name: session.file_name,
+        total_size: session.total_size,
+        chunk_size: session.chunk_size,
+        expected_chunks,
+        chunks_received,
+        received_chunk_indices,
+        is_complete,
+        created_at,
+        compression_format: format!("{:?}", session.compression),
+    }))
+}
+
+/// Cancel and cleanup an upload session
+///
+/// Cancels an ongoing chunked upload and removes all temporary files.
+/// Use this if the client decides to abort an upload.
+#[utoipa::path(
+    delete,
+    path = "/v1/datasets/chunked-upload/{session_id}",
+    params(
+        ("session_id" = String, Path, description = "Upload session ID"),
+    ),
+    responses(
+        (status = 204, description = "Session cancelled successfully"),
+        (status = 404, description = "Session not found or expired"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn cancel_chunked_upload(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Check permission
+    require_permission(&claims, Permission::DatasetUpload).map_err(|e| (e.0, e.1.error.clone()))?;
+
+    // Get session to find temp dir
+    let session = state
+        .upload_session_manager
+        .get_session(&session_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+
+    // Remove session from manager
+    state
+        .upload_session_manager
+        .remove_session(&session_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to remove session: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to remove session: {}", e),
+            )
+        })?;
+
+    // Clean up temp directory
+    if let Err(e) = fs::remove_dir_all(&session.temp_dir).await {
+        warn!(
+            "Failed to cleanup temp directory for session {}: {}",
+            session_id, e
+        );
+    }
+
+    info!("Cancelled chunked upload session {}", session_id);
+
+    Ok(StatusCode::NO_CONTENT)
 }

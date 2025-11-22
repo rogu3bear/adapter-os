@@ -1,8 +1,8 @@
 use crate::state::AppState;
 use crate::types::{
     CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
-    DomainAdapterResponse, ErrorResponse, LoadDomainAdapterRequest,
-    TestDomainAdapterRequest, TestDomainAdapterResponse,
+    DomainAdapterResponse, ErrorResponse, LoadDomainAdapterRequest, TestDomainAdapterRequest,
+    TestDomainAdapterResponse,
 };
 use adapteros_db::adapters::{Adapter, AdapterRegistrationBuilder};
 use adapteros_lora_worker::InferenceRequest;
@@ -32,8 +32,14 @@ fn adapter_to_domain_response(adapter: Adapter) -> DomainAdapterResponse {
         name: adapter.name.clone(),
         version: adapter.version.clone(),
         description: adapter.intent.clone().unwrap_or_default(),
-        domain_type: adapter.domain.clone().unwrap_or_else(|| "general".to_string()),
-        model: adapter.framework.clone().unwrap_or_else(|| "unknown".to_string()),
+        domain_type: adapter
+            .domain
+            .clone()
+            .unwrap_or_else(|| "general".to_string()),
+        model: adapter
+            .framework
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
         hash: adapter.hash_b3.clone(),
         input_format: "text".to_string(),
         output_format: "text".to_string(),
@@ -134,7 +140,10 @@ pub async fn get_domain_adapter(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("NOT_FOUND")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -197,21 +206,17 @@ pub async fn create_domain_adapter(
         })?;
 
     // Register adapter in database
-    let id = state
-        .db
-        .register_adapter(params)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to register domain adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to create domain adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let id = state.db.register_adapter(params).await.map_err(|e| {
+        error!(error = %e, "Failed to register domain adapter");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to create domain adapter")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     info!(adapter_id = %id, name = %req.name, "Created domain adapter");
 
@@ -291,7 +296,10 @@ pub async fn load_domain_adapter(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -410,7 +418,10 @@ pub async fn unload_domain_adapter(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -518,7 +529,10 @@ pub async fn test_domain_adapter(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -679,7 +693,10 @@ pub async fn get_domain_adapter_manifest(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("NOT_FOUND")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -697,8 +714,14 @@ pub async fn get_domain_adapter_manifest(
         name: adapter.name.clone(),
         version: adapter.version.clone(),
         description: adapter.intent.clone().unwrap_or_default(),
-        domain_type: adapter.domain.clone().unwrap_or_else(|| "general".to_string()),
-        model: adapter.framework.clone().unwrap_or_else(|| "unknown".to_string()),
+        domain_type: adapter
+            .domain
+            .clone()
+            .unwrap_or_else(|| "general".to_string()),
+        model: adapter
+            .framework
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
         hash: adapter.hash_b3.clone(),
         input_format: "text".to_string(),
         output_format: "text".to_string(),
@@ -765,7 +788,10 @@ pub async fn execute_domain_adapter(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -797,7 +823,9 @@ pub async fn execute_domain_adapter(
 
         match worker_guard.infer(inference_req).await {
             Ok(response) => {
-                output_hash = blake3::hash(response.text.unwrap_or_default().as_bytes()).to_hex().to_string();
+                output_hash = blake3::hash(response.text.unwrap_or_default().as_bytes())
+                    .to_hex()
+                    .to_string();
                 trace_events.push("inference_complete".to_string());
             }
             Err(e) => {
@@ -894,7 +922,10 @@ pub async fn delete_domain_adapter(
             Json(
                 ErrorResponse::new("Adapter is not a domain adapter")
                     .with_code("NOT_FOUND")
-                    .with_string_details(format!("Adapter {} has category '{}'", adapter_id, adapter.category)),
+                    .with_string_details(format!(
+                        "Adapter {} has category '{}'",
+                        adapter_id, adapter.category
+                    )),
             ),
         ));
     }
@@ -912,27 +943,26 @@ pub async fn delete_domain_adapter(
             Json(
                 ErrorResponse::new("Cannot delete pinned adapter")
                     .with_code("ADAPTER_PINNED")
-                    .with_string_details(format!("Adapter {} is pinned and cannot be deleted", adapter_id)),
+                    .with_string_details(format!(
+                        "Adapter {} is pinned and cannot be deleted",
+                        adapter_id
+                    )),
             ),
         ));
     }
 
     // Soft delete the adapter (set active = 0)
-    state
-        .db
-        .delete_adapter(&adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to delete adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    state.db.delete_adapter(&adapter_id).await.map_err(|e| {
+        error!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to delete adapter")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     info!(adapter_id = %adapter_id, "Deleted domain adapter");
     Ok(StatusCode::NO_CONTENT)

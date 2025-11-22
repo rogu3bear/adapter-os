@@ -17,7 +17,7 @@ pub fn routes() -> Router {
     Router::new()
         .route("/", get(index_handler))
         .route("/index.html", get(index_handler))
-        .route("/*file", get(static_handler))
+        .route("/{*file}", get(static_handler))
         .fallback(get(index_handler)) // SPA fallback to index.html
 }
 

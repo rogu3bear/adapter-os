@@ -6,7 +6,6 @@
 ///! - Rate limiting per tenant
 ///! - Authentication attempt tracking
 ///! - Tenant isolation validation
-
 pub mod ip_access_control;
 pub mod rate_limiting;
 pub mod token_revocation;
@@ -16,8 +15,7 @@ pub use ip_access_control::{
     AccessDecision, IpAccessRule,
 };
 pub use rate_limiting::{
-    check_rate_limit, get_rate_limit_status, reset_rate_limit, update_rate_limit,
-    RateLimitResult,
+    check_rate_limit, get_rate_limit_status, reset_rate_limit, update_rate_limit, RateLimitResult,
 };
 pub use token_revocation::{
     cleanup_expired_revocations, get_user_revocations, is_token_revoked, revoke_all_user_tokens,
@@ -94,7 +92,7 @@ pub async fn track_auth_attempt(
 
     sqlx::query(
         "INSERT INTO auth_attempts (id, email, ip_address, success, attempted_at, failure_reason)
-         VALUES (?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(email)
@@ -128,7 +126,7 @@ pub async fn is_account_locked(db: &Db, email: &str, window_minutes: i64) -> Res
         "SELECT COUNT(*) FROM auth_attempts
          WHERE email = ?
            AND success = 0
-           AND attempted_at > ?"
+           AND attempted_at > ?",
     )
     .bind(email)
     .bind(&window_start)
@@ -149,7 +147,7 @@ pub async fn get_failed_attempts(
          FROM auth_attempts
          WHERE email = ? AND success = 0
          ORDER BY attempted_at DESC
-         LIMIT ?"
+         LIMIT ?",
     )
     .bind(email)
     .bind(limit.min(100))
@@ -193,13 +191,11 @@ pub async fn create_session(
 pub async fn update_session_activity(db: &Db, jti: &str) -> Result<()> {
     let last_activity = Utc::now().to_rfc3339();
 
-    sqlx::query(
-        "UPDATE user_sessions SET last_activity = ? WHERE jti = ?"
-    )
-    .bind(&last_activity)
-    .bind(jti)
-    .execute(db.pool())
-    .await?;
+    sqlx::query("UPDATE user_sessions SET last_activity = ? WHERE jti = ?")
+        .bind(&last_activity)
+        .bind(jti)
+        .execute(db.pool())
+        .await?;
 
     Ok(())
 }
@@ -216,7 +212,7 @@ pub async fn get_user_sessions(
          FROM user_sessions
          WHERE user_id = ?
            AND expires_at > ?
-         ORDER BY last_activity DESC"
+         ORDER BY last_activity DESC",
     )
     .bind(user_id)
     .bind(&now)
@@ -230,12 +226,10 @@ pub async fn get_user_sessions(
 pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
     let now = Utc::now().to_rfc3339();
 
-    let result = sqlx::query(
-        "DELETE FROM user_sessions WHERE expires_at < ?"
-    )
-    .bind(&now)
-    .execute(db.pool())
-    .await?;
+    let result = sqlx::query("DELETE FROM user_sessions WHERE expires_at < ?")
+        .bind(&now)
+        .execute(db.pool())
+        .await?;
 
     let count = result.rows_affected() as usize;
 
@@ -302,11 +296,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_attempt_tracking() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
-
-        track_auth_attempt(&db, "user@example.com", "192.168.1.1", false, Some("invalid password"))
+        let db = Db::connect("sqlite::memory:")
             .await
-            .expect("Security operation failed");
+            .expect("Failed to create test database");
+
+        track_auth_attempt(
+            &db,
+            "user@example.com",
+            "192.168.1.1",
+            false,
+            Some("invalid password"),
+        )
+        .await
+        .expect("Security operation failed");
 
         let is_locked = is_account_locked(&db, "user@example.com", 15)
             .await
@@ -316,13 +318,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_account_lockout() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         // Simulate 5 failed attempts
         for _ in 0..5 {
-            track_auth_attempt(&db, "user@example.com", "192.168.1.1", false, Some("invalid password"))
-                .await
-                .expect("Security operation failed");
+            track_auth_attempt(
+                &db,
+                "user@example.com",
+                "192.168.1.1",
+                false,
+                Some("invalid password"),
+            )
+            .await
+            .expect("Security operation failed");
         }
 
         let is_locked = is_account_locked(&db, "user@example.com", 15)

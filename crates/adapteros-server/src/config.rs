@@ -58,8 +58,14 @@ fn default_false() -> bool {
 pub struct PathsConfig {
     pub artifacts_root: String,
     pub bundles_root: String,
+    #[serde(default = "default_adapters_root")]
+    pub adapters_root: String,
     #[serde(default = "default_plan_dir")]
     pub plan_dir: String,
+}
+
+fn default_adapters_root() -> String {
+    "var/adapters".to_string()
 }
 
 fn default_plan_dir() -> String {

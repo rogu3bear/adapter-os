@@ -27,9 +27,9 @@ pub fn spawn_consumer(
     db: Arc<Db>,
     tenant_id: String,
 ) -> tokio::task::JoinHandle<()> {
-    use adapteros_deterministic_exec::spawn_deterministic;
-
-    spawn_deterministic("router_telemetry_consumer".to_string(), async move {
+    // Use tokio::spawn for the telemetry consumer since it needs to run outside
+    // the deterministic executor context (it's a long-running I/O bound task)
+    tokio::spawn(async move {
         info!("Router telemetry consumer started");
         let mut events_processed = 0u64;
         let mut events_failed = 0u64;
@@ -47,29 +47,27 @@ pub fn spawn_consumer(
             // Include step in prefix for traceability while ensuring uniqueness
             let request_id = format!("router-decision-{}-{}", event.step, Uuid::new_v4());
 
-            match routing_telemetry_bridge::event_to_decision(&event, &tenant_id, Some(&request_id)) {
-                Ok(decision) => {
-                    match db.insert_routing_decision(&decision).await {
-                        Ok(_) => {
-                            events_processed += 1;
-                            if events_processed % 100 == 0 {
-                                info!(
-                                    events_processed,
-                                    events_failed,
-                                    "Router telemetry consumer progress"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            events_failed += 1;
-                            warn!(
-                                error = %e,
-                                step = event.step,
-                                "Failed to persist router decision to database"
+            match routing_telemetry_bridge::event_to_decision(&event, &tenant_id, Some(&request_id))
+            {
+                Ok(decision) => match db.insert_routing_decision(&decision).await {
+                    Ok(_) => {
+                        events_processed += 1;
+                        if events_processed % 100 == 0 {
+                            info!(
+                                events_processed,
+                                events_failed, "Router telemetry consumer progress"
                             );
                         }
                     }
-                }
+                    Err(e) => {
+                        events_failed += 1;
+                        warn!(
+                            error = %e,
+                            step = event.step,
+                            "Failed to persist router decision to database"
+                        );
+                    }
+                },
                 Err(e) => {
                     events_failed += 1;
                     warn!(
@@ -83,8 +81,7 @@ pub fn spawn_consumer(
 
         info!(
             events_processed,
-            events_failed,
-            "Router telemetry consumer stopped"
+            events_failed, "Router telemetry consumer stopped"
         );
     })
 }
@@ -98,7 +95,11 @@ mod tests {
     #[tokio::test]
     async fn test_consumer_processes_events() {
         // Create in-memory database
-        let db = Arc::new(Db::new_in_memory().await.expect("Failed to create database"));
+        let db = Arc::new(
+            Db::new_in_memory()
+                .await
+                .expect("Failed to create database"),
+        );
 
         // Create writer and receiver
         let (writer, receiver) = RouterDecisionWriter::new();

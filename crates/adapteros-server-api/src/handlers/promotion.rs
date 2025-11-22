@@ -316,7 +316,7 @@ pub async fn get_promotion_status(
                 "SELECT gate_name, status, passed, details, error_message, checked_at
                  FROM golden_run_promotion_gates
                  WHERE request_id = ?
-                 ORDER BY checked_at ASC"
+                 ORDER BY checked_at ASC",
             )
             .bind(&request_id)
             .fetch_all(state.db.pool())
@@ -324,7 +324,11 @@ pub async fn get_promotion_status(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
                 )
             })?;
 
@@ -350,7 +354,7 @@ pub async fn get_promotion_status(
                 "SELECT approver_email, action, approval_message, signature, approved_at
                  FROM golden_run_promotion_approvals
                  WHERE request_id = ?
-                 ORDER BY approved_at DESC"
+                 ORDER BY approved_at DESC",
             )
             .bind(&request_id)
             .fetch_all(state.db.pool())
@@ -358,7 +362,11 @@ pub async fn get_promotion_status(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
                 )
             })?;
 
@@ -378,22 +386,40 @@ pub async fn get_promotion_status(
             Ok(Json(PromotionStatusResponse {
                 request_id,
                 golden_run_id: row.try_get("golden_run_id").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!("Failed to get golden_run_id: {}", e)))
+                    aos_error_to_response(AosError::Database(format!(
+                        "Failed to get golden_run_id: {}",
+                        e
+                    )))
                 })?,
                 target_stage: row.try_get("target_stage").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!("Failed to get target_stage: {}", e)))
+                    aos_error_to_response(AosError::Database(format!(
+                        "Failed to get target_stage: {}",
+                        e
+                    )))
                 })?,
                 status: row.try_get("status").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!("Failed to get status: {}", e)))
+                    aos_error_to_response(AosError::Database(format!(
+                        "Failed to get status: {}",
+                        e
+                    )))
                 })?,
                 requester_email: row.try_get("requester_email").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!("Failed to get requester_email: {}", e)))
+                    aos_error_to_response(AosError::Database(format!(
+                        "Failed to get requester_email: {}",
+                        e
+                    )))
                 })?,
                 created_at: row.try_get("created_at").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!("Failed to get created_at: {}", e)))
+                    aos_error_to_response(AosError::Database(format!(
+                        "Failed to get created_at: {}",
+                        e
+                    )))
                 })?,
                 updated_at: row.try_get("updated_at").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!("Failed to get updated_at: {}", e)))
+                    aos_error_to_response(AosError::Database(format!(
+                        "Failed to get updated_at: {}",
+                        e
+                    )))
                 })?,
                 notes: row.try_get("notes").ok(),
                 gates,
@@ -450,7 +476,7 @@ pub async fn approve_or_reject_promotion(
         "SELECT request_id, status FROM golden_run_promotion_requests
          WHERE golden_run_id = ?
          ORDER BY created_at DESC
-         LIMIT 1"
+         LIMIT 1",
     )
     .bind(&run_id)
     .fetch_optional(state.db.pool())
@@ -458,7 +484,11 @@ pub async fn approve_or_reject_promotion(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -476,14 +506,22 @@ pub async fn approve_or_reject_promotion(
     let request_id: String = request_row.try_get("request_id").map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
     let current_status: String = request_row.try_get("status").map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -540,7 +578,7 @@ pub async fn approve_or_reject_promotion(
             let _ = sqlx::query(
                 "UPDATE golden_run_promotion_requests
                  SET status = ?, updated_at = datetime('now')
-                 WHERE request_id = ?"
+                 WHERE request_id = ?",
             )
             .bind(new_status)
             .bind(&request_id)
@@ -626,7 +664,7 @@ pub async fn rollback_promotion(
     let stage_row = sqlx::query(
         "SELECT active_golden_run_id, previous_golden_run_id
          FROM golden_run_stages
-         WHERE stage_name = ?"
+         WHERE stage_name = ?",
     )
     .bind(&stage)
     .fetch_optional(state.db.pool())
@@ -634,7 +672,11 @@ pub async fn rollback_promotion(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -652,7 +694,11 @@ pub async fn rollback_promotion(
     let current_run_id: String = stage_row.try_get("active_golden_run_id").map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -681,7 +727,7 @@ pub async fn rollback_promotion(
              previous_golden_run_id = NULL,
              promoted_at = datetime('now'),
              promoted_by = ?
-         WHERE stage_name = ?"
+         WHERE stage_name = ?",
     )
     .bind(&claims.email)
     .bind(&stage)
@@ -745,7 +791,7 @@ pub async fn get_gate_status(
         "SELECT request_id FROM golden_run_promotion_requests
          WHERE golden_run_id = ?
          ORDER BY created_at DESC
-         LIMIT 1"
+         LIMIT 1",
     )
     .bind(&run_id)
     .fetch_optional(state.db.pool())
@@ -753,7 +799,11 @@ pub async fn get_gate_status(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -771,7 +821,11 @@ pub async fn get_gate_status(
     let request_id: String = request_row.try_get("request_id").map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -780,7 +834,7 @@ pub async fn get_gate_status(
         "SELECT gate_name, status, passed, details, error_message, checked_at
          FROM golden_run_promotion_gates
          WHERE request_id = ?
-         ORDER BY checked_at ASC"
+         ORDER BY checked_at ASC",
     )
     .bind(&request_id)
     .fetch_all(state.db.pool())
@@ -788,7 +842,11 @@ pub async fn get_gate_status(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR").with_string_details(e.to_string())),
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
         )
     })?;
 
@@ -815,11 +873,7 @@ pub async fn get_gate_status(
 // ===== Helper Functions =====
 
 /// Run promotion gates (validation checks)
-async fn run_promotion_gates(
-    state: &AppState,
-    request_id: &str,
-    run_id: &str,
-) -> AosResult<()> {
+async fn run_promotion_gates(state: &AppState, request_id: &str, run_id: &str) -> AosResult<()> {
     info!("Running promotion gates for request_id={}", request_id);
 
     // Gate 1: Hash validation
@@ -850,7 +904,10 @@ async fn run_promotion_gates(
 
     // Gate 3: Determinism check
     let determinism_gate_result = validate_determinism_gate(state, run_id).await;
-    let determinism_error_msg = determinism_gate_result.as_ref().err().map(|e| e.to_string());
+    let determinism_error_msg = determinism_gate_result
+        .as_ref()
+        .err()
+        .map(|e| e.to_string());
     record_gate_result(
         state,
         request_id,
@@ -880,7 +937,7 @@ async fn record_gate_result(
     sqlx::query(
         "INSERT OR REPLACE INTO golden_run_promotion_gates
          (request_id, gate_name, status, passed, details, error_message, checked_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))"
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind(request_id)
     .bind(gate_name)
@@ -895,10 +952,7 @@ async fn record_gate_result(
 }
 
 /// Validate hash gate
-async fn validate_hash_gate(
-    _state: &AppState,
-    run_id: &str,
-) -> AosResult<serde_json::Value> {
+async fn validate_hash_gate(_state: &AppState, run_id: &str) -> AosResult<serde_json::Value> {
     let golden_dir = std::path::Path::new("golden_runs")
         .join("baselines")
         .join(run_id);
@@ -920,10 +974,7 @@ async fn validate_hash_gate(
 }
 
 /// Validate policy gate
-async fn validate_policy_gate(
-    _state: &AppState,
-    run_id: &str,
-) -> AosResult<serde_json::Value> {
+async fn validate_policy_gate(_state: &AppState, run_id: &str) -> AosResult<serde_json::Value> {
     use adapteros_policy::policy_packs::PolicyPackId;
 
     // Get all defined policy packs
@@ -1015,30 +1066,24 @@ async fn validate_determinism_gate(
 }
 
 /// Execute promotion
-async fn execute_promotion(
-    state: &AppState,
-    request_id: &str,
-    run_id: &str,
-) -> AosResult<()> {
+async fn execute_promotion(state: &AppState, request_id: &str, run_id: &str) -> AosResult<()> {
     info!("Executing promotion for request_id={}", request_id);
 
     // Get target stage
-    let request_row = sqlx::query(
-        "SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?"
-    )
-    .bind(request_id)
-    .fetch_one(state.db.pool())
-    .await?;
+    let request_row =
+        sqlx::query("SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?")
+            .bind(request_id)
+            .fetch_one(state.db.pool())
+            .await?;
 
     let target_stage: String = request_row.try_get("target_stage")?;
 
     // Get current active run for stage
-    let stage_row = sqlx::query(
-        "SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?"
-    )
-    .bind(&target_stage)
-    .fetch_one(state.db.pool())
-    .await?;
+    let stage_row =
+        sqlx::query("SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?")
+            .bind(&target_stage)
+            .fetch_one(state.db.pool())
+            .await?;
 
     let previous_run_id: String = stage_row.try_get("active_golden_run_id")?;
 
@@ -1049,7 +1094,7 @@ async fn execute_promotion(
              previous_golden_run_id = ?,
              promoted_at = datetime('now'),
              promoted_by = 'system'
-         WHERE stage_name = ?"
+         WHERE stage_name = ?",
     )
     .bind(run_id)
     .bind(&previous_run_id)
@@ -1061,7 +1106,7 @@ async fn execute_promotion(
     sqlx::query(
         "UPDATE golden_run_promotion_requests
          SET status = 'promoted', updated_at = datetime('now')
-         WHERE request_id = ?"
+         WHERE request_id = ?",
     )
     .bind(request_id)
     .execute(state.db.pool())

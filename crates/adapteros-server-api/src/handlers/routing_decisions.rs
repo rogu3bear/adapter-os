@@ -10,7 +10,10 @@ use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
-use adapteros_db::{RoutingDecision as DbRoutingDecision, RoutingDecisionFilters, RouterCandidate as DbRouterCandidate};
+use adapteros_db::{
+    RouterCandidate as DbRouterCandidate, RoutingDecision as DbRoutingDecision,
+    RoutingDecisionFilters,
+};
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -136,17 +139,16 @@ pub async fn ingest_router_decision(
         })
         .collect();
 
-    let candidates_json = serde_json::to_string(&db_candidates)
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Failed to serialize candidates")
-                        .with_code("SERIALIZATION_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let candidates_json = serde_json::to_string(&db_candidates).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Failed to serialize candidates")
+                    .with_code("SERIALIZATION_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let selected_adapter_ids: Vec<String> = db_candidates
         .iter()
@@ -155,9 +157,10 @@ pub async fn ingest_router_decision(
         .collect();
 
     let k_value = selected_adapter_ids.len() as i64;
-    let overhead_pct = if let (Some(router_latency), Some(total_latency)) =
-        (request.router_latency_us, request.total_inference_latency_us)
-    {
+    let overhead_pct = if let (Some(router_latency), Some(total_latency)) = (
+        request.router_latency_us,
+        request.total_inference_latency_us,
+    ) {
         if total_latency > 0 {
             Some((router_latency as f64 / total_latency as f64) * 100.0)
         } else {
@@ -205,10 +208,7 @@ pub async fn ingest_router_decision(
             )
         })?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({ "id": id })),
-    ))
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
 /// GET /v1/routing/decisions - Query routing decisions with filters
@@ -238,7 +238,10 @@ pub async fn get_routing_decisions(
     Extension(claims): Extension<Claims>,
     Query(query): Query<RoutingDecisionsQuery>,
 ) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE])?;
+    require_any_role(
+        &claims,
+        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+    )?;
 
     debug!(
         tenant_id = %query.tenant,
@@ -271,17 +274,21 @@ pub async fn get_routing_decisions(
     }
 
     // Query database
-    let decisions = state.db.query_routing_decisions(&filters).await.map_err(|e| {
-        warn!(error = %e, "Failed to query routing decisions");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to query routing decisions")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let decisions = state
+        .db
+        .query_routing_decisions(&filters)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, "Failed to query routing decisions");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to query routing decisions")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Convert to response format
     let items: Vec<RoutingDecisionResponse> = decisions
@@ -311,7 +318,10 @@ pub async fn get_routing_decision_by_id(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<RoutingDecisionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE])?;
+    require_any_role(
+        &claims,
+        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+    )?;
 
     let decision = state.db.get_routing_decision(&id).await.map_err(|e| {
         (
@@ -330,36 +340,37 @@ pub async fn get_routing_decision_by_id(
 /// Convert database routing decision to API response
 fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionResponse {
     // Parse candidate adapters from JSON
-    let candidates: Vec<RouterCandidateResponse> = serde_json::from_str(&decision.candidate_adapters)
-        .ok()
-        .map(|candidates: Vec<DbRouterCandidate>| {
-            // Determine which candidates are selected (top-K with highest gates)
-            let mut sorted_candidates = candidates.clone();
-            sorted_candidates.sort_by(|a, b| b.gate_q15.cmp(&a.gate_q15));
+    let candidates: Vec<RouterCandidateResponse> =
+        serde_json::from_str(&decision.candidate_adapters)
+            .ok()
+            .map(|candidates: Vec<DbRouterCandidate>| {
+                // Determine which candidates are selected (top-K with highest gates)
+                let mut sorted_candidates = candidates.clone();
+                sorted_candidates.sort_by(|a, b| b.gate_q15.cmp(&a.gate_q15));
 
-            let k = decision.k_value.unwrap_or(0) as usize;
-            let selected_indices: std::collections::HashSet<u16> = sorted_candidates
-                .iter()
-                .take(k)
-                .map(|c| c.adapter_idx)
-                .collect();
+                let k = decision.k_value.unwrap_or(0) as usize;
+                let selected_indices: std::collections::HashSet<u16> = sorted_candidates
+                    .iter()
+                    .take(k)
+                    .map(|c| c.adapter_idx)
+                    .collect();
 
-            candidates
-                .into_iter()
-                .map(|c| {
-                    let selected = selected_indices.contains(&c.adapter_idx);
-                    let gate_float = (c.gate_q15 as f32) / 32767.0;
-                    RouterCandidateResponse {
-                        adapter_idx: c.adapter_idx,
-                        raw_score: c.raw_score,
-                        gate_q15: c.gate_q15,
-                        gate_float,
-                        selected,
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+                candidates
+                    .into_iter()
+                    .map(|c| {
+                        let selected = selected_indices.contains(&c.adapter_idx);
+                        let gate_float = (c.gate_q15 as f32) / 32767.0;
+                        RouterCandidateResponse {
+                            adapter_idx: c.adapter_idx,
+                            raw_score: c.raw_score,
+                            gate_q15: c.gate_q15,
+                            gate_float,
+                            selected,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
     RoutingDecisionResponse {
         id: decision.id,

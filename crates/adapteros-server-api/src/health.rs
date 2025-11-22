@@ -43,7 +43,11 @@ pub struct SystemHealthResponse {
 }
 
 impl ComponentHealth {
-    fn new(component: impl Into<String>, status: ComponentStatus, message: impl Into<String>) -> Self {
+    fn new(
+        component: impl Into<String>,
+        status: ComponentStatus,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             component: component.into(),
             status,
@@ -92,14 +96,15 @@ pub async fn check_router_health(State(state): State<AppState>) -> impl IntoResp
         ComponentHealth::new(
             "router",
             ComponentStatus::Degraded,
-            "Router has not processed any requests yet"
+            "Router has not processed any requests yet",
         )
     } else if high_load {
         ComponentHealth::new(
             "router",
             ComponentStatus::Degraded,
-            format!("High queue depth: {}", metrics_snapshot.queue_depth)
-        ).with_details(serde_json::json!({
+            format!("High queue depth: {}", metrics_snapshot.queue_depth),
+        )
+        .with_details(serde_json::json!({
             "queue_depth": metrics_snapshot.queue_depth,
             "total_requests": metrics_snapshot.total_requests
         }))
@@ -107,8 +112,12 @@ pub async fn check_router_health(State(state): State<AppState>) -> impl IntoResp
         ComponentHealth::new(
             "router",
             ComponentStatus::Healthy,
-            format!("Router operational ({} requests processed)", metrics_snapshot.total_requests)
-        ).with_details(serde_json::json!({
+            format!(
+                "Router operational ({} requests processed)",
+                metrics_snapshot.total_requests
+            ),
+        )
+        .with_details(serde_json::json!({
             "queue_depth": metrics_snapshot.queue_depth,
             "total_requests": metrics_snapshot.total_requests
         }))
@@ -126,65 +135,57 @@ pub async fn check_loader_health(State(state): State<AppState>) -> impl IntoResp
     match state.db.pool().acquire().await {
         Ok(mut conn) => {
             // Check for adapters stuck in loading state
-            let stuck_count: Result<i64, _> = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM adapters WHERE current_state = 'loading'"
-            )
-            .fetch_one(&mut *conn)
-            .await;
+            let stuck_count: Result<i64, _> =
+                sqlx::query_scalar("SELECT COUNT(*) FROM adapters WHERE current_state = 'loading'")
+                    .fetch_one(&mut *conn)
+                    .await;
 
             // Count total adapters and loaded adapters
-            let total_adapters: Result<i64, _> = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM adapters"
-            )
-            .fetch_one(&mut *conn)
-            .await;
+            let total_adapters: Result<i64, _> =
+                sqlx::query_scalar("SELECT COUNT(*) FROM adapters")
+                    .fetch_one(&mut *conn)
+                    .await;
 
             let loaded_adapters: Result<i64, _> = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM adapters WHERE current_state IN ('warm', 'hot')"
+                "SELECT COUNT(*) FROM adapters WHERE current_state IN ('warm', 'hot')",
             )
             .fetch_one(&mut *conn)
             .await;
 
             match (stuck_count, total_adapters, loaded_adapters) {
-                (Ok(stuck), Ok(total), Ok(loaded)) if stuck > 0 => {
-                    ComponentHealth::new(
-                        "loader",
-                        ComponentStatus::Degraded,
-                        format!("{} adapter(s) stuck in loading state", stuck)
-                    ).with_details(serde_json::json!({
-                        "stuck_count": stuck,
-                        "total_adapters": total,
-                        "loaded_adapters": loaded,
-                        "lifecycle_manager_available": state.has_lifecycle_manager()
-                    }))
-                }
-                (Ok(_stuck), Ok(total), Ok(loaded)) => {
-                    ComponentHealth::new(
-                        "loader",
-                        ComponentStatus::Healthy,
-                        format!("{}/{} adapters loaded", loaded, total)
-                    ).with_details(serde_json::json!({
-                        "total_adapters": total,
-                        "loaded_adapters": loaded,
-                        "lifecycle_manager_available": state.has_lifecycle_manager()
-                    }))
-                }
-                _ => {
-                    ComponentHealth::new(
-                        "loader",
-                        ComponentStatus::Unhealthy,
-                        "Failed to query adapter states"
-                    )
-                }
+                (Ok(stuck), Ok(total), Ok(loaded)) if stuck > 0 => ComponentHealth::new(
+                    "loader",
+                    ComponentStatus::Degraded,
+                    format!("{} adapter(s) stuck in loading state", stuck),
+                )
+                .with_details(serde_json::json!({
+                    "stuck_count": stuck,
+                    "total_adapters": total,
+                    "loaded_adapters": loaded,
+                    "lifecycle_manager_available": state.has_lifecycle_manager()
+                })),
+                (Ok(_stuck), Ok(total), Ok(loaded)) => ComponentHealth::new(
+                    "loader",
+                    ComponentStatus::Healthy,
+                    format!("{}/{} adapters loaded", loaded, total),
+                )
+                .with_details(serde_json::json!({
+                    "total_adapters": total,
+                    "loaded_adapters": loaded,
+                    "lifecycle_manager_available": state.has_lifecycle_manager()
+                })),
+                _ => ComponentHealth::new(
+                    "loader",
+                    ComponentStatus::Unhealthy,
+                    "Failed to query adapter states",
+                ),
             }
         }
-        Err(e) => {
-            ComponentHealth::new(
-                "loader",
-                ComponentStatus::Unhealthy,
-                format!("Database connection failed: {}", e)
-            )
-        }
+        Err(e) => ComponentHealth::new(
+            "loader",
+            ComponentStatus::Unhealthy,
+            format!("Database connection failed: {}", e),
+        ),
     }
 }
 
@@ -214,8 +215,9 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         ComponentHealth::new(
             "kernel",
             ComponentStatus::Degraded,
-            "Worker not initialized"
-        ).with_details(serde_json::json!({
+            "Worker not initialized",
+        )
+        .with_details(serde_json::json!({
             "worker_available": false,
             "memory_headroom_pct": uma_stats.headroom_pct,
             "memory_status": memory_status
@@ -224,8 +226,12 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         ComponentHealth::new(
             "kernel",
             ComponentStatus::Degraded,
-            format!("Low GPU memory ({}% headroom)", uma_stats.headroom_pct as i32)
-        ).with_details(serde_json::json!({
+            format!(
+                "Low GPU memory ({}% headroom)",
+                uma_stats.headroom_pct as i32
+            ),
+        )
+        .with_details(serde_json::json!({
             "worker_available": true,
             "memory_used_mb": uma_stats.used_mb,
             "memory_total_mb": uma_stats.total_mb,
@@ -236,8 +242,12 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         ComponentHealth::new(
             "kernel",
             ComponentStatus::Healthy,
-            format!("Kernel operational ({}% memory free)", uma_stats.headroom_pct as i32)
-        ).with_details(serde_json::json!({
+            format!(
+                "Kernel operational ({}% memory free)",
+                uma_stats.headroom_pct as i32
+            ),
+        )
+        .with_details(serde_json::json!({
             "worker_available": true,
             "memory_used_mb": uma_stats.used_mb,
             "memory_total_mb": uma_stats.total_mb,
@@ -257,53 +267,44 @@ pub async fn check_db_health(State(state): State<AppState>) -> impl IntoResponse
     match state.db.pool().acquire().await {
         Ok(mut conn) => {
             // Check if we can perform a simple query
-            let result: Result<i64, _> = sqlx::query_scalar("SELECT 1")
-                .fetch_one(&mut *conn)
-                .await;
+            let result: Result<i64, _> = sqlx::query_scalar("SELECT 1").fetch_one(&mut *conn).await;
 
             match result {
                 Ok(_) => {
                     // Query migration status
-                    let migration_count: Result<i64, _> = sqlx::query_scalar(
-                        "SELECT COUNT(*) FROM _sqlx_migrations"
-                    )
-                    .fetch_one(&mut *conn)
-                    .await;
+                    let migration_count: Result<i64, _> =
+                        sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+                            .fetch_one(&mut *conn)
+                            .await;
 
                     match migration_count {
-                        Ok(count) => {
-                            ComponentHealth::new(
-                                "db",
-                                ComponentStatus::Healthy,
-                                format!("Database healthy, {} migrations applied", count)
-                            )
-                        }
+                        Ok(count) => ComponentHealth::new(
+                            "db",
+                            ComponentStatus::Healthy,
+                            format!("Database healthy, {} migrations applied", count),
+                        ),
                         Err(_) => {
                             // Migrations table might not exist yet
                             ComponentHealth::new(
                                 "db",
                                 ComponentStatus::Healthy,
-                                "Database connected"
+                                "Database connected",
                             )
                         }
                     }
                 }
-                Err(e) => {
-                    ComponentHealth::new(
-                        "db",
-                        ComponentStatus::Unhealthy,
-                        format!("Database query failed: {}", e)
-                    )
-                }
+                Err(e) => ComponentHealth::new(
+                    "db",
+                    ComponentStatus::Unhealthy,
+                    format!("Database query failed: {}", e),
+                ),
             }
         }
-        Err(e) => {
-            ComponentHealth::new(
-                "db",
-                ComponentStatus::Unhealthy,
-                format!("Database connection failed: {}", e)
-            )
-        }
+        Err(e) => ComponentHealth::new(
+            "db",
+            ComponentStatus::Unhealthy,
+            format!("Database connection failed: {}", e),
+        ),
     }
 }
 
@@ -326,8 +327,9 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
         ComponentHealth::new(
             "telemetry",
             ComponentStatus::Degraded,
-            "No telemetry activity recorded yet"
-        ).with_details(serde_json::json!({
+            "No telemetry activity recorded yet",
+        )
+        .with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
             "avg_latency_ms": metrics_snapshot.avg_latency_ms
         }))
@@ -335,8 +337,9 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
         ComponentHealth::new(
             "telemetry",
             ComponentStatus::Degraded,
-            format!("High latency: {:.0}ms", metrics_snapshot.avg_latency_ms)
-        ).with_details(serde_json::json!({
+            format!("High latency: {:.0}ms", metrics_snapshot.avg_latency_ms),
+        )
+        .with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
             "avg_latency_ms": metrics_snapshot.avg_latency_ms
         }))
@@ -344,10 +347,12 @@ pub async fn check_telemetry_health(State(state): State<AppState>) -> impl IntoR
         ComponentHealth::new(
             "telemetry",
             ComponentStatus::Healthy,
-            format!("Telemetry operational ({} events, {:.0}ms avg latency)",
-                    metrics_snapshot.total_requests,
-                    metrics_snapshot.avg_latency_ms)
-        ).with_details(serde_json::json!({
+            format!(
+                "Telemetry operational ({} events, {:.0}ms avg latency)",
+                metrics_snapshot.total_requests, metrics_snapshot.avg_latency_ms
+            ),
+        )
+        .with_details(serde_json::json!({
             "total_requests": metrics_snapshot.total_requests,
             "avg_latency_ms": metrics_snapshot.avg_latency_ms
         }))
@@ -383,16 +388,21 @@ pub async fn check_system_metrics_health(State(state): State<AppState>) -> impl 
         ComponentHealth::new(
             "system-metrics",
             ComponentStatus::Degraded,
-            "System metrics not yet initialized"
-        ).with_details(serde_json::json!({
+            "System metrics not yet initialized",
+        )
+        .with_details(serde_json::json!({
             "uma_monitor_active": false
         }))
     } else if !pressure_ok {
         ComponentHealth::new(
             "system-metrics",
             ComponentStatus::Degraded,
-            format!("Critical memory pressure ({}% headroom)", uma_stats.headroom_pct as i32)
-        ).with_details(serde_json::json!({
+            format!(
+                "Critical memory pressure ({}% headroom)",
+                uma_stats.headroom_pct as i32
+            ),
+        )
+        .with_details(serde_json::json!({
             "uma_monitor_active": true,
             "memory_used_mb": uma_stats.used_mb,
             "memory_total_mb": uma_stats.total_mb,
@@ -403,10 +413,12 @@ pub async fn check_system_metrics_health(State(state): State<AppState>) -> impl 
         ComponentHealth::new(
             "system-metrics",
             ComponentStatus::Healthy,
-            format!("System metrics operational ({} MB used, {}% free)",
-                    uma_stats.used_mb,
-                    uma_stats.headroom_pct as i32)
-        ).with_details(serde_json::json!({
+            format!(
+                "System metrics operational ({} MB used, {}% free)",
+                uma_stats.used_mb, uma_stats.headroom_pct as i32
+            ),
+        )
+        .with_details(serde_json::json!({
             "uma_monitor_active": true,
             "memory_used_mb": uma_stats.used_mb,
             "memory_total_mb": uma_stats.total_mb,
@@ -427,12 +439,22 @@ pub async fn check_system_metrics_health(State(state): State<AppState>) -> impl 
 )]
 pub async fn check_all_health(State(state): State<AppState>) -> impl IntoResponse {
     let components = vec![
-        check_router_health(State(state.clone())).await.into_response(),
-        check_loader_health(State(state.clone())).await.into_response(),
-        check_kernel_health(State(state.clone())).await.into_response(),
+        check_router_health(State(state.clone()))
+            .await
+            .into_response(),
+        check_loader_health(State(state.clone()))
+            .await
+            .into_response(),
+        check_kernel_health(State(state.clone()))
+            .await
+            .into_response(),
         check_db_health(State(state.clone())).await.into_response(),
-        check_telemetry_health(State(state.clone())).await.into_response(),
-        check_system_metrics_health(State(state.clone())).await.into_response(),
+        check_telemetry_health(State(state.clone()))
+            .await
+            .into_response(),
+        check_system_metrics_health(State(state.clone()))
+            .await
+            .into_response(),
     ];
 
     // Extract ComponentHealth from responses
@@ -444,23 +466,54 @@ pub async fn check_all_health(State(state): State<AppState>) -> impl IntoRespons
     }
 
     // Directly call health check functions instead of going through responses
-    let router = extract_health(check_router_health(State(state.clone())).await.into_response()).await;
-    let loader = extract_health(check_loader_health(State(state.clone())).await.into_response()).await;
-    let kernel = extract_health(check_kernel_health(State(state.clone())).await.into_response()).await;
+    let router = extract_health(
+        check_router_health(State(state.clone()))
+            .await
+            .into_response(),
+    )
+    .await;
+    let loader = extract_health(
+        check_loader_health(State(state.clone()))
+            .await
+            .into_response(),
+    )
+    .await;
+    let kernel = extract_health(
+        check_kernel_health(State(state.clone()))
+            .await
+            .into_response(),
+    )
+    .await;
     let db = extract_health(check_db_health(State(state.clone())).await.into_response()).await;
-    let telemetry = extract_health(check_telemetry_health(State(state.clone())).await.into_response()).await;
-    let system_metrics = extract_health(check_system_metrics_health(State(state.clone())).await.into_response()).await;
+    let telemetry = extract_health(
+        check_telemetry_health(State(state.clone()))
+            .await
+            .into_response(),
+    )
+    .await;
+    let system_metrics = extract_health(
+        check_system_metrics_health(State(state.clone()))
+            .await
+            .into_response(),
+    )
+    .await;
 
     health_checks.extend(vec![router, loader, kernel, db, telemetry, system_metrics]);
 
     // Determine overall status (worst status wins)
-    let overall_status = health_checks.iter().fold(ComponentStatus::Healthy, |acc, check| {
-        match (&acc, &check.status) {
-            (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => ComponentStatus::Unhealthy,
-            (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => ComponentStatus::Degraded,
-            _ => ComponentStatus::Healthy,
-        }
-    });
+    let overall_status = health_checks
+        .iter()
+        .fold(ComponentStatus::Healthy, |acc, check| {
+            match (&acc, &check.status) {
+                (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => {
+                    ComponentStatus::Unhealthy
+                }
+                (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => {
+                    ComponentStatus::Degraded
+                }
+                _ => ComponentStatus::Healthy,
+            }
+        });
 
     let response = SystemHealthResponse {
         overall_status,
@@ -480,25 +533,19 @@ async fn extract_health(response: Response) -> ComponentHealth {
 
     // Try to read the body
     match axum::body::to_bytes(body, usize::MAX).await {
-        Ok(bytes) => {
-            match serde_json::from_slice::<ComponentHealth>(&bytes) {
-                Ok(health) => health,
-                Err(_) => {
-                    ComponentHealth::new(
-                        "unknown",
-                        ComponentStatus::Unhealthy,
-                        "Failed to parse health response"
-                    )
-                }
-            }
-        }
-        Err(_) => {
-            ComponentHealth::new(
+        Ok(bytes) => match serde_json::from_slice::<ComponentHealth>(&bytes) {
+            Ok(health) => health,
+            Err(_) => ComponentHealth::new(
                 "unknown",
                 ComponentStatus::Unhealthy,
-                "Failed to read response body"
-            )
-        }
+                "Failed to parse health response",
+            ),
+        },
+        Err(_) => ComponentHealth::new(
+            "unknown",
+            ComponentStatus::Unhealthy,
+            "Failed to read response body",
+        ),
     }
 }
 
@@ -573,9 +620,12 @@ mod tests {
 
     #[test]
     fn test_component_health_serialization() {
-        let health = ComponentHealth::new("router", ComponentStatus::Healthy, "All systems operational");
-        let json = serde_json::to_string(&health)
-            .expect("Failed to serialize ComponentHealth");
+        let health = ComponentHealth::new(
+            "router",
+            ComponentStatus::Healthy,
+            "All systems operational",
+        );
+        let json = serde_json::to_string(&health).expect("Failed to serialize ComponentHealth");
 
         // Verify it contains expected fields
         assert!(json.contains("\"component\":\"router\""));
@@ -592,13 +642,19 @@ mod tests {
         ];
 
         // Overall should be degraded if any component is degraded
-        let overall = components.iter().fold(ComponentStatus::Healthy, |acc, check| {
-            match (&acc, &check.status) {
-                (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => ComponentStatus::Unhealthy,
-                (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => ComponentStatus::Degraded,
-                _ => ComponentStatus::Healthy,
-            }
-        });
+        let overall = components
+            .iter()
+            .fold(ComponentStatus::Healthy, |acc, check| {
+                match (&acc, &check.status) {
+                    (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => {
+                        ComponentStatus::Unhealthy
+                    }
+                    (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => {
+                        ComponentStatus::Degraded
+                    }
+                    _ => ComponentStatus::Healthy,
+                }
+            });
 
         assert_eq!(overall, ComponentStatus::Degraded);
     }
@@ -612,13 +668,19 @@ mod tests {
         ];
 
         // Overall should be unhealthy if any component is unhealthy
-        let overall = components.iter().fold(ComponentStatus::Healthy, |acc, check| {
-            match (&acc, &check.status) {
-                (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => ComponentStatus::Unhealthy,
-                (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => ComponentStatus::Degraded,
-                _ => ComponentStatus::Healthy,
-            }
-        });
+        let overall = components
+            .iter()
+            .fold(ComponentStatus::Healthy, |acc, check| {
+                match (&acc, &check.status) {
+                    (ComponentStatus::Unhealthy, _) | (_, ComponentStatus::Unhealthy) => {
+                        ComponentStatus::Unhealthy
+                    }
+                    (ComponentStatus::Degraded, _) | (_, ComponentStatus::Degraded) => {
+                        ComponentStatus::Degraded
+                    }
+                    _ => ComponentStatus::Healthy,
+                }
+            });
 
         assert_eq!(overall, ComponentStatus::Unhealthy);
     }

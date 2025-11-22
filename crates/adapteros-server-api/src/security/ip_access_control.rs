@@ -1,7 +1,6 @@
 ///! IP address allowlisting and denylisting for security
 ///!
 ///! Provides granular control over which IP addresses can access the system.
-
 use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::Utc;
@@ -36,11 +35,7 @@ pub enum AccessDecision {
 /// 1. Check deny list first (deny wins)
 /// 2. If allowlist is enabled and IP not on allowlist, deny
 /// 3. Otherwise, allow
-pub async fn check_ip_access(
-    db: &Db,
-    ip: &str,
-    tenant_id: Option<&str>,
-) -> Result<AccessDecision> {
+pub async fn check_ip_access(db: &Db, ip: &str, tenant_id: Option<&str>) -> Result<AccessDecision> {
     let now = Utc::now().to_rfc3339();
 
     // Check deny list (global and tenant-specific)
@@ -51,7 +46,7 @@ pub async fn check_ip_access(
                AND list_type = 'deny'
                AND active = 1
                AND (expires_at IS NULL OR expires_at > ?)
-               AND (tenant_id IS NULL OR tenant_id = ?)"
+               AND (tenant_id IS NULL OR tenant_id = ?)",
         )
         .bind(ip)
         .bind(ip)
@@ -66,7 +61,7 @@ pub async fn check_ip_access(
                AND list_type = 'deny'
                AND active = 1
                AND (expires_at IS NULL OR expires_at > ?)
-               AND tenant_id IS NULL"
+               AND tenant_id IS NULL",
         )
         .bind(ip)
         .bind(ip)
@@ -86,7 +81,7 @@ pub async fn check_ip_access(
             "SELECT COUNT(*) FROM ip_access_control
              WHERE list_type = 'allow'
                AND active = 1
-               AND (tenant_id IS NULL OR tenant_id = ?)"
+               AND (tenant_id IS NULL OR tenant_id = ?)",
         )
         .bind(tid)
         .fetch_one(db.pool())
@@ -96,7 +91,7 @@ pub async fn check_ip_access(
             "SELECT COUNT(*) FROM ip_access_control
              WHERE list_type = 'allow'
                AND active = 1
-               AND tenant_id IS NULL"
+               AND tenant_id IS NULL",
         )
         .fetch_one(db.pool())
         .await?
@@ -111,7 +106,7 @@ pub async fn check_ip_access(
                    AND list_type = 'allow'
                    AND active = 1
                    AND (expires_at IS NULL OR expires_at > ?)
-                   AND (tenant_id IS NULL OR tenant_id = ?)"
+                   AND (tenant_id IS NULL OR tenant_id = ?)",
             )
             .bind(ip)
             .bind(ip)
@@ -126,7 +121,7 @@ pub async fn check_ip_access(
                    AND list_type = 'allow'
                    AND active = 1
                    AND (expires_at IS NULL OR expires_at > ?)
-                   AND tenant_id IS NULL"
+                   AND tenant_id IS NULL",
             )
             .bind(ip)
             .bind(ip)
@@ -245,7 +240,7 @@ pub async fn cleanup_expired_ip_rules(db: &Db) -> Result<usize> {
 
     let result = sqlx::query(
         "UPDATE ip_access_control SET active = 0
-         WHERE expires_at IS NOT NULL AND expires_at < ?"
+         WHERE expires_at IS NOT NULL AND expires_at < ?",
     )
     .bind(&now)
     .execute(db.pool())
@@ -266,7 +261,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_ip_denylist() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         // Add to denylist
         add_ip_rule(
@@ -297,7 +294,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_ip_allowlist() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         // Add to allowlist
         add_ip_rule(

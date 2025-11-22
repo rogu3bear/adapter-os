@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, Mutex};
 
+use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
 
@@ -67,13 +68,13 @@ impl Default for CryptoState {
 #[derive(Clone, Debug, Serialize)]
 pub struct DatasetProgressEvent {
     pub dataset_id: String,
-    pub event_type: String,  // "upload", "validation", "statistics"
+    pub event_type: String, // "upload", "validation", "statistics"
     pub current_file: Option<String>,
-    pub percentage_complete: f32,  // 0.0 to 100.0
+    pub percentage_complete: f32, // 0.0 to 100.0
     pub total_files: Option<i32>,
     pub files_processed: Option<i32>,
     pub message: String,
-    pub timestamp: String,  // ISO8601 format
+    pub timestamp: String, // ISO8601 format
 }
 
 /// Shared application state passed to all handlers
@@ -124,6 +125,8 @@ pub struct AppState {
     pub federation_daemon: Option<Arc<FederationDaemon>>,
     // Telemetry bundle store for tenant hydration
     pub telemetry_bundle_store: Arc<std::sync::RwLock<BundleStore>>,
+    // Chunked upload session manager
+    pub upload_session_manager: Arc<UploadSessionManager>,
 }
 
 impl AppState {
@@ -165,8 +168,10 @@ impl AppState {
             db_pool,
             plugin_registry: Arc::new(crate::plugin_registry::PluginRegistry::new(db.clone())),
             uma_monitor,
-            response_validator: Arc::new(crate::validation::response_schemas::ResponseSchemaValidator::new(None)),
-            use_ed25519: true,  // Default to Ed25519 for production
+            response_validator: Arc::new(
+                crate::validation::response_schemas::ResponseSchemaValidator::new(None),
+            ),
+            use_ed25519: true, // Default to Ed25519 for production
             ed25519_keypair: ed25519_keypair.clone(),
             ed25519_public_key,
             metrics_collector,
@@ -184,6 +189,8 @@ impl AppState {
                 BundleStore::new("var/telemetry/bundles", RetentionPolicy::default())
                     .expect("Failed to create telemetry bundle store"),
             )),
+            // Default to 1000 max concurrent upload sessions
+            upload_session_manager: Arc::new(UploadSessionManager::new(1000)),
         }
     }
 
@@ -220,7 +227,10 @@ impl AppState {
         self
     }
 
-    pub fn with_plugin_registry(mut self, registry: Arc<crate::plugin_registry::PluginRegistry>) -> Self {
+    pub fn with_plugin_registry(
+        mut self,
+        registry: Arc<crate::plugin_registry::PluginRegistry>,
+    ) -> Self {
         self.plugin_registry = registry;
         self
     }

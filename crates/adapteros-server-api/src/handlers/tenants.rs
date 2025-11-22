@@ -10,12 +10,7 @@ use crate::middleware::require_role;
 use crate::state::AppState;
 use crate::types::*; // Re-exports adapteros_api_types::*
 use adapteros_db::users::Role;
-use axum::{
-    extract::Extension,
-    http::StatusCode,
-    response::Json,
-    extract::State,
-};
+use axum::{extract::Extension, extract::State, http::StatusCode, response::Json};
 
 /// List all tenants
 pub async fn list_tenants(

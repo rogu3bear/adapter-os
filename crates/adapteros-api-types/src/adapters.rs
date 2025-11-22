@@ -19,6 +19,21 @@ pub struct RegisterAdapterRequest {
 }
 
 /// Adapter response
+///
+/// # State Fields
+///
+/// This type exposes two distinct state concepts:
+///
+/// - `lifecycle_state`: The adapter's lifecycle phase in the release workflow.
+///   Values: "draft", "active", "deprecated", "retired"
+///   This is the **canonical field** for adapter maturity/release status.
+///
+/// - `runtime_state`: The adapter's current memory/runtime status.
+///   Values: "unloaded", "cold", "warm", "hot", "resident"
+///   This reflects whether the adapter is loaded and at what priority tier.
+///
+/// Note: In the database, `current_state` maps to `runtime_state` in the API
+/// to provide clearer semantics.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterResponse {
@@ -37,7 +52,12 @@ pub struct AdapterResponse {
     /// Adapter version from migration 0068 (semantic or monotonic)
     pub version: String,
     /// Lifecycle state from migration 0068 (draft/active/deprecated/retired)
+    /// This is the canonical field for adapter maturity/release status.
     pub lifecycle_state: String,
+    /// Runtime state indicating memory/load status (unloaded/cold/warm/hot/resident)
+    /// Maps from database `current_state` field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_state: Option<String>,
 }
 
 /// Adapter statistics

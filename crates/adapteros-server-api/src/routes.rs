@@ -1,7 +1,10 @@
 use crate::handlers;
 use crate::handlers::domain_adapters;
 use crate::middleware::{auth_middleware, dual_auth_middleware};
-use crate::middleware_security::{cors_layer, rate_limiting_middleware, request_size_limit_middleware, security_headers_middleware};
+use crate::middleware_security::{
+    cors_layer, rate_limiting_middleware, request_size_limit_middleware,
+    security_headers_middleware,
+};
 use crate::state::AppState;
 use axum::{
     middleware,
@@ -107,6 +110,10 @@ use utoipa_swagger_ui::SwaggerUi;
         // Dataset handlers
         handlers::datasets::upload_dataset,
         handlers::datasets::initiate_chunked_upload,
+        handlers::datasets::upload_chunk,
+        handlers::datasets::complete_chunked_upload,
+        handlers::datasets::get_upload_session_status,
+        handlers::datasets::cancel_chunked_upload,
         handlers::datasets::list_datasets,
         handlers::datasets::get_dataset,
         handlers::datasets::get_dataset_files,
@@ -125,6 +132,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::promotion::approve_or_reject_promotion,
         handlers::promotion::rollback_promotion,
         handlers::promotion::get_gate_status,
+        // Activity handlers
+        handlers::activity::create_activity_event,
+        handlers::activity::list_activity_events,
+        handlers::activity::list_user_workspace_activity,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -178,6 +189,16 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::AuditLogsQuery,
         crate::types::AuditLogResponse,
         crate::types::AuditLogsResponse,
+        // Adapter hot-swap and statistics types
+        crate::types::AdapterSwapRequest,
+        crate::types::AdapterSwapResponse,
+        crate::types::AdapterStatsResponse,
+        // Category policy types
+        crate::types::CategoryPolicyRequest,
+        crate::types::CategoryPolicyResponse,
+        crate::types::CategoryPoliciesResponse,
+        // Worker stop types
+        crate::types::WorkerStopResponse,
         // Contacts and Streams types - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
         crate::types::ContactResponse,
         crate::types::CreateContactRequest,
@@ -226,6 +247,17 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::handlers::federation::FederationStatusResponse,
         crate::handlers::federation::QuarantineStatusResponse,
         crate::handlers::federation::QuarantineDetails,
+        // Chunked upload types
+        handlers::datasets::InitiateChunkedUploadRequest,
+        handlers::datasets::InitiateChunkedUploadResponse,
+        handlers::datasets::UploadChunkQuery,
+        handlers::datasets::UploadChunkResponse,
+        handlers::datasets::CompleteChunkedUploadRequest,
+        handlers::datasets::CompleteChunkedUploadResponse,
+        handlers::datasets::UploadSessionStatusResponse,
+        // Activity types
+        handlers::activity::CreateActivityEventRequest,
+        handlers::activity::ActivityEventResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -247,6 +279,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "federation", description = "Federation verification and quarantine management"),
         (name = "inference", description = "Model inference endpoints"),
         (name = "promotion", description = "Golden run promotion workflow"),
+        (name = "activity", description = "Activity event tracking and feeds"),
     )
 )]
 pub struct ApiDoc;
@@ -256,9 +289,15 @@ pub fn build(state: AppState) -> Router {
     let public_routes = Router::new()
         .route("/healthz", get(handlers::health))
         .route("/healthz/all", get(crate::health::check_all_health))
-        .route("/healthz/:component", get(crate::health::check_component_health))
+        .route(
+            "/healthz/{component}",
+            get(crate::health::check_component_health),
+        )
         .route("/readyz", get(handlers::ready))
-        .route("/v1/auth/login", post(handlers::auth_enhanced::login_handler))
+        .route(
+            "/v1/auth/login",
+            post(handlers::auth_enhanced::login_handler),
+        )
         .route("/v1/meta", get(handlers::meta));
 
     // Metrics endpoint (custom auth, not JWT)
@@ -274,40 +313,43 @@ pub fn build(state: AppState) -> Router {
             "/v1/tenants",
             get(handlers::list_tenants).post(handlers::create_tenant),
         )
-        .route("/v1/tenants/:tenant_id", put(handlers::update_tenant))
-        .route("/v1/tenants/:tenant_id/pause", post(handlers::pause_tenant))
+        .route("/v1/tenants/{tenant_id}", put(handlers::update_tenant))
         .route(
-            "/v1/tenants/:tenant_id/archive",
+            "/v1/tenants/{tenant_id}/pause",
+            post(handlers::pause_tenant),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/archive",
             post(handlers::archive_tenant),
         )
         .route(
-            "/v1/tenants/:tenant_id/policies",
+            "/v1/tenants/{tenant_id}/policies",
             post(handlers::assign_tenant_policies),
         )
         .route(
-            "/v1/tenants/:tenant_id/adapters",
+            "/v1/tenants/{tenant_id}/adapters",
             post(handlers::assign_tenant_adapters),
         )
         .route(
-            "/v1/tenants/:tenant_id/usage",
+            "/v1/tenants/{tenant_id}/usage",
             get(handlers::get_tenant_usage),
         )
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))
         .route(
-            "/v1/nodes/:node_id/ping",
+            "/v1/nodes/{node_id}/ping",
             post(handlers::test_node_connection),
         )
         .route(
-            "/v1/nodes/:node_id/offline",
+            "/v1/nodes/{node_id}/offline",
             post(handlers::mark_node_offline),
         )
         .route(
-            "/v1/nodes/:node_id",
+            "/v1/nodes/{node_id}",
             axum::routing::delete(handlers::evict_node),
         )
         .route(
-            "/v1/nodes/:node_id/details",
+            "/v1/nodes/{node_id}/details",
             get(handlers::get_node_details),
         )
         .route("/v1/models/import", post(handlers::import_model))
@@ -315,18 +357,18 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/plans", get(handlers::list_plans))
         .route("/v1/plans/build", post(handlers::build_plan))
         .route(
-            "/v1/plans/:plan_id/details",
+            "/v1/plans/{plan_id}/details",
             get(handlers::get_plan_details),
         )
-        .route("/v1/plans/:plan_id/rebuild", post(handlers::rebuild_plan))
+        .route("/v1/plans/{plan_id}/rebuild", post(handlers::rebuild_plan))
         .route("/v1/plans/compare", post(handlers::compare_plans))
         .route(
-            "/v1/plans/:plan_id/manifest",
+            "/v1/plans/{plan_id}/manifest",
             get(handlers::export_plan_manifest),
         )
         .route("/v1/cp/promote", post(handlers::cp_promote))
         .route(
-            "/v1/cp/promotion-gates/:cpid",
+            "/v1/cp/promotion-gates/{cpid}",
             get(handlers::promotion_gates),
         )
         .route("/v1/cp/rollback", post(handlers::cp_rollback))
@@ -335,21 +377,23 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/workers", get(handlers::list_workers))
         .route("/v1/workers/spawn", post(handlers::worker_spawn))
         .route(
-            "/v1/workers/:worker_id/logs",
+            "/v1/workers/{worker_id}/logs",
             get(handlers::list_process_logs),
         )
         .route(
-            "/v1/workers/:worker_id/crashes",
+            "/v1/workers/{worker_id}/crashes",
             get(handlers::list_process_crashes),
         )
         .route(
-            "/v1/workers/:worker_id/debug",
+            "/v1/workers/{worker_id}/debug",
             post(handlers::start_debug_session),
         )
         .route(
-            "/v1/workers/:worker_id/troubleshoot",
+            "/v1/workers/{worker_id}/troubleshoot",
             post(handlers::run_troubleshooting_step),
         )
+        // Worker stop route
+        .route("/v1/workers/{worker_id}/stop", post(handlers::stop_worker))
         .route(
             "/v1/monitoring/rules",
             get(handlers::list_process_monitoring_rules),
@@ -360,7 +404,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/monitoring/alerts", get(handlers::list_process_alerts))
         .route(
-            "/v1/monitoring/alerts/:alert_id/acknowledge",
+            "/v1/monitoring/alerts/{alert_id}/acknowledge",
             post(handlers::acknowledge_process_alert),
         )
         .route(
@@ -368,7 +412,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::list_process_anomalies),
         )
         .route(
-            "/v1/monitoring/anomalies/:anomaly_id/status",
+            "/v1/monitoring/anomalies/{anomaly_id}/status",
             post(handlers::update_process_anomaly_status),
         )
         .route(
@@ -393,25 +437,25 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/jobs", get(handlers::list_jobs))
         .route("/v1/policies", get(handlers::list_policies))
-        .route("/v1/policies/:cpid", get(handlers::get_policy))
+        .route("/v1/policies/{cpid}", get(handlers::get_policy))
         .route("/v1/policies/validate", post(handlers::validate_policy))
         .route("/v1/policies/apply", post(handlers::apply_policy))
-        .route("/v1/policies/:cpid/sign", post(handlers::sign_policy))
+        .route("/v1/policies/{cpid}/sign", post(handlers::sign_policy))
         .route(
             "/v1/policies/compare",
             post(handlers::compare_policy_versions),
         )
-        .route("/v1/policies/:cpid/export", get(handlers::export_policy))
+        .route("/v1/policies/{cpid}/export", get(handlers::export_policy))
         .route(
             "/v1/telemetry/bundles",
             get(handlers::list_telemetry_bundles),
         )
         .route(
-            "/v1/telemetry/bundles/:bundle_id/export",
+            "/v1/telemetry/bundles/{bundle_id}/export",
             get(handlers::export_telemetry_bundle),
         )
         .route(
-            "/v1/telemetry/bundles/:bundle_id/verify",
+            "/v1/telemetry/bundles/{bundle_id}/verify",
             post(handlers::verify_bundle_signature),
         )
         .route(
@@ -428,11 +472,11 @@ pub fn build(state: AppState) -> Router {
             post(handlers::replay::create_replay_session),
         )
         .route(
-            "/v1/replay/sessions/:id",
+            "/v1/replay/sessions/{id}",
             get(handlers::replay::get_replay_session),
         )
         .route(
-            "/v1/replay/sessions/:id/verify",
+            "/v1/replay/sessions/{id}/verify",
             post(handlers::replay::verify_replay_session),
         )
         .route("/v1/patch/propose", post(handlers::propose_patch))
@@ -440,18 +484,22 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))
-        .route("/v1/adapters/:adapter_id", get(handlers::get_adapter))
+        .route("/v1/adapters/{adapter_id}", get(handlers::get_adapter))
         .route("/v1/adapters/register", post(handlers::register_adapter))
         .route(
-            "/v1/adapters/:adapter_id",
+            "/v1/adapters/import",
+            post(handlers::adapters::import_adapter),
+        )
+        .route(
+            "/v1/adapters/{adapter_id}",
             axum::routing::delete(handlers::delete_adapter),
         )
         .route(
-            "/v1/adapters/:adapter_id/load",
+            "/v1/adapters/{adapter_id}/load",
             post(handlers::load_adapter),
         )
         .route(
-            "/v1/adapters/:adapter_id/unload",
+            "/v1/adapters/{adapter_id}/unload",
             post(handlers::unload_adapter),
         )
         .route(
@@ -459,29 +507,29 @@ pub fn build(state: AppState) -> Router {
             get(handlers::verify_gpu_integrity),
         )
         .route(
-            "/v1/adapters/:adapter_id/activations",
+            "/v1/adapters/{adapter_id}/activations",
             get(handlers::get_adapter_activations),
         )
         // PRD-07: Lifecycle promotion/demotion (distinct from tier-based promotion)
         .route(
-            "/v1/adapters/:adapter_id/lifecycle/promote",
+            "/v1/adapters/{adapter_id}/lifecycle/promote",
             post(handlers::promote_adapter_lifecycle),
         )
         .route(
-            "/v1/adapters/:adapter_id/lifecycle/demote",
+            "/v1/adapters/{adapter_id}/lifecycle/demote",
             post(handlers::demote_adapter_lifecycle),
         )
         // PRD-08: Lineage and detail views
         .route(
-            "/v1/adapters/:adapter_id/lineage",
+            "/v1/adapters/{adapter_id}/lineage",
             get(handlers::get_adapter_lineage),
         )
         .route(
-            "/v1/adapters/:adapter_id/detail",
+            "/v1/adapters/{adapter_id}/detail",
             get(handlers::get_adapter_detail),
         )
         .route(
-            "/v1/adapters/:adapter_id/manifest",
+            "/v1/adapters/{adapter_id}/manifest",
             get(handlers::download_adapter_manifest),
         )
         .route(
@@ -489,20 +537,37 @@ pub fn build(state: AppState) -> Router {
             post(handlers::upsert_directory_adapter),
         )
         .route(
-            "/v1/adapters/:adapter_id/health",
+            "/v1/adapters/{adapter_id}/health",
             get(handlers::get_adapter_health),
         )
         // Adapter pinning routes
         .route(
-            "/v1/adapters/:adapter_id/pin",
+            "/v1/adapters/{adapter_id}/pin",
             get(handlers::get_pin_status)
                 .post(handlers::pin_adapter)
                 .delete(handlers::unpin_adapter),
         )
         // Tier-based state promotion (distinct from lifecycle promotion)
         .route(
-            "/v1/adapters/:adapter_id/state/promote",
+            "/v1/adapters/{adapter_id}/state/promote",
             post(handlers::promote_adapter_state),
+        )
+        // Adapter hot-swap route
+        .route("/v1/adapters/swap", post(handlers::adapters::swap_adapters))
+        // Adapter statistics route
+        .route(
+            "/v1/adapters/{adapter_id}/stats",
+            get(handlers::adapters::get_adapter_stats),
+        )
+        // Category policies routes
+        .route(
+            "/v1/adapters/category-policies",
+            get(handlers::adapters::list_category_policies),
+        )
+        .route(
+            "/v1/adapters/category-policies/{category}",
+            get(handlers::adapters::get_category_policy)
+                .put(handlers::adapters::update_category_policy),
         )
         // Semantic name validation routes
         .route(
@@ -514,7 +579,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::validate_stack_name),
         )
         .route(
-            "/v1/adapters/next-revision/:tenant/:domain/:purpose",
+            "/v1/adapters/next-revision/{tenant}/{domain}/{purpose}",
             get(handlers::get_next_revision),
         )
         // Adapter stacks routes
@@ -523,11 +588,11 @@ pub fn build(state: AppState) -> Router {
             get(handlers::adapter_stacks::list_stacks).post(handlers::adapter_stacks::create_stack),
         )
         .route(
-            "/v1/adapter-stacks/:id",
+            "/v1/adapter-stacks/{id}",
             get(handlers::adapter_stacks::get_stack).delete(handlers::adapter_stacks::delete_stack),
         )
         .route(
-            "/v1/adapter-stacks/:id/activate",
+            "/v1/adapter-stacks/{id}/activate",
             post(handlers::adapter_stacks::activate_stack),
         )
         .route(
@@ -544,31 +609,31 @@ pub fn build(state: AppState) -> Router {
             post(domain_adapters::create_domain_adapter),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id",
+            "/v1/domain-adapters/{adapter_id}",
             get(domain_adapters::get_domain_adapter),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id",
+            "/v1/domain-adapters/{adapter_id}",
             delete(domain_adapters::delete_domain_adapter),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id/load",
+            "/v1/domain-adapters/{adapter_id}/load",
             post(domain_adapters::load_domain_adapter),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id/unload",
+            "/v1/domain-adapters/{adapter_id}/unload",
             post(domain_adapters::unload_domain_adapter),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id/test",
+            "/v1/domain-adapters/{adapter_id}/test",
             post(domain_adapters::test_domain_adapter),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id/manifest",
+            "/v1/domain-adapters/{adapter_id}/manifest",
             get(domain_adapters::get_domain_adapter_manifest),
         )
         .route(
-            "/v1/domain-adapters/:adapter_id/execute",
+            "/v1/domain-adapters/{adapter_id}/execute",
             post(domain_adapters::execute_domain_adapter),
         )
         // Contacts routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
@@ -577,11 +642,11 @@ pub fn build(state: AppState) -> Router {
             get(handlers::list_contacts).post(handlers::create_contact),
         )
         .route(
-            "/v1/contacts/:id",
+            "/v1/contacts/{id}",
             get(handlers::get_contact).delete(handlers::delete_contact),
         )
         .route(
-            "/v1/contacts/:id/interactions",
+            "/v1/contacts/{id}/interactions",
             get(handlers::get_contact_interactions),
         )
         // SSE Streaming routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5, §4.4
@@ -589,16 +654,63 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/streams/discovery", get(handlers::discovery_stream))
         .route("/v1/streams/contacts", get(handlers::contacts_stream))
         // Dataset routes
-        .route("/v1/datasets/upload", post(handlers::datasets::upload_dataset))
-        .route("/v1/datasets/chunked-upload/initiate", post(handlers::datasets::initiate_chunked_upload))
+        .route(
+            "/v1/datasets/upload",
+            post(handlers::datasets::upload_dataset),
+        )
+        .route(
+            "/v1/datasets/chunked-upload/initiate",
+            post(handlers::datasets::initiate_chunked_upload),
+        )
+        // Chunked upload routes - upload individual chunks
+        .route(
+            "/v1/datasets/chunked-upload/{session_id}/chunk",
+            post(handlers::datasets::upload_chunk),
+        )
+        // Chunked upload routes - complete upload and create dataset
+        .route(
+            "/v1/datasets/chunked-upload/{session_id}/complete",
+            post(handlers::datasets::complete_chunked_upload),
+        )
+        // Chunked upload routes - get session status
+        .route(
+            "/v1/datasets/chunked-upload/{session_id}/status",
+            get(handlers::datasets::get_upload_session_status),
+        )
+        // Chunked upload routes - cancel upload session
+        .route(
+            "/v1/datasets/chunked-upload/{session_id}",
+            delete(handlers::datasets::cancel_chunked_upload),
+        )
         .route("/v1/datasets", get(handlers::datasets::list_datasets))
-        .route("/v1/datasets/:dataset_id", get(handlers::datasets::get_dataset))
-        .route("/v1/datasets/:dataset_id", delete(handlers::datasets::delete_dataset))
-        .route("/v1/datasets/:dataset_id/files", get(handlers::datasets::get_dataset_files))
-        .route("/v1/datasets/:dataset_id/statistics", get(handlers::datasets::get_dataset_statistics))
-        .route("/v1/datasets/:dataset_id/validate", post(handlers::datasets::validate_dataset))
-        .route("/v1/datasets/:dataset_id/preview", get(handlers::datasets::preview_dataset))
-        .route("/v1/datasets/upload/progress", get(handlers::datasets::dataset_upload_progress))
+        .route(
+            "/v1/datasets/{dataset_id}",
+            get(handlers::datasets::get_dataset),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}",
+            delete(handlers::datasets::delete_dataset),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/files",
+            get(handlers::datasets::get_dataset_files),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/statistics",
+            get(handlers::datasets::get_dataset_statistics),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/validate",
+            post(handlers::datasets::validate_dataset),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/preview",
+            get(handlers::datasets::preview_dataset),
+        )
+        .route(
+            "/v1/datasets/upload/progress",
+            get(handlers::datasets::dataset_upload_progress),
+        )
         // Code intelligence routes
         .route(
             "/v1/code/register-repo",
@@ -606,7 +718,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/code/scan", post(handlers::code::scan_repo))
         .route(
-            "/v1/code/scan/:job_id",
+            "/v1/code/scan/{job_id}",
             get(handlers::code::get_scan_status),
         )
         .route(
@@ -614,7 +726,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::code::list_repositories),
         )
         .route(
-            "/v1/code/repositories/:repo_id",
+            "/v1/code/repositories/{repo_id}",
             get(handlers::code::get_repository),
         )
         .route(
@@ -630,29 +742,47 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/system/memory", get(handlers::get_uma_memory))
         // Commit routes
         .route("/v1/commits", get(handlers::list_commits))
-        .route("/v1/commits/:sha", get(handlers::get_commit))
-        .route("/v1/commits/:sha/diff", get(handlers::get_commit_diff))
+        .route("/v1/commits/{sha}", get(handlers::get_commit))
+        .route("/v1/commits/{sha}/diff", get(handlers::get_commit_diff))
         // Routing routes
         .route("/v1/routing/debug", post(handlers::debug_routing))
         .route("/v1/routing/history", get(handlers::get_routing_history))
-        .route("/v1/routing/decisions", get(handlers::routing_decisions::get_routing_decisions))
-        .route("/v1/routing/decisions/:id", get(handlers::routing_decisions::get_routing_decision_by_id))
-        .route("/v1/telemetry/routing", post(handlers::routing_decisions::ingest_router_decision))
+        .route(
+            "/v1/routing/decisions",
+            get(handlers::routing_decisions::get_routing_decisions),
+        )
+        .route(
+            "/v1/routing/decisions/{id}",
+            get(handlers::routing_decisions::get_routing_decision_by_id),
+        )
+        .route(
+            "/v1/telemetry/routing",
+            post(handlers::routing_decisions::ingest_router_decision),
+        )
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
-        .route("/v1/traces/:trace_id", get(handlers::telemetry::get_trace))
+        .route("/v1/traces/{trace_id}", get(handlers::telemetry::get_trace))
         // Logs routes
         .route("/v1/logs/query", get(handlers::telemetry::query_logs))
         .route("/v1/logs/stream", get(handlers::telemetry::stream_logs))
         // Metrics snapshot/series routes
-        .route("/v1/metrics/snapshot", get(handlers::telemetry::get_metrics_snapshot))
-        .route("/v1/metrics/series", get(handlers::telemetry::get_metrics_series))
+        .route(
+            "/v1/metrics/snapshot",
+            get(handlers::telemetry::get_metrics_snapshot),
+        )
+        .route(
+            "/v1/metrics/series",
+            get(handlers::telemetry::get_metrics_series),
+        )
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
-        .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
+        .route(
+            "/v1/training/jobs/{job_id}",
+            get(handlers::get_training_job),
+        )
         .route("/v1/training/start", post(handlers::start_training))
         .route(
-            "/v1/training/jobs/:job_id/cancel",
+            "/v1/training/jobs/{job_id}/cancel",
             post(handlers::cancel_training),
         )
         .route(
@@ -660,15 +790,15 @@ pub fn build(state: AppState) -> Router {
             post(handlers::create_training_session),
         )
         .route(
-            "/v1/training/jobs/:job_id/logs",
+            "/v1/training/jobs/{job_id}/logs",
             get(handlers::get_training_logs),
         )
         .route(
-            "/v1/training/jobs/:job_id/metrics",
+            "/v1/training/jobs/{job_id}/metrics",
             get(handlers::get_training_metrics),
         )
         .route(
-            "/v1/training/jobs/:job_id/artifacts",
+            "/v1/training/jobs/{job_id}/artifacts",
             get(handlers::get_training_artifacts),
         )
         .route(
@@ -676,7 +806,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::list_training_templates),
         )
         .route(
-            "/v1/training/templates/:template_id",
+            "/v1/training/templates/{template_id}",
             get(handlers::get_training_template),
         )
         // Git integration routes
@@ -686,7 +816,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::git::start_git_session),
         )
         .route(
-            "/v1/git/sessions/:session_id/end",
+            "/v1/git/sessions/{session_id}/end",
             post(handlers::git::end_git_session),
         )
         .route("/v1/git/branches", get(handlers::git::list_git_branches))
@@ -695,16 +825,25 @@ pub fn build(state: AppState) -> Router {
             get(handlers::git::file_changes_stream),
         )
         // Federation routes
-        .route("/v1/federation/status", get(handlers::federation::get_federation_status))
-        .route("/v1/federation/quarantine", get(handlers::federation::get_quarantine_status))
-        .route("/v1/federation/release-quarantine", post(handlers::federation::release_quarantine))
+        .route(
+            "/v1/federation/status",
+            get(handlers::federation::get_federation_status),
+        )
+        .route(
+            "/v1/federation/quarantine",
+            get(handlers::federation::get_quarantine_status),
+        )
+        .route(
+            "/v1/federation/release-quarantine",
+            post(handlers::federation::release_quarantine),
+        )
         // Audit endpoints
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
         .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
         .route("/v1/audit/logs", get(handlers::query_audit_logs))
         // Agent D contract endpoints
         .route("/v1/audits", get(handlers::list_audits_extended))
-        .route("/v1/promotions/:id", get(handlers::get_promotion))
+        .route("/v1/promotions/{id}", get(handlers::get_promotion))
         // SSE stream endpoints
         .route("/v1/stream/metrics", get(handlers::system_metrics_stream))
         .route(
@@ -713,25 +852,113 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/stream/adapters", get(handlers::adapter_state_stream))
         .route(
-            "/v1/plugins/:name/enable",
+            "/v1/plugins/{name}/enable",
             post(handlers::plugins::enable_plugin),
         )
         .route(
-            "/v1/plugins/:name/disable",
+            "/v1/plugins/{name}/disable",
             post(handlers::plugins::disable_plugin),
         )
-        .route("/v1/plugins/:name", get(handlers::plugins::plugin_status))
+        .route("/v1/plugins/{name}", get(handlers::plugins::plugin_status))
         .route("/v1/plugins", get(handlers::plugins::list_plugins))
-        .route("/v1/system/memory", get(handlers::get_uma_memory))
         // Golden run promotion routes
         .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
-        .route("/v1/golden/runs/:name", get(handlers::golden::get_golden_run))
+        .route(
+            "/v1/golden/runs/{name}",
+            get(handlers::golden::get_golden_run),
+        )
         .route("/v1/golden/compare", post(handlers::golden::golden_compare))
-        .route("/v1/golden/:run_id/promote", post(handlers::promotion::request_promotion))
-        .route("/v1/golden/:run_id/promotion", get(handlers::promotion::get_promotion_status))
-        .route("/v1/golden/:run_id/approve", post(handlers::promotion::approve_or_reject_promotion))
-        .route("/v1/golden/:run_id/gates", get(handlers::promotion::get_gate_status))
-        .route("/v1/golden/:stage/rollback", post(handlers::promotion::rollback_promotion))
+        .route(
+            "/v1/golden/{run_id}/promote",
+            post(handlers::promotion::request_promotion),
+        )
+        .route(
+            "/v1/golden/{run_id}/promotion",
+            get(handlers::promotion::get_promotion_status),
+        )
+        .route(
+            "/v1/golden/{run_id}/approve",
+            post(handlers::promotion::approve_or_reject_promotion),
+        )
+        .route(
+            "/v1/golden/{run_id}/gates",
+            get(handlers::promotion::get_gate_status),
+        )
+        .route(
+            "/v1/golden/{stage}/rollback",
+            post(handlers::promotion::rollback_promotion),
+        )
+        // Activity routes
+        .route(
+            "/v1/activity/events",
+            get(handlers::activity::list_activity_events)
+                .post(handlers::activity::create_activity_event),
+        )
+        .route(
+            "/v1/activity/feed",
+            get(handlers::activity::list_user_workspace_activity),
+        )
+        // Workspace routes
+        .route(
+            "/v1/workspaces",
+            get(handlers::workspaces::list_workspaces).post(handlers::workspaces::create_workspace),
+        )
+        .route(
+            "/v1/workspaces/me",
+            get(handlers::workspaces::list_user_workspaces),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}",
+            get(handlers::workspaces::get_workspace)
+                .put(handlers::workspaces::update_workspace)
+                .delete(handlers::workspaces::delete_workspace),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}/members",
+            get(handlers::workspaces::list_workspace_members)
+                .post(handlers::workspaces::add_workspace_member),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}/members/{member_id}",
+            put(handlers::workspaces::update_workspace_member)
+                .delete(handlers::workspaces::remove_workspace_member),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}/resources",
+            get(handlers::workspaces::list_workspace_resources)
+                .post(handlers::workspaces::share_workspace_resource),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}/resources/{resource_id}",
+            delete(handlers::workspaces::unshare_workspace_resource),
+        )
+        // Notification routes
+        .route(
+            "/v1/notifications",
+            get(handlers::notifications::list_notifications),
+        )
+        .route(
+            "/v1/notifications/summary",
+            get(handlers::notifications::get_notification_summary),
+        )
+        .route(
+            "/v1/notifications/{notification_id}/read",
+            post(handlers::notifications::mark_notification_read),
+        )
+        .route(
+            "/v1/notifications/read-all",
+            post(handlers::notifications::mark_all_notifications_read),
+        )
+        // Dashboard configuration routes
+        .route(
+            "/v1/dashboard/config",
+            get(handlers::dashboard::get_dashboard_config)
+                .put(handlers::dashboard::update_dashboard_config),
+        )
+        .route(
+            "/v1/dashboard/config/reset",
+            post(handlers::dashboard::reset_dashboard_config),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -747,7 +974,10 @@ pub fn build(state: AppState) -> Router {
         // Apply layers (innermost to outermost):
         .layer(TraceLayer::new_for_http()) // Request tracing (innermost)
         .layer(cors_layer()) // CORS configuration
-        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limiting_middleware)) // Rate limiting
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            rate_limiting_middleware,
+        )) // Rate limiting
         .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
         .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers (outermost)
         .with_state(state)

@@ -205,7 +205,9 @@ pub async fn register_git_repository(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Plugin registry error").with_string_details(e.to_string())),
+                Json(
+                    ErrorResponse::new("Plugin registry error").with_string_details(e.to_string()),
+                ),
             )
         })?;
 
@@ -601,11 +603,7 @@ impl PathValidator {
     /// Validate a repository path for security and policy compliance
     ///
     /// Prevents path traversal attacks and enforces allowlist/denylist policies
-    pub fn validate_repo_path(
-        &self,
-        path: &str,
-        _tenant_id: &str,
-    ) -> Result<(), AosError> {
+    pub fn validate_repo_path(&self, path: &str, _tenant_id: &str) -> Result<(), AosError> {
         // Evidence: docs/code-intelligence/code-policies.md:82-84
         // Policy: Path allowlist and denylist enforcement
 
@@ -782,14 +780,14 @@ impl PathValidator {
 fn contains_path_traversal(path: &str) -> bool {
     // Check for common traversal patterns
     let traversal_patterns = [
-        "..",           // Parent directory
-        "./.",          // Hidden current directory tricks
-        "..\\",         // Windows-style traversal
-        "..%2f",        // URL-encoded forward slash
-        "..%5c",        // URL-encoded backslash
-        "%2e%2e",       // URL-encoded dots
-        "....//",       // Double-dot variations
-        "..;/",         // Semicolon bypass
+        "..",     // Parent directory
+        "./.",    // Hidden current directory tricks
+        "..\\",   // Windows-style traversal
+        "..%2f",  // URL-encoded forward slash
+        "..%5c",  // URL-encoded backslash
+        "%2e%2e", // URL-encoded dots
+        "....//", // Double-dot variations
+        "..;/",   // Semicolon bypass
     ];
 
     let path_lower = path.to_lowercase();

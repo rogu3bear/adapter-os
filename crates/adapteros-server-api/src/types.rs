@@ -892,11 +892,18 @@ pub struct RoutingDecisionsQuery {
     pub min_entropy: Option<f64>,
     pub max_overhead_pct: Option<f64>,
     #[serde(default)]
-    pub anomalies_only: bool,  // Filter to high overhead or low entropy
+    pub anomalies_only: bool, // Filter to high overhead or low entropy
 }
 
 fn default_limit() -> usize {
     50
+}
+
+/// Routing history query parameters (simpler than RoutingDecisionsQuery)
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RoutingHistoryQuery {
+    /// Maximum number of results (default: 50)
+    pub limit: Option<usize>,
 }
 
 /// Router candidate with gate value
@@ -906,8 +913,8 @@ pub struct RouterCandidateInfo {
     pub adapter_name: Option<String>,
     pub raw_score: f32,
     pub gate_q15: i16,
-    pub gate_float: f32,  // Q15 converted to float for display
-    pub selected: bool,   // Whether this adapter was selected (gate > 0)
+    pub gate_float: f32, // Q15 converted to float for display
+    pub selected: bool,  // Whether this adapter was selected (gate > 0)
 }
 
 /// Single routing decision with full candidate details
@@ -1378,6 +1385,9 @@ pub fn training_config_from_request(
 
 /// Convert orchestrator TrainingJob to TrainingJobResponse
 pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> TrainingJobResponse {
+    // Calculate estimated completion time for running jobs
+    let estimated_completion = calculate_estimated_completion(&job);
+
     TrainingJobResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: job.id,
@@ -1396,8 +1406,51 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
         started_at: job.started_at,
         completed_at: job.completed_at,
         error_message: job.error_message,
-        estimated_completion: None, // TODO: Calculate from training progress
+        estimated_completion,
     }
+}
+
+/// Calculate estimated completion time for a training job
+///
+/// Uses progress percentage and elapsed time to estimate when the job will complete.
+/// Returns None if the job is not running or progress data is insufficient.
+fn calculate_estimated_completion(job: &adapteros_orchestrator::TrainingJob) -> Option<String> {
+    use chrono::{DateTime, Duration, Utc};
+
+    // Only calculate for running jobs with meaningful progress
+    if !matches!(
+        job.status,
+        adapteros_orchestrator::TrainingJobStatus::Running
+    ) {
+        return None;
+    }
+
+    // Need started_at timestamp and non-zero progress
+    let started_at = job.started_at.as_ref()?;
+    if job.progress_pct <= 0.0 || job.progress_pct >= 100.0 {
+        return None;
+    }
+
+    // Parse started_at as RFC3339 timestamp
+    let start_time: DateTime<Utc> = started_at.parse().ok()?;
+    let now = Utc::now();
+
+    // Calculate elapsed time
+    let elapsed = now.signed_duration_since(start_time);
+    if elapsed.num_seconds() <= 0 {
+        return None;
+    }
+
+    // Estimate total time based on current progress
+    // Formula: total_time = elapsed_time / (progress_pct / 100)
+    let progress_fraction = job.progress_pct as f64 / 100.0;
+    let estimated_total_seconds = elapsed.num_seconds() as f64 / progress_fraction;
+    let remaining_seconds = (estimated_total_seconds - elapsed.num_seconds() as f64).max(0.0);
+
+    // Add remaining time to now
+    let estimated_completion = now + Duration::seconds(remaining_seconds as i64);
+
+    Some(estimated_completion.to_rfc3339())
 }
 
 /// Convert orchestrator TrainingTemplate to TrainingTemplateResponse
@@ -1816,4 +1869,150 @@ pub struct AuditLogsResponse {
     pub total: usize,
     pub limit: usize,
     pub offset: usize,
+}
+
+// ============================================================================
+// Adapter Hot-Swap API Types
+// ============================================================================
+
+/// Request to hot-swap adapters
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AdapterSwapRequest {
+    /// ID of the adapter to replace
+    pub old_adapter_id: String,
+    /// ID of the adapter to load
+    pub new_adapter_id: String,
+    /// If true, only validate the swap without executing
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// Response from adapter hot-swap operation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AdapterSwapResponse {
+    /// Whether the swap was successful
+    pub success: bool,
+    /// Message describing the result
+    pub message: String,
+    /// Old adapter ID that was replaced
+    pub old_adapter_id: String,
+    /// New adapter ID that was loaded
+    pub new_adapter_id: String,
+    /// VRAM change in megabytes (positive = increase)
+    pub vram_delta_mb: Option<i64>,
+    /// Duration of the swap operation in milliseconds
+    pub duration_ms: u64,
+    /// Whether this was a dry run
+    pub dry_run: bool,
+}
+
+// ============================================================================
+// Adapter Statistics API Types
+// ============================================================================
+
+/// Detailed adapter statistics response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AdapterStatsResponse {
+    /// Adapter ID
+    pub adapter_id: String,
+    /// Activation percentage (0-100)
+    pub activation_percentage: f64,
+    /// Memory usage in bytes
+    pub memory_bytes: i64,
+    /// Total number of requests served
+    pub request_count: i64,
+    /// Average latency in milliseconds
+    pub avg_latency_ms: f64,
+    /// P95 latency in milliseconds
+    pub p95_latency_ms: f64,
+    /// P99 latency in milliseconds
+    pub p99_latency_ms: f64,
+    /// Total activations
+    pub total_activations: i64,
+    /// Number of times selected by router
+    pub selected_count: i64,
+    /// Average gate value
+    pub avg_gate_value: f64,
+    /// Selection rate percentage
+    pub selection_rate: f64,
+    /// Current lifecycle state
+    pub lifecycle_state: String,
+    /// Last activated timestamp
+    pub last_activated: Option<String>,
+    /// Created at timestamp
+    pub created_at: String,
+}
+
+// ============================================================================
+// Category Policy API Types
+// ============================================================================
+
+/// Category policy request for creating or updating
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryPolicyRequest {
+    /// Minimum time before promotion in seconds
+    pub promotion_threshold_secs: u64,
+    /// Maximum time before demotion in seconds
+    pub demotion_threshold_secs: u64,
+    /// Memory limit in bytes for this category
+    pub memory_limit: usize,
+    /// Eviction priority (never, low, normal, high, critical)
+    pub eviction_priority: String,
+    /// Whether to auto-promote based on usage
+    pub auto_promote: bool,
+    /// Whether to auto-demote based on inactivity
+    pub auto_demote: bool,
+    /// Maximum number of adapters of this category to keep in memory
+    pub max_in_memory: Option<usize>,
+    /// Priority boost for routing (default 1.0)
+    pub routing_priority: f32,
+}
+
+/// Category policy response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryPolicyResponse {
+    /// Category name
+    pub category: String,
+    /// Minimum time before promotion in milliseconds
+    pub promotion_threshold_ms: u64,
+    /// Maximum time before demotion in milliseconds
+    pub demotion_threshold_ms: u64,
+    /// Memory limit in bytes
+    pub memory_limit: usize,
+    /// Eviction priority
+    pub eviction_priority: String,
+    /// Whether to auto-promote based on usage
+    pub auto_promote: bool,
+    /// Whether to auto-demote based on inactivity
+    pub auto_demote: bool,
+    /// Maximum number of adapters to keep in memory
+    pub max_in_memory: Option<usize>,
+    /// Priority boost for routing
+    pub routing_priority: f32,
+}
+
+/// List of category policies
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CategoryPoliciesResponse {
+    /// List of category policies
+    pub policies: Vec<CategoryPolicyResponse>,
+}
+
+// ============================================================================
+// Worker Stop API Types
+// ============================================================================
+
+/// Response from stopping a worker
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct WorkerStopResponse {
+    /// Worker ID that was stopped
+    pub worker_id: String,
+    /// Whether the stop was successful
+    pub success: bool,
+    /// Message describing the result
+    pub message: String,
+    /// Previous worker status
+    pub previous_status: String,
+    /// Timestamp when stop was initiated
+    pub stopped_at: String,
 }

@@ -1,7 +1,6 @@
 ///! Rate limiting per tenant for DDoS protection
 ///!
 ///! Implements sliding window rate limiting with tenant-specific quotas.
-
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use chrono::{DateTime, Utc};
@@ -61,7 +60,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
             sqlx::query(
                 "UPDATE rate_limit_buckets
                  SET requests_count = ?, window_start = ?, last_updated = ?
-                 WHERE tenant_id = ?"
+                 WHERE tenant_id = ?",
             )
             .bind(bucket.requests_count)
             .bind(&bucket.window_start)
@@ -92,7 +91,7 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
         sqlx::query(
             "UPDATE rate_limit_buckets
              SET requests_count = ?, last_updated = ?
-             WHERE tenant_id = ?"
+             WHERE tenant_id = ?",
         )
         .bind(bucket.requests_count)
         .bind(&bucket.last_updated)
@@ -151,18 +150,14 @@ pub async fn check_rate_limit(db: &Db, tenant_id: &str) -> Result<RateLimitResul
 }
 
 /// Update rate limit for a tenant (admin operation)
-pub async fn update_rate_limit(
-    db: &Db,
-    tenant_id: &str,
-    max_requests: i64,
-) -> Result<()> {
+pub async fn update_rate_limit(db: &Db, tenant_id: &str, max_requests: i64) -> Result<()> {
     sqlx::query(
         "INSERT INTO rate_limit_buckets
          (tenant_id, requests_count, window_start, window_size_seconds, max_requests, last_updated)
          VALUES (?, 0, datetime('now'), 60, ?, datetime('now'))
          ON CONFLICT(tenant_id) DO UPDATE SET
          max_requests = excluded.max_requests,
-         last_updated = excluded.last_updated"
+         last_updated = excluded.last_updated",
     )
     .bind(tenant_id)
     .bind(max_requests)
@@ -216,7 +211,7 @@ pub async fn reset_rate_limit(db: &Db, tenant_id: &str) -> Result<()> {
          SET requests_count = 0,
              window_start = ?,
              last_updated = ?
-         WHERE tenant_id = ?"
+         WHERE tenant_id = ?",
     )
     .bind(&now)
     .bind(&now)
@@ -235,30 +230,44 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_basic() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         // First request should succeed
-        let result = check_rate_limit(&db, "tenant-a").await.expect("Failed to check rate limit");
+        let result = check_rate_limit(&db, "tenant-a")
+            .await
+            .expect("Failed to check rate limit");
         assert!(result.allowed);
         assert_eq!(result.current_count, 1);
     }
 
     #[tokio::test]
     async fn test_rate_limit_exceeded() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
         // Set low limit
-        update_rate_limit(&db, "tenant-b", 2).await.expect("Failed to update rate limit");
+        update_rate_limit(&db, "tenant-b", 2)
+            .await
+            .expect("Failed to update rate limit");
 
         // First two requests succeed
-        let r1 = check_rate_limit(&db, "tenant-b").await.expect("Failed to check rate limit r1");
+        let r1 = check_rate_limit(&db, "tenant-b")
+            .await
+            .expect("Failed to check rate limit r1");
         assert!(r1.allowed);
 
-        let r2 = check_rate_limit(&db, "tenant-b").await.expect("Failed to check rate limit r2");
+        let r2 = check_rate_limit(&db, "tenant-b")
+            .await
+            .expect("Failed to check rate limit r2");
         assert!(r2.allowed);
 
         // Third request should be denied
-        let r3 = check_rate_limit(&db, "tenant-b").await.expect("Failed to check rate limit r3");
+        let r3 = check_rate_limit(&db, "tenant-b")
+            .await
+            .expect("Failed to check rate limit r3");
         assert!(!r3.allowed);
         assert_eq!(r3.current_count, 3);
         assert_eq!(r3.limit, 2);
@@ -266,19 +275,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_reset() {
-        let db = Db::connect("sqlite::memory:").await.expect("Failed to create test database");
+        let db = Db::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test database");
 
-        update_rate_limit(&db, "tenant-c", 5).await.expect("Failed to update rate limit for tenant-c");
+        update_rate_limit(&db, "tenant-c", 5)
+            .await
+            .expect("Failed to update rate limit for tenant-c");
 
         // Make some requests
-        check_rate_limit(&db, "tenant-c").await.expect("Failed to check rate limit for tenant-c");
-        check_rate_limit(&db, "tenant-c").await.expect("Failed to check rate limit for tenant-c");
+        check_rate_limit(&db, "tenant-c")
+            .await
+            .expect("Failed to check rate limit for tenant-c");
+        check_rate_limit(&db, "tenant-c")
+            .await
+            .expect("Failed to check rate limit for tenant-c");
 
         // Reset
-        reset_rate_limit(&db, "tenant-c").await.expect("Failed to reset rate limit");
+        reset_rate_limit(&db, "tenant-c")
+            .await
+            .expect("Failed to reset rate limit");
 
         // Count should be reset
-        let status = get_rate_limit_status(&db, "tenant-c").await.expect("Failed to get rate limit status").expect("Rate limit status should exist");
+        let status = get_rate_limit_status(&db, "tenant-c")
+            .await
+            .expect("Failed to get rate limit status")
+            .expect("Rate limit status should exist");
         assert_eq!(status.current_count, 0);
     }
 }

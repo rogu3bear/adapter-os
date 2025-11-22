@@ -3,8 +3,8 @@
 pub mod response_schemas;
 
 pub use response_schemas::{
-    ResponseSchema, ResponseSchemaValidator, SharedResponseValidator, ValidationResult,
-    ResponseValidationMiddleware,
+    ResponseSchema, ResponseSchemaValidator, ResponseValidationMiddleware, SharedResponseValidator,
+    ValidationResult,
 };
 
 use crate::types::ErrorResponse;
@@ -22,14 +22,23 @@ pub fn validate_repo_id(repo_id: &str) -> Result<(), (StatusCode, Json<ErrorResp
     if repo_id.len() > 256 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("repo_id too long (max 256 chars)").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("repo_id too long (max 256 chars)")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     // Allow alphanumeric, slashes, hyphens, underscores, dots
-    if !repo_id.chars().all(|c| c.is_alphanumeric() || c == '/' || c == '-' || c == '_' || c == '.') {
+    if !repo_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '/' || c == '-' || c == '_' || c == '.')
+    {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("repo_id contains invalid characters").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("repo_id contains invalid characters")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     Ok(())
@@ -41,7 +50,10 @@ pub fn validate_description(description: &str) -> Result<(), (StatusCode, Json<E
     if description.len() > 10000 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("description too long (max 10000 chars)").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("description too long (max 10000 chars)")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     Ok(())
@@ -59,14 +71,18 @@ pub fn validate_file_paths(paths: &[String]) -> Result<(), (StatusCode, Json<Err
     if paths.len() > 100 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("too many target files (max 100)").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("too many target files (max 100)").with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     for path in paths {
         if path.contains("..") {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("path traversal not allowed").with_code("VALIDATION_ERROR")),
+                Json(
+                    ErrorResponse::new("path traversal not allowed").with_code("VALIDATION_ERROR"),
+                ),
             ));
         }
         if path.is_empty() {
@@ -91,14 +107,23 @@ pub fn validate_adapter_id(adapter_id: &str) -> Result<(), (StatusCode, Json<Err
     if adapter_id.len() > 128 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("adapter_id too long (max 128 chars)").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("adapter_id too long (max 128 chars)")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     // Allow alphanumeric, hyphens, underscores, slashes (for semantic naming)
-    if !adapter_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '/') {
+    if !adapter_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '/')
+    {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("adapter_id contains invalid characters").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("adapter_id contains invalid characters")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     Ok(())
@@ -135,13 +160,19 @@ pub fn validate_hash_b3(hash: &str) -> Result<(), (StatusCode, Json<ErrorRespons
     if hash.len() != 64 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("hash_b3 must be 64 hex characters").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("hash_b3 must be 64 hex characters")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("hash_b3 must contain only hex characters").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("hash_b3 must contain only hex characters")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     Ok(())

@@ -4,10 +4,10 @@
 //!
 //! 【2025-01-20†rectification†auth_handlers_expanded】
 
-use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::*;
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use utoipa;
 
 /// Login endpoint
@@ -54,4 +54,3 @@ pub async fn auth_me(
         created_at: String::new(),
     }))
 }
-

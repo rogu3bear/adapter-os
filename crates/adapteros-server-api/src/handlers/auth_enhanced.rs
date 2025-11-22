@@ -7,7 +7,6 @@
 ///! - GET /v1/auth/sessions - List active sessions
 ///! - DELETE /v1/auth/sessions/:jti - Revoke specific session
 ///! - POST /v1/auth/bootstrap - Create initial admin user (one-time)
-
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::{generate_token_ed25519, hash_password, refresh_token, verify_password, Claims};
 use crate::ip_extraction::ClientIp;
@@ -167,9 +166,16 @@ pub async fn bootstrap_admin_handler(
 /// Login handler with comprehensive security checks
 pub async fn login_handler(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Extension(client_ip): Extension<ClientIp>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Extract user agent from headers for session tracking
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     // Check account lockout
     let is_locked = is_account_locked(&state.db, &req.email, 15)
         .await
@@ -203,17 +209,13 @@ pub async fn login_handler(
     }
 
     // Get user by email
-    let user = state
-        .db
-        .get_user_by_email(&req.email)
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "Database error during login");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("database error").with_code("DATABASE_ERROR")),
-            )
-        })?;
+    let user = state.db.get_user_by_email(&req.email).await.map_err(|e| {
+        warn!(error = %e, "Database error during login");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("database error").with_code("DATABASE_ERROR")),
+        )
+    })?;
 
     let user = match user {
         Some(u) if !u.disabled => u,
@@ -314,14 +316,20 @@ pub async fn login_handler(
             )
         })?
     } else {
-        crate::auth::generate_token(&user.id, &user.email, &user.role, &tenant_id, &state.jwt_secret)
-            .map_err(|e| {
-                warn!(error = %e, "Failed to generate token");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-                )
-            })?
+        crate::auth::generate_token(
+            &user.id,
+            &user.email,
+            &user.role,
+            &tenant_id,
+            &state.jwt_secret,
+        )
+        .map_err(|e| {
+            warn!(error = %e, "Failed to generate token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+            )
+        })?
     };
 
     // Decode to get jti and exp
@@ -338,7 +346,7 @@ pub async fn login_handler(
         )
     })?;
 
-    // Create session
+    // Create session with user agent for audit tracking
     let expires_at = Utc::now() + Duration::hours(8);
     create_session(
         &state.db,
@@ -347,7 +355,7 @@ pub async fn login_handler(
         &tenant_id,
         &expires_at.to_rfc3339(),
         Some(&client_ip.0),
-        None, // TODO: extract user agent from headers
+        user_agent.as_deref(),
     )
     .await
     .ok();

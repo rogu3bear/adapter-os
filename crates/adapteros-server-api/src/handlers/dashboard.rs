@@ -3,7 +3,9 @@
 //! Provides API endpoints for per-user dashboard widget customization.
 //! Supports show/hide widgets, custom ordering, and reset to role defaults.
 
+use crate::audit_helper::{actions, log_success, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
+use crate::permissions::{require_permission, Permission};
 use adapteros_api_types::dashboard::*;
 use axum::{
     extract::{Extension, State},
@@ -20,6 +22,8 @@ pub async fn get_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<GetDashboardConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DashboardView)?;
+
     let user_id = &claims.sub;
 
     let widgets = state.db.get_dashboard_config(user_id).await.map_err(|e| {
@@ -48,6 +52,7 @@ pub async fn get_dashboard_config(
         .collect();
 
     Ok(Json(GetDashboardConfigResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         widgets: response_widgets,
     }))
 }
@@ -61,6 +66,8 @@ pub async fn update_dashboard_config(
     Extension(claims): Extension<Claims>,
     Json(req): Json<UpdateDashboardConfigRequest>,
 ) -> Result<Json<UpdateDashboardConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DashboardManage)?;
+
     let user_id = &claims.sub;
 
     if req.widgets.is_empty() {
@@ -101,7 +108,18 @@ pub async fn update_dashboard_config(
         updated_count, user_id
     );
 
+    log_success(
+        &state.db,
+        &claims,
+        actions::DASHBOARD_CONFIG_UPDATE,
+        resources::DASHBOARD_CONFIG,
+        Some(&claims.sub),
+    )
+    .await
+    .ok();
+
     Ok(Json(UpdateDashboardConfigResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         success: true,
         updated_count,
     }))
@@ -115,6 +133,8 @@ pub async fn reset_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ResetDashboardConfigResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DashboardManage)?;
+
     let user_id = &claims.sub;
 
     state
@@ -138,7 +158,18 @@ pub async fn reset_dashboard_config(
 
     info!("Reset dashboard configuration for user {}", user_id);
 
+    log_success(
+        &state.db,
+        &claims,
+        actions::DASHBOARD_CONFIG_RESET,
+        resources::DASHBOARD_CONFIG,
+        Some(&claims.sub),
+    )
+    .await
+    .ok();
+
     Ok(Json(ResetDashboardConfigResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         success: true,
         message: "Dashboard configuration reset to defaults".to_string(),
     }))

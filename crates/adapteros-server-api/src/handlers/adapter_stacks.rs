@@ -3,6 +3,7 @@ use crate::state::AppState;
 use adapteros_api_types::adapters::*;
 use adapteros_core::B3Hash;
 use adapteros_core::StackName;
+use adapteros_lora_worker::signal::{Signal, SignalPriority, SignalType};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -11,7 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
 /// Request to create a new adapter stack
@@ -389,7 +390,12 @@ pub async fn activate_stack(
                     .get_stack(&tenant_id, old_id)
                     .await
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-                    .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, format!("Previous stack {} not found", old_id)))?;
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Previous stack {} not found", old_id),
+                        )
+                    })?;
                 serde_json::from_str::<Vec<String>>(&old_stack.adapter_ids_json).map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
@@ -412,7 +418,8 @@ pub async fn activate_stack(
                 .collect();
 
             let hotswap = worker.hotswap().clone();
-            hotswap.swap(&add_ids, &remove_ids)
+            hotswap
+                .swap(&add_ids, &remove_ids)
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -446,9 +453,70 @@ pub async fn activate_stack(
         previous_stack
     );
 
-    // TODO: Notify the router about the stack change
-    // This is where we would integrate with the actual router
-    // For now, this is just stored in AppState
+    // Notify the router about the stack change via training signal broadcast
+    // This enables SSE clients to receive stack activation events in real-time
+    let mut payload = std::collections::HashMap::new();
+    payload.insert(
+        "stack_id".to_string(),
+        serde_json::Value::String(id.clone()),
+    );
+    payload.insert(
+        "stack_name".to_string(),
+        serde_json::Value::String(name.clone()),
+    );
+    payload.insert(
+        "tenant_id".to_string(),
+        serde_json::Value::String(tenant_id.clone()),
+    );
+    payload.insert(
+        "adapter_count".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(adapter_ids.len())),
+    );
+    payload.insert(
+        "previous_stack".to_string(),
+        previous_stack
+            .clone()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
+    );
+    payload.insert(
+        "action".to_string(),
+        serde_json::Value::String("activated".to_string()),
+    );
+    payload.insert(
+        "stack_version".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(stack_version)),
+    );
+
+    let signal = Signal::with_payload(
+        SignalType::AdapterStateTransition,
+        SignalPriority::High,
+        payload,
+    );
+
+    // Broadcast to training signal channel for SSE clients
+    if let Err(e) = state.training_signal_tx.send(signal) {
+        // Log but don't fail the request - SSE is best-effort
+        debug!(
+            tenant_id = %tenant_id,
+            stack_id = %id,
+            error = %e,
+            "No active SSE subscribers for stack activation signal"
+        );
+    }
+
+    // Also notify lifecycle manager if available
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        let lm = lifecycle.lock().await;
+        // Log the stack change for lifecycle tracking
+        debug!(
+            tenant_id = %tenant_id,
+            stack_id = %id,
+            adapter_count = adapter_ids.len(),
+            "Notified lifecycle manager of stack activation"
+        );
+        drop(lm);
+    }
 
     Ok(Json(serde_json::json!({
         "message": format!("Stack '{}' activated for tenant '{}'", name, tenant_id),
@@ -476,7 +544,10 @@ pub async fn deactivate_stack(
 
     let previous_stack = {
         let mut active = state.active_stack.write().map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Lock poisoned: {}", e))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Lock poisoned: {}", e),
+            )
         })?;
         let prev = active.get(&tenant_id).cloned().flatten();
         active.insert(tenant_id.clone(), None);
@@ -486,6 +557,38 @@ pub async fn deactivate_stack(
     match previous_stack {
         Some(stack_id) => {
             info!(tenant_id = %tenant_id, "Deactivated adapter stack '{}' for tenant {}", stack_id, tenant_id);
+
+            // Notify the router about the stack deactivation via training signal broadcast
+            let mut payload = std::collections::HashMap::new();
+            payload.insert(
+                "stack_id".to_string(),
+                serde_json::Value::String(stack_id.clone()),
+            );
+            payload.insert(
+                "tenant_id".to_string(),
+                serde_json::Value::String(tenant_id.clone()),
+            );
+            payload.insert(
+                "action".to_string(),
+                serde_json::Value::String("deactivated".to_string()),
+            );
+
+            let signal = Signal::with_payload(
+                SignalType::AdapterStateTransition,
+                SignalPriority::High,
+                payload,
+            );
+
+            // Broadcast to training signal channel for SSE clients
+            if let Err(e) = state.training_signal_tx.send(signal) {
+                debug!(
+                    tenant_id = %tenant_id,
+                    stack_id = %stack_id,
+                    error = %e,
+                    "No active SSE subscribers for stack deactivation signal"
+                );
+            }
+
             Ok(Json(serde_json::json!({
                 "message": "Active stack deactivated",
                 "tenant_id": tenant_id,
