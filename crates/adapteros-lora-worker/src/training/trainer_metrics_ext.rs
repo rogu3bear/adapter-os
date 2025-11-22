@@ -25,6 +25,10 @@ impl TrainerMetricsExt for MicroLoRATrainer {
         examples: &[TrainingExample],
         metrics_config: MetricsConfig,
     ) -> Result<(super::trainer::TrainingResult, TrainingMetrics)> {
+        // Extract values we need before moving metrics_config
+        let export_interval = metrics_config.export_interval_epochs;
+        let learning_rate = self.config.learning_rate;
+
         let mut metrics = TrainingMetrics::new(metrics_config)?;
         metrics.mark_training_start();
 
@@ -34,10 +38,8 @@ impl TrainerMetricsExt for MicroLoRATrainer {
         let result = self
             .train_with_callback(examples, |epoch, epoch_loss| {
                 // This callback is called after each epoch
-                // We would ideally update metrics here, but since we're in a closure,
-                // we need to use the RefCell pattern or Arc<Mutex<>> in production
                 metrics.record_epoch_loss(epoch - 1, epoch_loss);
-                metrics.record_learning_rate(self.config.learning_rate);
+                metrics.record_learning_rate(learning_rate);
 
                 // Check stability
                 if let Err(e) = metrics.check_stability() {
@@ -45,7 +47,7 @@ impl TrainerMetricsExt for MicroLoRATrainer {
                 }
 
                 // Export metrics periodically
-                if epoch % metrics_config.export_interval_epochs == 0 {
+                if epoch % export_interval == 0 {
                     if let Err(e) = metrics.export_to_telemetry() {
                         warn!("Failed to export metrics to telemetry: {}", e);
                     }

@@ -3,19 +3,24 @@
 //! This module provides factory functions for creating different kernel backends
 //! (Metal, CoreML, MLX) and capability detection.
 
+use adapteros_config::{BackendPreference, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::FusedKernels;
+use std::path::Path;
 use tracing::{debug, info, warn};
 
 /// Backend choice for kernel creation
-#[derive(Debug, Clone)]
+///
+/// This enum is simplified to not include model paths in variants.
+/// Use `create_backend_with_model` or `create_backend_from_config` when a model path is required.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendChoice {
     /// Metal GPU backend (production, deterministic)
     Metal,
-    /// CoreML backend with optional model path (ANE acceleration)
-    CoreML { model_path: Option<String> },
-    /// MLX backend with model path (experimental)
-    Mlx { model_path: String },
+    /// CoreML backend with ANE acceleration (production, deterministic)
+    CoreML,
+    /// MLX backend (research, training)
+    Mlx,
     /// Automatic selection based on capabilities (CoreML -> Metal -> MLX fallback)
     Auto,
 }
@@ -45,29 +50,30 @@ impl BackendStrategy {
                 if capabilities.has_metal {
                     Ok(BackendChoice::Metal)
                 } else if capabilities.has_coreml && capabilities.has_ane {
-                    Ok(BackendChoice::CoreML { model_path: None })
+                    Ok(BackendChoice::CoreML)
                 } else {
-                    Err(AosError::Config("No suitable backend available".to_string()))
+                    Err(AosError::Config(
+                        "No suitable backend available".to_string(),
+                    ))
                 }
             }
             BackendStrategy::CoreMLWithMetalFallback => {
                 if capabilities.has_coreml && capabilities.has_ane {
-                    Ok(BackendChoice::CoreML { model_path: None })
+                    Ok(BackendChoice::CoreML)
                 } else if capabilities.has_metal {
                     Ok(BackendChoice::Metal)
                 } else {
-                    Err(AosError::Config("No suitable backend available".to_string()))
+                    Err(AosError::Config(
+                        "No suitable backend available".to_string(),
+                    ))
                 }
             }
             BackendStrategy::MlxPrimary => {
                 if capabilities.has_mlx {
-                    Err(AosError::Config(
-                        "MLX backend requires explicit model path".to_string(),
-                    ))
+                    Ok(BackendChoice::Mlx)
                 } else {
                     Err(AosError::Config(
-                        "MLX backend not available (requires experimental-backends feature)"
-                            .to_string(),
+                        "MLX backend not available (requires multi-backend feature)".to_string(),
                     ))
                 }
             }
@@ -124,7 +130,7 @@ pub fn detect_capabilities() -> BackendCapabilities {
     }
 
     // Detect MLX availability
-    #[cfg(feature = "experimental-backends")]
+    #[cfg(feature = "multi-backend")]
     {
         caps.has_mlx = true;
     }
@@ -186,7 +192,7 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
     // Priority 1: CoreML with ANE (most power efficient)
     if capabilities.has_coreml && capabilities.has_ane {
         info!("Auto-selected CoreML backend with Neural Engine");
-        return Ok(BackendChoice::CoreML { model_path: None });
+        return Ok(BackendChoice::CoreML);
     }
 
     // Priority 2: Metal (production, guaranteed determinism)
@@ -198,12 +204,10 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
         return Ok(BackendChoice::Metal);
     }
 
-    // Priority 3: MLX (experimental, requires explicit model path)
+    // Priority 3: MLX (experimental)
     if capabilities.has_mlx {
-        warn!("MLX available but requires explicit model path - use BackendChoice::Mlx instead");
-        return Err(AosError::Config(
-            "MLX backend requires explicit model path".to_string(),
-        ));
+        info!("Auto-selected MLX backend (experimental)");
+        return Ok(BackendChoice::Mlx);
     }
 
     Err(AosError::Config(
@@ -212,43 +216,85 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
     ))
 }
 
-/// Create a kernel backend based on the choice
-pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
+/// Create a kernel backend from unified ModelConfig
+///
+/// This is the preferred entry point for creating backends.
+/// It uses the unified configuration system for consistent backend creation.
+///
+/// # Example
+/// ```rust,no_run
+/// use adapteros_config::{ModelConfig, BackendPreference};
+/// use adapteros_lora_worker::backend_factory::create_backend_from_config;
+///
+/// let config = ModelConfig::new("./models/qwen2.5-7b")
+///     .with_backend(BackendPreference::CoreML);
+/// let backend = create_backend_from_config(&config)?;
+/// # Ok::<(), adapteros_core::AosError>(())
+/// ```
+pub fn create_backend_from_config(config: &ModelConfig) -> Result<Box<dyn FusedKernels>> {
+    let choice = match config.backend {
+        BackendPreference::Auto => BackendChoice::Auto,
+        BackendPreference::CoreML => BackendChoice::CoreML,
+        BackendPreference::Metal => BackendChoice::Metal,
+        BackendPreference::Mlx => BackendChoice::Mlx,
+    };
+    create_backend_with_model(choice, &config.path)
+}
+
+/// Create a kernel backend with an explicit model path
+///
+/// Use this function when you have a `BackendChoice` and need to provide a model path.
+/// For MLX backend, the model path is required. For CoreML and Metal, it's optional.
+///
+/// # Arguments
+/// * `choice` - The backend choice
+/// * `model_path` - Path to the model directory
+///
+/// # Example
+/// ```rust,no_run
+/// use std::path::Path;
+/// use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend_with_model};
+///
+/// let backend = create_backend_with_model(BackendChoice::Mlx, Path::new("./models/qwen2.5-7b"))?;
+/// # Ok::<(), adapteros_core::AosError>(())
+/// ```
+pub fn create_backend_with_model(
+    choice: BackendChoice,
+    model_path: &Path,
+) -> Result<Box<dyn FusedKernels>> {
     match choice {
         BackendChoice::Auto => {
             let capabilities = detect_capabilities();
             let selected = auto_select_backend(&capabilities)?;
-            create_backend(selected)
+            create_backend_with_model(selected, model_path)
         }
         BackendChoice::Metal => {
             #[cfg(target_os = "macos")]
             {
                 use adapteros_lora_kernel_mtl::MetalKernels;
-                info!("Creating Metal kernel backend");
+                info!(model_path = %model_path.display(), "Creating Metal kernel backend");
                 Ok(Box::new(MetalKernels::new()?))
             }
             #[cfg(not(target_os = "macos"))]
             {
-                Err(AosError::Config(
-                    "Metal backend requires macOS".to_string(),
-                ))
+                let _ = model_path;
+                Err(AosError::Config("Metal backend requires macOS".to_string()))
             }
         }
-        BackendChoice::CoreML { model_path } => {
+        BackendChoice::CoreML => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
             {
-                use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend, ComputeUnits};
+                use adapteros_lora_kernel_coreml::{init_coreml, ComputeUnits, CoreMLBackend};
 
                 // Initialize CoreML runtime
                 init_coreml()?;
 
                 // Use CpuAndNeuralEngine for optimal ANE utilization
-                // production_mode=true requires ANE availability
                 let compute_units = ComputeUnits::CpuAndNeuralEngine;
-                let production_mode = model_path.is_none(); // Non-production if custom model path
+                let production_mode = true;
 
                 info!(
-                    model_path = ?model_path,
+                    model_path = %model_path.display(),
                     compute_units = ?compute_units,
                     production_mode = production_mode,
                     "Creating CoreML kernel backend"
@@ -273,27 +319,150 @@ pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
                 ))
             }
         }
-        BackendChoice::Mlx { model_path } => {
-            #[cfg(feature = "experimental-backends")]
+        BackendChoice::Mlx => {
+            #[cfg(feature = "multi-backend")]
             {
-                use adapteros_lora_mlx_ffi::{MLXFFIBackend, MLXFFIModel};
+                use adapteros_lora_mlx_ffi::{
+                    mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
+                };
 
-                info!(model_path = %model_path, "Creating MLX FFI kernel backend");
+                let model_path_str = model_path.to_string_lossy();
+                info!(model_path = %model_path_str, "Creating MLX FFI kernel backend");
+
+                // Ensure MLX runtime is initialized
+                if !mlx_runtime_is_initialized() {
+                    mlx_runtime_init().map_err(|e| {
+                        AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
+                    })?;
+                }
 
                 // Load the model
-                let model = MLXFFIModel::load(&model_path).map_err(|e| {
-                    AosError::Config(format!("Failed to load MLX model from '{}': {}", model_path, e))
+                let model = MLXFFIModel::load(&model_path_str).map_err(|e| {
+                    AosError::Config(format!(
+                        "Failed to load MLX model from '{}': {}",
+                        model_path_str, e
+                    ))
                 })?;
 
                 let backend = MLXFFIBackend::new(model);
                 Ok(Box::new(backend))
             }
-            #[cfg(not(feature = "experimental-backends"))]
+            #[cfg(not(feature = "multi-backend"))]
             {
                 let _ = model_path;
                 Err(AosError::Config(
-                    "MLX backend requires 'experimental-backends' feature to be enabled. \
-                     Build with: cargo build --features experimental-backends"
+                    "MLX backend requires 'multi-backend' feature to be enabled. \
+                     Build with: cargo build --features multi-backend"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+}
+
+/// Create a kernel backend based on the choice (backward-compatible)
+///
+/// This function maintains backward compatibility for code that doesn't need model paths.
+/// - For Auto/Metal/CoreML: Works as before (no model path needed)
+/// - For Mlx: Reads model path from `AOS_MODEL_PATH` env var, errors if not set
+///
+/// For new code, prefer using `create_backend_from_config` or `create_backend_with_model`.
+pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
+    match choice {
+        BackendChoice::Auto => {
+            let capabilities = detect_capabilities();
+            let selected = auto_select_backend(&capabilities)?;
+            create_backend(selected)
+        }
+        BackendChoice::Metal => {
+            #[cfg(target_os = "macos")]
+            {
+                use adapteros_lora_kernel_mtl::MetalKernels;
+                info!("Creating Metal kernel backend");
+                Ok(Box::new(MetalKernels::new()?))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err(AosError::Config("Metal backend requires macOS".to_string()))
+            }
+        }
+        BackendChoice::CoreML => {
+            #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+            {
+                use adapteros_lora_kernel_coreml::{init_coreml, ComputeUnits, CoreMLBackend};
+
+                // Initialize CoreML runtime
+                init_coreml()?;
+
+                // Use CpuAndNeuralEngine for optimal ANE utilization
+                let compute_units = ComputeUnits::CpuAndNeuralEngine;
+                let production_mode = true;
+
+                info!(
+                    compute_units = ?compute_units,
+                    production_mode = production_mode,
+                    "Creating CoreML kernel backend"
+                );
+                let backend = CoreMLBackend::new(compute_units, production_mode)?;
+                Ok(Box::new(backend))
+            }
+            #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
+            {
+                Err(AosError::Config(
+                    "CoreML backend requires 'coreml-backend' feature to be enabled. \
+                     Build with: cargo build --features coreml-backend"
+                        .to_string(),
+                ))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err(AosError::Config(
+                    "CoreML backend requires macOS".to_string(),
+                ))
+            }
+        }
+        BackendChoice::Mlx => {
+            // For backward compatibility, read model path from environment variable
+            let model_path = std::env::var("AOS_MODEL_PATH").map_err(|_| {
+                AosError::Config(
+                    "MLX backend requires model path. Set AOS_MODEL_PATH environment variable \
+                     or use create_backend_with_model()/create_backend_from_config() instead."
+                        .to_string(),
+                )
+            })?;
+
+            #[cfg(feature = "multi-backend")]
+            {
+                use adapteros_lora_mlx_ffi::{
+                    mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
+                };
+
+                info!(model_path = %model_path, "Creating MLX FFI kernel backend");
+
+                // Ensure MLX runtime is initialized
+                if !mlx_runtime_is_initialized() {
+                    mlx_runtime_init().map_err(|e| {
+                        AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
+                    })?;
+                }
+
+                // Load the model
+                let model = MLXFFIModel::load(&model_path).map_err(|e| {
+                    AosError::Config(format!(
+                        "Failed to load MLX model from '{}': {}",
+                        model_path, e
+                    ))
+                })?;
+
+                let backend = MLXFFIBackend::new(model);
+                Ok(Box::new(backend))
+            }
+            #[cfg(not(feature = "multi-backend"))]
+            {
+                let _ = model_path;
+                Err(AosError::Config(
+                    "MLX backend requires 'multi-backend' feature to be enabled. \
+                     Build with: cargo build --features multi-backend"
                         .to_string(),
                 ))
             }
@@ -344,7 +513,11 @@ pub fn describe_available_backends() -> String {
             } else {
                 "Not available"
             },
-            if caps.has_ane { "available" } else { "not available" }
+            if caps.has_ane {
+                "available"
+            } else {
+                "not available"
+            }
         ));
     }
 
@@ -365,10 +538,10 @@ pub mod capabilities {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub enum BackendType {
-        Metal,   // Real Metal backend
-        CoreML,  // Real CoreML backend
-        Mlx,     // Real MLX backend
-        Cpu,     // Fallback CPU
+        Metal,  // Real Metal backend
+        CoreML, // Real CoreML backend
+        Mlx,    // Real MLX backend
+        Cpu,    // Fallback CPU
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,7 +579,11 @@ pub mod capabilities {
                 deterministic: true, // Conditional on ANE
                 description: format!(
                     "CoreML backend with Neural Engine - {}",
-                    if caps.has_ane { "ANE available" } else { "ANE not available" }
+                    if caps.has_ane {
+                        "ANE available"
+                    } else {
+                        "ANE not available"
+                    }
                 ),
                 requirements: vec![
                     "macOS".to_string(),
@@ -423,7 +600,7 @@ pub mod capabilities {
                 requirements: vec![
                     "macOS".to_string(),
                     "Apple Silicon".to_string(),
-                    "experimental-backends feature".to_string(),
+                    "multi-backend feature".to_string(),
                 ],
             },
         ]

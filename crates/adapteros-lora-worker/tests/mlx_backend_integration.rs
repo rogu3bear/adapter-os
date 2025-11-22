@@ -1,11 +1,11 @@
 //! MLX Backend Integration Tests
 //!
 //! Tests that verify the MLX backend integrates correctly with the worker system.
-//! These tests require the `experimental-backends` feature to be enabled.
+//! These tests require the `multi-backend` feature to be enabled.
 //!
-//! Run with: cargo test -p adapteros-lora-worker --features experimental-backends --test mlx_backend_integration
+//! Run with: cargo test -p adapteros-lora-worker --features multi-backend --test mlx_backend_integration
 
-#![cfg(feature = "experimental-backends")]
+#![cfg(feature = "multi-backend")]
 // Allow dead code for conditional compilation blocks
 #![allow(dead_code)]
 
@@ -160,7 +160,7 @@ fn test_mlx_determinism_attestation() {
         "Backend type should be Mlx"
     );
 
-    // In stub mode (experimental-backends without real-mlx), uses system entropy
+    // In stub mode (multi-backend without real-mlx), uses system entropy
     // In real MLX mode, HKDF seeding is used
     // The attestation behavior depends on how the backend was compiled
     let is_stub_mode = matches!(attestation.rng_seed_method, RngSeedingMethod::SystemEntropy);

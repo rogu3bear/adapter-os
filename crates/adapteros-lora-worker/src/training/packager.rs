@@ -4,8 +4,8 @@
 
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
 use super::trainer::TrainingConfig;
-use adapteros_aos::AOS2Writer;
-use adapteros_core::{AosError, Result};
+use adapteros_aos::AosWriter;
+use adapteros_core::{paths::AdapterPaths, AosError, Result};
 use safetensors::tensor::TensorView;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -43,6 +43,26 @@ impl AdapterPackager {
     pub fn new<P: AsRef<Path>>(output_dir: P) -> Self {
         Self {
             output_dir: output_dir.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Create a packager using the default adapters directory
+    ///
+    /// Uses the centralized path from `adapteros_core::paths::AdapterPaths`,
+    /// which resolves from environment variable `AOS_ADAPTERS_DIR` or
+    /// defaults to `var/adapters/`.
+    pub fn with_default_path() -> Self {
+        Self {
+            output_dir: AdapterPaths::default().root().to_path_buf(),
+        }
+    }
+
+    /// Create a packager from config value, falling back to default
+    pub fn from_config(adapters_root: Option<&str>) -> Self {
+        Self {
+            output_dir: AdapterPaths::from_config(adapters_root)
+                .root()
+                .to_path_buf(),
         }
     }
 
@@ -149,7 +169,7 @@ impl AdapterPackager {
 
         // Write .aos archive
         let aos_path = self.output_dir.join(format!("{}.aos", adapter_id));
-        let writer = AOS2Writer::new();
+        let writer = AosWriter::new();
         writer.write_archive(&aos_path, &manifest, &weights_data)?;
 
         info!(

@@ -7,13 +7,17 @@
 //! - Health monitoring and telemetry
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_kernel_api::{BackendHealth, BackendMetrics, FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{
+    BackendHealth, BackendMetrics, FusedKernels, IoBuffers, RouterRing,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use crate::backend_factory::{BackendCapabilities, BackendChoice, BackendStrategy, create_backend, detect_capabilities};
+use crate::backend_factory::{
+    create_backend, detect_capabilities, BackendCapabilities, BackendChoice, BackendStrategy,
+};
 
 /// Backend coordinator for managing multiple backends and runtime switching
 pub struct BackendCoordinator {
@@ -90,27 +94,25 @@ impl BackendCoordinator {
         // Create fallback backend if enabled
         let (fallback, fallback_health) = if enable_fallback {
             match BackendCoordinator::select_fallback_backend(&primary_choice, &capabilities) {
-                Ok(fallback_choice) => {
-                    match create_backend(fallback_choice.clone()) {
-                        Ok(fallback_backend) => {
-                            info!(
-                                fallback_backend = ?fallback_choice,
-                                "Created fallback backend"
-                            );
-                            (
-                                Some(Arc::new(RwLock::new(fallback_backend))),
-                                Some(Arc::new(RwLock::new(BackendHealth::Healthy))),
-                            )
-                        }
-                        Err(e) => {
-                            warn!(
-                                error = %e,
-                                "Failed to create fallback backend, continuing without fallback"
-                            );
-                            (None, None)
-                        }
+                Ok(fallback_choice) => match create_backend(fallback_choice.clone()) {
+                    Ok(fallback_backend) => {
+                        info!(
+                            fallback_backend = ?fallback_choice,
+                            "Created fallback backend"
+                        );
+                        (
+                            Some(Arc::new(RwLock::new(fallback_backend))),
+                            Some(Arc::new(RwLock::new(BackendHealth::Healthy))),
+                        )
                     }
-                }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Failed to create fallback backend, continuing without fallback"
+                        );
+                        (None, None)
+                    }
+                },
                 Err(e) => {
                     warn!(
                         error = %e,
@@ -144,25 +146,29 @@ impl BackendCoordinator {
             BackendChoice::Metal => {
                 // Metal primary -> CoreML fallback
                 if capabilities.has_ane {
-                    Ok(BackendChoice::CoreML { model_path: None })
+                    Ok(BackendChoice::CoreML)
                 } else {
-                    Err(AosError::Config("No suitable fallback for Metal".to_string()))
+                    Err(AosError::Config(
+                        "No suitable fallback for Metal".to_string(),
+                    ))
                 }
             }
-            BackendChoice::CoreML { .. } => {
+            BackendChoice::CoreML => {
                 // CoreML primary -> Metal fallback
                 if capabilities.has_metal {
                     Ok(BackendChoice::Metal)
                 } else {
-                    Err(AosError::Config("No suitable fallback for CoreML".to_string()))
+                    Err(AosError::Config(
+                        "No suitable fallback for CoreML".to_string(),
+                    ))
                 }
             }
-            BackendChoice::Mlx { .. } => {
+            BackendChoice::Mlx => {
                 // MLX primary -> Metal or CoreML fallback
                 if capabilities.has_metal {
                     Ok(BackendChoice::Metal)
                 } else if capabilities.has_ane {
-                    Ok(BackendChoice::CoreML { model_path: None })
+                    Ok(BackendChoice::CoreML)
                 } else {
                     Err(AosError::Config("No suitable fallback for MLX".to_string()))
                 }
@@ -172,9 +178,11 @@ impl BackendCoordinator {
                 if capabilities.has_metal {
                     Ok(BackendChoice::Metal)
                 } else if capabilities.has_ane {
-                    Ok(BackendChoice::CoreML { model_path: None })
+                    Ok(BackendChoice::CoreML)
                 } else {
-                    Err(AosError::Config("No suitable fallback for Auto".to_string()))
+                    Err(AosError::Config(
+                        "No suitable fallback for Auto".to_string(),
+                    ))
                 }
             }
         }
@@ -200,8 +208,10 @@ impl BackendCoordinator {
                     let mut metrics = self.metrics.write().await;
                     metrics.total_operations += 1;
                     metrics.primary_operations += 1;
-                    metrics.avg_latency_us = (metrics.avg_latency_us * (metrics.total_operations - 1) as f32
-                        + start.elapsed().as_micros() as f32) / metrics.total_operations as f32;
+                    metrics.avg_latency_us = (metrics.avg_latency_us
+                        * (metrics.total_operations - 1) as f32
+                        + start.elapsed().as_micros() as f32)
+                        / metrics.total_operations as f32;
                     Ok(())
                 }
                 Err(e) => {
@@ -220,8 +230,10 @@ impl BackendCoordinator {
                                 metrics.total_operations += 1;
                                 metrics.fallback_operations += 1;
                                 metrics.backend_switches += 1;
-                                metrics.avg_latency_us = (metrics.avg_latency_us * (metrics.total_operations - 1) as f32
-                                    + start.elapsed().as_micros() as f32) / metrics.total_operations as f32;
+                                metrics.avg_latency_us = (metrics.avg_latency_us
+                                    * (metrics.total_operations - 1) as f32
+                                    + start.elapsed().as_micros() as f32)
+                                    / metrics.total_operations as f32;
                                 Ok(())
                             }
                             Err(fallback_err) => {
@@ -245,14 +257,18 @@ impl BackendCoordinator {
                     let mut metrics = self.metrics.write().await;
                     metrics.total_operations += 1;
                     metrics.fallback_operations += 1;
-                    metrics.avg_latency_us = (metrics.avg_latency_us * (metrics.total_operations - 1) as f32
-                        + start.elapsed().as_micros() as f32) / metrics.total_operations as f32;
+                    metrics.avg_latency_us = (metrics.avg_latency_us
+                        * (metrics.total_operations - 1) as f32
+                        + start.elapsed().as_micros() as f32)
+                        / metrics.total_operations as f32;
                     Ok(())
                 }
                 Err(e) => Err(e),
             }
         } else {
-            Err(AosError::Kernel("Primary backend unhealthy and no fallback available".to_string()))
+            Err(AosError::Kernel(
+                "Primary backend unhealthy and no fallback available".to_string(),
+            ))
         }
     }
 
@@ -270,7 +286,8 @@ impl BackendCoordinator {
         let primary = self.primary.read().await;
         match primary.health_check() {
             Ok(health) => {
-                let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> = self.primary_health.write().await;
+                let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> =
+                    self.primary_health.write().await;
                 *guard = health.clone();
                 if !matches!(health, BackendHealth::Healthy) {
                     warn!(health = ?health, "Primary backend health check failed");
@@ -296,7 +313,8 @@ impl BackendCoordinator {
             if let Some(ref fallback_health_arc) = self.fallback_health {
                 match fallback_backend.health_check() {
                     Ok(health) => {
-                        let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> = fallback_health_arc.write().await;
+                        let mut guard: tokio::sync::RwLockWriteGuard<'_, BackendHealth> =
+                            fallback_health_arc.write().await;
                         *guard = health.clone();
                         if !matches!(health, BackendHealth::Healthy) {
                             warn!(health = ?health, "Fallback backend health check failed");
@@ -351,7 +369,9 @@ impl BackendCoordinator {
             info!("Manually switched to fallback backend");
             Ok(())
         } else {
-            Err(AosError::Config("No fallback backend available".to_string()))
+            Err(AosError::Config(
+                "No fallback backend available".to_string(),
+            ))
         }
     }
 
@@ -369,12 +389,7 @@ mod tests {
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_creation() {
-        let coordinator = BackendCoordinator::new(
-            BackendStrategy::MetalOnly,
-            false,
-            None,
-        )
-        .await;
+        let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None).await;
 
         assert!(coordinator.is_ok());
     }
@@ -382,13 +397,9 @@ mod tests {
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_metrics() {
-        let coordinator = BackendCoordinator::new(
-            BackendStrategy::MetalOnly,
-            false,
-            None,
-        )
-        .await
-        .expect("Failed to create coordinator");
+        let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None)
+            .await
+            .expect("Failed to create coordinator");
 
         let metrics = coordinator.get_metrics().await;
         assert_eq!(metrics.total_operations, 0);

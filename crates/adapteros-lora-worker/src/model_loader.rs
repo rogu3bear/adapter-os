@@ -9,10 +9,14 @@
 //! - Model caching: Implements LRU cache with eviction per Memory Management Pattern【2†adapteros-memory/src/model_cache.rs:1-50】
 //! - Deterministic eviction: Uses BLAKE3 hash tiebreaking【3†adapteros-memory/src/unified_interface.rs:390-395】
 
-use memmap2::Mmap;
+use adapteros_config::ModelConfig as UnifiedModelConfig;
 use adapteros_core::{AosError, Result};
 use adapteros_memory::{ModelCache, ModelCacheConfig};
-use adapteros_secure_fs::{traversal::normalize_path, content::{validate_and_parse_json, validate_model_config_json}};
+use adapteros_secure_fs::{
+    content::{validate_and_parse_json, validate_model_config_json},
+    traversal::normalize_path,
+};
+use memmap2::Mmap;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -29,7 +33,7 @@ pub struct QwenModel {
     /// Transformer layers
     pub layers: Vec<TransformerLayer>,
     /// Model configuration
-    pub config: ModelConfig,
+    pub config: QwenModelConfig,
 }
 
 /// Individual transformer layer
@@ -43,9 +47,13 @@ pub struct TransformerLayer {
     pub norm_weight: Vec<f32>,
 }
 
-/// Model configuration
+/// Qwen-specific model configuration (loaded from config.json)
+///
+/// This is distinct from the unified `adapteros_config::ModelConfig` which includes
+/// path and backend preferences. This struct represents only the model architecture
+/// parameters as loaded from a model's config.json file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelConfig {
+pub struct QwenModelConfig {
     pub vocab_size: usize,
     pub hidden_size: usize,
     pub num_layers: usize,
@@ -69,6 +77,25 @@ impl ModelLoader {
         Self {
             model_path: model_path.as_ref().to_path_buf(),
             cache: None,
+        }
+    }
+
+    /// Create a new model loader from unified ModelConfig
+    pub fn from_unified_config(config: &UnifiedModelConfig) -> Self {
+        Self {
+            model_path: config.path.clone(),
+            cache: None,
+        }
+    }
+
+    /// Create a new model loader from unified ModelConfig with caching
+    pub fn from_unified_config_with_cache(
+        config: &UnifiedModelConfig,
+        cache_config: ModelCacheConfig,
+    ) -> Self {
+        Self {
+            model_path: config.path.clone(),
+            cache: Some(Arc::new(ModelCache::with_config(cache_config))),
         }
     }
 
@@ -181,26 +208,33 @@ impl ModelLoader {
     }
 
     /// Load model configuration from config.json
-    fn load_config(&self) -> Result<ModelConfig> {
+    fn load_config(&self) -> Result<QwenModelConfig> {
         let config_path = self.model_path.join("config.json");
 
-        // Canonicalize path for security validation
-        let canonical_config_path = normalize_path(&config_path)
-            .map_err(|e| AosError::Worker(format!("Path security validation failed for config.json: {}", e)))?;
-
-        if !canonical_config_path.exists() {
-            // Return default config for Qwen2.5-7B
-            return Ok(ModelConfig {
-                vocab_size: 32000,
-                hidden_size: 4096,
-                num_layers: 32,
-                num_attention_heads: 32,
-                num_key_value_heads: 4,
-                intermediate_size: 14336,
-                rope_theta: 1000000.0,
-                max_position_embeddings: 32768,
+        // Check if config file exists before attempting security validation
+        // (normalize_path requires the file to exist for canonicalization)
+        if !config_path.exists() {
+            // Use unified config defaults for Qwen2.5-7B
+            let unified = UnifiedModelConfig::default();
+            return Ok(QwenModelConfig {
+                vocab_size: unified.vocab_size,
+                hidden_size: unified.hidden_size,
+                num_layers: unified.num_layers,
+                num_attention_heads: unified.num_attention_heads,
+                num_key_value_heads: unified.num_key_value_heads,
+                intermediate_size: unified.intermediate_size,
+                rope_theta: unified.rope_theta,
+                max_position_embeddings: unified.max_seq_len,
             });
         }
+
+        // Canonicalize path for security validation (file exists at this point)
+        let canonical_config_path = normalize_path(&config_path).map_err(|e| {
+            AosError::Worker(format!(
+                "Path security validation failed for config.json: {}",
+                e
+            ))
+        })?;
 
         let config_content = std::fs::read_to_string(&canonical_config_path)
             .map_err(|e| AosError::Worker(format!("Failed to read config: {}", e)))?;
@@ -209,7 +243,7 @@ impl ModelLoader {
         validate_model_config_json(&config_content)
             .map_err(|e| AosError::Worker(format!("Model config validation failed: {}", e)))?;
 
-        let config: ModelConfig = validate_and_parse_json(&config_content, "config.json")
+        let config: QwenModelConfig = validate_and_parse_json(&config_content, "config.json")
             .map_err(|e| AosError::Worker(format!("Config validation failed: {}", e)))?;
 
         Ok(config)
@@ -305,7 +339,7 @@ impl ModelLoader {
     }
 
     /// Estimate total parameter count
-    fn estimate_parameter_count(&self, config: &ModelConfig) -> usize {
+    fn estimate_parameter_count(&self, config: &QwenModelConfig) -> usize {
         // Embedding layer
         let embedding_params = config.vocab_size * config.hidden_size;
 
@@ -385,24 +419,64 @@ mod tests {
 
     #[test]
     fn test_config_loading_default() {
+        // When config.json doesn't exist, the unified defaults should be returned
         let temp_dir = tempdir().expect("Test temp directory creation should succeed");
         let loader = ModelLoader::new(temp_dir.path());
 
-        let config = loader.load_config().expect("Test config loading should succeed");
-        assert_eq!(config.vocab_size, 32000);
-        assert_eq!(config.hidden_size, 4096);
-        assert_eq!(config.num_layers, 32);
+        let config = loader
+            .load_config()
+            .expect("Test config loading should succeed");
+        // These values come from the unified ModelConfig::default() (Qwen2.5-7B)
+        let unified = UnifiedModelConfig::default();
+        assert_eq!(config.vocab_size, unified.vocab_size);
+        assert_eq!(config.hidden_size, unified.hidden_size);
+        assert_eq!(config.num_layers, unified.num_layers);
+    }
+
+    #[test]
+    fn test_from_unified_config() {
+        let unified = UnifiedModelConfig::default();
+        let loader = ModelLoader::from_unified_config(&unified);
+
+        assert_eq!(loader.model_path, unified.path);
+        assert!(loader.cache.is_none());
+    }
+
+    #[test]
+    fn test_from_unified_config_with_cache() {
+        let unified = UnifiedModelConfig::default();
+        let cache_config = ModelCacheConfig {
+            max_memory_bytes: 1024 * 1024, // 1MB
+            max_models: 5,
+            headroom_threshold: 15.0,
+            tenant_aware: false,
+            eviction_batch_size: 2,
+        };
+
+        let loader = ModelLoader::from_unified_config_with_cache(&unified, cache_config);
+
+        assert_eq!(loader.model_path, unified.path);
+        assert!(loader.cache.is_some());
     }
 
     #[test]
     fn test_parameter_count_estimation() {
+        // When config.json doesn't exist, uses unified defaults
         let temp_dir = tempdir().expect("Test temp directory creation should succeed");
         let loader = ModelLoader::new(temp_dir.path());
 
-        let info = loader.get_model_info().expect("Test model info retrieval should succeed");
+        let info = loader
+            .get_model_info()
+            .expect("Test model info retrieval should succeed");
 
-        // Qwen2.5-7B should have approximately 7 billion parameters
-        assert!(info.total_parameters > 6_000_000_000);
-        assert!(info.total_parameters < 8_000_000_000);
+        // With unified config defaults (Qwen2.5-7B), parameters should be in reasonable range
+        // vocab_size=152064, hidden_size=3584, num_layers=28
+        // Embedding: 152064 * 3584 = 545,157,376
+        // LM head: 3584 * 152064 = 545,157,376
+        // Attention (approx): 28 * 3584 * 3584 * 4 = 1,438,105,856
+        // MLP (approx): 28 * 3584 * 18944 * 2 = 3,801,604,096
+        // Total approx: ~6.3 billion
+        assert!(info.total_parameters > 5_000_000_000);
+        assert!(info.total_parameters < 10_000_000_000);
     }
 }

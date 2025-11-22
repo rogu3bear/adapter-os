@@ -9,7 +9,10 @@
 //! - Policy enforcement
 //! - Telemetry and tracing
 
-use adapteros_core::{derive_seed, AosError, B3Hash, CircuitBreaker, Result, StandardCircuitBreaker};
+use adapteros_config::ModelConfig;
+use adapteros_core::{
+    derive_seed, AosError, B3Hash, CircuitBreaker, Result, StandardCircuitBreaker,
+};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_router::Router;
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
@@ -45,13 +48,47 @@ pub struct InferencePipelineConfig {
 
 impl Default for InferencePipelineConfig {
     fn default() -> Self {
+        let model_config = ModelConfig::from_env().unwrap_or_default();
         Self {
-            model_name: "Qwen2.5-7B-Instruct".to_string(),
-            vocab_size: 152064, // Qwen2.5 vocab size
-            max_seq_len: 32768, // Qwen2.5 max position embeddings
+            model_name: model_config.architecture.clone(),
+            vocab_size: model_config.vocab_size,
+            max_seq_len: model_config.max_seq_len,
             temperature: 0.7,
             top_k: Some(50),
             top_p: Some(0.95),
+            manifest_hash: None,
+        }
+    }
+}
+
+impl InferencePipelineConfig {
+    /// Create from unified ModelConfig
+    pub fn from_model_config(model_config: &ModelConfig) -> Self {
+        Self {
+            model_name: model_config.architecture.clone(),
+            vocab_size: model_config.vocab_size,
+            max_seq_len: model_config.max_seq_len,
+            temperature: 0.7,
+            top_k: Some(50),
+            top_p: Some(0.95),
+            manifest_hash: None,
+        }
+    }
+
+    /// Create from unified ModelConfig with sampling parameters
+    pub fn from_model_config_with_sampling(
+        model_config: &ModelConfig,
+        temperature: f32,
+        top_k: Option<usize>,
+        top_p: Option<f32>,
+    ) -> Self {
+        Self {
+            model_name: model_config.architecture.clone(),
+            vocab_size: model_config.vocab_size,
+            max_seq_len: model_config.max_seq_len,
+            temperature,
+            top_k,
+            top_p,
             manifest_hash: None,
         }
     }
@@ -248,7 +285,10 @@ impl InferencePipeline {
 
         // Run inference directly without circuit breaker call wrapper
         // Circuit breaker state is checked via state() method
-        if matches!(self.circuit_breaker.state(), adapteros_core::CircuitState::Open { .. }) {
+        if matches!(
+            self.circuit_breaker.state(),
+            adapteros_core::CircuitState::Open { .. }
+        ) {
             return Err(AosError::Worker("Circuit breaker is open".to_string()));
         }
 
@@ -256,7 +296,11 @@ impl InferencePipeline {
     }
 
     /// Internal inference implementation without circuit breaker
-    async fn infer_inner(&mut self, request: InferenceRequest, start_time: Instant) -> Result<InferenceResponse> {
+    async fn infer_inner(
+        &mut self,
+        request: InferenceRequest,
+        start_time: Instant,
+    ) -> Result<InferenceResponse> {
         // 1. Apply chat template and tokenize
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
         let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
@@ -324,10 +368,10 @@ impl InferencePipeline {
             // NOTE: Policy engine is reserved for future inline policy enforcement
             let entropy = self.calculate_gate_entropy(&decision.gates_q15);
             let _ = entropy; // Reserved for policy check
-            // if let Err(e) = self._policy.check_router_entropy(entropy) {
-            //     warn!("Router entropy policy violation: {}", e);
-            //     // Continue with warning rather than failing - entropy floor is advisory
-            // }
+                             // if let Err(e) = self._policy.check_router_entropy(entropy) {
+                             //     warn!("Router entropy policy violation: {}", e);
+                             //     // Continue with warning rather than failing - entropy floor is advisory
+                             // }
 
             // 7. Execute kernel inference
             let mut io_buffers = IoBuffers {
@@ -546,9 +590,41 @@ mod tests {
     #[test]
     fn test_inference_config_default() {
         let config = InferencePipelineConfig::default();
-        assert_eq!(config.model_name, "Qwen2.5-7B-Instruct");
-        assert_eq!(config.vocab_size, 152064);
-        assert_eq!(config.max_seq_len, 32768);
+        // Default values come from ModelConfig::from_env() or ModelConfig::default()
+        // which uses Qwen2.5 defaults
+        let model_config = adapteros_config::ModelConfig::default();
+        assert_eq!(config.model_name, model_config.architecture);
+        assert_eq!(config.vocab_size, model_config.vocab_size);
+        assert_eq!(config.max_seq_len, model_config.max_seq_len);
+    }
+
+    #[test]
+    fn test_inference_config_from_model_config() {
+        let model_config = adapteros_config::ModelConfig::default();
+        let config = InferencePipelineConfig::from_model_config(&model_config);
+        assert_eq!(config.model_name, model_config.architecture);
+        assert_eq!(config.vocab_size, model_config.vocab_size);
+        assert_eq!(config.max_seq_len, model_config.max_seq_len);
+        assert_eq!(config.temperature, 0.7);
+        assert_eq!(config.top_k, Some(50));
+        assert_eq!(config.top_p, Some(0.95));
+    }
+
+    #[test]
+    fn test_inference_config_from_model_config_with_sampling() {
+        let model_config = adapteros_config::ModelConfig::default();
+        let config = InferencePipelineConfig::from_model_config_with_sampling(
+            &model_config,
+            0.9,
+            Some(100),
+            Some(0.8),
+        );
+        assert_eq!(config.model_name, model_config.architecture);
+        assert_eq!(config.vocab_size, model_config.vocab_size);
+        assert_eq!(config.max_seq_len, model_config.max_seq_len);
+        assert_eq!(config.temperature, 0.9);
+        assert_eq!(config.top_k, Some(100));
+        assert_eq!(config.top_p, Some(0.8));
     }
 
     #[test]

@@ -32,7 +32,11 @@ pub fn drop_privileges(isolation: &TenantIsolation) -> Result<()> {
         ));
     }
 
-    info!(uid = isolation.uid, gid = isolation.gid, "Dropping privileges");
+    info!(
+        uid = isolation.uid,
+        gid = isolation.gid,
+        "Dropping privileges"
+    );
 
     // Change group first (must be done before changing user)
     let gid = Gid::from_raw(isolation.gid);

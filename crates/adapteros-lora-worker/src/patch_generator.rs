@@ -459,8 +459,12 @@ impl RuleBasedLlmBackend {
         // Look for patterns like "add function foo" or "implement bar"
         let words: Vec<&str> = description.split_whitespace().collect();
         for (i, word) in words.iter().enumerate() {
-            if (*word == "function" || *word == "implement" || *word == "method") && i + 1 < words.len() {
-                return words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string();
+            if (*word == "function" || *word == "implement" || *word == "method")
+                && i + 1 < words.len()
+            {
+                return words[i + 1]
+                    .trim_matches(|c: char| !c.is_alphanumeric() && c != '_')
+                    .to_string();
             }
         }
         "new_function".to_string()
@@ -472,7 +476,10 @@ impl RuleBasedLlmBackend {
         let desc_lower = description.to_lowercase();
         if let Some(pos) = desc_lower.find("rename ") {
             let rest = &description[pos + 7..];
-            let parts: Vec<&str> = rest.split(|c| c == ' ' || c == '-' || c == '>').filter(|s| !s.is_empty() && *s != "to").collect();
+            let parts: Vec<&str> = rest
+                .split(|c| c == ' ' || c == '-' || c == '>')
+                .filter(|s| !s.is_empty() && *s != "to")
+                .collect();
             if parts.len() >= 2 {
                 return (parts[0].to_string(), parts[1].to_string());
             }
@@ -481,7 +488,13 @@ impl RuleBasedLlmBackend {
     }
 
     /// Generate actual code transformation based on type
-    fn generate_transformation(&self, transform_type: &TransformationType, description: &str, file_content: Option<&str>, file_path: &str) -> (String, String, usize, usize) {
+    fn generate_transformation(
+        &self,
+        transform_type: &TransformationType,
+        description: &str,
+        file_content: Option<&str>,
+        file_path: &str,
+    ) -> (String, String, usize, usize) {
         match transform_type {
             TransformationType::AddFunction => {
                 let func_name = self.extract_function_name(description);
@@ -507,7 +520,7 @@ impl RuleBasedLlmBackend {
                 } else {
                     (
                         String::new(),
-                        format!("function {}() {{\n    // {}\n}}\n", func_name, description)
+                        format!("function {}() {{\n    // {}\n}}\n", func_name, description),
                     )
                 };
 
@@ -530,9 +543,15 @@ impl RuleBasedLlmBackend {
             TransformationType::AddImport => {
                 let is_rust = file_path.ends_with(".rs");
                 let new_import = if is_rust {
-                    format!("use {};", description.split_whitespace().last().unwrap_or("std::io"))
+                    format!(
+                        "use {};",
+                        description.split_whitespace().last().unwrap_or("std::io")
+                    )
                 } else {
-                    format!("import {}", description.split_whitespace().last().unwrap_or("module"))
+                    format!(
+                        "import {}",
+                        description.split_whitespace().last().unwrap_or("module")
+                    )
                 };
                 (String::new(), new_import, 1, 1)
             }
@@ -543,7 +562,10 @@ impl RuleBasedLlmBackend {
                         // Find unwrap() or expect() calls to wrap with proper error handling
                         for (i, line) in content.lines().enumerate() {
                             if line.contains(".unwrap()") {
-                                let new_line = line.replace(".unwrap()", ".map_err(|e| AosError::Validation(e.to_string()))?");
+                                let new_line = line.replace(
+                                    ".unwrap()",
+                                    ".map_err(|e| AosError::Validation(e.to_string()))?",
+                                );
                                 return (line.to_string(), new_line, i + 1, i + 1);
                             }
                         }
@@ -644,8 +666,12 @@ impl LlmBackend for RuleBasedLlmBackend {
         let file_content = context.file_contexts.get(&file).map(|s| s.as_str());
 
         // Generate actual code transformation
-        let (old_code, new_code, start_line, end_line) =
-            self.generate_transformation(&transform_type, &context.request.description, file_content, &file);
+        let (old_code, new_code, start_line, end_line) = self.generate_transformation(
+            &transform_type,
+            &context.request.description,
+            file_content,
+            &file,
+        );
 
         // Validate generated code syntax
         if !new_code.is_empty() {
@@ -654,11 +680,20 @@ impl LlmBackend for RuleBasedLlmBackend {
 
         // Build unified diff format
         let header = format!("--- a/{}\n+++ b/{}\n", &file, &file);
-        let hunk_header = format!("@@ -{},{} +{},{} @@\n",
+        let hunk_header = format!(
+            "@@ -{},{} +{},{} @@\n",
             start_line,
-            if old_code.is_empty() { 0 } else { old_code.lines().count() },
+            if old_code.is_empty() {
+                0
+            } else {
+                old_code.lines().count()
+            },
             start_line,
-            if new_code.is_empty() { 0 } else { new_code.lines().count() }
+            if new_code.is_empty() {
+                0
+            } else {
+                new_code.lines().count()
+            }
         );
 
         let mut body = String::new();
@@ -693,11 +728,20 @@ impl LlmBackend for RuleBasedLlmBackend {
         let mut rationale_parts = Vec::new();
 
         // Count additions and deletions
-        let additions = patch_text.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
-        let deletions = patch_text.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+        let additions = patch_text
+            .lines()
+            .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
+            .count();
+        let deletions = patch_text
+            .lines()
+            .filter(|l| l.starts_with('-') && !l.starts_with("---"))
+            .count();
 
         if additions > 0 && deletions > 0 {
-            rationale_parts.push(format!("Modified {} lines, added {} lines", deletions, additions));
+            rationale_parts.push(format!(
+                "Modified {} lines, added {} lines",
+                deletions, additions
+            ));
         } else if additions > 0 {
             rationale_parts.push(format!("Added {} lines of new code", additions));
         } else if deletions > 0 {

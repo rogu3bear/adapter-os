@@ -27,25 +27,25 @@
 //! let response = worker.infer(request).await?;
 //! ```
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::Router;
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
-use parking_lot::RwLock;
 use tracing::info;
 
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
-pub mod backend_factory;
 pub mod backend_coordinator;
+pub mod backend_factory;
 pub mod base_model_state;
 pub mod contact_discovery;
 pub mod conv_pipeline;
@@ -67,6 +67,7 @@ pub mod linter_runner;
 pub mod llm_backend;
 pub mod memory;
 pub mod metrics;
+pub mod model_loader;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
@@ -83,13 +84,16 @@ pub mod vision_adapter;
 pub mod vision_lora;
 
 pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult, HotSwapManager};
+pub use adapteros_core::CircuitState;
 pub use adapteros_lora_rag::DocIndexImpl;
 pub use adapteros_lora_rag::SymbolIndexImpl;
 pub use adapteros_lora_rag::TestIndexImpl;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };
-pub use backend_factory::{create_backend, BackendChoice};
+pub use backend_factory::{
+    create_backend, create_backend_from_config, create_backend_with_model, BackendChoice,
+};
 pub use conv_pipeline::{
     ActivationKind, ConvPipeline, ConvPipelineConfig, ImageBatch, PoolingStrategy,
     VisionArchitecture,
@@ -109,6 +113,7 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::UmaPressureMonitor as MemoryMonitor;
+pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
 pub use telemetry_adapter::{
     SignalChannel, SignalSample, TelemetryAdapter, TelemetryAdapterConfig, TelemetryAdapterMetrics,
     TelemetryOutput,
@@ -119,7 +124,6 @@ pub use telemetry_lora::{
 };
 pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
 pub use timeout::{CircuitBreaker, TimeoutConfig, TimeoutWrapper};
-pub use adapteros_core::CircuitState;
 pub use training::{
     AdapterManifest, AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights,
     MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingConfig, TrainingExample,
@@ -315,7 +319,10 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             router_seed,
         )?;
 
-        let memory_monitor = MemoryMonitor::new(manifest.policies.memory.min_headroom_pct, Some(telemetry.clone()));
+        let memory_monitor = MemoryMonitor::new(
+            manifest.policies.memory.min_headroom_pct,
+            Some(telemetry.clone()),
+        );
 
         // Initialize safety mechanisms
         let timeout_config = TimeoutConfig::default();
@@ -374,7 +381,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         );
 
         // Initialize lifecycle manager
-        let adapters_path = std::path::PathBuf::from("./adapters");
+        // Use centralized adapter path from environment or default (var/adapters/)
+        let adapters_path = AdapterPaths::default().root().to_path_buf();
 
         // Build adapter hashes map from manifest
         let adapter_hashes: std::collections::HashMap<String, adapteros_core::B3Hash> = manifest
@@ -395,7 +403,11 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         // Create shared kernels Arc for both Worker and HotSwapManager
         let kernels_arc = Arc::new(tokio::sync::Mutex::new(kernels));
 
-        let hotswap = Arc::new(HotSwapManager::new_with_kernels(kernels_arc.clone(), adapters_path.clone(), Some(Arc::new(telemetry.clone()))));
+        let hotswap = Arc::new(HotSwapManager::new_with_kernels(
+            kernels_arc.clone(),
+            adapters_path.clone(),
+            Some(Arc::new(telemetry.clone())),
+        ));
 
         // Retirement task management
         let (shutdown_tx, _shutdown_rx) = watch::channel(());
@@ -442,7 +454,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         let telemetry = self.telemetry.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
 
             loop {
                 interval.tick().await;
@@ -476,7 +489,11 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                                 );
 
                                 // Verify against baseline
-                                match kernels_lock.verify_gpu_fingerprint(*adapter_id_u16, buffer_size, &gpu_fp.checkpoint_hash.to_hex()) {
+                                match kernels_lock.verify_gpu_fingerprint(
+                                    *adapter_id_u16,
+                                    buffer_size,
+                                    &gpu_fp.checkpoint_hash.to_hex(),
+                                ) {
                                     Ok(true) => {
                                         tracing::debug!(
                                             adapter_id = %adapter_id,
@@ -491,16 +508,21 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
 
                                         // Log critical telemetry event
                                         if let Some(ref t) = telemetry {
-                                            let _ = t.log("gpu_integrity_failure", serde_json::json!({
-                                                "adapter_id": adapter_id,
-                                                "reason": "fingerprint_mismatch",
-                                                "action": "adapter_unloaded",
-                                                "severity": "critical"
-                                            }));
+                                            let _ = t.log(
+                                                "gpu_integrity_failure",
+                                                serde_json::json!({
+                                                    "adapter_id": adapter_id,
+                                                    "reason": "fingerprint_mismatch",
+                                                    "action": "adapter_unloaded",
+                                                    "severity": "critical"
+                                                }),
+                                            );
                                         }
 
                                         // Corrective action: Unload corrupted adapter from kernels
-                                        if let Err(unload_err) = kernels_lock.unload_adapter(*adapter_id_u16) {
+                                        if let Err(unload_err) =
+                                            kernels_lock.unload_adapter(*adapter_id_u16)
+                                        {
                                             tracing::error!(
                                                 adapter_id = %adapter_id,
                                                 error = %unload_err,

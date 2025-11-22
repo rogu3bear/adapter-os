@@ -15,7 +15,7 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 /// Comprehensive training metrics collector
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TrainingMetrics {
     /// Loss values per epoch
     epoch_losses: VecDeque<f32>,
@@ -41,6 +41,24 @@ pub struct TrainingMetrics {
     telemetry: TelemetryWriter,
     /// Configuration for metrics collection
     config: MetricsConfig,
+}
+
+impl std::fmt::Debug for TrainingMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrainingMetrics")
+            .field("epoch_losses", &self.epoch_losses)
+            .field("batch_losses", &self.batch_losses)
+            .field("gradient_norms", &self.gradient_norms)
+            .field("learning_rates", &self.learning_rates)
+            .field("batch_timings_ms", &self.batch_timings_ms)
+            .field("peak_memory_mb", &self.peak_memory_mb)
+            .field("current_epoch", &self.current_epoch)
+            .field("current_batch", &self.current_batch)
+            .field("total_batches", &self.total_batches)
+            .field("start_time", &self.start_time)
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Configuration for metrics collection
@@ -241,7 +259,10 @@ impl TrainingMetrics {
                 ));
             }
             if grad_norm > 100.0 {
-                warn!("Gradient norm exceeded 100.0: {:.2}, exploding gradients", grad_norm);
+                warn!(
+                    "Gradient norm exceeded 100.0: {:.2}, exploding gradients",
+                    grad_norm
+                );
             }
         }
 
@@ -304,7 +325,8 @@ impl TrainingMetrics {
         let loss_trend = if self.epoch_losses.len() >= 2 {
             let mid = self.epoch_losses.len() / 2;
             let early_avg: f32 = self.epoch_losses.iter().take(mid).sum::<f32>() / mid as f32;
-            let recent_avg: f32 = self.epoch_losses.iter().rev().take(mid).sum::<f32>() / mid as f32;
+            let recent_avg: f32 =
+                self.epoch_losses.iter().rev().take(mid).sum::<f32>() / mid as f32;
             early_avg - recent_avg
         } else {
             0.0

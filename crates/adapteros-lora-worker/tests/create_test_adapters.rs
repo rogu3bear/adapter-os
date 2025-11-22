@@ -56,6 +56,9 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         batch_size: 2,
         epochs: 1,
         hidden_dim: 32,
+        max_gpu_memory_mb: 0,
+        preferred_backend: None,
+        require_gpu: false,
     };
 
     let mut trainer = MicroLoRATrainer::new(config.clone())?;
@@ -78,13 +81,21 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         batch_size: 2,
         epochs: 1,
         hidden_dim: 64, // 2x dimension
+        max_gpu_memory_mb: 0,
+        preferred_backend: None,
+        require_gpu: false,
     };
 
     let mut large_trainer = MicroLoRATrainer::new(large_config.clone())?;
     let large_result = large_trainer.train(&examples).await?;
     let large_quantized = LoRAQuantizer::quantize_to_q15(&large_result.weights);
     let large_packaged = packager
-        .package_aos("large_adapter", &large_quantized, &large_config, "test-base-model")
+        .package_aos(
+            "large_adapter",
+            &large_quantized,
+            &large_config,
+            "test-base-model",
+        )
         .await?;
 
     println!("      ✓ Path: {}", large_packaged.weights_path.display());
@@ -124,6 +135,9 @@ async fn create_test_adapter_fixtures() -> Result<()> {
             batch_size: 2,
             epochs: 1,
             hidden_dim: 32,
+            max_gpu_memory_mb: 0,
+            preferred_backend: None,
+            require_gpu: false,
         };
 
         let mut adapter_trainer = MicroLoRATrainer::new(adapter_config.clone())?;
@@ -131,7 +145,12 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         let adapter_quantized = LoRAQuantizer::quantize_to_q15(&adapter_result.weights);
         let adapter_name = format!("adapter_{}", i);
         let _adapter_packaged = packager
-            .package_aos(&adapter_name, &adapter_quantized, &adapter_config, "test-base-model")
+            .package_aos(
+                &adapter_name,
+                &adapter_quantized,
+                &adapter_config,
+                "test-base-model",
+            )
             .await?;
 
         println!("      ✓ Created {}.aos", adapter_name);

@@ -1,6 +1,7 @@
 //! Real LLM backend implementations for patch generation
 
 use crate::patch_generator::{LlmBackend, PatchContext};
+use adapteros_config::ModelConfig;
 use adapteros_core::{AosError, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -19,12 +20,29 @@ pub struct LocalLlmConfig {
 
 impl Default for LocalLlmConfig {
     fn default() -> Self {
+        // Use unified model config from environment, falling back to default path
+        let model_path = ModelConfig::from_env()
+            .map(|c| c.path)
+            .unwrap_or_else(|_| PathBuf::from("models/default"));
+
         Self {
-            model_path: PathBuf::from("models/qwen2.5-7b-mlx"),
+            model_path,
             temperature: 0.7,
             top_p: 0.9,
             max_tokens: 2048,
             stop_tokens: vec!["</patch>".to_string(), "<|endoftext|>".to_string()],
+        }
+    }
+}
+
+impl LocalLlmConfig {
+    /// Create a LocalLlmConfig from a ModelConfig
+    ///
+    /// Uses the model path from ModelConfig and applies default generation parameters.
+    pub fn from_model_config(config: &ModelConfig) -> Self {
+        Self {
+            model_path: config.path.clone(),
+            ..Default::default()
         }
     }
 }
@@ -315,7 +333,8 @@ Generate a patch addressing this description. Include:
             stop: self.config.stop_tokens.clone(),
         };
 
-        let mut request = self.client
+        let mut request = self
+            .client
             .post(&self.api_endpoint)
             .header("Content-Type", "application/json")
             .json(&request_body);
@@ -340,10 +359,9 @@ Generate a patch addressing this description. Include:
             )));
         }
 
-        let api_response: RemoteLlmResponse = response
-            .json()
-            .await
-            .map_err(|e| AosError::Validation(format!("Failed to parse LLM API response: {}", e)))?;
+        let api_response: RemoteLlmResponse = response.json().await.map_err(|e| {
+            AosError::Validation(format!("Failed to parse LLM API response: {}", e))
+        })?;
 
         // Extract text from response (handle different API formats)
         let text = if !api_response.text.is_empty() {
@@ -423,6 +441,51 @@ pub enum LlmBackendType {
 pub fn create_llm_backend(backend_type: LlmBackendType) -> Result<Box<dyn LlmBackend>> {
     match backend_type {
         LlmBackendType::Local(config) => {
+            let backend = LocalLlmBackend::new(config)?;
+            Ok(Box::new(backend))
+        }
+        LlmBackendType::Remote { endpoint, api_key } => {
+            let backend = RemoteLlmBackend::new(endpoint, api_key);
+            Ok(Box::new(backend))
+        }
+        LlmBackendType::Mock => {
+            use crate::patch_generator::MockLlmBackend;
+            Ok(Box::new(MockLlmBackend))
+        }
+    }
+}
+
+/// Create an LLM backend with optional unified model configuration
+///
+/// This function extends `create_llm_backend` by accepting an optional `ModelConfig`
+/// to override the default model path and settings for local backends.
+///
+/// # Arguments
+/// * `backend_type` - The type of backend to create
+/// * `model_config` - Optional unified model configuration (used for Local backend)
+///
+/// # Example
+/// ```rust,ignore
+/// use adapteros_config::ModelConfig;
+/// use adapteros_lora_worker::llm_backend::{create_llm_backend_with_config, LlmBackendType, LocalLlmConfig};
+///
+/// // Using unified config from environment
+/// let model_config = ModelConfig::from_env();
+/// let backend = create_llm_backend_with_config(
+///     LlmBackendType::Local(LocalLlmConfig::default()),
+///     model_config.as_ref(),
+/// )?;
+/// ```
+pub fn create_llm_backend_with_config(
+    backend_type: LlmBackendType,
+    model_config: Option<&ModelConfig>,
+) -> Result<Box<dyn LlmBackend>> {
+    match backend_type {
+        LlmBackendType::Local(mut config) => {
+            // Override model path from ModelConfig if provided
+            if let Some(mc) = model_config {
+                config.model_path = mc.path.clone();
+            }
             let backend = LocalLlmBackend::new(config)?;
             Ok(Box::new(backend))
         }

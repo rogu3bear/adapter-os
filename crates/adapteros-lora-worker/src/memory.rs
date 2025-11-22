@@ -315,18 +315,17 @@ async fn emit_telemetry(
     level: MemoryPressureLevel,
 ) {
     if let Some(t) = telemetry {
-        let _ = t
-            .log(
-                "uma.pressure",
-                json!({
-                    "level": level.to_string(),
-                    "headroom_pct": stats.headroom_pct,
-                    "used_mb": stats.used_mb,
-                    "available_mb": stats.total_mb - stats.used_mb, // Calculate available_mb
-                    "total_mb": stats.total_mb,
-                    "timestamp": Utc::now().timestamp()
-                }),
-            );
+        let _ = t.log(
+            "uma.pressure",
+            json!({
+                "level": level.to_string(),
+                "headroom_pct": stats.headroom_pct,
+                "used_mb": stats.used_mb,
+                "available_mb": stats.total_mb - stats.used_mb, // Calculate available_mb
+                "total_mb": stats.total_mb,
+                "timestamp": Utc::now().timestamp()
+            }),
+        );
     }
 }
 
@@ -348,7 +347,12 @@ async fn get_uma_stats() -> UmaStats {
             .args(["-n", "hw.memsize"])
             .output()
             .ok()
-            .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+            })
             .unwrap_or(0);
 
         // Get used memory from vm_stat
@@ -365,15 +369,21 @@ async fn get_uma_stats() -> UmaStats {
 
         for line in vm_stat.lines() {
             if line.contains("Pages active:") {
-                pages_active = line.split(':').nth(1)
+                pages_active = line
+                    .split(':')
+                    .nth(1)
                     .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
                     .unwrap_or(0);
             } else if line.contains("Pages wired down:") {
-                pages_wired = line.split(':').nth(1)
+                pages_wired = line
+                    .split(':')
+                    .nth(1)
                     .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
                     .unwrap_or(0);
             } else if line.contains("Pages occupied by compressor:") {
-                pages_compressed = line.split(':').nth(1)
+                pages_compressed = line
+                    .split(':')
+                    .nth(1)
                     .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
                     .unwrap_or(0);
             }

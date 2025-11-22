@@ -52,13 +52,21 @@ impl TrainingCharts {
 
         let min = data.iter().copied().fold(f32::INFINITY, f32::min);
         let max = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let range = if (max - min).abs() < 1e-6 { 1.0 } else { max - min };
+        let range = if (max - min).abs() < 1e-6 {
+            1.0
+        } else {
+            max - min
+        };
 
         // Create chart grid
         let mut chart = vec![vec![" "; width]; height];
 
         // Downsample data if necessary
-        let step = if data.len() > width { data.len() / width } else { 1 };
+        let step = if data.len() > width {
+            data.len() / width
+        } else {
+            1
+        };
         let x_max = (data.len() - 1).min(width - 1);
 
         for (i, &value) in data.iter().enumerate() {
@@ -127,18 +135,39 @@ impl TrainingCharts {
     pub fn summary_card(snapshot: &MetricsSnapshot) -> String {
         let mut card = String::from("+-------- Training Summary --------+\n");
         card.push_str(&format!("|  Epoch:          {:>13}  |\n", snapshot.epoch));
-        card.push_str(&format!("|  Loss:           {:>13.6}  |\n", snapshot.epoch_loss));
-        card.push_str(&format!("|  Loss Trend:     {:>13.6}  |\n", snapshot.loss_trend));
-        card.push_str(&format!("|  Min/Max Loss:   {:.3} / {:.3}  |\n", snapshot.min_loss, snapshot.max_loss));
+        card.push_str(&format!(
+            "|  Loss:           {:>13.6}  |\n",
+            snapshot.epoch_loss
+        ));
+        card.push_str(&format!(
+            "|  Loss Trend:     {:>13.6}  |\n",
+            snapshot.loss_trend
+        ));
+        card.push_str(&format!(
+            "|  Min/Max Loss:   {:.3} / {:.3}  |\n",
+            snapshot.min_loss, snapshot.max_loss
+        ));
 
         if let Some(grad_norm) = snapshot.gradient_norm {
             card.push_str(&format!("|  Grad Norm:      {:>13.6}  |\n", grad_norm));
         }
 
-        card.push_str(&format!("|  Learning Rate:  {:>13.8}  |\n", snapshot.learning_rate));
-        card.push_str(&format!("|  Throughput:     {:>11.2} b/s |\n", snapshot.throughput_bps));
-        card.push_str(&format!("|  Batch Time:     {:>10.2} ms |\n", snapshot.avg_batch_time_ms));
-        card.push_str(&format!("|  Peak Memory:    {:>11.2} MB |\n", snapshot.peak_memory_mb));
+        card.push_str(&format!(
+            "|  Learning Rate:  {:>13.8}  |\n",
+            snapshot.learning_rate
+        ));
+        card.push_str(&format!(
+            "|  Throughput:     {:>11.2} b/s |\n",
+            snapshot.throughput_bps
+        ));
+        card.push_str(&format!(
+            "|  Batch Time:     {:>10.2} ms |\n",
+            snapshot.avg_batch_time_ms
+        ));
+        card.push_str(&format!(
+            "|  Peak Memory:    {:>11.2} MB |\n",
+            snapshot.peak_memory_mb
+        ));
         card.push_str("+----------------------------------+\n");
 
         card
@@ -151,39 +180,81 @@ impl TrainingCharts {
         // Summary stats
         report_str.push_str(&format!("Total Epochs: {}\n", report.total_epochs));
         report_str.push_str(&format!("Total Batches: {}\n", report.total_batches));
-        report_str.push_str(&format!("Training Time: {:.2}s\n\n", report.final_snapshot.total_time_ms as f32 / 1000.0));
+        report_str.push_str(&format!(
+            "Training Time: {:.2}s\n\n",
+            report.final_snapshot.total_time_ms as f32 / 1000.0
+        ));
 
         // Loss analysis
         report_str.push_str("Loss Analysis:\n");
-        report_str.push_str(&format!("  Initial Loss: {:.6}\n", report.loss_curve.first().copied().unwrap_or(0.0)));
-        report_str.push_str(&format!("  Final Loss: {:.6}\n", report.final_snapshot.epoch_loss));
-        report_str.push_str(&format!("  Improvement per Epoch: {:.6}\n", report.loss_improvement_per_epoch()));
+        report_str.push_str(&format!(
+            "  Initial Loss: {:.6}\n",
+            report.loss_curve.first().copied().unwrap_or(0.0)
+        ));
+        report_str.push_str(&format!(
+            "  Final Loss: {:.6}\n",
+            report.final_snapshot.epoch_loss
+        ));
+        report_str.push_str(&format!(
+            "  Improvement per Epoch: {:.6}\n",
+            report.loss_improvement_per_epoch()
+        ));
         report_str.push_str(&format!("  Converged: {}\n\n", report.has_converged()));
 
         // Learning rate analysis
         if !report.learning_rate_history.is_empty() {
             report_str.push_str("Learning Rate History:\n");
-            report_str.push_str(&format!("  Initial LR: {:.8}\n", report.learning_rate_history[0]));
-            report_str.push_str(&format!("  Final LR: {:.8}\n", report.learning_rate_history.last().copied().unwrap_or(0.0)));
-            report_str.push_str(&format!("  Adjustments: {}\n\n", count_lr_adjustments(&report.learning_rate_history)));
+            report_str.push_str(&format!(
+                "  Initial LR: {:.8}\n",
+                report.learning_rate_history[0]
+            ));
+            report_str.push_str(&format!(
+                "  Final LR: {:.8}\n",
+                report.learning_rate_history.last().copied().unwrap_or(0.0)
+            ));
+            report_str.push_str(&format!(
+                "  Adjustments: {}\n\n",
+                count_lr_adjustments(&report.learning_rate_history)
+            ));
         }
 
         // Gradient analysis
         if !report.gradient_norm_curve.is_empty() {
-            let max_grad = report.gradient_norm_curve.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let avg_grad = report.gradient_norm_curve.iter().sum::<f32>() / report.gradient_norm_curve.len() as f32;
+            let max_grad = report
+                .gradient_norm_curve
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+            let avg_grad = report.gradient_norm_curve.iter().sum::<f32>()
+                / report.gradient_norm_curve.len() as f32;
 
             report_str.push_str("Gradient Analysis:\n");
             report_str.push_str(&format!("  Max Gradient Norm: {:.6}\n", max_grad));
             report_str.push_str(&format!("  Avg Gradient Norm: {:.6}\n", avg_grad));
-            report_str.push_str(&format!("  Stability: {}\n\n", if max_grad > 100.0 { "Concerning" } else { "Stable" }));
+            report_str.push_str(&format!(
+                "  Stability: {}\n\n",
+                if max_grad > 100.0 {
+                    "Concerning"
+                } else {
+                    "Stable"
+                }
+            ));
         }
 
         // Performance metrics
         report_str.push_str("Performance:\n");
-        report_str.push_str(&format!("  Throughput: {:.2} batches/sec\n", report.final_snapshot.throughput_bps));
-        report_str.push_str(&format!("  Avg Batch Time: {:.2} ms\n", report.final_snapshot.avg_batch_time_ms));
-        report_str.push_str(&format!("  Peak Memory: {:.2} MB\n", report.final_snapshot.peak_memory_mb));
+        report_str.push_str(&format!(
+            "  Throughput: {:.2} batches/sec\n",
+            report.final_snapshot.throughput_bps
+        ));
+        report_str.push_str(&format!(
+            "  Avg Batch Time: {:.2} ms\n",
+            report.final_snapshot.avg_batch_time_ms
+        ));
+        report_str.push_str(&format!(
+            "  Peak Memory: {:.2} MB\n",
+            report.final_snapshot.peak_memory_mb
+        ));
 
         report_str
     }
@@ -222,7 +293,8 @@ impl TrainingProgress {
         };
 
         let eta_seconds = if snapshot.throughput_bps > 0.0 && total_epochs > snapshot.epoch {
-            let remaining_batches = (total_epochs - snapshot.epoch) as f32 * (snapshot.throughput_bps / 10.0); // Rough estimate
+            let remaining_batches =
+                (total_epochs - snapshot.epoch) as f32 * (snapshot.throughput_bps / 10.0); // Rough estimate
             remaining_batches / snapshot.throughput_bps
         } else {
             0.0
@@ -250,10 +322,15 @@ impl TrainingProgress {
 
         format!(
             "Epoch {}/{} {} | Loss: {:.6} (Best: {:.6}) | LR: {:.8} | ETA: {:02}:{:02}:{:02}",
-            self.current_epoch, self.total_epochs, bar,
-            self.current_loss, self.best_loss,
+            self.current_epoch,
+            self.total_epochs,
+            bar,
+            self.current_loss,
+            self.best_loss,
             self.learning_rate,
-            hours, minutes, seconds
+            hours,
+            minutes,
+            seconds
         )
     }
 }

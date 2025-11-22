@@ -16,18 +16,19 @@ default = []
 #   - Enables ANE detection and CoreML model loading
 #   - macOS 13+ required
 #
-# experimental-backends: Enables MLX FFI backend
+# multi-backend: Enables MLX FFI backend
 #   - Adds adapteros-lora-mlx-ffi as dependency
 #   - For research/training workloads
 #
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
-experimental-backends = ["dep:adapteros-lora-mlx-ffi"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 
 # Alias for clarity
-mlx-backend = ["experimental-backends"]
+mlx-backend = ["multi-backend"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-config = { path = "../adapteros-config" }
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-db = { path = "../adapteros-db" }
@@ -43,6 +44,7 @@ adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }
@@ -78,6 +80,7 @@ loom = "0.7"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = { workspace = true }
 proptest = "1.0"
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
 
 [[bench]]
 name = "hotswap"

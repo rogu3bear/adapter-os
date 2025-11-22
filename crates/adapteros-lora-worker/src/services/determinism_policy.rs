@@ -29,8 +29,8 @@
 //! let mut rng = expander.create_rng(SeedDomain::Sampling);
 //! ```
 
-use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_core::{derive_seed, derive_seed_full, derive_seed_indexed, hash_adapter_dir};
+use adapteros_core::{AosError, B3Hash, Result};
 use hkdf::Hkdf;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -234,7 +234,10 @@ pub fn derive_domain_seed(global_seed: &[u8; 32], domain: SeedDomain) -> Result<
     let label = domain.as_label();
 
     hk.expand(label.as_bytes(), &mut okm).map_err(|e| {
-        AosError::Crypto(format!("HKDF expansion failed for domain '{}': {}", label, e))
+        AosError::Crypto(format!(
+            "HKDF expansion failed for domain '{}': {}",
+            label, e
+        ))
     })?;
 
     Ok(okm)
@@ -261,7 +264,12 @@ pub fn validate_backend_attestation(backend: &str, output: &[u8]) -> Result<()> 
         "metal" => B3Hash::hash(b"metal"),
         "mlx" => B3Hash::hash(b"mlx"),
         "coreml" => B3Hash::hash(b"coreml"),
-        _ => return Err(AosError::DeterminismViolation(format!("Unknown backend: {}", backend))),
+        _ => {
+            return Err(AosError::DeterminismViolation(format!(
+                "Unknown backend: {}",
+                backend
+            )))
+        }
     };
     if expected_hash != backend_hash {
         return Err(AosError::DeterminismViolation(format!(
@@ -398,7 +406,11 @@ mod tests {
     #[test]
     fn test_derive_domain_seeds_batch() {
         let seed = [42u8; 32];
-        let domains = [SeedDomain::Router, SeedDomain::Dropout, SeedDomain::Sampling];
+        let domains = [
+            SeedDomain::Router,
+            SeedDomain::Dropout,
+            SeedDomain::Sampling,
+        ];
 
         let seeds = derive_domain_seeds(&seed, &domains).unwrap();
 

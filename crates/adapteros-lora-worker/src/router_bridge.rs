@@ -16,7 +16,7 @@
 
 use adapteros_lora_kernel_api::RouterRing;
 use adapteros_lora_router::Decision;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// Convert router Decision to canonical RouterRing format
 ///
@@ -276,11 +276,7 @@ mod tests {
     #[test]
     fn test_q15_range() {
         // Test full Q15 signed range: -32767 to +32767
-        let decision = make_decision(
-            &[0, 1, 2, 3],
-            &[-32767, -16383, 16383, 32767],
-            0.5,
-        );
+        let decision = make_decision(&[0, 1, 2, 3], &[-32767, -16383, 16383, 32767], 0.5);
         let ring = decision_to_router_ring(&decision, 100);
 
         assert_eq!(ring.active_gates(), &[-32767, -16383, 16383, 32767]);
