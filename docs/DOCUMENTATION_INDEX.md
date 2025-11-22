@@ -26,7 +26,7 @@ Router telemetry, decision tracking, and K-sparse adapter selection.
 
 - [README](./routing/README.md) - Overview and quick start
 - [Telemetry V1 Skeleton Status](./routing/telemetry-v1-skeleton-status.md) - Complete infrastructure inventory
-- [Telemetry Integration Guide](./routing/telemetry-integration-guide.md) - Step-by-step integration examples
+- [Telemetry Integration Guide](./routing/TELEMETRY-INTEGRATION-GUIDE.md) - Step-by-step integration examples
 
 **Related Files:**
 - [Router Determinism Proof](./ROUTER_DETERMINISM_PROOF.md)
