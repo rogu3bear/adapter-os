@@ -95,18 +95,18 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 
 **Detailed Guides:**
 - [Architecture](code-intelligence/code-intelligence-ARCHITECTURE.md) - System design and components
-- [Tiers](code-intelligence/code-intelligence-tiers.md) - Feature tiers and capabilities
+- [Tiers](code-intelligence/CODE-INTELLIGENCE-TIERS.md) - Feature tiers and capabilities
 - [API Reference](code-intelligence/CODE-API-REGISTRY.md) - REST API documentation
-- [CLI Commands](code-intelligence/code-cli-commands.md) - Command-line interface
+- [CLI Commands](code-intelligence/CODE-CLI-COMMANDS.md) - Command-line interface
 - [Policies](code-intelligence/CODE-POLICIES.md) - Policy configuration
 - [Router Features](code-intelligence/CODE-ROUTER-FEATURES.md) - Routing integration
-- [Evaluation](code-intelligence/code-evaluation.md) - Metrics and testing
+- [Evaluation](code-intelligence/CODE-EVALUATION.md) - Metrics and testing
 
 #### UI Component Hierarchy
 - **[UI Component Hierarchy](UI-COMPONENT-HIERARCHY.md)** - React component structure and relationships
 
 #### Policy Engine Outline
-- **[Policy Engine Outline](policy-engine-outline.md)** - High-level policy enforcement architecture
+- **[Policy Engine Outline](POLICY-ENGINE-OUTLINE.md)** - High-level policy enforcement architecture
 
 #### Metal Kernels
 - **[Metal Kernels](metal/PHASE4-METAL-KERNELS.md)** - Custom Metal GPU kernels
@@ -116,7 +116,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Performance optimization
 
 ### 🔒 Safety & Security
-- **[Runaway Prevention](runaway-prevention.md)** - Safety mechanisms
+- **[Runaway Prevention](RUNAWAY-PREVENTION.md)** - Safety mechanisms
   - Memory pressure handling
   - Router skew detection
   - Determinism enforcement
@@ -140,7 +140,7 @@ Start here if you're building on AdapterOS or contributing to the codebase:
 Start here if you're deploying and managing AdapterOS:
 1. [Quick Start Guide](QUICKSTART.md)
 2. [Control Plane](CONTROL-PLANE.md)
-3. [Runaway Prevention](runaway-prevention.md)
+3. [Runaway Prevention](RUNAWAY-PREVENTION.md)
 4. [MLX Integration](MLX_INTEGRATION.md)
 
 ### For Researchers
@@ -152,7 +152,7 @@ Start here if you're experimenting with models and adapters:
 
 ### For Security Auditors
 Start here if you're evaluating AdapterOS for compliance:
-1. [Runaway Prevention](runaway-prevention.md)
+1. [Runaway Prevention](RUNAWAY-PREVENTION.md)
 2. [Code Graph Specification](CODEGRAPH-SPEC.md)
 3. [Code Intelligence Policies](code-intelligence/CODE-POLICIES.md)
 4. See policy rulesets in project workspace rules

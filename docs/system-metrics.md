@@ -26,9 +26,9 @@ System Resources → Collector → Policy Check → Telemetry → Database
 
 Complete database schema documentation for system metrics:
 
-- [Monitoring Flow](database-schema/workflows/monitoring-flow.md) - Detailed workflow animation showing metrics collection, health checks, threshold violations, and incident generation
-- [Performance Dashboard](database-schema/workflows/performance-dashboard.md) - Real-time visualization of system health and performance metrics
-- [Schema Diagram](database-schema/schema-diagram.md) - Complete ER diagram with `system_metrics`, `system_health_checks`, `threshold_violations`, and `metrics_aggregations` tables
+- [Monitoring Flow](database-schema/workflows/MONITORING-FLOW.md) - Detailed workflow animation showing metrics collection, health checks, threshold violations, and incident generation
+- [Performance Dashboard](database-schema/workflows/PERFORMANCE-DASHBOARD.md) - Real-time visualization of system health and performance metrics
+- [Schema Diagram](database-schema/SCHEMA-DIAGRAM.md) - Complete ER diagram with `system_metrics`, `system_health_checks`, `threshold_violations`, and `metrics_aggregations` tables
 
 ### Key Database Tables
 

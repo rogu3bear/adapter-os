@@ -850,7 +850,7 @@ warm_threshold_mins = 15
 
 - [README.md](../README.md) - Quick start and feature overview
 - [docs/control-plane.md](CONTROL-PLANE.md) - API endpoints
-- [docs/rag-pgvector.md](rag-pgvector.md) - Vector database setup
+- [docs/rag-pgvector.md](RAG-PGVECTOR.md) - Vector database setup
 - [docs/POLICIES.md](POLICIES.md) - 22 policy packs
 
 ---

@@ -323,5 +323,5 @@ See [examples/aos_usage.rs](../../examples/aos_usage.rs) for complete usage exam
 ## References
 
 - [Training the AdapterOS Base Code Adapter](base_adapter.md)
-- [Adapter Lifecycle Management](../database-schema/workflows/adapter-lifecycle.md)
-- [Registry Schema](../database-schema/schema-diagram.md)
+- [Adapter Lifecycle Management](../database-schema/workflows/ADAPTER-LIFECYCLE.md)
+- [Registry Schema](../database-schema/SCHEMA-DIAGRAM.md)

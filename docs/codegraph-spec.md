@@ -288,4 +288,4 @@ curl -X POST http://localhost:8080/api/v1/codegraph/repository/metadata \
 
 ## Performance Characteristics
 
-See [code-dependencies.md](code-intelligence/code-dependencies.md) for full list.
+See [code-dependencies.md](code-intelligence/CODE-DEPENDENCIES.md) for full list.

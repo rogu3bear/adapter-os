@@ -288,8 +288,8 @@ When adding new diagrams:
 
 **Quick Links**:
 - [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
-- [Database Schema](database-schema/schema-diagram.md)
-- [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md)
+- [Database Schema](database-schema/SCHEMA-DIAGRAM.md)
+- [Promotion Pipeline](database-schema/workflows/PROMOTION-PIPELINE.md)
 - [System Architecture](ARCHITECTURE.md)
 
 

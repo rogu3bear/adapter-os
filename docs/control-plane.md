@@ -49,9 +49,9 @@ Shared API types, routes, handlers, authentication, and authorization (RBAC).
 Database layer using sqlx with SQLite/WAL for configuration, jobs, audits, and telemetry indexes.
 
 See [Database Schema](database-schema/README.md) for complete schema documentation, including:
-- [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md) - Deployment workflows
-- [Monitoring Flow](database-schema/workflows/monitoring-flow.md) - Real-time metrics
-- [Security & Compliance](database-schema/workflows/security-compliance.md) - Audit trails
+- [Promotion Pipeline](database-schema/workflows/PROMOTION-PIPELINE.md) - Deployment workflows
+- [Monitoring Flow](database-schema/workflows/MONITORING-FLOW.md) - Real-time metrics
+- [Security & Compliance](database-schema/workflows/SECURITY-COMPLIANCE.md) - Audit trails
 
 ### aos-cp-jobs
 Job orchestration for async tasks: plan builds, audits, replays, and node commands.

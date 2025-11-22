@@ -114,7 +114,7 @@ Complete database documentation with ERD and workflow animations.
 ### **Memory Management**
 - [Memory System § 5](precision-diagrams.md#5-memory-management-system) - Components
 - [Eviction Tree § 6](precision-diagrams.md#6-memory-eviction-decision-tree) - Eviction logic
-- [Adapter Lifecycle](../database-schema/workflows/adapter-lifecycle.md) - State transitions
+- [Adapter Lifecycle](../database-schema/workflows/ADAPTER-LIFECYCLE.md) - State transitions
 
 **Code**:
 - `crates/adapteros-memory/src/watchdog.rs`
@@ -131,7 +131,7 @@ Complete database documentation with ERD and workflow animations.
 - `crates/adapteros-server-api/src/handlers.rs`
 
 ### **Database**
-- [Schema Diagram](../database-schema/schema-diagram.md) - Complete ERD
+- [Schema Diagram](../database-schema/SCHEMA-DIAGRAM.md) - Complete ERD
 - [Database README](../database-schema/README.md) - Overview
 
 **Code**:
@@ -152,8 +152,8 @@ Complete database documentation with ERD and workflow animations.
 
 ### **Code Intelligence**
 - [System Architecture § 1](precision-diagrams.md#1-system-architecture) - Git + CodeGraph
-- [Git Workflow](../database-schema/workflows/git-repository-workflow.md)
-- [Code Intelligence](../database-schema/workflows/code-intelligence.md)
+- [Git Workflow](../database-schema/workflows/GIT-REPOSITORY-WORKFLOW.md)
+- [Code Intelligence](../database-schema/workflows/CODE-INTELLIGENCE.md)
 
 **Code**:
 - `crates/adapteros-git/src/subsystem.rs`

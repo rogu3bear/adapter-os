@@ -65,8 +65,8 @@ This document describes the comprehensive runaway process prevention mechanisms 
 ### Related Database Documentation
 
 See [Database Schema Documentation](database-schema/README.md) for database structure, including:
-- [Incident Response](database-schema/workflows/incident-response.md) - Incident detection and resolution workflows
-- [Monitoring Flow](database-schema/workflows/monitoring-flow.md) - Real-time metrics collection and alerting
+- [Incident Response](database-schema/workflows/INCIDENT-RESPONSE.md) - Incident detection and resolution workflows
+- [Monitoring Flow](database-schema/workflows/MONITORING-FLOW.md) - Real-time metrics collection and alerting
 - [System Metrics Tables](database-schema/schema-diagram.md#system-metrics) - Complete schema for metrics storage
 
 ### Phase 6: Testing & Validation ✅

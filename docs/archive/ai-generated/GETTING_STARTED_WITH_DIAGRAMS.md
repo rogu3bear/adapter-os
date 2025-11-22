@@ -221,7 +221,7 @@ Think of them as safety rules and quality checks.
 1. ✅ **You are here** - This guide
 2. 📊 [System Architecture](architecture/precision-diagrams.md#1-system-architecture) - See all components
 3. 📊 [Request Flow](architecture/precision-diagrams.md#2-inference-pipeline-flow) - Follow a question
-4. 📊 [Database Schema](database-schema/schema-diagram.md) - Understand data
+4. 📊 [Database Schema](database-schema/SCHEMA-DIAGRAM.md) - Understand data
 5. 📊 [Workflows](database-schema/workflows/) - See operations
 
 **Time**: 2-3 hours total  

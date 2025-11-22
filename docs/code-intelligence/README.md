@@ -241,8 +241,8 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 For database structure related to code intelligence features:
 
-- [Code Intelligence Workflow](../database-schema/workflows/code-intelligence.md) - Animated workflow showing repository analysis, commit tracking, and ephemeral adapter generation
-- [Schema Diagram](../database-schema/schema-diagram.md) - Complete ER diagram including `repositories`, `commits`, `patch_proposals`, and `ephemeral_adapters` tables
+- [Code Intelligence Workflow](../database-schema/workflows/CODE-INTELLIGENCE.md) - Animated workflow showing repository analysis, commit tracking, and ephemeral adapter generation
+- [Schema Diagram](../database-schema/SCHEMA-DIAGRAM.md) - Complete ER diagram including `repositories`, `commits`, `patch_proposals`, and `ephemeral_adapters` tables
 
 **Key Database Tables**:
 - `repositories` - Registered code repositories with language detection

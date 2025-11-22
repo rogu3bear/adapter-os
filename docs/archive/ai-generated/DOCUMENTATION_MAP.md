@@ -161,7 +161,7 @@ Visual guide to navigating all AdapterOS documentation.
 
 **You are**: Auditor or security engineer
 
-**Start**: [Security Compliance Workflow](database-schema/workflows/security-compliance.md)
+**Start**: [Security Compliance Workflow](database-schema/workflows/SECURITY-COMPLIANCE.md)
 
 **Path**:
 ```
@@ -220,7 +220,7 @@ Visual guide to navigating all AdapterOS documentation.
 
 | Document | Audience | Content |
 |----------|----------|---------|
-| **[Schema Diagram](database-schema/schema-diagram.md)** | All | Complete ERD |
+| **[Schema Diagram](database-schema/SCHEMA-DIAGRAM.md)** | All | Complete ERD |
 | **[Database README](database-schema/README.md)** | All | Schema overview |
 | **[Workflows](database-schema/workflows/)** | Operators | 9 workflow diagrams |
 
@@ -317,8 +317,8 @@ Visual guide to navigating all AdapterOS documentation.
 | "How does inference work?" | [Precision Diagrams §2](architecture/precision-diagrams.md#2-inference-pipeline-flow) |
 | "How are adapters selected?" | [Precision Diagrams §3](architecture/precision-diagrams.md#3-router-scoring--selection) |
 | "How is memory managed?" | [Precision Diagrams §5](architecture/precision-diagrams.md#5-memory-management-system) |
-| "What's the database schema?" | [Schema Diagram](database-schema/schema-diagram.md) |
-| "How do promotions work?" | [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md) |
+| "What's the database schema?" | [Schema Diagram](database-schema/SCHEMA-DIAGRAM.md) |
+| "How do promotions work?" | [Promotion Pipeline](database-schema/workflows/PROMOTION-PIPELINE.md) |
 
 | "What API endpoints exist?" | [API Spec with Examples](API.md) or [Swagger](http://localhost:8080/swagger-ui) |
 | "How do I integrate the API?" | [API Examples](api.md#api-examples) (Python, JS, Go clients) |
@@ -349,7 +349,7 @@ Visual guide to navigating all AdapterOS documentation.
 **Visual Diagrams**: 
 - [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md) (8)
 - [Database Workflows](database-schema/workflows/) (9)
-- [Schema ERD](database-schema/schema-diagram.md) (1)
+- [Schema ERD](database-schema/SCHEMA-DIAGRAM.md) (1)
 
 **Text Guides**:
 - [Getting Started](GETTING_STARTED_WITH_DIAGRAMS.md)
@@ -483,7 +483,7 @@ Total: 5 hours
 - 📚 **[Documentation Maintenance](DOCUMENTATION_MAINTENANCE.md)** - Keep docs synced
 
 >
-- 🗄️ **[Database Schema](database-schema/schema-diagram.md)** - Data model
+- 🗄️ **[Database Schema](database-schema/SCHEMA-DIAGRAM.md)** - Data model
 - 🔄 **[Workflows](database-schema/workflows/)** - Operations
 
 ### Most Detailed

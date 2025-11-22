@@ -62,7 +62,7 @@ Adapter stacks, versioning, and workflow composition.
 ### `/determinism/` - Deterministic Execution & Verification
 Determinism guarantees, attestation, and verification tooling.
 
-- [Determinism Attestation](./determinism-attestation.md)
+- [Determinism Attestation](./DETERMINISM-ATTESTATION.md)
 - [Determinism Audit](./determinism-audit.md)
 - [Determinism Test Status](./DETERMINISM_TEST_STATUS.md)
 - [PRD-08: Determinism Guardrail Suite](./PRD_8_DETERMINISM_GUARDRAIL_SUITE.md)
@@ -77,7 +77,7 @@ Determinism guarantees, attestation, and verification tooling.
 Replay infrastructure, session management, and divergence analysis.
 
 - [Telemetry Bundle Verification](./TELEMETRY_BUNDLE_VERIFICATION.md)
-- [Golden Runs Spec](./golden-runs-spec.md)
+- [Golden Runs Spec](./GOLDEN-RUNS-SPEC.md)
 
 ---
 
@@ -190,7 +190,7 @@ Cryptography, secure enclave, and security protocols.
 
 - [Crypto](./CRYPTO.md)
 - [Secure Enclave Integration](./SECURE-ENCLAVE-INTEGRATION.md)
-- [Signal Protocol Implementation](./signal-protocol-implementation.md)
+- [Signal Protocol Implementation](./SIGNAL-PROTOCOL-IMPLEMENTATION.md)
 - [Keychain Integration](./keychain-integration.md)
 
 ---
@@ -211,7 +211,7 @@ End-to-end user flows and workflow documentation.
 
 - [User Flow](./USER_FLOW.md)
 - [Persona Demo User Guide](./PERSONA_DEMO_USER_GUIDE.md)
-- [Personas](./personas.md)
+- [Personas](./PERSONAS.md)
 
 ---
 
@@ -258,7 +258,7 @@ Troubleshooting guides, runbooks, and common issues.
 - [MPLoRA End-to-End](./MPLORA-E2E.md)
 - [RCU Spec](./RCU_SPEC.md)
 - [Phase 2.4 Metal Shader Spec](./PHASE_2_4_METAL_SHADER_SPEC.md)
-- [RAG pgvector](./rag-pgvector.md)
+- [RAG pgvector](./RAG-PGVECTOR.md)
 - [Patch Proposal System](./PATCH-PROPOSAL-SYSTEM.md)
 - [Federation Daemon Implementation](./FEDERATION_DAEMON_IMPLEMENTATION.md)
 

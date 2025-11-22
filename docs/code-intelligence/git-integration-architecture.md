@@ -434,4 +434,4 @@ pub async fn register_git_repository(
 - [Code Policies](code-policies.md)
 - [LLM Interface Specification](../LLM-INTERFACE-SPECIFICATION.md)
 - [Patch Proposal System](../PATCH-PROPOSAL-SYSTEM.md)
-- [Database Schema Workflows](../database-schema/workflows/code-intelligence.md)
+- [Database Schema Workflows](../database-schema/workflows/CODE-INTELLIGENCE.md)

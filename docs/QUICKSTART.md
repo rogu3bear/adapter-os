@@ -53,8 +53,8 @@ cargo build --release --package adapteros-cli
 AdapterOS uses SQLite for tenant management, adapter registry, and telemetry. For complete database schema documentation:
 
 - [Database Schema Overview](database-schema/README.md) - Complete database structure and workflow animations
-- [Schema Diagram](database-schema/schema-diagram.md) - ER diagram with 30+ tables
-- [Basic Workflows](database-schema/examples/basic-workflows.md) - Common database operations and examples
+- [Schema Diagram](database-schema/SCHEMA-DIAGRAM.md) - ER diagram with 30+ tables
+- [Basic Workflows](database-schema/examples/BASIC-WORKFLOWS.md) - Common database operations and examples
 
 The following sections show basic operations with the database.
 

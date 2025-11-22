@@ -44,7 +44,7 @@ Complete index of all architecture documentation with quick navigation.
    - Request flow
    - Component details
 
-3. **[Database ERD](database-schema/schema-diagram.md)** - Data model
+3. **[Database ERD](database-schema/SCHEMA-DIAGRAM.md)** - Data model
 
 4. **[Workflow Diagrams](database-schema/workflows/)** - Operational flows
 
@@ -74,11 +74,11 @@ Complete index of all architecture documentation with quick navigation.
 
 1. **[Control Plane](CONTROL-PLANE.md)** - API and operations
    
-2. **[Monitoring Flow](database-schema/workflows/monitoring-flow.md)** - Metrics
+2. **[Monitoring Flow](database-schema/workflows/MONITORING-FLOW.md)** - Metrics
    
-3. **[Incident Response](database-schema/workflows/incident-response.md)** - Troubleshooting
+3. **[Incident Response](database-schema/workflows/INCIDENT-RESPONSE.md)** - Troubleshooting
    
-4. **[Promotion Pipeline](database-schema/workflows/promotion-pipeline.md)** - Deployments
+4. **[Promotion Pipeline](database-schema/workflows/PROMOTION-PIPELINE.md)** - Deployments
 
 **Time**: 2-3 hours  
 **Outcome**: Operational readiness
@@ -87,7 +87,7 @@ Complete index of all architecture documentation with quick navigation.
 
 **Goal**: Understand security model and compliance
 
-1. **[Security Compliance](database-schema/workflows/security-compliance.md)** - Verification
+1. **[Security Compliance](database-schema/workflows/SECURITY-COMPLIANCE.md)** - Verification
    
 2. **[Precision Diagrams § 1](architecture/precision-diagrams.md#1-system-architecture)** - Isolation model
    
@@ -554,7 +554,7 @@ Required in all diagrams:
 2. **[Inference Pipeline](architecture/precision-diagrams.md#2-inference-pipeline-flow)** - How inference works
 3. **[Router Scoring](architecture/precision-diagrams.md#3-router-scoring--selection)** - Router algorithm
 4. **[API Stack](architecture/precision-diagrams.md#7-api-stack-architecture)** - All API routes
-5. **[Database ERD](database-schema/schema-diagram.md)** - Complete data model
+5. **[Database ERD](database-schema/SCHEMA-DIAGRAM.md)** - Complete data model
 
 ### Most Referenced
 
