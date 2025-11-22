@@ -61,7 +61,7 @@ impl CompressionAlgorithm {
 }
 
 /// Compression level (1-22 for zstd, 0-9 for gzip)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CompressionLevel(pub i32);
 
 impl CompressionLevel {

@@ -2,10 +2,10 @@
 //!
 //! Events for tracking circuit breaker state transitions and operations.
 
-use adapteros_core::identity::IdentityEnvelope;
-use crate::{EventType, LogLevel, TelemetryEventBuilder};
 use crate::unified_events::TelemetryEvent;
-use adapteros_core::{CircuitBreakerMetrics, CircuitState};
+use crate::{EventType, LogLevel, TelemetryEventBuilder};
+use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::{AosError, CircuitBreakerMetrics, CircuitState, Result};
 use serde_json::json;
 
 /// Convert CircuitState to a serializable string representation
@@ -28,7 +28,10 @@ fn circuit_breaker_identity() -> IdentityEnvelope {
 }
 
 /// Circuit breaker opened event
-pub fn circuit_breaker_opened(service: &str, metrics: &CircuitBreakerMetrics) -> TelemetryEvent {
+pub fn circuit_breaker_opened(
+    service: &str,
+    metrics: &CircuitBreakerMetrics,
+) -> Result<TelemetryEvent> {
     TelemetryEventBuilder::new(
         EventType::Custom("circuit_breaker.opened".to_string()),
         LogLevel::Warn,
@@ -45,11 +48,19 @@ pub fn circuit_breaker_opened(service: &str, metrics: &CircuitBreakerMetrics) ->
         "last_state_change": metrics.last_state_change
     }))
     .build()
-    .expect("Failed to build circuit breaker opened event")
+    .map_err(|e| {
+        AosError::Validation(format!(
+            "Failed to build circuit breaker opened event: {}",
+            e
+        ))
+    })
 }
 
 /// Circuit breaker closed event
-pub fn circuit_breaker_closed(service: &str, metrics: &CircuitBreakerMetrics) -> TelemetryEvent {
+pub fn circuit_breaker_closed(
+    service: &str,
+    metrics: &CircuitBreakerMetrics,
+) -> Result<TelemetryEvent> {
     TelemetryEventBuilder::new(
         EventType::Custom("circuit_breaker.closed".to_string()),
         LogLevel::Info,
@@ -66,15 +77,26 @@ pub fn circuit_breaker_closed(service: &str, metrics: &CircuitBreakerMetrics) ->
         "last_state_change": metrics.last_state_change
     }))
     .build()
-    .expect("Failed to build circuit breaker closed event")
+    .map_err(|e| {
+        AosError::Validation(format!(
+            "Failed to build circuit breaker closed event: {}",
+            e
+        ))
+    })
 }
 
 /// Circuit breaker half-open event
-pub fn circuit_breaker_half_open(service: &str, metrics: &CircuitBreakerMetrics) -> TelemetryEvent {
+pub fn circuit_breaker_half_open(
+    service: &str,
+    metrics: &CircuitBreakerMetrics,
+) -> Result<TelemetryEvent> {
     TelemetryEventBuilder::new(
         EventType::Custom("circuit_breaker.half_open".to_string()),
         LogLevel::Info,
-        format!("Circuit breaker transitioned to half-open for service '{}'", service),
+        format!(
+            "Circuit breaker transitioned to half-open for service '{}'",
+            service
+        ),
         circuit_breaker_identity(),
     )
     .component("adapteros-core".to_string())
@@ -86,11 +108,19 @@ pub fn circuit_breaker_half_open(service: &str, metrics: &CircuitBreakerMetrics)
         "last_state_change": metrics.last_state_change
     }))
     .build()
-    .expect("Failed to build circuit breaker half-open event")
+    .map_err(|e| {
+        AosError::Validation(format!(
+            "Failed to build circuit breaker half-open event: {}",
+            e
+        ))
+    })
 }
 
 /// Circuit breaker request rejected event
-pub fn circuit_breaker_request_rejected(service: &str, state: CircuitState) -> TelemetryEvent {
+pub fn circuit_breaker_request_rejected(
+    service: &str,
+    state: CircuitState,
+) -> Result<TelemetryEvent> {
     let reason = match state {
         CircuitState::Open { .. } => "circuit_open",
         CircuitState::HalfOpen => "half_open_limit_exceeded",
@@ -100,7 +130,10 @@ pub fn circuit_breaker_request_rejected(service: &str, state: CircuitState) -> T
     TelemetryEventBuilder::new(
         EventType::Custom("circuit_breaker.request_rejected".to_string()),
         LogLevel::Warn,
-        format!("Request rejected by circuit breaker for service '{}' ({})", service, reason),
+        format!(
+            "Request rejected by circuit breaker for service '{}' ({})",
+            service, reason
+        ),
         circuit_breaker_identity(),
     )
     .component("adapteros-core".to_string())
@@ -110,18 +143,30 @@ pub fn circuit_breaker_request_rejected(service: &str, state: CircuitState) -> T
         "reason": reason
     }))
     .build()
-    .expect("Failed to build circuit breaker request rejected event")
+    .map_err(|e| {
+        AosError::Validation(format!(
+            "Failed to build circuit breaker request rejected event: {}",
+            e
+        ))
+    })
 }
 
 /// Circuit breaker recovery test event
-pub fn circuit_breaker_recovery_test(service: &str, success: bool) -> TelemetryEvent {
-    let level = if success { LogLevel::Info } else { LogLevel::Warn };
+pub fn circuit_breaker_recovery_test(service: &str, success: bool) -> Result<TelemetryEvent> {
+    let level = if success {
+        LogLevel::Info
+    } else {
+        LogLevel::Warn
+    };
     let status = if success { "success" } else { "failure" };
 
     TelemetryEventBuilder::new(
         EventType::Custom("circuit_breaker.recovery_test".to_string()),
         level,
-        format!("Circuit breaker recovery test {} for service '{}'", status, service),
+        format!(
+            "Circuit breaker recovery test {} for service '{}'",
+            status, service
+        ),
         circuit_breaker_identity(),
     )
     .component("adapteros-core".to_string())
@@ -131,11 +176,19 @@ pub fn circuit_breaker_recovery_test(service: &str, success: bool) -> TelemetryE
         "test_type": "half_open_recovery"
     }))
     .build()
-    .expect("Failed to build circuit breaker recovery test event")
+    .map_err(|e| {
+        AosError::Validation(format!(
+            "Failed to build circuit breaker recovery test event: {}",
+            e
+        ))
+    })
 }
 
 /// Circuit breaker metrics snapshot event
-pub fn circuit_breaker_metrics(service: &str, metrics: &CircuitBreakerMetrics) -> TelemetryEvent {
+pub fn circuit_breaker_metrics(
+    service: &str,
+    metrics: &CircuitBreakerMetrics,
+) -> Result<TelemetryEvent> {
     TelemetryEventBuilder::new(
         EventType::Custom("circuit_breaker.metrics".to_string()),
         LogLevel::Debug,
@@ -155,5 +208,10 @@ pub fn circuit_breaker_metrics(service: &str, metrics: &CircuitBreakerMetrics) -
         "last_state_change": metrics.last_state_change
     }))
     .build()
-    .expect("Failed to build circuit breaker metrics event")
+    .map_err(|e| {
+        AosError::Validation(format!(
+            "Failed to build circuit breaker metrics event: {}",
+            e
+        ))
+    })
 }

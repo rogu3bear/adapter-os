@@ -29,7 +29,6 @@ pub struct BundleStore {
     policy: RetentionPolicy,
 }
 
-
 /// Retention policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetentionPolicy {
@@ -91,7 +90,10 @@ impl BundleStore {
         }
 
         // Store bundle file: root_dir/{tenant_id}/bundles/{hash}.ndjson
-        let tenant_dir = self.root_dir.join(metadata.tenant_id.as_deref().unwrap_or("default")).join("bundles");
+        let tenant_dir = self
+            .root_dir
+            .join(metadata.tenant_id.as_deref().unwrap_or("default"))
+            .join("bundles");
         fs::create_dir_all(&tenant_dir)?;
 
         let bundle_path = tenant_dir.join(format!("{}.ndjson", bundle_hash));
@@ -315,7 +317,10 @@ impl BundleStore {
             .remove(bundle_hash)
             .ok_or_else(|| AosError::Telemetry(format!("Bundle {} not found", bundle_hash)))?;
 
-        let tenant_dir = self.root_dir.join(metadata.tenant_id.as_deref().unwrap_or("default")).join("bundles");
+        let tenant_dir = self
+            .root_dir
+            .join(metadata.tenant_id.as_deref().unwrap_or("default"))
+            .join("bundles");
         let bundle_path = tenant_dir.join(format!("{}.ndjson", bundle_hash));
         let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
 
@@ -373,7 +378,10 @@ impl BundleStore {
 
     /// Update metadata file on disk
     fn update_metadata_file(&self, bundle_hash: &B3Hash, metadata: &BundleMetadata) -> Result<()> {
-        let tenant_dir = self.root_dir.join(metadata.tenant_id.as_deref().unwrap_or("default")).join("bundles");
+        let tenant_dir = self
+            .root_dir
+            .join(metadata.tenant_id.as_deref().unwrap_or("default"))
+            .join("bundles");
         let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
         let meta_json = serde_json::to_string_pretty(metadata)?;
         fs::write(&meta_path, meta_json)?;

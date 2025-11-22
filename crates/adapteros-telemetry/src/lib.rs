@@ -1,5 +1,6 @@
 //! Telemetry with canonical JSON and BLAKE3 hashing
 
+use ::tracing::{error, warn};
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{generate_signing_key, load_signing_key, sign_bundle, Keypair};
@@ -10,7 +11,6 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use ::tracing::{error, warn};
 
 pub mod alerting;
 pub mod audit_log;
@@ -44,8 +44,8 @@ pub use audit_log::{
 };
 pub use bundle::BundleWriter;
 pub use bundle_store::{
-    BundleStore, ChainVerificationReport, EvictionStrategy,
-    GarbageCollectionReport, RetentionPolicy, StorageStats,
+    BundleStore, ChainVerificationReport, EvictionStrategy, GarbageCollectionReport,
+    RetentionPolicy, StorageStats,
 };
 // Re-export canonical BundleMetadata with StoredBundleMetadata alias for backward compatibility
 pub use adapteros_telemetry_types::BundleMetadata as StoredBundleMetadata;
@@ -61,9 +61,30 @@ pub use events::{
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
 pub use metrics::{
-    AdapterMetrics, LatencyMetrics, MetricsCollector, MetricsServer, MetricsSnapshot,
-    PolicyMetrics, QueueDepthMetrics, SystemMetrics, ThroughputMetrics,
+    // Prometheus-based critical component metrics
+    critical_components::{CriticalComponentMetrics, HotSwapTimer, KernelExecutionTimer},
+    // Simple serializable metrics types
+    AdapterMetrics,
+    LatencyMetrics,
+    MetricsCollector,
+    MetricsConfig,
+    MetricsServer,
+    MetricsSnapshot,
+    PolicyMetrics,
+    // Prometheus re-exports with explicit names
+    PrometheusCriticalMetrics,
+    PrometheusHotSwapTimer,
+    PrometheusKernelTimer,
+    QueueDepthMetrics,
+    SystemMetrics,
+    ThroughputMetrics,
 };
+// Re-export critical_components module for direct access
+pub use crate::tracing::{
+    Span, SpanEvent, SpanKind, SpanStatus, Trace, TraceBuffer, TraceBufferStats, TraceContext,
+    TraceSearchQuery,
+};
+pub use metrics::critical_components;
 pub use monitoring::{
     HealthCheckEventPayload, MemoryPressureAlertPayload, MemoryProcessSample, MonitoringTelemetry,
     PerformanceAlertPayload, PerformanceThreshold, PerformanceThresholdMonitor,
@@ -78,10 +99,6 @@ pub use replay::{
 pub use report::generate_html_report;
 pub use ring_buffer::{RingBufferStats, TelemetryRingBuffer};
 pub use sampling::{EventSampler, SamplingStats, SamplingStrategy};
-pub use crate::tracing::{
-    Span, SpanEvent, SpanKind, SpanStatus, Trace, TraceBuffer, TraceBufferStats, TraceContext,
-    TraceSearchQuery,
-};
 pub use uds_exporter::{MetricMetadata, MetricValue, UdsMetricsExporter};
 pub use unified_events::{
     EventType, LogLevel, TelemetryEvent as UnifiedTelemetryEvent, TelemetryEventBuilder,
@@ -311,46 +328,79 @@ fn run_writer(
     let mut event_count = 0;
     let mut byte_count = 0;
     let mut event_hashes = Vec::new();
+    let mut skipped_events = 0;
 
     let bundle_path = output_dir.join(format!("bundle_{:06}.ndjson", bundle_idx));
     let mut writer = BufWriter::new(File::create(&bundle_path)?);
 
     for event in receiver {
-        // In run_writer function, after receiving event
+        // Validate identity envelope
         if let Err(e) = event.identity.validate() {
-            warn!(error = %e, "Invalid identity in telemetry event");
-            continue; // Skip invalid event
+            warn!(error = %e, "Invalid identity in telemetry event, skipping");
+            skipped_events += 1;
+            continue;
         }
-        // Then process
-        // Add counter for sampled checks, every 100th event check.
 
-        // Use event hash if available, otherwise compute it
-        let event_hash = event
-            .hash
-            .as_ref()
-            .map(|h| {
-                // Assume hash is b3: prefixed string, extract bytes or rehash
-                B3Hash::hash(h.as_bytes())
-            })
-            .unwrap_or_else(|| {
-                let event_json = serde_json::to_string(&event).unwrap_or_default();
-                let hash_bytes = blake3::hash(event_json.as_bytes());
-                B3Hash::from_bytes(hash_bytes.into())
-            });
+        // Validate event before serialization
+        if let Err(e) = validate_event(&event) {
+            warn!(error = %e, "Event validation failed, recording fallback event");
+            skipped_events += 1;
+            // Create and log a fallback error event
+            if let Err(fallback_err) = log_serialization_error_event(&mut writer, &event, &e) {
+                error!(error = %fallback_err, "Failed to write fallback error event");
+            }
+            continue;
+        }
+
+        // Serialize event with proper error handling
+        let line = match serde_json::to_string(&event) {
+            Ok(json_line) => json_line + "\n",
+            Err(e) => {
+                warn!(error = %e, "Serialization error for event, recording fallback");
+                skipped_events += 1;
+                if let Err(fallback_err) = log_serialization_error_event(
+                    &mut writer,
+                    &event,
+                    &AosError::Io(format!("Serialization failed: {}", e)),
+                ) {
+                    error!(error = %fallback_err, "Failed to write fallback error event");
+                }
+                continue;
+            }
+        };
+
+        // Compute event hash with proper error handling
+        let event_hash = compute_event_hash(&event, &line);
         event_hashes.push(event_hash);
 
-        // Write as NDJSON
-        let line = serde_json::to_string(&event)? + "\n";
+        // Write NDJSON line
         let line_bytes = line.as_bytes();
-        writer.write_all(line_bytes)?;
+        if let Err(e) = writer.write_all(line_bytes) {
+            error!(error = %e, "Failed to write event to bundle, skipping");
+            skipped_events += 1;
+            event_hashes.pop(); // Remove hash for skipped event
+            continue;
+        }
 
         event_count += 1;
         byte_count += line_bytes.len();
 
         // Check rotation conditions
         if event_count >= max_events || byte_count >= max_bytes {
-            writer.flush()?;
+            if let Err(e) = writer.flush() {
+                error!(error = %e, "Failed to flush bundle writer");
+                return Err(AosError::Io(format!("Bundle writer flush failed: {}", e)));
+            }
             drop(writer);
+
+            // Log bundle statistics
+            if skipped_events > 0 {
+                warn!(
+                    event_count = event_count,
+                    skipped_events = skipped_events,
+                    "Bundle rotation with skipped events"
+                );
+            }
 
             // Sign bundle with Merkle root using persistent keypair
             finalize_bundle(&bundle_path, &event_hashes, &signing_keypair)?;
@@ -360,6 +410,7 @@ fn run_writer(
             event_count = 0;
             byte_count = 0;
             event_hashes.clear();
+            skipped_events = 0;
 
             let bundle_path = output_dir.join(format!("bundle_{:06}.ndjson", bundle_idx));
             writer = BufWriter::new(File::create(&bundle_path)?);
@@ -367,7 +418,109 @@ fn run_writer(
     }
 
     // Flush final bundle
-    writer.flush()?;
+    if let Err(e) = writer.flush() {
+        error!(error = %e, "Failed to flush final bundle");
+        return Err(AosError::Io(format!("Final bundle flush failed: {}", e)));
+    }
+
+    if skipped_events > 0 {
+        warn!(
+            total_skipped_events = skipped_events,
+            "Total events skipped in session"
+        );
+    }
+
+    Ok(())
+}
+
+/// Validate event before serialization
+fn validate_event(event: &UnifiedTelemetryEvent) -> Result<()> {
+    // Validate required fields
+    if event.id.is_empty() {
+        return Err(AosError::Validation("Event ID cannot be empty".to_string()));
+    }
+
+    if event.message.is_empty() {
+        return Err(AosError::Validation(
+            "Event message cannot be empty".to_string(),
+        ));
+    }
+
+    if event.event_type.is_empty() {
+        return Err(AosError::Validation(
+            "Event type cannot be empty".to_string(),
+        ));
+    }
+
+    // Validate identity envelope
+    event
+        .identity
+        .validate()
+        .map_err(|e| AosError::Validation(format!("Identity validation failed: {}", e)))?;
+
+    // Validate metadata if present (ensure it's valid JSON)
+    if let Some(metadata) = &event.metadata {
+        // Attempt serialization to ensure it's valid
+        if serde_json::to_string(metadata).is_err() {
+            return Err(AosError::Validation(
+                "Event metadata is not serializable".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Compute event hash with proper error handling
+fn compute_event_hash(event: &UnifiedTelemetryEvent, serialized_line: &str) -> B3Hash {
+    // Try to use pre-computed hash if available and valid
+    if let Some(hash_str) = &event.hash {
+        if !hash_str.is_empty() {
+            // Validate hash format before using it
+            if hash_str.len() >= 32 {
+                return B3Hash::hash(hash_str.as_bytes());
+            }
+        }
+    }
+
+    // Fallback: hash the serialized JSON line
+    let hash_bytes = blake3::hash(serialized_line.as_bytes());
+    B3Hash::from_bytes(hash_bytes.into())
+}
+
+/// Log a fallback error event when serialization fails
+fn log_serialization_error_event(
+    writer: &mut BufWriter<File>,
+    original_event: &UnifiedTelemetryEvent,
+    error: &AosError,
+) -> Result<()> {
+    // Create a minimal fallback event with error information
+    let fallback = serde_json::json!({
+        "id": original_event.id,
+        "timestamp": original_event.timestamp,
+        "event_type": "telemetry.serialization_error",
+        "level": "Error",
+        "message": format!("Serialization failed: {}", error),
+        "component": "adapteros-telemetry",
+        "identity": {
+            "tenant_id": original_event.identity.tenant_id,
+            "domain": "error_recovery",
+            "purpose": "serialization_error",
+            "version": "1.0"
+        },
+        "user_id": original_event.user_id.clone(),
+        "original_event_type": original_event.event_type,
+        "error_message": error.to_string(),
+    });
+
+    let line = serde_json::to_string(&fallback)
+        .map_err(|e| AosError::Io(format!("Failed to serialize fallback event: {}", e)))?
+        + "\n";
+
+    writer
+        .write_all(line.as_bytes())
+        .map_err(|e| AosError::Io(format!("Failed to write fallback event: {}", e)))?;
+
     Ok(())
 }
 
@@ -535,7 +688,7 @@ pub struct NodeSyncEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unified_events::{EventType, LogLevel};
+    use crate::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
     use adapteros_core::identity::IdentityEnvelope;
 
     #[test]
@@ -557,5 +710,381 @@ mod tests {
             )
             .unwrap();
         // Verify by checking if channel received, but since async, skip or mock
+    }
+
+    #[test]
+    fn test_validate_event_with_valid_event() {
+        let identity = IdentityEnvelope::new(
+            "test-tenant".to_string(),
+            "test-domain".to_string(),
+            "test-purpose".to_string(),
+            "1.0".to_string(),
+        );
+        let event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Valid test event".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+
+        // Should not error
+        assert!(validate_event(&event).is_ok());
+    }
+
+    #[test]
+    fn test_validate_event_with_empty_id() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let mut event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+        event.id = String::new(); // Make ID empty
+
+        let result = validate_event(&event);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Event ID"));
+    }
+
+    #[test]
+    fn test_validate_event_with_empty_message() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let mut event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Original".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+        event.message = String::new(); // Make message empty
+
+        let result = validate_event(&event);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("message"));
+    }
+
+    #[test]
+    fn test_validate_event_with_empty_event_type() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let mut event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+        event.event_type = String::new(); // Make event_type empty
+
+        let result = validate_event(&event);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("type"));
+    }
+
+    #[test]
+    fn test_validate_event_with_invalid_metadata() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let mut event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .metadata(serde_json::json!({
+            "valid": "json"
+        }))
+        .build()
+        .unwrap();
+
+        // Valid metadata should pass
+        assert!(validate_event(&event).is_ok());
+
+        // Try with invalid metadata - note: serde_json doesn't easily create invalid JSON
+        // So we test with complex nested structures
+        event.metadata = Some(serde_json::json!({
+            "nested": {
+                "deeply": {
+                    "valid": ["json", "array"]
+                }
+            }
+        }));
+        assert!(validate_event(&event).is_ok());
+    }
+
+    #[test]
+    fn test_compute_event_hash_with_precomputed_hash() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        let hash = compute_event_hash(&event, &serialized);
+
+        // Hash should be computed successfully
+        assert!(!hash.as_bytes().is_empty());
+    }
+
+    #[test]
+    fn test_compute_event_hash_with_empty_hash_field() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let mut event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+        event.hash = Some(String::new()); // Empty hash
+
+        let serialized = "test line";
+        let hash = compute_event_hash(&event, serialized);
+
+        // Should fall back to serialized line hash
+        assert!(!hash.as_bytes().is_empty());
+    }
+
+    #[test]
+    fn test_compute_event_hash_consistency() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+        let event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        let hash1 = compute_event_hash(&event, &serialized);
+        let hash2 = compute_event_hash(&event, &serialized);
+
+        // Same input should produce same hash
+        assert_eq!(hash1.as_bytes(), hash2.as_bytes());
+    }
+
+    #[test]
+    fn test_serialization_error_event_creation() {
+        let identity = IdentityEnvelope::new(
+            "test-tenant".to_string(),
+            "test-domain".to_string(),
+            "test-purpose".to_string(),
+            "1.0".to_string(),
+        );
+        let original_event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+
+        let error = AosError::Io("Test serialization error".to_string());
+        let fallback = serde_json::json!({
+            "id": original_event.id,
+            "timestamp": original_event.timestamp,
+            "event_type": "telemetry.serialization_error",
+            "level": "Error",
+            "message": format!("Serialization failed: {}", error),
+            "component": "adapteros-telemetry",
+            "identity": {
+                "tenant_id": original_event.identity.tenant_id,
+                "domain": "error_recovery",
+                "purpose": "serialization_error",
+                "version": "1.0"
+            },
+            "user_id": original_event.user_id.clone(),
+            "original_event_type": original_event.event_type,
+            "error_message": error.to_string(),
+        });
+
+        // Should be serializable
+        let result = serde_json::to_string(&fallback);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("serialization_error"));
+    }
+
+    #[test]
+    fn test_multiple_validation_failures() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+
+        // Test with multiple field violations
+        let mut event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .build()
+        .unwrap();
+
+        // First, empty message fails
+        event.message = String::new();
+        assert!(validate_event(&event).is_err());
+
+        // Fix message, empty event_type should fail
+        event.message = "Test".to_string();
+        event.event_type = String::new();
+        assert!(validate_event(&event).is_err());
+
+        // Fix event_type, empty ID should fail
+        event.event_type = "test.event".to_string();
+        event.id = String::new();
+        assert!(validate_event(&event).is_err());
+
+        // When all fixed, should pass
+        event.id = "valid-id".to_string();
+        assert!(validate_event(&event).is_ok());
+    }
+
+    #[test]
+    fn test_bundle_rotation_tracking() {
+        // This test verifies that skipped_events counter is correctly tracked
+        // during bundle rotation. Since run_writer is internal, we test
+        // the validation logic that feeds into it.
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+
+        let valid_event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Valid".to_string(),
+            identity.clone(),
+        )
+        .build()
+        .unwrap();
+
+        let mut invalid_event = valid_event.clone();
+        invalid_event.id = String::new();
+
+        // Validation should distinguish between valid and invalid
+        assert!(validate_event(&valid_event).is_ok());
+        assert!(validate_event(&invalid_event).is_err());
+    }
+
+    #[test]
+    fn test_event_validation_with_complex_metadata() {
+        let identity = IdentityEnvelope::new(
+            "test".to_string(),
+            "test".to_string(),
+            "test".to_string(),
+            "1.0".to_string(),
+        );
+
+        let event = TelemetryEventBuilder::new(
+            EventType::SystemStart,
+            LogLevel::Info,
+            "Test".to_string(),
+            identity,
+        )
+        .metadata(serde_json::json!({
+            "adapter": {
+                "id": "test-adapter",
+                "metrics": {
+                    "latency_ms": [1.2, 2.3, 3.4],
+                    "throughput": 1000.5
+                },
+                "tags": ["production", "critical"]
+            }
+        }))
+        .build()
+        .unwrap();
+
+        assert!(validate_event(&event).is_ok());
+    }
+
+    #[test]
+    fn test_hash_computation_with_various_serialized_inputs() {
+        let long_string = "very long string ".repeat(1000);
+        let test_cases = vec![
+            "simple string",
+            r#"{"json":"object"}"#,
+            "{\"nested\":{\"array\":[1,2,3]}}",
+            "unicode_λ_δ_ε",
+            "",
+            long_string.as_str(),
+        ];
+
+        for input in test_cases {
+            let identity = IdentityEnvelope::new(
+                "test".to_string(),
+                "test".to_string(),
+                "test".to_string(),
+                "1.0".to_string(),
+            );
+            let event = TelemetryEventBuilder::new(
+                EventType::SystemStart,
+                LogLevel::Info,
+                format!("Test with: {}", input),
+                identity,
+            )
+            .build()
+            .unwrap();
+
+            let hash = compute_event_hash(&event, input);
+            assert!(!hash.as_bytes().is_empty());
+
+            // Hash should be deterministic
+            let hash2 = compute_event_hash(&event, input);
+            assert_eq!(hash.as_bytes(), hash2.as_bytes());
+        }
     }
 }

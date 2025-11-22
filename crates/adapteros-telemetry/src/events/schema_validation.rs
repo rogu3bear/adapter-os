@@ -2,9 +2,9 @@
 //!
 //! Events for tracking API response schema validation results.
 
-use adapteros_core::{identity::IdentityEnvelope, AosError};
-use crate::{EventType, LogLevel, TelemetryEventBuilder};
 use crate::unified_events::TelemetryEvent;
+use crate::{EventType, LogLevel, TelemetryEventBuilder};
+use adapteros_core::{identity::IdentityEnvelope, AosError};
 use serde_json::json;
 
 /// Create a default identity envelope for schema validation events
@@ -18,11 +18,18 @@ fn schema_validation_identity() -> IdentityEnvelope {
 }
 
 /// Schema validation success event
-pub fn schema_validation_success(schema_name: &str, response_size: usize, validation_time_us: u64) -> Result<TelemetryEvent, AosError> {
+pub fn schema_validation_success(
+    schema_name: &str,
+    response_size: usize,
+    validation_time_us: u64,
+) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.success".to_string()),
         LogLevel::Debug,
-        format!("Schema validation passed for '{}' ({} bytes, {}μs)", schema_name, response_size, validation_time_us),
+        format!(
+            "Schema validation passed for '{}' ({} bytes, {}μs)",
+            schema_name, response_size, validation_time_us
+        ),
         schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
@@ -36,11 +43,19 @@ pub fn schema_validation_success(schema_name: &str, response_size: usize, valida
 }
 
 /// Schema validation failure event
-pub fn schema_validation_failure(schema_name: &str, error_message: &str, response_size: usize, validation_time_us: u64) -> Result<TelemetryEvent, AosError> {
+pub fn schema_validation_failure(
+    schema_name: &str,
+    error_message: &str,
+    response_size: usize,
+    validation_time_us: u64,
+) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.failure".to_string()),
         LogLevel::Warn,
-        format!("Schema validation failed for '{}': {} ({} bytes, {}μs)", schema_name, error_message, response_size, validation_time_us),
+        format!(
+            "Schema validation failed for '{}': {} ({} bytes, {}μs)",
+            schema_name, error_message, response_size, validation_time_us
+        ),
         schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
@@ -55,11 +70,17 @@ pub fn schema_validation_failure(schema_name: &str, error_message: &str, respons
 }
 
 /// Schema validation skipped event
-pub fn schema_validation_skipped(schema_name: &str, reason: &str) -> Result<TelemetryEvent, AosError> {
+pub fn schema_validation_skipped(
+    schema_name: &str,
+    reason: &str,
+) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.skipped".to_string()),
         LogLevel::Debug,
-        format!("Schema validation skipped for '{}': {}", schema_name, reason),
+        format!(
+            "Schema validation skipped for '{}': {}",
+            schema_name, reason
+        ),
         schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
@@ -124,11 +145,18 @@ pub fn response_validation_summary(
 }
 
 /// Schema compliance alert event
-pub fn schema_compliance_alert(schema_name: &str, recent_errors: u32, threshold: u32) -> TelemetryEvent {
+pub fn schema_compliance_alert(
+    schema_name: &str,
+    recent_errors: u32,
+    threshold: u32,
+) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.compliance_alert".to_string()),
         LogLevel::Error,
-        format!("Schema '{}' compliance alert: {} recent errors (threshold: {})", schema_name, recent_errors, threshold),
+        format!(
+            "Schema '{}' compliance alert: {} recent errors (threshold: {})",
+            schema_name, recent_errors, threshold
+        ),
         schema_validation_identity(),
     )
     .component("adapteros-server-api".to_string())
@@ -139,5 +167,4 @@ pub fn schema_compliance_alert(schema_name: &str, recent_errors: u32, threshold:
         "alert_type": "compliance_threshold_exceeded"
     }))
     .build()
-    .expect("Failed to build schema compliance alert event")
 }

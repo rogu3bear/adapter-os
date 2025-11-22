@@ -204,6 +204,7 @@ mod tests {
             identity,
         )
         .build()
+        .expect("Failed to build test event")
     }
 
     #[tokio::test]

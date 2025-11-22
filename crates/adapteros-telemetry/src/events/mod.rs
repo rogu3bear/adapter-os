@@ -7,4 +7,3 @@ pub mod telemetry_events;
 pub use circuit_breaker::*;
 pub use schema_validation::*;
 pub use telemetry_events::*;
-

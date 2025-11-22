@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 /// Metric value types
@@ -259,14 +259,14 @@ impl UdsMetricsExporter {
     }
 
     /// Register a metric
-    pub fn register_metric(&self, metadata: MetricMetadata) {
-        let mut registry = self.metrics_registry.blocking_lock();
+    pub async fn register_metric(&self, metadata: MetricMetadata) {
+        let mut registry = self.metrics_registry.lock().await;
         registry.insert(metadata.name.clone(), metadata);
     }
 
     /// Update a metric value
-    pub fn update_metric(&self, name: &str, value: MetricValue) -> Result<()> {
-        let mut registry = self.metrics_registry.blocking_lock();
+    pub async fn update_metric(&self, name: &str, value: MetricValue) -> Result<()> {
+        let mut registry = self.metrics_registry.lock().await;
         if let Some(metadata) = registry.get_mut(name) {
             metadata.value = value;
             Ok(())
@@ -279,8 +279,8 @@ impl UdsMetricsExporter {
     }
 
     /// Increment a counter
-    pub fn increment_counter(&self, name: &str, delta: f64) -> Result<()> {
-        let mut registry = self.metrics_registry.blocking_lock();
+    pub async fn increment_counter(&self, name: &str, delta: f64) -> Result<()> {
+        let mut registry = self.metrics_registry.lock().await;
         if let Some(metadata) = registry.get_mut(name) {
             match &mut metadata.value {
                 MetricValue::Counter(ref mut value) => {
@@ -301,8 +301,8 @@ impl UdsMetricsExporter {
     }
 
     /// Set a gauge value
-    pub fn set_gauge(&self, name: &str, value: f64) -> Result<()> {
-        self.update_metric(name, MetricValue::Gauge(value))
+    pub async fn set_gauge(&self, name: &str, value: f64) -> Result<()> {
+        self.update_metric(name, MetricValue::Gauge(value)).await
     }
 
     /// Get the socket path
@@ -336,16 +336,21 @@ mod tests {
         exporter.bind().await.unwrap();
 
         // Register a test metric
-        exporter.register_metric(MetricMetadata {
-            name: "test_counter".to_string(),
-            help: "Test counter".to_string(),
-            metric_type: "counter".to_string(),
-            labels: HashMap::new(),
-            value: MetricValue::Counter(0.0),
-        });
+        exporter
+            .register_metric(MetricMetadata {
+                name: "test_counter".to_string(),
+                help: "Test counter".to_string(),
+                metric_type: "counter".to_string(),
+                labels: HashMap::new(),
+                value: MetricValue::Counter(0.0),
+            })
+            .await;
 
         // Increment counter
-        exporter.increment_counter("test_counter", 5.0).unwrap();
+        exporter
+            .increment_counter("test_counter", 5.0)
+            .await
+            .unwrap();
 
         // Verify metric value
         let registry = exporter.metrics_registry.lock().await;

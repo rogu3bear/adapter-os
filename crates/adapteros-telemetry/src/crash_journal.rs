@@ -5,6 +5,7 @@
 //!
 //! Per Telemetry Ruleset #9: All security events (including crashes) logged at 100% sampling.
 
+use ::tracing::{error, info};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{Keypair, ProviderAttestation};
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,6 @@ use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use ::tracing::{error, info};
 
 /// Crash journal entry
 #[derive(Debug, Clone, Serialize, Deserialize)]

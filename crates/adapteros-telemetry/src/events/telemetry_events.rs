@@ -329,6 +329,223 @@ impl AdapterEvictionEvent {
     }
 }
 
+/// K reduction request initiation event (Ruleset #12 - memory pressure)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KReductionRequestEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Unique request ID for correlation
+    pub request_id: String,
+    /// Current K value before reduction
+    pub k_current: usize,
+    /// Proposed target K value
+    pub k_target: usize,
+    /// Memory pressure level (0-1, 1=critical)
+    pub pressure_level: f32,
+    /// Bytes needed to be freed
+    pub bytes_to_free: u64,
+    /// Current memory headroom percentage
+    pub headroom_pct: f32,
+    /// Reason for reduction request
+    pub reason: String,
+    /// Whether request is valid (target < current && target >= min_k)
+    pub is_valid: bool,
+}
+
+impl KReductionRequestEvent {
+    pub fn new(
+        request_id: String,
+        k_current: usize,
+        k_target: usize,
+        pressure_level: f32,
+        bytes_to_free: u64,
+        headroom_pct: f32,
+        reason: String,
+        is_valid: bool,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            request_id,
+            k_current,
+            k_target,
+            pressure_level,
+            bytes_to_free,
+            headroom_pct,
+            reason,
+            is_valid,
+        }
+    }
+}
+
+/// K reduction evaluation event (Ruleset #12 - lifecycle manager evaluation)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KReductionEvaluationEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Correlation ID linking to request event
+    pub request_id: String,
+    /// Evaluation duration (microseconds)
+    pub evaluation_duration_us: u64,
+    /// Whether evaluation resulted in approval
+    pub approved: bool,
+    /// Number of adapters selected for unload
+    pub adapters_to_unload_count: usize,
+    /// Estimated memory that will be freed
+    pub estimated_freed: u64,
+    /// Reason for approval/rejection
+    pub reason: String,
+    /// Lock acquisition time (microseconds) for deadlock detection
+    pub lock_acquisition_time_us: u64,
+    /// Timeout occurred during evaluation
+    pub timeout_occurred: bool,
+}
+
+impl KReductionEvaluationEvent {
+    pub fn new(
+        request_id: String,
+        evaluation_duration_us: u64,
+        approved: bool,
+        adapters_to_unload_count: usize,
+        estimated_freed: u64,
+        reason: String,
+        lock_acquisition_time_us: u64,
+        timeout_occurred: bool,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            request_id,
+            evaluation_duration_us,
+            approved,
+            adapters_to_unload_count,
+            estimated_freed,
+            reason,
+            lock_acquisition_time_us,
+            timeout_occurred,
+        }
+    }
+}
+
+/// K reduction execution event (Ruleset #12 - adapter unload execution)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KReductionExecutionEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Correlation ID linking to request/evaluation events
+    pub request_id: String,
+    /// Execution duration (microseconds)
+    pub execution_duration_us: u64,
+    /// Whether execution succeeded
+    pub success: bool,
+    /// Number of adapters actually unloaded
+    pub adapters_unloaded_count: usize,
+    /// Memory actually freed (bytes)
+    pub actual_memory_freed: u64,
+    /// Error message if execution failed
+    pub error: Option<String>,
+    /// New K value after execution
+    pub k_final: usize,
+    /// Timeout occurred during execution
+    pub timeout_occurred: bool,
+}
+
+impl KReductionExecutionEvent {
+    pub fn new(
+        request_id: String,
+        execution_duration_us: u64,
+        success: bool,
+        adapters_unloaded_count: usize,
+        actual_memory_freed: u64,
+        k_final: usize,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            request_id,
+            execution_duration_us,
+            success,
+            adapters_unloaded_count,
+            actual_memory_freed,
+            error: None,
+            k_final,
+            timeout_occurred: false,
+        }
+    }
+
+    pub fn with_error(mut self, error: String, timeout_occurred: bool) -> Self {
+        self.success = false;
+        self.error = Some(error);
+        self.timeout_occurred = timeout_occurred;
+        self
+    }
+}
+
+/// K reduction completion event (Ruleset #12 - post-execution analysis)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KReductionCompletionEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Correlation ID linking all K reduction events
+    pub request_id: String,
+    /// Total duration from request to completion (microseconds)
+    pub total_duration_us: u64,
+    /// Whether the entire operation succeeded
+    pub success: bool,
+    /// K value before the operation
+    pub k_before: usize,
+    /// K value after the operation
+    pub k_after: usize,
+    /// Memory headroom after completion
+    pub headroom_after_pct: f32,
+    /// Whether eviction of hot adapters was prevented
+    pub prevented_hot_eviction: bool,
+    /// Deadlock was detected and resolved
+    pub deadlock_detected: bool,
+    /// Operation was aborted due to timeout
+    pub timeout_abort: bool,
+}
+
+impl KReductionCompletionEvent {
+    pub fn new(
+        request_id: String,
+        total_duration_us: u64,
+        success: bool,
+        k_before: usize,
+        k_after: usize,
+        headroom_after_pct: f32,
+        prevented_hot_eviction: bool,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            request_id,
+            total_duration_us,
+            success,
+            k_before,
+            k_after,
+            headroom_after_pct,
+            prevented_hot_eviction,
+            deadlock_detected: false,
+            timeout_abort: false,
+        }
+    }
+
+    pub fn with_deadlock_info(mut self, deadlock_detected: bool, timeout_abort: bool) -> Self {
+        self.deadlock_detected = deadlock_detected;
+        self.timeout_abort = timeout_abort;
+        self
+    }
+}
+
 /// K reduction event (Ruleset #12 - before adapter eviction)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KReductionEvent {

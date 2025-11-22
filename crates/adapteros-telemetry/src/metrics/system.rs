@@ -61,18 +61,31 @@ pub fn spawn_placeholder_emitter(
                 }
             };
 
-            let event = crate::TelemetryEventBuilder::new(
+            let identity = adapteros_core::identity::IdentityEnvelope::new(
+                "system".to_string(),
+                "metrics".to_string(),
+                "system-monitoring".to_string(),
+                adapteros_core::identity::IdentityEnvelope::default_revision(),
+            );
+            match crate::TelemetryEventBuilder::new(
                 crate::EventType::Custom("metrics.system".to_string()),
                 crate::LogLevel::Info,
                 "Placeholder system metrics sample".to_string(),
+                identity,
             )
             .component("adapteros-server".to_string())
             .metadata(metadata)
-            .kind(crate::TelemetryEventKind::metrics_system())
-            .build();
-
-            // Best-effort; keep server hot path resilient.
-            let _ = writer.log_event(event);
+            .build()
+            {
+                Ok(event) => {
+                    // Best-effort; keep server hot path resilient.
+                    let _ = writer.log_event(event);
+                }
+                Err(e) => {
+                    warn!("Failed to build telemetry event: {}", e);
+                    continue;
+                }
+            }
         }
     })
 }

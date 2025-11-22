@@ -41,3 +41,7 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 [[bench]]
 name = "telemetry_overhead"
 harness = false
+
+[[bench]]
+name = "compression_benchmark"
+harness = false

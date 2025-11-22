@@ -256,7 +256,9 @@ mod tests {
             "1.0".to_string(),
         );
 
-        TelemetryEventBuilder::new(event_type, level, "Test event".to_string(), identity).build()
+        TelemetryEventBuilder::new(event_type, level, "Test event".to_string(), identity)
+            .build()
+            .expect("Failed to build test event")
     }
 
     #[tokio::test]
