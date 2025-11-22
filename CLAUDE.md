@@ -377,11 +377,14 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 | Backend | Status | Determinism | Use Case | Crate |
 |---------|--------|-------------|----------|-------|
-| **CoreML** | **Primary** (MLTensor API implemented, Swift bridge complete) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
-| **MLX** | **Active** (95% test pass rate) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
-| **Metal** | Fallback | Guaranteed | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
+| **CoreML** | **Placeholder** (adapter loading not implemented) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
+| **MLX** | **Stub** (compiles, not fully functional) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
+| **Metal** | Building successfully | Guaranteed | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
 
-**Note:** macOS 26 compatibility investigation needed for CoreML backend runtime behavior.
+**Known Limitations:**
+- CoreML adapter loading is a placeholder implementation
+- MLX backend is a stub - compiles but not fully functional
+- Multi-adapter routing is broken (currently only uses first adapter in stack)
 
 **Backend Selection:**
 ```rust
@@ -448,20 +451,262 @@ xcode-select --install  # If swiftc not found
 
 ---
 
-## REST API Endpoints
+## REST API Reference
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/adapters` | GET | List adapters with lifecycle state |
-| `/api/adapters/load` | POST | Load adapter into lifecycle |
-| `/api/adapters/swap` | POST | Hot-swap adapters |
-| `/api/router/config` | GET | Router configuration |
-| `/api/training/start` | POST | Start training job |
-| `/api/training/datasets` | POST | Create dataset from documents |
-| `/api/training/jobs/:id` | GET | Get job status |
-| `/api/chat/completions` | POST | Chat inference (streaming/batch) |
-| `/api/adapter-stacks` | GET/POST | List/create adapter stacks |
-| `/v1/audit/logs` | GET | Query audit logs (Admin/SRE/Compliance) |
+> **Maintenance:** Update this section when adding/removing routes in `crates/adapteros-server-api/src/routes.rs`. Verify OpenAPI annotations match with `cargo doc`.
+
+**Source:** `crates/adapteros-server-api/src/routes.rs` | **Total Endpoints:** ~189 | **Auth:** JWT (Ed25519) required except where noted
+
+### Health & Auth (Public)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/healthz` | Health check |
+| GET | `/healthz/all` | All component health |
+| GET | `/healthz/:component` | Specific component health |
+| GET | `/readyz` | Readiness check |
+| POST | `/v1/auth/login` | User login |
+| POST | `/v1/auth/logout` | User logout |
+| GET | `/v1/auth/me` | Current user info |
+| GET | `/v1/meta` | API metadata |
+
+### Tenants
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/tenants` | List tenants |
+| POST | `/v1/tenants` | Create tenant |
+| PUT | `/v1/tenants/:tenant_id` | Update tenant |
+| POST | `/v1/tenants/:tenant_id/pause` | Pause tenant |
+| POST | `/v1/tenants/:tenant_id/archive` | Archive tenant |
+| POST | `/v1/tenants/:tenant_id/policies` | Assign policies |
+| POST | `/v1/tenants/:tenant_id/adapters` | Assign adapters |
+| GET | `/v1/tenants/:tenant_id/usage` | Usage statistics |
+
+### Adapters
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/adapters` | List adapters |
+| GET | `/v1/adapters/:adapter_id` | Get adapter details |
+| POST | `/v1/adapters/register` | Register adapter |
+| DELETE | `/v1/adapters/:adapter_id` | Delete adapter |
+| POST | `/v1/adapters/:adapter_id/load` | Load adapter |
+| POST | `/v1/adapters/:adapter_id/unload` | Unload adapter |
+| GET | `/v1/adapters/verify-gpu` | Verify GPU integrity |
+| GET | `/v1/adapters/:adapter_id/activations` | Get activations |
+| POST | `/v1/adapters/:adapter_id/lifecycle/promote` | Promote lifecycle state |
+| POST | `/v1/adapters/:adapter_id/lifecycle/demote` | Demote lifecycle state |
+| GET | `/v1/adapters/:adapter_id/lineage` | Lineage tree |
+| GET | `/v1/adapters/:adapter_id/detail` | Detail view |
+| GET | `/v1/adapters/:adapter_id/manifest` | Download manifest |
+| POST | `/v1/adapters/directory/upsert` | Upsert directory adapter |
+| GET | `/v1/adapters/:adapter_id/health` | Adapter health |
+| GET | `/v1/adapters/:adapter_id/pin` | Get pin status |
+| POST | `/v1/adapters/:adapter_id/pin` | Pin adapter |
+| DELETE | `/v1/adapters/:adapter_id/pin` | Unpin adapter |
+| POST | `/v1/adapters/:adapter_id/state/promote` | Promote tier (persistent→warm→ephemeral) |
+| POST | `/v1/adapters/validate-name` | Validate adapter name |
+| GET | `/v1/adapters/next-revision/:tenant/:domain/:purpose` | Get next revision |
+
+### Adapter Stacks
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/adapter-stacks` | List stacks |
+| POST | `/v1/adapter-stacks` | Create stack |
+| GET | `/v1/adapter-stacks/:id` | Get stack |
+| DELETE | `/v1/adapter-stacks/:id` | Delete stack |
+| POST | `/v1/adapter-stacks/:id/activate` | Activate stack |
+| POST | `/v1/adapter-stacks/deactivate` | Deactivate stack |
+| POST | `/v1/stacks/validate-name` | Validate stack name |
+
+### Domain Adapters
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/domain-adapters` | List domain adapters |
+| POST | `/v1/domain-adapters` | Create domain adapter |
+| GET | `/v1/domain-adapters/:adapter_id` | Get domain adapter |
+| DELETE | `/v1/domain-adapters/:adapter_id` | Delete domain adapter |
+| POST | `/v1/domain-adapters/:adapter_id/load` | Load |
+| POST | `/v1/domain-adapters/:adapter_id/unload` | Unload |
+| POST | `/v1/domain-adapters/:adapter_id/test` | Test |
+| GET | `/v1/domain-adapters/:adapter_id/manifest` | Get manifest |
+| POST | `/v1/domain-adapters/:adapter_id/execute` | Execute |
+
+### Inference
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/infer` | Run inference |
+| POST | `/v1/infer/batch` | Batch inference |
+| POST | `/v1/patch/propose` | Propose patch |
+
+### Training
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/training/jobs` | List jobs |
+| GET | `/v1/training/jobs/:job_id` | Get job |
+| POST | `/v1/training/start` | Start training |
+| POST | `/v1/training/jobs/:job_id/cancel` | Cancel job |
+| POST | `/v1/training/sessions` | Create session |
+| GET | `/v1/training/jobs/:job_id/logs` | Job logs |
+| GET | `/v1/training/jobs/:job_id/metrics` | Job metrics |
+| GET | `/v1/training/jobs/:job_id/artifacts` | Job artifacts |
+| GET | `/v1/training/templates` | List templates |
+| GET | `/v1/training/templates/:template_id` | Get template |
+
+### Datasets
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/datasets/upload` | Upload dataset |
+| POST | `/v1/datasets/chunked-upload/initiate` | Chunked upload |
+| GET | `/v1/datasets` | List datasets |
+| GET | `/v1/datasets/:dataset_id` | Get dataset |
+| DELETE | `/v1/datasets/:dataset_id` | Delete dataset |
+| GET | `/v1/datasets/:dataset_id/files` | Dataset files |
+| GET | `/v1/datasets/:dataset_id/statistics` | Statistics |
+| POST | `/v1/datasets/:dataset_id/validate` | Validate |
+| GET | `/v1/datasets/:dataset_id/preview` | Preview |
+| GET | `/v1/datasets/upload/progress` | Upload progress |
+
+### Nodes & Workers
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/nodes` | List nodes |
+| POST | `/v1/nodes/register` | Register node |
+| POST | `/v1/nodes/:node_id/ping` | Ping node |
+| POST | `/v1/nodes/:node_id/offline` | Mark offline |
+| DELETE | `/v1/nodes/:node_id` | Evict node |
+| GET | `/v1/nodes/:node_id/details` | Node details |
+| GET | `/v1/workers` | List workers |
+| POST | `/v1/workers/spawn` | Spawn worker |
+| GET | `/v1/workers/:worker_id/logs` | Worker logs |
+| GET | `/v1/workers/:worker_id/crashes` | Worker crashes |
+| POST | `/v1/workers/:worker_id/debug` | Debug session |
+| POST | `/v1/workers/:worker_id/troubleshoot` | Troubleshoot |
+
+### Policies
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/policies` | List policies |
+| GET | `/v1/policies/:cpid` | Get policy |
+| POST | `/v1/policies/validate` | Validate policy |
+| POST | `/v1/policies/apply` | Apply policy |
+| POST | `/v1/policies/:cpid/sign` | Sign policy |
+| POST | `/v1/policies/compare` | Compare versions |
+| GET | `/v1/policies/:cpid/export` | Export policy |
+
+### Routing
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/routing/debug` | Debug routing |
+| GET | `/v1/routing/history` | Routing history |
+| GET | `/v1/routing/decisions` | List decisions |
+| GET | `/v1/routing/decisions/:id` | Get decision |
+| POST | `/v1/telemetry/routing` | Ingest router decision |
+
+### Metrics & Monitoring
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/metrics` | Get metrics (custom auth) |
+| GET | `/v1/metrics/quality` | Quality metrics |
+| GET | `/v1/metrics/adapters` | Adapter metrics |
+| GET | `/v1/metrics/system` | System metrics |
+| GET | `/v1/metrics/snapshot` | Metrics snapshot |
+| GET | `/v1/metrics/series` | Metrics series |
+| GET | `/v1/monitoring/rules` | List rules |
+| POST | `/v1/monitoring/rules` | Create rule |
+| GET | `/v1/monitoring/alerts` | List alerts |
+| POST | `/v1/monitoring/alerts/:alert_id/acknowledge` | Ack alert |
+| GET | `/v1/monitoring/anomalies` | List anomalies |
+| POST | `/v1/monitoring/anomalies/:anomaly_id/status` | Update status |
+| GET | `/v1/monitoring/dashboards` | List dashboards |
+| POST | `/v1/monitoring/dashboards` | Create dashboard |
+| GET | `/v1/monitoring/health-metrics` | Health metrics |
+| GET | `/v1/monitoring/reports` | List/create reports |
+
+### Streaming (SSE)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/streams/training` | Training events |
+| GET | `/v1/streams/discovery` | Discovery events |
+| GET | `/v1/streams/contacts` | Contacts events |
+| GET | `/v1/streams/file-changes` | File changes |
+| GET | `/v1/stream/metrics` | System metrics stream |
+| GET | `/v1/stream/telemetry` | Telemetry events |
+| GET | `/v1/stream/adapters` | Adapter state stream |
+
+### Audit & Compliance
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/audit/logs` | Query audit logs |
+| GET | `/v1/audit/federation` | Federation audit |
+| GET | `/v1/audit/compliance` | Compliance audit |
+| GET | `/v1/audits` | Extended audits |
+
+### Promotions & Golden Runs
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/cp/promote` | Request promotion |
+| GET | `/v1/cp/promotion-gates/:cpid` | Promotion gates |
+| POST | `/v1/cp/rollback` | Rollback |
+| POST | `/v1/cp/promote/dry-run` | Dry-run promotion |
+| GET | `/v1/cp/promotions` | Promotion history |
+| GET | `/v1/promotions/:id` | Get promotion |
+| GET | `/v1/golden/runs` | List golden runs |
+| GET | `/v1/golden/runs/:name` | Get golden run |
+| POST | `/v1/golden/compare` | Compare runs |
+| POST | `/v1/golden/:run_id/promote` | Request promotion |
+| GET | `/v1/golden/:run_id/promotion` | Promotion status |
+| POST | `/v1/golden/:run_id/approve` | Approve/reject |
+| GET | `/v1/golden/:run_id/gates` | Gate status |
+| POST | `/v1/golden/:stage/rollback` | Stage rollback |
+
+### Logs & Traces
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/logs/query` | Query logs |
+| GET | `/v1/logs/stream` | Stream logs (SSE) |
+| GET | `/v1/traces/search` | Search traces |
+| GET | `/v1/traces/:trace_id` | Get trace details |
+
+### Service Supervisor (separate service, port 3301)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/services` | List all services |
+| GET | `/v1/services/:service_id` | Get service details |
+| POST | `/v1/services/start` | Start service |
+| POST | `/v1/services/stop` | Stop service |
+| POST | `/v1/services/restart` | Restart service |
+| POST | `/v1/services/essential/start` | Start essential services |
+| POST | `/v1/services/essential/stop` | Stop essential services |
+| GET | `/v1/services/:service_id/logs` | Get service logs |
+
+### Additional Endpoints
+| Resource | Base Path | Key Operations |
+|----------|-----------|----------------|
+| Code Intelligence | `/v1/code/*` | Register repo, scan, commit delta |
+| Contacts | `/v1/contacts/*` | CRUD, interactions |
+| Federation | `/v1/federation/*` | Status, quarantine |
+| Git | `/v1/git/*` | Status, sessions, branches |
+| Models | `/v1/models/*` | Import, status |
+| Plans | `/v1/plans/*` | Build, compare, manifest |
+| Plugins | `/v1/plugins/*` | Enable/disable, status |
+| Replay | `/v1/replay/*` | Sessions, verify |
+| System | `/v1/system/memory` | UMA memory info |
+| Telemetry | `/v1/telemetry/bundles/*` | Export, verify, purge |
+| Jobs | `/v1/jobs` | List jobs |
+| Commits | `/v1/commits/*` | List, details, diff |
+| Repositories | `/v1/repositories` | List (deprecated → use `/v1/code/repositories`) |
+
+### OpenAPI / Swagger
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/swagger-ui` | Swagger UI interface |
+| GET | `/api-docs/openapi.json` | OpenAPI spec (JSON) |
+
+### Unwired Handlers (Planned/Internal)
+The following handler modules exist in `crates/adapteros-server-api/src/handlers/` but are not yet wired to routes:
+- `activity.rs`, `dashboard.rs`, `messages.rs`, `notifications.rs`
+- `workspaces.rs`, `tutorials.rs`, `journeys.rs`
+- `git_repository.rs` (separate from `git.rs`)
+- `models.rs`, `streaming.rs`, `chunked_upload.rs`
 
 **UI integration:** See [docs/UI_INTEGRATION.md](docs/UI_INTEGRATION.md)
 
@@ -509,17 +754,22 @@ cargo udeps                        # Unused dependencies
 **Status:** 40+ crates building successfully
 
 **Backend Implementation Status:**
-- `adapteros-lora-kernel-coreml` - MLTensor API implemented, Swift bridge complete. macOS 26 compatibility investigation needed. Priority: High
-- `adapteros-lora-mlx-ffi` - Active development, 95% test pass rate. Building successfully. Priority: High
+- `adapteros-lora-kernel-coreml` - Placeholder implementation. Adapter loading not implemented. Priority: High
+- `adapteros-lora-mlx-ffi` - Stub implementation. Compiles but not fully functional. Priority: High
+- `adapteros-lora-kernel-mtl` - In workspace, builds successfully. Priority: Low
 
-**Disabled crates (workspace excluded):**
-1. `adapteros-lora-kernel-mtl` - Excluded for stable main merge. Use Metal backend support in `adapteros-lora-worker`. Priority: Low
-2. `adapteros-lora-worker` - Temporarily disabled due to compilation errors. Core inference pipeline tests passing. Priority: High
-3. `adapteros-server` - Excluded for stable main merge. REST API available in `adapteros-server-api`. Priority: Low
+**Workspace crates with issues:**
+1. `adapteros-lora-worker` - In workspace, library compiles. 29 test errors (tests need fixes). Priority: High
 
-**Note:** `adapteros-server-api`, `adapteros-system-metrics`, `adapteros-lora-mlx-ffi`, and `adapteros-codegraph` are workspace members and building successfully.
+**Excluded from workspace:**
+1. `adapteros-server` - Excluded for stable main merge. REST API available in `adapteros-server-api`. Priority: Low
 
-**Impact:** Core inference pipeline building (prebuilt Metal kernels). CLI (`aosctl`) operational. REST API in `adapteros-server-api`.
+**Routing Limitation:**
+- Multi-adapter routing is currently broken - only uses first adapter in stack
+
+**Note:** `adapteros-server-api`, `adapteros-system-metrics`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-mtl`, and `adapteros-codegraph` are workspace members and building successfully.
+
+**Impact:** Core inference pipeline building. CLI (`aosctl`) operational. REST API in `adapteros-server-api`.
 
 ---
 

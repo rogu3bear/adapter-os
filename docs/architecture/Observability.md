@@ -26,12 +26,12 @@ All observability data is stored in bounded ring buffers:
 
 The server exposes offline-only endpoints:
 
-- `GET /api/metrics/snapshot` - Current metrics snapshot (JSON)
-- `GET /api/metrics/series` - Time series data for charts
-- `GET /api/logs/query` - Query logs with filters
-- `GET /api/logs/stream` - SSE stream of live logs
-- `GET /api/traces/search` - Search traces by criteria
-- `GET /api/traces/:trace_id` - Get specific trace details
+- `GET /v1/metrics/snapshot` - Current metrics snapshot (JSON)
+- `GET /v1/metrics/series` - Time series data for charts
+- `GET /v1/logs/query` - Query logs with filters
+- `GET /v1/logs/stream` - SSE stream of live logs
+- `GET /v1/traces/search` - Search traces by criteria
+- `GET /v1/traces/{trace_id}` - Get specific trace details
 - `GET /v1/stream/telemetry` - SSE stream for telemetry events and bundle updates
 
 All endpoints are protected by authentication and serve data from in-memory buffers only.

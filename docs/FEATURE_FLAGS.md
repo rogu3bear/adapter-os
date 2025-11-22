@@ -2,7 +2,7 @@
 
 Complete reference for AdapterOS cargo feature flags, platform compatibility, and build configurations.
 
-**Last Updated**: 2025-01-18
+**Last Updated**: 2025-11-21
 **Audience**: Developers, CI/CD engineers, platform engineers
 
 ---
@@ -84,6 +84,40 @@ cargo build --release
 
 ---
 
+#### `coreml-backend`
+
+**Purpose**: Enable CoreML + Neural Engine (ANE) acceleration for inference.
+
+**Includes**:
+- CoreML model loading and inference
+- Neural Engine (ANE) optimization
+- MLTensor API support (macOS 15+)
+- Guaranteed deterministic execution
+
+**Platform**: **macOS 13.0+ with Apple Silicon**
+
+**Requirements**:
+- macOS 13.0+ (macOS 15+ for MLTensor optimizations)
+- Apple Silicon (M1/M2/M3/M4)
+- Xcode Command Line Tools
+
+**Usage**:
+```bash
+# Enable CoreML backend
+cargo build --release --features coreml-backend
+```
+
+**Crate integration**:
+- Workspace feature propagates to `adapteros-lora-worker`
+- Enables `adapteros-lora-kernel-coreml` as dependency
+- Activates ANE detection and CoreML model loading
+
+**Status**: ✅ **Production-ready** (Primary backend for macOS)
+
+**See Also**: [CoreML Integration](COREML_INTEGRATION.md)
+
+---
+
 #### `metal-backend`
 
 **Purpose**: Enable Apple Metal GPU acceleration for inference.
@@ -112,7 +146,7 @@ cargo build --release --features metal-backend
 - ❌ Fails on Linux (linker error: cannot find -lMetal)
 - ❌ Fails on Intel macOS (no Metal support)
 
-**Status**: ✅ **Production-ready** (Primary backend for macOS)
+**Status**: ✅ **Production-ready** (Fallback backend for non-ANE systems)
 
 **See Also**: [Metal Kernels Documentation](metal/phase4-metal-kernels.md)
 
@@ -150,7 +184,36 @@ cargo build --release --features mlx-backend
 
 **Roadmap**: Complete C++ wrapper when MLX C++ API is stable
 
-**Recommendation**: Use `metal-backend` instead for production.
+**Recommendation**: Use `coreml-backend` for production.
+
+---
+
+#### `real-mlx`
+
+**Purpose**: Enable real MLX library integration (vs stub implementation).
+
+**Includes**:
+- Real MLX C++ FFI bindings
+- GPU-accelerated tensor operations
+- Actual model inference (not stubs)
+
+**Platform**: macOS (requires MLX C++ library)
+
+**Requirements**:
+- macOS 13.0+
+- MLX C++ library installed
+- Xcode Command Line Tools
+
+**Usage**:
+```bash
+# Enable real MLX (requires mlx C++ installed)
+cargo build --release --features real-mlx
+```
+
+**Status**: ⚠️ **Experimental** (requires external MLX installation)
+
+**Note**: Without this feature, `adapteros-lora-mlx-ffi` uses stub implementations
+that simulate inference for testing purposes.
 
 ---
 
@@ -307,8 +370,11 @@ cargo build --release --features mlx-backend
 | Feature Flag | macOS (Apple Silicon) | macOS (Intel) | Linux | Windows | CI (Linux) |
 |--------------|----------------------|---------------|-------|---------|------------|
 | `deterministic-only` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
+| `coreml-backend` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `metal-backend` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `mlx-backend` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
+| `real-mlx` | ⚠️ Requires MLX | ⚠️ Requires MLX | ❌ | ❌ | ❌ |
+| `experimental-backends` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
 | `telemetry` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
 | `metrics` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
 | `replay` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
@@ -639,12 +705,14 @@ cargo xtask check-all
 | Feature Combination | Tested | Platform | Notes |
 |---------------------|--------|----------|-------|
 | `default` (no features) | ⏳ | All | Assumed to work |
-| `metal-backend` | ⏳ | macOS | Not verified on this system |
+| `coreml-backend` | ⏳ | macOS | Primary production backend |
+| `metal-backend` | ⏳ | macOS | Fallback for non-ANE systems |
 | `--no-default-features` | ⏳ | Linux | Not verified on Linux |
 | `full` | ⏳ | All | Not verified |
-| `mock-backend` | ⚠️ | All | Flag exists but non-functional (see Cargo.toml) |
-| `metal-backend,full` | ⏳ | macOS | Not verified |
-| `experimental-backends` | ⚠️ | macOS | Stub implementation only (no functional code) |
+| `coreml-backend,full` | ⏳ | macOS | Production + observability |
+| `metal-backend,full` | ⏳ | macOS | Metal + observability |
+| `experimental-backends` | ⚠️ | macOS | Stub implementation only (alias for mlx-backend) |
+| `real-mlx` | ⚠️ | macOS | Requires MLX C++ library installed |
 
 **Legend**:
 - ✅ Verified - Tested and works
@@ -653,6 +721,60 @@ cargo xtask check-all
 - ❌ Broken - Known not to work
 
 **Help improve this guide**: Test feature combinations on your system and report results.
+
+---
+
+## Feature Flag Propagation
+
+### Workspace vs. Crate Features
+
+AdapterOS uses a two-level feature flag architecture:
+
+1. **Workspace-level features** (root `Cargo.toml`):
+   - Define cross-cutting features available to the entire workspace
+   - Example: `coreml-backend`, `metal-backend`, `experimental-backends`
+   - These do NOT automatically propagate to crates
+
+2. **Crate-level features** (per-crate `Cargo.toml`):
+   - Each crate defines which workspace features it responds to
+   - Use `dep:crate-name` syntax to enable optional dependencies
+   - Example: `coreml-backend = ["dep:adapteros-lora-kernel-coreml"]`
+
+### Feature Activation Chain
+
+When you run `cargo build --features coreml-backend`:
+
+```
+Root Cargo.toml: coreml-backend = []
+         │
+         ▼
+adapteros-lora-worker/Cargo.toml:
+  coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
+         │
+         ▼
+adapteros-lora-kernel-coreml is compiled
+         │
+         ▼
+#[cfg(feature = "coreml-backend")] code paths activated
+```
+
+### Important: Feature Names Must Match
+
+For feature propagation to work, the feature name must be:
+1. Defined in root `Cargo.toml` `[features]`
+2. Defined in consuming crate's `Cargo.toml` `[features]`
+3. The names must match exactly
+
+**Example** (correct):
+```toml
+# Root Cargo.toml
+[features]
+coreml-backend = []
+
+# adapteros-lora-worker/Cargo.toml
+[features]
+coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
+```
 
 ---
 
