@@ -4,7 +4,7 @@
 //! - Simple .aos format: manifest_offset/manifest_len header
 //! - AOS 2.0 format: 268-byte header with AOS2 magic
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{AosError, Result};
 use std::path::PathBuf;
 
 /// AOS 2.0 magic bytes

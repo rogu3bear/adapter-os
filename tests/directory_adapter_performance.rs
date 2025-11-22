@@ -38,7 +38,6 @@
 //! - Ratio: 1.0-2.0 (more balanced)
 
 use adapteros_db::Db;
-use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_server_api::state::AppState;
 use adapteros_server_api::types::{DirectoryUpsertRequest, DirectoryUpsertResponse};
 use axum::{

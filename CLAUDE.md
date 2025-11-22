@@ -3,7 +3,7 @@
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-21
+**Last Updated:** 2025-11-21 (CoreML activation documented, backend status updated)
 **Maintained by:** James KC Auchterlonie
 
 ---
@@ -377,14 +377,14 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 | Backend | Status | Determinism | Use Case | Crate |
 |---------|--------|-------------|----------|-------|
-| **CoreML** | **Placeholder** (adapter loading not implemented) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
-| **MLX** | **Stub** (compiles, not fully functional) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
+| **CoreML** | **Implemented** (model loading, inference, Swift bridge with runtime dispatch) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
+| **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
 | **Metal** | Building successfully | Guaranteed | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
 
-**Known Limitations:**
-- CoreML adapter loading is a placeholder implementation
-- MLX backend is a stub - compiles but not fully functional
-- Multi-adapter routing is broken (currently only uses first adapter in stack)
+**Implementation Status:**
+- CoreML: Fully implemented and operational. Supports model loading, inference, ANE detection, memory pooling, and MLTensor bridge (macOS 15+). Guaranteed determinism with ANE, graceful fallback to GPU on older systems. See [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) for operational guide.
+- MLX: Fully implemented. Supports model loading from file or buffer, text generation, health tracking with circuit breaker, and memory pool integration.
+- Multi-adapter routing: Implemented with K-sparse selection and Q15 quantized gates (see MULTI_ADAPTER_ROUTING.md)
 
 **Backend Selection:**
 ```rust
@@ -424,6 +424,7 @@ xcode-select --install  # If swiftc not found
 
 **Full details:**
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
+- [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) - CoreML operational status & verification procedures
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML setup & ANE optimization
 - [docs/ADDING_NEW_BACKEND.md](docs/ADDING_NEW_BACKEND.md) - Template for new backends
 
@@ -754,8 +755,8 @@ cargo udeps                        # Unused dependencies
 **Status:** 40+ crates building successfully
 
 **Backend Implementation Status:**
-- `adapteros-lora-kernel-coreml` - Placeholder implementation. Adapter loading not implemented. Priority: High
-- `adapteros-lora-mlx-ffi` - Stub implementation. Compiles but not fully functional. Priority: High
+- `adapteros-lora-kernel-coreml` - Fully implemented and operational. Supports model loading, inference, ANE detection, memory pool integration, and Swift bridge (macOS 15+). Guaranteed determinism with ANE, graceful GPU fallback. See [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md). Priority: Operational
+- `adapteros-lora-mlx-ffi` - Fully implemented. Supports model loading, text generation, health tracking, and memory pool integration. Priority: Operational
 - `adapteros-lora-kernel-mtl` - In workspace, builds successfully. Priority: Low
 
 **Workspace crates with issues:**
@@ -764,12 +765,12 @@ cargo udeps                        # Unused dependencies
 **Excluded from workspace:**
 1. `adapteros-server` - Excluded for stable main merge. REST API available in `adapteros-server-api`. Priority: Low
 
-**Routing Limitation:**
-- Multi-adapter routing is currently broken - only uses first adapter in stack
+**Routing Implementation:**
+- Multi-adapter routing fully implemented with K-sparse selection and Q15 quantized gates (see MULTI_ADAPTER_ROUTING.md)
 
 **Note:** `adapteros-server-api`, `adapteros-system-metrics`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-mtl`, and `adapteros-codegraph` are workspace members and building successfully.
 
-**Impact:** Core inference pipeline building. CLI (`aosctl`) operational. REST API in `adapteros-server-api`.
+**Impact:** Core inference pipeline building. CLI (`aosctl`) operational. REST API in `adapteros-server-api`. Multi-backend support operational.
 
 ---
 
@@ -796,6 +797,8 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 - [docs/UI_INTEGRATION.md](docs/UI_INTEGRATION.md) - UI integration
 - [docs/RBAC.md](docs/RBAC.md) - RBAC permission matrix
 - [docs/DEPRECATED_PATTERNS.md](docs/DEPRECATED_PATTERNS.md) - Anti-patterns
+- [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) - CoreML activation & operational status
+- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend implementation guide
 - `crates/adapteros-policy/` - Policy implementations
 - `crates/adapteros-core/src/error.rs` - Error definitions
 

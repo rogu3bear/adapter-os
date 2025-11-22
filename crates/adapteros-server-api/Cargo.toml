@@ -30,7 +30,7 @@ base64 = "0.21"
 chrono = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 git2 = "0.18"
-hex = "0.4"
+hex = { workspace = true }
 hyper = "1.0"
 hyper-util = "0.1"
 jsonwebtoken = "9.2"
@@ -61,6 +61,14 @@ safetensors = { workspace = true }
 flate2 = "1.0"
 tar = "0.4"
 zip = "0.6"
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+
+[features]
+default = []
+mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
+postgres = []
+redis = []
+metrics = []
 
 [[bin]]
 name = "export-openapi"

@@ -16,7 +16,7 @@ serde_jcs = { workspace = true }
 schemars = { workspace = true, optional = true }
 hkdf = { workspace = true }
 sha2 = { workspace = true }
-hex = "0.4"
+hex = { workspace = true }
 lazy_static = "1.4"
 tracing = { workspace = true }
 rand = { workspace = true, optional = true }

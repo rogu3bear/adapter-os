@@ -146,7 +146,7 @@ wait_for_service() {
 show_access_info() {
     echo -e "${CYAN}
 ╔══════════════════════════════════════════════════════════════╗
-║                          🌐 ACCESS URLs                           ║
+║                           ACCESS URLS                        ║
 ╠══════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${WHITE}  Backend API:     ${GREEN}http://localhost:3300${WHITE}"
     echo -e "${WHITE}  Web Dashboard:   ${GREEN}http://localhost:3200${WHITE}"

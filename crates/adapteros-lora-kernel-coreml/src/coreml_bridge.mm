@@ -7,6 +7,7 @@
 #import <Accelerate/Accelerate.h>
 #include <cstring>
 #include <AvailabilityMacros.h>
+#include <stdatomic.h>
 
 // Check if we have macOS 15+ SDK for MLTensor support
 #ifndef MAC_OS_X_VERSION_15_0
@@ -201,9 +202,11 @@ void* coreml_load_model(const char* path, size_t path_len, int32_t compute_units
 }
 
 void coreml_unload_model(void* handle) {
-    if (handle) {
-        MLModel *model = (__bridge_transfer MLModel*)handle;
-        model = nil;
+    @autoreleasepool {
+        if (handle) {
+            MLModel *model = (__bridge_transfer MLModel*)handle;
+            model = nil;
+        }
     }
 }
 
@@ -1187,9 +1190,10 @@ void coreml_tensor_free(MLTensorHandle handle) {
 typedef void (*coreml_prediction_callback)(int32_t status, float* output, size_t output_len, void* user_data);
 
 // Cancellation token for async operations
+// Uses atomic operations to ensure thread-safe access
 typedef struct {
-    volatile bool cancelled;
-    volatile bool completed;
+    _Atomic(bool) cancelled;
+    _Atomic(bool) completed;
 } coreml_cancellation_token;
 
 // Create a cancellation token
@@ -1253,16 +1257,16 @@ void coreml_predict_async_with_timeout(
     }
     memcpy(input_copy, input_ids, input_len * sizeof(uint32_t));
 
-    // Shared state for preventing double-callback
-    __block volatile bool callback_invoked = false;
+    // Shared state for preventing double-callback using atomic operations
+    __block _Atomic(bool) callback_invoked = ATOMIC_VAR_INIT(false);
     __block dispatch_semaphore_t completion_sem = dispatch_semaphore_create(0);
 
     // Schedule timeout handler
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, timeout_secs * NSEC_PER_SEC),
                    dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        // Check if already completed or cancelled
-        if (!callback_invoked) {
-            callback_invoked = true;
+        // Check if already completed or cancelled using atomic compare-and-swap
+        bool expected = false;
+        if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
             snprintf(g_last_error, sizeof(g_last_error), "Prediction timeout after %lld seconds", timeout_secs);
             callback(COREML_ERROR_TIMEOUT, NULL, 0, user_data);
             free(input_copy);
@@ -1273,9 +1277,9 @@ void coreml_predict_async_with_timeout(
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
             // Check for cancellation before starting
-            if (cancel_token && cancel_token->cancelled) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+            if (cancel_token && atomic_load(&cancel_token->cancelled)) {
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Prediction cancelled");
                     callback(COREML_ERROR_CANCELLED, NULL, 0, user_data);
                     free(input_copy);
@@ -1291,8 +1295,8 @@ void coreml_predict_async_with_timeout(
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];
             if (error) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Failed to create input array: %s",
                             [[error localizedDescription] UTF8String]);
                     callback(-2, NULL, 0, user_data);
@@ -1308,9 +1312,9 @@ void coreml_predict_async_with_timeout(
             }
 
             // Check for cancellation before prediction
-            if (cancel_token && cancel_token->cancelled) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+            if (cancel_token && atomic_load(&cancel_token->cancelled)) {
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Prediction cancelled");
                     callback(COREML_ERROR_CANCELLED, NULL, 0, user_data);
                     free(input_copy);
@@ -1323,8 +1327,8 @@ void coreml_predict_async_with_timeout(
                 [[MLDictionaryFeatureProvider alloc] initWithDictionary:@{@"input_ids": inputArray}
                                                                   error:&error];
             if (error) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Failed to create feature provider: %s",
                             [[error localizedDescription] UTF8String]);
                     callback(-3, NULL, 0, user_data);
@@ -1338,15 +1342,15 @@ void coreml_predict_async_with_timeout(
                                                                            error:&error];
 
             // Check for timeout/cancellation after prediction
-            if (callback_invoked) {
+            if (atomic_load(&callback_invoked)) {
                 free(input_copy);
                 dispatch_semaphore_signal(completion_sem);
                 return;
             }
 
             if (error) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Prediction failed: %s",
                             [[error localizedDescription] UTF8String]);
                     callback(-4, NULL, 0, user_data);
@@ -1358,8 +1362,8 @@ void coreml_predict_async_with_timeout(
 
             MLFeatureValue *outputValue = [outputProvider featureValueForName:@"logits"];
             if (!outputValue || outputValue.type != MLFeatureTypeMultiArray) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Output logits not found");
                     callback(-5, NULL, 0, user_data);
                     free(input_copy);
@@ -1374,8 +1378,8 @@ void coreml_predict_async_with_timeout(
 
             float *output_copy = (float*)malloc(output_len * sizeof(float));
             if (!output_copy) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Failed to allocate output buffer");
                     callback(-10, NULL, 0, user_data);
                     free(input_copy);
@@ -1386,10 +1390,10 @@ void coreml_predict_async_with_timeout(
             memcpy(output_copy, outputPtr, output_len * sizeof(float));
 
             // Mark as completed and invoke callback
-            if (!callback_invoked) {
-                callback_invoked = true;
+            bool expected = false;
+            if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                 if (cancel_token) {
-                    cancel_token->completed = true;
+                    atomic_store(&cancel_token->completed, true);
                 }
                 callback(0, output_copy, output_len, user_data);
             } else {
@@ -1469,8 +1473,8 @@ void coreml_predict_async_with_lora_timeout(
         }
     }
 
-    // Shared state for preventing double-callback
-    __block volatile bool callback_invoked = false;
+    // Shared state for preventing double-callback using atomic operations
+    __block _Atomic(bool) callback_invoked = ATOMIC_VAR_INIT(false);
     __block dispatch_semaphore_t completion_sem = dispatch_semaphore_create(0);
 
     // Helper block for cleanup
@@ -1489,8 +1493,8 @@ void coreml_predict_async_with_lora_timeout(
     // Schedule timeout handler
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, timeout_secs * NSEC_PER_SEC),
                    dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        if (!callback_invoked) {
-            callback_invoked = true;
+        bool expected = false;
+        if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
             snprintf(g_last_error, sizeof(g_last_error), "Prediction timeout after %lld seconds", timeout_secs);
             callback(COREML_ERROR_TIMEOUT, NULL, 0, user_data);
             cleanup_resources();
@@ -1501,9 +1505,9 @@ void coreml_predict_async_with_lora_timeout(
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
             // Check for cancellation before starting
-            if (cancel_token && cancel_token->cancelled) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+            if (cancel_token && atomic_load(&cancel_token->cancelled)) {
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Prediction cancelled");
                     callback(COREML_ERROR_CANCELLED, NULL, 0, user_data);
                     cleanup_resources();
@@ -1519,8 +1523,8 @@ void coreml_predict_async_with_lora_timeout(
                                                                   dataType:MLMultiArrayDataTypeInt32
                                                                      error:&error];
             if (error) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Failed to create input array: %s",
                             [[error localizedDescription] UTF8String]);
                     callback(-2, NULL, 0, user_data);
@@ -1536,9 +1540,9 @@ void coreml_predict_async_with_lora_timeout(
             }
 
             // Check for cancellation before prediction
-            if (cancel_token && cancel_token->cancelled) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+            if (cancel_token && atomic_load(&cancel_token->cancelled)) {
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Prediction cancelled");
                     callback(COREML_ERROR_CANCELLED, NULL, 0, user_data);
                     cleanup_resources();
@@ -1551,8 +1555,8 @@ void coreml_predict_async_with_lora_timeout(
                 [[MLDictionaryFeatureProvider alloc] initWithDictionary:@{@"input_ids": inputArray}
                                                                   error:&error];
             if (error) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Failed to create feature provider: %s",
                             [[error localizedDescription] UTF8String]);
                     callback(-3, NULL, 0, user_data);
@@ -1566,15 +1570,15 @@ void coreml_predict_async_with_lora_timeout(
                                                                            error:&error];
 
             // Check for timeout/cancellation after prediction
-            if (callback_invoked) {
+            if (atomic_load(&callback_invoked)) {
                 cleanup_resources();
                 dispatch_semaphore_signal(completion_sem);
                 return;
             }
 
             if (error) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Prediction failed: %s",
                             [[error localizedDescription] UTF8String]);
                     callback(-4, NULL, 0, user_data);
@@ -1586,8 +1590,8 @@ void coreml_predict_async_with_lora_timeout(
 
             MLFeatureValue *outputValue = [outputProvider featureValueForName:@"logits"];
             if (!outputValue || outputValue.type != MLFeatureTypeMultiArray) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Output logits not found");
                     callback(-5, NULL, 0, user_data);
                     cleanup_resources();
@@ -1602,8 +1606,8 @@ void coreml_predict_async_with_lora_timeout(
 
             float *output_copy = (float*)malloc(output_len * sizeof(float));
             if (!output_copy) {
-                if (!callback_invoked) {
-                    callback_invoked = true;
+                bool expected = false;
+                if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                     snprintf(g_last_error, sizeof(g_last_error), "Failed to allocate output buffer");
                     callback(-10, NULL, 0, user_data);
                     cleanup_resources();
@@ -1632,10 +1636,10 @@ void coreml_predict_async_with_lora_timeout(
             }
 
             // Mark as completed and invoke callback
-            if (!callback_invoked) {
-                callback_invoked = true;
+            bool expected = false;
+            if (atomic_compare_exchange_strong(&callback_invoked, &expected, true)) {
                 if (cancel_token) {
-                    cancel_token->completed = true;
+                    atomic_store(&cancel_token->completed, true);
                 }
                 callback(0, output_copy, output_len, user_data);
             } else {

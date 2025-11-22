@@ -64,10 +64,10 @@ regex = "1.0"
 tokio-util = { version = "0.7", features = ["time"] }
 hkdf = "0.12"
 sha2 = "0.10"
-hex = "0.4"
+hex = { workspace = true }
 async-trait = "0.1"
 anyhow = { workspace = true }
-blake3 = "1.5"
+blake3 = { workspace = true }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 chrono = "0.4"
 smallvec = "1.13"

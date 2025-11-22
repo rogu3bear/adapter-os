@@ -709,27 +709,15 @@ async fn main() -> Result<()> {
             .clone()
             .unwrap_or_default();
 
-        let mut specific = HashMap::new();
-        specific.insert(
-            "config".to_string(),
-            serde_json::to_value(&git_config).map_err(|e| AosError::Serialization(e))?,
-        );
-
-        let plugin_config = PluginConfig {
-            name: "git".to_string(),
-            enabled: true,
-            specific,
-        };
-
-        if let Err(e) = registry
-            .register("git".to_string(), (*git_arc.clone()).clone(), plugin_config)
+        // Initialize Git subsystem
+        let git_subsystem = adapteros_git::GitSubsystem::new(git_config.clone(), db.clone())
             .await
-        {
-            error!("Failed to register git plugin: {}", e);
-        }
+            .map_err(|e| AosError::Config(format!("Failed to initialize Git subsystem: {}", e)))?;
 
-        // Start git subsystem - but since in register, already started
-        // let _ = git_arc.start().await; // no need
+        let git_arc = Arc::new(git_subsystem);
+
+        // Note: GitSubsystem doesn't implement Clone, so we skip plugin registry registration.
+        // The git subsystem is managed directly via AppState.with_git() instead.
 
         // Create broadcast channel for file change events
         let (file_change_tx, _) = tokio::sync::broadcast::channel(1000);

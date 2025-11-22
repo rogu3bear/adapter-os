@@ -110,7 +110,7 @@ impl GitWatcher {
         })?;
 
         if repos.is_empty() {
-            warn!("No repositories configured for Git watcher");
+            warn!(component = "git_watcher", "No repositories configured for Git watcher");
             self.is_running = true;
             return Ok(());
         }
@@ -246,9 +246,9 @@ impl GitSubsystem {
             self.start_polling().await?;
         }
         if self.enabled {
-            tracing::info!("Git subsystem started");
+            info!(component = "git_subsystem", "Git subsystem started");
         } else {
-            tracing::info!("Git subsystem disabled");
+            info!(component = "git_subsystem", "Git subsystem disabled");
         }
         Ok(())
     }
@@ -558,7 +558,7 @@ impl GitSubsystem {
         }
 
         if self.enabled_tenants.read().await.is_empty() {
-            debug!("No tenants enabled for Git polling");
+            debug!(component = "git_subsystem", "No tenants enabled for Git polling");
             return Ok(());
         }
 

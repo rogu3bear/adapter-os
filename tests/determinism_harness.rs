@@ -1,5 +1,4 @@
 use adapteros_codegraph::CodeGraph;
-use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::B3Hash;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::CreateStackRequest;

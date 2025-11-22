@@ -7,7 +7,7 @@ use adapteros_policy::packs::evidence::{
     EvidenceConfig, EvidencePolicy, EvidenceSpan, EvidenceType, QualityThresholds, SourceInfo,
     SourceRequirements,
 };
-use adapteros_policy::{Audit, Policy, PolicyId, Severity};
+use adapteros_policy::{Policy, PolicyId, Severity};
 use chrono::Utc;
 use std::collections::HashMap;
 

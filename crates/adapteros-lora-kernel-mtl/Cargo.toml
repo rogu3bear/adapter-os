@@ -63,7 +63,7 @@ cocoa = { workspace = true }
 core-foundation = { workspace = true }
 
 [build-dependencies]
-blake3 = "1.5"
+blake3 = { workspace = true }
 chrono = "0.4"
 cc = "1.0"
 

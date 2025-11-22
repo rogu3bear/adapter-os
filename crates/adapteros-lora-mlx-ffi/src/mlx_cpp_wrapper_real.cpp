@@ -14,8 +14,8 @@
 #include <mutex>
 #include <cstdint>
 
-// Only compile with real MLX if MLX_USE_REAL is defined
-#ifdef MLX_USE_REAL
+// Only compile with real MLX if MLX_REAL is defined (set by build.rs)
+#ifdef MLX_REAL
 
 // Real MLX headers
 #include <mlx/mlx.h>
@@ -74,6 +74,44 @@ static inline void unrecord_allocation(uintptr_t ptr) {
         g_allocation_map.erase(it);
         g_total_memory_used.fetch_sub(bytes, std::memory_order_relaxed);
     }
+}
+
+// Helper function to create Shape from dimensions
+inline mx::Shape make_shape(int32_t size) {
+    mx::Shape shape;
+    shape.push_back(size);
+    return shape;
+}
+
+inline mx::Shape make_shape(int32_t d1, int32_t d2) {
+    mx::Shape shape;
+    shape.push_back(d1);
+    shape.push_back(d2);
+    return shape;
+}
+
+inline mx::Shape make_shape(int32_t d1, int32_t d2, int32_t d3) {
+    mx::Shape shape;
+    shape.push_back(d1);
+    shape.push_back(d2);
+    shape.push_back(d3);
+    return shape;
+}
+
+inline mx::Shape make_shape(int32_t d1, int32_t d2, int32_t d3, int32_t d4) {
+    mx::Shape shape;
+    shape.push_back(d1);
+    shape.push_back(d2);
+    shape.push_back(d3);
+    shape.push_back(d4);
+    return shape;
+}
+
+// GELU activation function implementation
+inline mx::array mlx_gelu_approx(const mx::array& x) {
+    // GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+    // Simplified approximation: x * sigmoid(1.702 * x)
+    return mx::multiply(x, mx::sigmoid(mx::multiply(x, mx::array(1.702f))));
 }
 
 // Wrapper structure for MLX arrays
@@ -195,9 +233,10 @@ struct MLXModelWrapper {
             auto ln_weight_ptr = find_weight("model.norm.weight");
             if (ln_weight_ptr) {
                 // Simple layer norm: (x - mean) / sqrt(var + eps) * weight + bias
-                auto mean = mx::mean(hidden, -1, true);
-                auto var = mx::var(hidden, -1, true);
-                hidden = (*ln_weight_ptr) * (hidden - mean) / mx::sqrt(var + 1e-5);
+                auto mean_val = mx::mean(hidden, -1, true);
+                auto var_val = mx::var(hidden, -1, true);
+                mx::array eps_const = mx::array(1e-5f);
+                hidden = mx::multiply(*ln_weight_ptr, mx::divide(mx::subtract(hidden, mean_val), mx::sqrt(mx::add(var_val, eps_const))));
             }
 
             // Language modeling head
@@ -362,10 +401,10 @@ struct MLXModelWrapper {
         if (!weight_ptr) return input;
 
         // RMSNorm: y = x / sqrt(mean(x^2) + eps) * weight
-        float eps = 1e-5f;
+        mx::array eps_arr = mx::array(1e-5f);
         mx::array squared = mx::multiply(input, input);
         mx::array mean_sq = mx::mean(squared, -1, true);  // keepdims
-        mx::array rms = mx::sqrt(mx::add(mean_sq, eps));
+        mx::array rms = mx::sqrt(mx::add(mean_sq, eps_arr));
         mx::array normalized = mx::divide(input, rms);
         mx::array output = mx::multiply(normalized, *weight_ptr);
 
@@ -380,11 +419,11 @@ struct MLXModelWrapper {
     mx::array mlp_forward(const mx::array& input, const std::string& prefix) {
         // Up projection
         mx::array up = linear_projection(input, prefix + ".up_proj");
-        up = mx::gelu(up);
+        up = mlx_gelu_approx(up);
 
         // Gate projection (simplified - would use silu activation)
         mx::array gate = linear_projection(input, prefix + ".gate_proj");
-        up = up * gate;  // Simplified gating
+        up = mx::multiply(up, gate);  // Element-wise gating
 
         // Down projection
         return linear_projection(up, prefix + ".down_proj");
@@ -517,7 +556,9 @@ extern "C" void mlx_set_default_context(mlx_context_t* ctx) {
 // Array creation operations
 extern "C" mlx_array_t* mlx_array_from_data(const float* data, int size) {
     try {
-        mx::array arr = mx::array(data, {size}, mx::float32);
+        // Copy data into vector and construct array using iterator
+        std::vector<float> vec(data, data + size);
+        mx::array arr = mx::array(vec.begin(), make_shape(size), mx::float32);
         auto wrapper = new MLXArrayWrapper(arr);
         return reinterpret_cast<mlx_array_t*>(wrapper);
     } catch (const std::exception& e) {
@@ -528,7 +569,9 @@ extern "C" mlx_array_t* mlx_array_from_data(const float* data, int size) {
 
 extern "C" mlx_array_t* mlx_array_from_ints(const int* data, int size) {
     try {
-        mx::array arr = mx::array(data, {size}, mx::int32);
+        // Copy data into vector and construct array using iterator
+        std::vector<int> vec(data, data + size);
+        mx::array arr = mx::array(vec.begin(), make_shape(size), mx::int32);
         auto wrapper = new MLXArrayWrapper(arr);
         return reinterpret_cast<mlx_array_t*>(wrapper);
     } catch (const std::exception& e) {
@@ -539,7 +582,9 @@ extern "C" mlx_array_t* mlx_array_from_ints(const int* data, int size) {
 
 extern "C" mlx_array_t* mlx_array_from_uints(const uint32_t* data, int size) {
     try {
-        mx::array arr = mx::array(data, {size}, mx::uint32);
+        // Copy data into vector and construct array using iterator
+        std::vector<uint32_t> vec(data, data + size);
+        mx::array arr = mx::array(vec.begin(), make_shape(size), mx::uint32);
         auto wrapper = new MLXArrayWrapper(arr);
         return reinterpret_cast<mlx_array_t*>(wrapper);
     } catch (const std::exception& e) {
@@ -797,12 +842,15 @@ extern "C" mlx_model_t* mlx_model_load_from_buffer(const uint8_t* buffer, size_t
             std::memcpy(data.data(), buffer + offset, data_len * sizeof(float));
             offset += data_len * sizeof(float);
 
-            // Convert shape to size_t for MLX
-            std::vector<int> mlx_shape = shape;
+            // Convert shape to MLX Shape format
+            mx::Shape mlx_shape;
+            for (int dim : shape) {
+                mlx_shape.push_back(static_cast<int32_t>(dim));
+            }
 
-            // Create MLX array
-            mx::array arr = mx::array(data.data(), mlx_shape, mx::float32);
-            model->weights[name] = arr;
+            // Create MLX array from vector iterator
+            mx::array arr = mx::array(data.begin(), mlx_shape, mx::float32);
+            model->weights.insert_or_assign(name, std::move(arr));
 
             // Track memory
             size_t bytes = data_len * sizeof(float);
@@ -1110,8 +1158,8 @@ extern "C" mlx_array_t* mlx_scaled_dot_product_attention(
     mlx_array_t* query,
     mlx_array_t* key,
     mlx_array_t* value,
-    mlx_array_t* mask,  // nullable - causal or padding mask
-    float scale
+    float scale,
+    mlx_array_t* mask  // nullable - causal or padding mask
 ) {
     if (!query || !key || !value) {
         g_last_error = "Query, key, and value arrays are required";
@@ -1423,7 +1471,7 @@ extern "C" void mlx_memory_stats(size_t* out_total_bytes, size_t* out_allocation
 }
 
 #else
-// If MLX_USE_REAL is not defined, fall back to stub
+// If MLX_REAL is not defined, fall back to stub
 #warning "Compiling without real MLX support - using stub implementation"
 // The stub implementation should be compiled separately
 #endif

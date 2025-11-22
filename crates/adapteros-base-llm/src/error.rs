@@ -2,6 +2,7 @@
 //!
 //! Defines error types following the patterns established in adapteros-core.
 
+use adapteros_core::AosError;
 use thiserror::Error;
 
 /// Base LLM specific errors
@@ -44,6 +45,21 @@ impl From<serde_json::Error> for BaseLLMError {
 impl From<std::io::Error> for BaseLLMError {
     fn from(err: std::io::Error) -> Self {
         BaseLLMError::LoadingFailed(err.to_string())
+    }
+}
+
+impl From<BaseLLMError> for AosError {
+    fn from(err: BaseLLMError) -> Self {
+        match err {
+            BaseLLMError::NotInitialized(msg) => AosError::BaseLLM(format!("Not initialized: {}", msg)),
+            BaseLLMError::LoadingFailed(msg) => AosError::BaseLLM(format!("Loading failed: {}", msg)),
+            BaseLLMError::ForwardFailed(msg) => AosError::BaseLLM(format!("Forward pass failed: {}", msg)),
+            BaseLLMError::InvalidInput(msg) => AosError::Validation(format!("Invalid LLM input: {}", msg)),
+            BaseLLMError::StateError(msg) => AosError::BaseLLM(format!("State error: {}", msg)),
+            BaseLLMError::CheckpointError(msg) => AosError::BaseLLM(format!("Checkpoint error: {}", msg)),
+            BaseLLMError::SerializationError(msg) => AosError::BaseLLM(format!("Serialization error: {}", msg)),
+            BaseLLMError::VerificationFailed(msg) => AosError::Verification(format!("LLM verification failed: {}", msg)),
+        }
     }
 }
 

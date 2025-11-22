@@ -24,7 +24,7 @@ pub async fn run(args: BackendStatusArgs) -> anyhow::Result<()> {
     }
 
     if args.detailed {
-        adapteros_lora_worker::backend_factory::capabilities::print_backend_status();
+        adapteros_lora_worker::backend_factory::capabilities::log_backend_status();
     } else {
         // Simple summary
         println!("🔧 AdapterOS Backend Status");

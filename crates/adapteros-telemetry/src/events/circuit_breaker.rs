@@ -45,6 +45,7 @@ pub fn circuit_breaker_opened(service: &str, metrics: &CircuitBreakerMetrics) ->
         "last_state_change": metrics.last_state_change
     }))
     .build()
+    .expect("Failed to build circuit breaker opened event")
 }
 
 /// Circuit breaker closed event
@@ -65,6 +66,7 @@ pub fn circuit_breaker_closed(service: &str, metrics: &CircuitBreakerMetrics) ->
         "last_state_change": metrics.last_state_change
     }))
     .build()
+    .expect("Failed to build circuit breaker closed event")
 }
 
 /// Circuit breaker half-open event
@@ -84,6 +86,7 @@ pub fn circuit_breaker_half_open(service: &str, metrics: &CircuitBreakerMetrics)
         "last_state_change": metrics.last_state_change
     }))
     .build()
+    .expect("Failed to build circuit breaker half-open event")
 }
 
 /// Circuit breaker request rejected event
@@ -107,6 +110,7 @@ pub fn circuit_breaker_request_rejected(service: &str, state: CircuitState) -> T
         "reason": reason
     }))
     .build()
+    .expect("Failed to build circuit breaker request rejected event")
 }
 
 /// Circuit breaker recovery test event
@@ -127,6 +131,7 @@ pub fn circuit_breaker_recovery_test(service: &str, success: bool) -> TelemetryE
         "test_type": "half_open_recovery"
     }))
     .build()
+    .expect("Failed to build circuit breaker recovery test event")
 }
 
 /// Circuit breaker metrics snapshot event
@@ -150,4 +155,5 @@ pub fn circuit_breaker_metrics(service: &str, metrics: &CircuitBreakerMetrics) -
         "last_state_change": metrics.last_state_change
     }))
     .build()
+    .expect("Failed to build circuit breaker metrics event")
 }

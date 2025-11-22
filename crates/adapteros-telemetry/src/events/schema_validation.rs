@@ -2,7 +2,7 @@
 //!
 //! Events for tracking API response schema validation results.
 
-use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::{identity::IdentityEnvelope, AosError};
 use crate::{EventType, LogLevel, TelemetryEventBuilder};
 use crate::unified_events::TelemetryEvent;
 use serde_json::json;
@@ -18,7 +18,7 @@ fn schema_validation_identity() -> IdentityEnvelope {
 }
 
 /// Schema validation success event
-pub fn schema_validation_success(schema_name: &str, response_size: usize, validation_time_us: u64) -> TelemetryEvent {
+pub fn schema_validation_success(schema_name: &str, response_size: usize, validation_time_us: u64) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.success".to_string()),
         LogLevel::Debug,
@@ -36,7 +36,7 @@ pub fn schema_validation_success(schema_name: &str, response_size: usize, valida
 }
 
 /// Schema validation failure event
-pub fn schema_validation_failure(schema_name: &str, error_message: &str, response_size: usize, validation_time_us: u64) -> TelemetryEvent {
+pub fn schema_validation_failure(schema_name: &str, error_message: &str, response_size: usize, validation_time_us: u64) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.failure".to_string()),
         LogLevel::Warn,
@@ -55,7 +55,7 @@ pub fn schema_validation_failure(schema_name: &str, error_message: &str, respons
 }
 
 /// Schema validation skipped event
-pub fn schema_validation_skipped(schema_name: &str, reason: &str) -> TelemetryEvent {
+pub fn schema_validation_skipped(schema_name: &str, reason: &str) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.skipped".to_string()),
         LogLevel::Debug,
@@ -72,7 +72,7 @@ pub fn schema_validation_skipped(schema_name: &str, reason: &str) -> TelemetryEv
 }
 
 /// Schema registration event
-pub fn schema_registered(schema_name: &str, version: &str) -> TelemetryEvent {
+pub fn schema_registered(schema_name: &str, version: &str) -> Result<TelemetryEvent, AosError> {
     TelemetryEventBuilder::new(
         EventType::Custom("schema_validation.registered".to_string()),
         LogLevel::Info,
@@ -95,7 +95,7 @@ pub fn response_validation_summary(
     invalid_responses: u64,
     avg_validation_time_us: f64,
     period_seconds: u64,
-) -> TelemetryEvent {
+) -> Result<TelemetryEvent, AosError> {
     let error_rate = if total_responses > 0 {
         (invalid_responses as f64 / total_responses as f64) * 100.0
     } else {
@@ -139,4 +139,5 @@ pub fn schema_compliance_alert(schema_name: &str, recent_errors: u32, threshold:
         "alert_type": "compliance_threshold_exceeded"
     }))
     .build()
+    .expect("Failed to build schema compliance alert event")
 }

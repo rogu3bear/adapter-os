@@ -59,6 +59,8 @@ impl EnclaveManager {
 
 impl Default for EnclaveManager {
     fn default() -> Self {
-        panic!("Secure Enclave not supported on this platform");
+        // Return a valid stub instance. All methods will return appropriate errors
+        // when called, so this is safe to construct even on unsupported platforms.
+        Self
     }
 }

@@ -13,10 +13,14 @@ use adapteros_lora_kernel_api::{
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::PathBuf;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, RwLock};
 
+pub mod aos_loader;
 pub mod config;
 pub mod ffi;
+
+#[cfg(test)]
+mod test_utils;
 
 pub use config::{ComputeUnits, CoreMLConfig};
 pub use ffi::{
@@ -839,6 +843,60 @@ unsafe impl Send for CoreMLBackend {}
 unsafe impl Sync for CoreMLBackend {}
 
 impl CoreMLBackend {
+    /// Create a new CoreML backend in stub mode
+    ///
+    /// This constructor creates a backend that operates in stub/fallback mode,
+    /// allowing the crate to be used for testing and development when the native
+    /// FFI bridge (coreml_bridge.mm) is not available.
+    ///
+    /// # Arguments
+    /// * `compute_units` - The compute units configuration (for compatibility)
+    ///
+    /// # Note
+    /// In stub mode, `run_step()` will:
+    /// - Generate deterministic dummy logits for testing
+    /// - Apply LoRA adapter fusion using the adapter cache
+    /// - Update position counters correctly
+    ///
+    /// This allows development and testing of the full inference pipeline
+    /// while the native FFI implementation is in progress.
+    pub fn new_stub(compute_units: ComputeUnits) -> Result<Self> {
+        let ane_status = AneStatus {
+            available: false,
+            generation: None,
+            max_batch_size: 1,
+            deterministic: true, // Stub is deterministic
+        };
+
+        let device_name = "CoreML (Stub Mode)".to_string();
+
+        tracing::info!(
+            device = %device_name,
+            compute_units = ?compute_units,
+            "Initialized CoreML backend in stub mode (native FFI not available)"
+        );
+
+        Ok(Self {
+            model_handle: std::ptr::null_mut(),
+            model_hash: None,
+            compute_units,
+            ane_status,
+            device_name,
+            metrics: BackendMetrics::default(),
+            adapter_cache: HashMap::new(),
+            gpu_fingerprints: HashMap::new(),
+            memory_baselines: RwLock::new(HashMap::new()),
+            production_mode: false,
+            use_mltensor: false,
+            tensor_bridge: TensorBridgeType::ObjCpp,
+        })
+    }
+
+    /// Check if this backend is operating in stub mode
+    pub fn is_stub_mode(&self) -> bool {
+        self.model_handle.is_null() && self.device_name.contains("Stub")
+    }
+
     /// Create a new CoreML backend
     ///
     /// # Arguments
@@ -847,11 +905,12 @@ impl CoreMLBackend {
     ///
     /// # Note
     /// CoreML FFI layer is not fully implemented. The native bridge code
-    /// (coreml_bridge.mm) is missing. Use Metal or MLX backends instead.
+    /// (coreml_bridge.mm) is missing. Use `new_stub()` for development/testing,
+    /// or Metal/MLX backends for production.
     pub fn new(compute_units: ComputeUnits, production_mode: bool) -> Result<Self> {
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = production_mode; // Suppress unused warning
+            let _ = (compute_units, production_mode); // Suppress unused warning
             return Err(AosError::Kernel(
                 "CoreML backend only available on macOS".to_string(),
             ));
@@ -859,17 +918,6 @@ impl CoreMLBackend {
 
         #[cfg(target_os = "macos")]
         {
-            // CoreML FFI layer not implemented - native bridge code missing
-            // The Objective-C++ bridge (coreml_bridge.mm) has not been written yet.
-            // Use Metal backend for production or MLX backend for training.
-            return Err(AosError::Kernel(
-                "CoreML backend FFI not implemented. Native bridge code (coreml_bridge.mm) is missing. \
-                 Use Metal backend for inference or MLX backend for training."
-                    .to_string(),
-            ));
-
-            // Original implementation preserved below for when FFI is ready:
-            #[allow(unreachable_code)]
             let is_available = unsafe { ffi::coreml_is_available() };
             if !is_available {
                 return Err(AosError::Kernel(
@@ -1310,6 +1358,122 @@ impl CoreMLBackend {
 
         Ok(result)
     }
+
+    /// Stub mode execution path for development/testing
+    ///
+    /// Generates deterministic logits and applies LoRA adapter fusion
+    /// using the adapter cache. This enables full pipeline testing
+    /// without the native FFI bridge.
+    fn run_step_stub(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        tracing::trace!(
+            position = io.position,
+            input_len = io.input_ids.len(),
+            k = ring.k,
+            "CoreML stub mode: executing inference step"
+        );
+
+        // Step 1: Generate deterministic base logits
+        // Use a position-based pattern for reproducibility
+        let vocab_size = io.output_logits.len();
+        for (i, logit) in io.output_logits.iter_mut().enumerate() {
+            // Deterministic pattern based on position and vocab index
+            let position_factor = (io.position as f32 * 0.001).sin();
+            let vocab_factor = (i as f32 * 0.0001).cos();
+            *logit = position_factor * 0.5 + vocab_factor * 0.5;
+        }
+
+        // Step 2: Apply LoRA adapter fusion based on router decisions
+        let indices = ring.active_indices();
+        let gates = ring.active_gates();
+
+        for (adapter_slot, (&adapter_idx, &gate_q15)) in indices.iter().zip(gates.iter()).enumerate()
+        {
+            // Skip inactive adapters (zero gate)
+            if gate_q15 == 0 {
+                continue;
+            }
+
+            // Convert Q15 gate to float: gate / 32768.0
+            let gate_float = (gate_q15 as f32) / 32768.0;
+
+            // Apply adapter weights from cache if available
+            if let Some(adapter_weights) = self.adapter_cache.get(&adapter_idx) {
+                // Adapter weights might be larger than logits if they include
+                // intermediate layer weights. We only use the output projection.
+                let weights_to_use = if adapter_weights.len() >= vocab_size {
+                    // Take the last `vocab_size` elements as output projection
+                    &adapter_weights[adapter_weights.len() - vocab_size..]
+                } else {
+                    // Use all weights if fewer than vocab_size
+                    adapter_weights.as_slice()
+                };
+
+                // Apply LoRA delta: output += gate * adapter_delta
+                let apply_len = weights_to_use.len().min(vocab_size);
+                for (i, &delta) in weights_to_use.iter().enumerate().take(apply_len) {
+                    io.output_logits[i] += gate_float * delta;
+                }
+
+                tracing::trace!(
+                    adapter_idx = adapter_idx,
+                    adapter_slot = adapter_slot,
+                    gate = gate_float,
+                    weights_len = weights_to_use.len(),
+                    "Applied LoRA adapter delta"
+                );
+            } else {
+                // No cached weights - apply a deterministic adapter effect
+                // This simulates adapter impact without actual weights
+                let adapter_signature = (adapter_idx as f32 * 0.1).sin();
+                for (i, logit) in io.output_logits.iter_mut().enumerate() {
+                    let adapter_effect = adapter_signature * (i as f32 * 0.00001).cos() * 0.01;
+                    *logit += gate_float * adapter_effect;
+                }
+
+                tracing::trace!(
+                    adapter_idx = adapter_idx,
+                    adapter_slot = adapter_slot,
+                    gate = gate_float,
+                    "Applied synthetic adapter effect (no cached weights)"
+                );
+            }
+        }
+
+        // Step 3: Normalize logits to softmax-like distribution for realism
+        // Find max for numerical stability
+        let max_logit = io
+            .output_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        // Apply softmax normalization
+        let mut sum_exp = 0.0f32;
+        for logit in io.output_logits.iter_mut() {
+            *logit = (*logit - max_logit).exp();
+            sum_exp += *logit;
+        }
+
+        if sum_exp > 0.0 {
+            for logit in io.output_logits.iter_mut() {
+                *logit /= sum_exp;
+            }
+        }
+
+        // Step 4: Update state
+        io.position += 1;
+        self.metrics.total_operations += 1;
+        self.metrics.successful_operations += 1;
+
+        tracing::debug!(
+            position = io.position,
+            active_adapters = indices.iter().zip(gates.iter()).filter(|(_, &g)| g != 0).count(),
+            vocab_size = vocab_size,
+            "CoreML stub mode: inference step complete"
+        );
+
+        Ok(())
+    }
 }
 
 impl FusedKernels for CoreMLBackend {
@@ -1322,6 +1486,11 @@ impl FusedKernels for CoreMLBackend {
     }
 
     fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // Check for stub mode first - this works on all platforms
+        if self.is_stub_mode() {
+            return self.run_step_stub(ring, io);
+        }
+
         #[cfg(target_os = "macos")]
         {
             if self.model_handle.is_null() {
@@ -2739,6 +2908,161 @@ mod tests {
             }
 
             unsafe { ffi::swift_coreml_tensor_free(handle) };
+        }
+    }
+
+    // ========== Stub Mode Tests ==========
+
+    #[test]
+    fn test_stub_mode_creation() {
+        let backend = CoreMLBackend::new_stub(ComputeUnits::All).unwrap();
+        assert!(backend.is_stub_mode());
+        assert_eq!(backend.device_name(), "CoreML (Stub Mode)");
+    }
+
+    #[test]
+    fn test_stub_mode_run_step() {
+        use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::All).unwrap();
+
+        // Create IO buffers with small vocab size for testing
+        let vocab_size = 100;
+        let mut io = IoBuffers::new(vocab_size);
+        io.input_ids = vec![1, 2, 3];
+
+        // Create router ring with no active adapters
+        let ring = RouterRing::new(0);
+
+        // Run step should succeed in stub mode
+        let result = backend.run_step(&ring, &mut io);
+        assert!(result.is_ok(), "run_step failed: {:?}", result);
+
+        // Position should be incremented
+        assert_eq!(io.position, 1);
+
+        // Output logits should be normalized (sum to ~1.0)
+        let sum: f32 = io.output_logits.iter().sum();
+        assert!((sum - 1.0).abs() < 0.001, "Logits not normalized: sum = {}", sum);
+
+        // Metrics should be updated
+        let metrics = backend.get_metrics();
+        assert_eq!(metrics.total_operations, 1);
+        assert_eq!(metrics.successful_operations, 1);
+    }
+
+    #[test]
+    fn test_stub_mode_with_adapters() {
+        use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::All).unwrap();
+
+        // Manually insert adapter weights into cache
+        backend.adapter_cache.insert(1, vec![0.1; 100]);
+        backend.adapter_cache.insert(2, vec![0.2; 100]);
+
+        let vocab_size = 100;
+        let mut io = IoBuffers::new(vocab_size);
+        io.input_ids = vec![1, 2, 3];
+
+        // Create router ring with 2 active adapters
+        let mut ring = RouterRing::new(2);
+        ring.set(&[1, 2], &[16384, 8192]); // Q15 gates: 0.5 and 0.25
+
+        // Run step should succeed
+        let result = backend.run_step(&ring, &mut io);
+        assert!(result.is_ok(), "run_step with adapters failed: {:?}", result);
+
+        // Position should be incremented
+        assert_eq!(io.position, 1);
+
+        // Logits should still be normalized
+        let sum: f32 = io.output_logits.iter().sum();
+        assert!((sum - 1.0).abs() < 0.001, "Logits not normalized: sum = {}", sum);
+    }
+
+    #[test]
+    fn test_stub_mode_deterministic() {
+        use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+
+        let mut backend1 = CoreMLBackend::new_stub(ComputeUnits::All).unwrap();
+        let mut backend2 = CoreMLBackend::new_stub(ComputeUnits::All).unwrap();
+
+        let vocab_size = 100;
+
+        // Run same operation on both backends
+        let mut io1 = IoBuffers::new(vocab_size);
+        io1.input_ids = vec![1, 2, 3];
+        let ring1 = RouterRing::new(0);
+
+        let mut io2 = IoBuffers::new(vocab_size);
+        io2.input_ids = vec![1, 2, 3];
+        let ring2 = RouterRing::new(0);
+
+        backend1.run_step(&ring1, &mut io1).unwrap();
+        backend2.run_step(&ring2, &mut io2).unwrap();
+
+        // Results should be identical (deterministic)
+        for (i, (l1, l2)) in io1.output_logits.iter().zip(io2.output_logits.iter()).enumerate() {
+            assert!(
+                (l1 - l2).abs() < 1e-6,
+                "Non-deterministic output at index {}: {} vs {}",
+                i, l1, l2
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_ane_detection_comprehensive() {
+        // Test 1: Basic ANE availability functions
+        let ane_available = has_neural_engine();
+        let neural_engine_available = is_neural_engine_available();
+
+        println!("\n=== ANE Detection Comprehensive Test ===");
+        println!("has_neural_engine(): {}", ane_available);
+        println!("is_neural_engine_available(): {}", neural_engine_available);
+
+        // Test 2: Create backend and check ANE status
+        match CoreMLBackend::new_default(ComputeUnits::All) {
+            Ok(backend) => {
+                let ane_status = backend.ane_status();
+                println!("\nANE Status from Backend:");
+                println!("  Available: {}", ane_status.available);
+                println!("  Generation: {:?}", ane_status.generation);
+                println!("  Max Batch Size: {}", ane_status.max_batch_size);
+                println!("  Deterministic: {}", ane_status.deterministic);
+
+                // Map generation to chip
+                if let Some(gen) = ane_status.generation {
+                    let chip = match gen {
+                        4 => "M1",
+                        5 => "M2",
+                        6 => "M3",
+                        7 => "M4",
+                        n if n >= 8 => "M5+",
+                        _ => "Unknown",
+                    };
+                    println!("  Chip: Apple {} (Generation {})", chip, gen);
+                }
+
+                // Verify consistency
+                assert_eq!(ane_available, ane_status.available,
+                    "ANE availability mismatch between detection functions");
+            }
+            Err(e) => {
+                println!("Note: Failed to create backend (expected on unsupported systems): {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_ane_detection_handles_non_macos() {
+        // On non-macOS, these should return false
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(!has_neural_engine(), "ANE should not be available on non-macOS");
+            assert!(!is_neural_engine_available(), "Neural engine should not be available on non-macOS");
         }
     }
 }

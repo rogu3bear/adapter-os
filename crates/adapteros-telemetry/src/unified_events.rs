@@ -7,7 +7,7 @@
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //! - CLAUDE.md L132: "Telemetry via `TelemetryWriter::log(event_type, data)`"
 
-use adapteros_core::{identity::IdentityEnvelope, B3Hash};
+use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -306,17 +306,18 @@ impl TelemetryEventBuilder {
     }
 
     /// Build the final event and compute hash
-    pub fn build(mut self) -> TelemetryEvent {
+    pub fn build(mut self) -> Result<TelemetryEvent, AosError> {
         // Validate identity
-        if let Err(e) = self.event.identity.validate() {
-            panic!("Invalid identity envelope: {}", e);
-        }
+        self.event
+            .identity
+            .validate()
+            .map_err(|e| AosError::Validation(format!("Invalid identity envelope: {}", e)))?;
 
         // Compute event hash for integrity
         let event_data = serde_json::to_vec(&self.event).unwrap();
         self.event.hash = Some(B3Hash::hash(&event_data).to_string());
 
-        self.event
+        Ok(self.event)
     }
 }
 
@@ -350,7 +351,8 @@ mod tests {
         )
         .component("adapteros-core".to_string())
         .user_id("test-user".to_string())
-        .build();
+        .build()
+        .unwrap();
 
         assert_eq!(event.event_type, "system.start");
         assert_eq!(event.message, "System started successfully");

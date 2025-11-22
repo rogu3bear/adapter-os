@@ -1,5 +1,6 @@
 //! Error types for the Domain Adapter Layer
 
+use adapteros_core::AosError;
 use thiserror::Error;
 
 /// Error types for domain adapter operations

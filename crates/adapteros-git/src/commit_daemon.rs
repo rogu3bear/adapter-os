@@ -90,13 +90,15 @@ impl CommitDaemon {
                         if let Err(e) =
                             Self::commit_batches(&batches, &db, &branch_manager, &config).await
                         {
-                            error!("Failed to commit batches: {}", e);
+                            error!(error = %e, "Failed to commit batches");
                         }
                     }
                     // Process incoming file change events
                     SelectResult2::Second(join_result) => match join_result {
                         Ok(recv_result) => match recv_result {
                             Ok(event) => {
+                                let event_adapter_id = event.adapter_id.clone();
+                                let event_repo_id = event.repo_id.clone();
                                 if let Err(e) = Self::process_event(
                                     event,
                                     &batches,
@@ -104,15 +106,20 @@ impl CommitDaemon {
                                 )
                                 .await
                                 {
-                                    error!("Failed to process file change event: {}", e);
+                                    error!(
+                                        error = %e,
+                                        adapter_id = ?event_adapter_id,
+                                        repo_id = %event_repo_id,
+                                        "Failed to process file change event"
+                                    );
                                 }
                             }
                             Err(e) => {
-                                error!("Failed to receive event: {}", e);
+                                error!(error = %e, "Failed to receive event from channel");
                             }
                         },
                         Err(e) => {
-                            error!("Task join error: {}", e);
+                            error!(error = %e, task = "event_receiver", "Task join error");
                         }
                     },
                 }
@@ -197,7 +204,7 @@ impl CommitDaemon {
             }
 
             if let Err(e) = Self::commit_batch(batch, db, branch_manager, config).await {
-                error!("Failed to commit batch for adapter {}: {}", adapter_id, e);
+                error!(error = %e, adapter_id = %adapter_id, "Failed to commit batch for adapter");
                 // Continue with other batches even if one fails
             }
         }
@@ -319,7 +326,12 @@ impl CommitDaemon {
 
         // Store commit hash in database transaction
         if let Err(e) = Self::store_commit_record(db, &batch_for_db, &commit_id).await {
-            error!("Failed to store commit record: {}", e);
+            error!(
+                error = %e,
+                adapter_id = %adapter_id_log,
+                commit_id = %commit_id,
+                "Failed to store commit record"
+            );
             // Don't fail the commit for DB errors - Git operation succeeded
         }
 

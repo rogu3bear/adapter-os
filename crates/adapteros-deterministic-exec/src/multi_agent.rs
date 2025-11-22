@@ -187,7 +187,7 @@ impl AgentBarrier {
                 "total_agents": self.agent_ids.len(),
                 "generation": self.generation.load(Ordering::Acquire),
             }))
-            .build();
+            .build()?;
 
             let _ = telemetry.log_event(event);
         }
@@ -251,9 +251,15 @@ impl AgentBarrier {
                 "generation": self.generation.load(Ordering::Acquire),
                 "total_agents": self.agent_ids.len(),
             }))
-            .build();
+            .build()
+            .map_err(|e| {
+                warn!("Failed to build barrier wait_start event: {}", e);
+                e
+            });
 
-            let _ = telemetry.log_event(event);
+            if let Ok(event) = event {
+                let _ = telemetry.log_event(event);
+            }
         }
 
         // Record this agent's tick
@@ -312,9 +318,15 @@ impl AgentBarrier {
                         "total_agents": self.agent_ids.len(),
                         "timeout_seconds": timeout_duration.as_secs(),
                     }))
-                    .build();
+                    .build()
+                    .map_err(|e| {
+                        warn!("Failed to build barrier timeout event: {}", e);
+                        e
+                    });
 
-                    let _ = telemetry.log_event(event);
+                    if let Ok(event) = event {
+                        let _ = telemetry.log_event(event);
+                    }
                 }
 
                 self.failed.store(true, Ordering::Release);
@@ -390,9 +402,15 @@ impl AgentBarrier {
                                     "living_agents": living_count,
                                     "dead_agents": dead_count,
                                 }))
-                                .build();
+                                .build()
+                                .map_err(|e| {
+                                    warn!("Failed to build barrier generation_advanced event: {}", e);
+                                    e
+                                });
 
-                            let _ = telemetry.log_event(event);
+                            if let Ok(event) = event {
+                                let _ = telemetry.log_event(event);
+                            }
                         }
 
                         self.notify.notify_waiters(); // Wake everyone up
@@ -434,9 +452,15 @@ impl AgentBarrier {
                                     "actual_gen": actual_gen,
                                     "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
                                 }))
-                                .build();
+                                .build()
+                                .map_err(|e| {
+                                    warn!("Failed to build barrier cas_loser_proceed event: {}", e);
+                                    e
+                                });
 
-                                let _ = telemetry.log_event(event);
+                                if let Ok(event) = event {
+                                    let _ = telemetry.log_event(event);
+                                }
                             }
 
                             return Ok(());

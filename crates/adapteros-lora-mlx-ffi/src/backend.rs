@@ -1,6 +1,6 @@
 //! MLX FFI backend implementation for FusedKernels trait
 
-use crate::{LoRAAdapter, MLXFFIModel};
+use crate::{LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig};
 use adapteros_core::{derive_seed, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use parking_lot::RwLock;
@@ -51,6 +51,8 @@ pub struct MLXFFIBackend {
     health_status: Arc<RwLock<BackendHealth>>,
     /// Optional monitoring integration
     pub monitor: Option<Arc<std::sync::Mutex<crate::monitoring::MLXMonitor>>>,
+    /// Memory pool for GPU buffer management
+    pub memory_pool: Arc<MLXMemoryPool>,
     /// Memory pool size tracking (performance optimization) - raw pointers handled separately
     pub memory_pool_size: Arc<RwLock<usize>>,
     /// Performance metrics
@@ -98,6 +100,9 @@ impl MLXFFIBackend {
 
     /// Create new MLX FFI backend with custom resilience configuration
     pub fn with_resilience_config(model: MLXFFIModel, config: MLXResilienceConfig) -> Self {
+        let memory_pool_config = MLXMemoryPoolConfig::default();
+        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
+
         Self {
             model: Arc::new(model),
             adapters: Arc::new(RwLock::new(HashMap::new())),
@@ -114,6 +119,7 @@ impl MLXFFIBackend {
                 active_adapters: 0,
             })),
             monitor: None,
+            memory_pool,
             memory_pool_size: Arc::new(RwLock::new(0)),
             performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
                 total_inference_time_ms: 0,
@@ -152,6 +158,9 @@ impl MLXFFIBackend {
             "Initialized MLX backend with HKDF-derived seed"
         );
 
+        let memory_pool_config = MLXMemoryPoolConfig::default();
+        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
+
         Ok(Self {
             model: Arc::new(model),
             adapters: Arc::new(RwLock::new(HashMap::new())),
@@ -168,6 +177,7 @@ impl MLXFFIBackend {
                 active_adapters: 0,
             })),
             monitor: None,
+            memory_pool,
             memory_pool_size: Arc::new(RwLock::new(0)),
             performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
                 total_inference_time_ms: 0,
@@ -202,6 +212,7 @@ impl MLXFFIBackend {
             resilience_config: self.resilience_config.clone(),
             health_status: self.health_status.clone(),
             monitor: None,
+            memory_pool: self.memory_pool.clone(),
             memory_pool_size: self.memory_pool_size.clone(),
             performance_metrics: self.performance_metrics.clone(),
             manifest_hash: self.manifest_hash,
@@ -263,12 +274,27 @@ impl MLXFFIBackend {
     /// Register a LoRA adapter
     pub fn register_adapter(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
         let adapter_name = adapter.id().to_string();
+
+        // Calculate estimated memory usage
+        let rank = adapter.config().rank;
+        let num_modules = adapter.config().target_modules.len();
+        let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
+
+        // Track adapter memory in pool
+        self.memory_pool.track_adapter(adapter_id, estimated_bytes);
+
         let mut adapters = self.adapters.write();
         adapters.insert(adapter_id, Arc::new(adapter));
+
+        // Update memory pool size tracking
+        let current_size = *self.memory_pool_size.read();
+        *self.memory_pool_size.write() = current_size + estimated_bytes;
+
         tracing::info!(
-            "Registered LoRA adapter {} with ID {}",
-            adapter_name,
-            adapter_id
+            adapter_id = adapter_id,
+            adapter_name = %adapter_name,
+            estimated_bytes = estimated_bytes,
+            "Registered LoRA adapter with memory tracking"
         );
         Ok(())
     }
@@ -281,12 +307,27 @@ impl MLXFFIBackend {
     /// Load adapter at runtime (hot-swap)
     pub fn load_adapter_runtime(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
         let adapter_name = adapter.id().to_string();
+
+        // Calculate estimated memory usage
+        let rank = adapter.config().rank;
+        let num_modules = adapter.config().target_modules.len();
+        let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
+
+        // Track adapter memory in pool
+        self.memory_pool.track_adapter(adapter_id, estimated_bytes);
+
         let mut adapters = self.adapters.write();
         adapters.insert(adapter_id, Arc::new(adapter));
+
+        // Update memory pool size tracking
+        let current_size = *self.memory_pool_size.read();
+        *self.memory_pool_size.write() = current_size + estimated_bytes;
+
         tracing::info!(
-            "Hot-loaded LoRA adapter {} with ID {}",
-            adapter_name,
-            adapter_id
+            adapter_id = adapter_id,
+            adapter_name = %adapter_name,
+            estimated_bytes = estimated_bytes,
+            "Hot-loaded LoRA adapter with memory tracking"
         );
         Ok(())
     }
@@ -295,7 +336,21 @@ impl MLXFFIBackend {
     pub fn unload_adapter_runtime(&self, adapter_id: u16) -> Result<()> {
         let mut adapters = self.adapters.write();
         if let Some(adapter) = adapters.remove(&adapter_id) {
-            tracing::info!("Unloaded LoRA adapter {} (ID {})", adapter.id(), adapter_id);
+            // Get the memory usage before removal for proper cleanup
+            if let Ok(memory_usage) = self.get_adapter_memory_usage(adapter_id) {
+                // Update memory pool size tracking
+                let current_size = *self.memory_pool_size.read();
+                *self.memory_pool_size.write() = current_size.saturating_sub(memory_usage);
+            }
+
+            // Stop tracking adapter in memory pool
+            self.memory_pool.untrack_adapter(adapter_id);
+
+            tracing::info!(
+                adapter_id = adapter_id,
+                adapter_name = %adapter.id(),
+                "Unloaded LoRA adapter and freed memory"
+            );
             Ok(())
         } else {
             Err(adapteros_core::AosError::Lifecycle(format!(
@@ -360,6 +415,85 @@ impl MLXFFIBackend {
         let adapter_refs: Vec<&LoRAAdapter> = active_adapters.iter().map(|a| a.as_ref()).collect();
 
         crate::routing::apply_multi_lora(&adapter_refs, &gates, module_name, input, base_output)
+    }
+
+    /// Get current memory pool statistics
+    pub fn get_memory_pool_stats(&self) -> crate::MemoryPoolStats {
+        self.memory_pool.get_stats()
+    }
+
+    /// Get total adapter memory tracked in the pool
+    pub fn get_total_adapter_memory(&self) -> usize {
+        self.memory_pool.total_adapter_memory()
+    }
+
+    /// Clean up idle buffers in the memory pool
+    pub fn cleanup_idle_buffers(&self) -> usize {
+        self.memory_pool.cleanup_idle()
+    }
+
+    /// Handle memory pressure by freeing buffers
+    ///
+    /// # Arguments
+    /// * `bytes_to_free` - Target number of bytes to free
+    ///
+    /// # Returns
+    /// Actual number of bytes freed
+    pub fn handle_memory_pressure(&self, bytes_to_free: usize) -> usize {
+        let freed = self.memory_pool.handle_memory_pressure(bytes_to_free);
+
+        if freed > 0 {
+            let freed_mb = freed as f32 / (1024.0 * 1024.0);
+            tracing::warn!(
+                freed_mb = freed_mb,
+                bytes_to_free = bytes_to_free,
+                "Memory pressure handled: freed {} MB",
+                freed_mb
+            );
+        }
+
+        freed
+    }
+
+    /// Register a memory pressure callback
+    ///
+    /// Callbacks are invoked when memory usage exceeds the pressure threshold.
+    pub fn register_memory_pressure_callback(
+        &self,
+        callback: crate::memory_pool::MemoryPressureCallback,
+    ) {
+        self.memory_pool.register_pressure_callback(callback);
+    }
+
+    /// Clear all pooled memory buffers
+    pub fn clear_memory_pool(&self) {
+        self.memory_pool.clear_pool();
+        *self.memory_pool_size.write() = 0;
+    }
+
+    /// Get list of tracked adapter IDs
+    pub fn tracked_adapter_ids(&self) -> Vec<u16> {
+        self.memory_pool.tracked_adapters()
+    }
+
+    /// Update memory pool size metric (call during inference if needed)
+    pub fn update_memory_metrics(&self) {
+        let (active_bytes, pooled_bytes) = self.memory_pool.current_usage();
+        let total_bytes = active_bytes + pooled_bytes;
+        let total_mb = total_bytes as f32 / (1024.0 * 1024.0);
+
+        let mut metrics = self.performance_metrics.write();
+        if total_mb > metrics.peak_memory_usage_mb {
+            metrics.peak_memory_usage_mb = total_mb;
+        }
+
+        tracing::debug!(
+            active_mb = active_bytes as f32 / (1024.0 * 1024.0),
+            pooled_mb = pooled_bytes as f32 / (1024.0 * 1024.0),
+            total_mb = total_mb,
+            peak_mb = metrics.peak_memory_usage_mb,
+            "Memory pool metrics updated"
+        );
     }
 }
 
@@ -514,11 +648,13 @@ impl FusedKernels for MLXFFIBackend {
                     // Apply each active adapter with matrix-aware adaptation
                     for &adapter_idx in &ring.indices {
                         if let Some(adapter) = adapters.get(&(adapter_idx as u16)) {
-                            let scale = adapter.config().scale;
+                            // Calculate scale from alpha and rank (standard LoRA scaling)
+                            let config = adapter.config();
+                            let scale = config.alpha / config.rank as f32;
 
                             // Real LoRA implementation: output = input + scale * LoRA(input)
                             // We simulate this using matrix properties and learned patterns
-                            for module_name in &adapter.config().target_modules.clone() {
+                            for module_name in &config.target_modules.clone() {
                                 if let (Some(lora_a), Some(lora_b)) = (
                                     adapter.lora_a.get(module_name),
                                     adapter.lora_b.get(module_name)
@@ -528,9 +664,10 @@ impl FusedKernels for MLXFFIBackend {
                                     let adaptation_strength = (rank as f32).sqrt() * scale * 0.001;
 
                                     // Apply position-aware adaptation that simulates matrix operations
+                                    let logits_len = adapted_logits.len();
                                     for (i, logit) in adapted_logits.iter_mut().enumerate() {
                                         // Simulate LoRA projection: different positions get different adaptations
-                                        let position_factor = (i as f32 / adapted_logits.len() as f32);
+                                        let position_factor = i as f32 / logits_len as f32;
                                         let adapter_factor = (adapter_idx as f32 * 0.1 + module_name.len() as f32 * 0.05).sin();
                                         let matrix_factor = (rank as f32 * 0.01 * position_factor).cos();
 
@@ -564,9 +701,9 @@ impl FusedKernels for MLXFFIBackend {
                     logits
                 };
 
-                // Clean up hidden states if any
-                if !hidden_states_ptr.is_null() {
-                    unsafe { crate::mlx_array_free(hidden_states_ptr) };
+                // Clean up hidden states array using the proper FFI function
+                if !hidden_states_ptr.is_null() && hidden_count > 0 {
+                    unsafe { crate::mlx_hidden_states_free(hidden_states_ptr, hidden_count) };
                 }
 
                 io.output_logits.copy_from_slice(&final_logits);
@@ -755,6 +892,7 @@ impl Clone for MLXFFIBackend {
             resilience_config: self.resilience_config.clone(),
             health_status: self.health_status.clone(),
             monitor: self.monitor.clone(),
+            memory_pool: self.memory_pool.clone(),
             memory_pool_size: self.memory_pool_size.clone(),
             performance_metrics: self.performance_metrics.clone(),
             manifest_hash: self.manifest_hash,

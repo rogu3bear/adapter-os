@@ -3,11 +3,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tracing::{span, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::{Layer, Registry};
+use tracing_subscriber::Layer;
 
 /// Captured span information with timing data
 #[derive(Debug, Clone)]

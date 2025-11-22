@@ -5217,31 +5217,40 @@ pub async fn list_repositories(
             )
         })?;
 
-    let responses: Vec<RepositoryResponse> = repos
-        .into_iter()
-        .map(|r| {
-            let languages: Vec<String> = r
-                .languages_json
-                .as_ref()
-                .and_then(|l| serde_json::from_str(l).ok())
-                .unwrap_or_default();
-            let frameworks: Vec<String> = Vec::new(); // TODO: Add frameworks field to Repository
+    let mut responses = Vec::new();
+    for r in repos {
+        let languages: Vec<String> = r
+            .languages_json
+            .as_ref()
+            .and_then(|l| serde_json::from_str(l).ok())
+            .unwrap_or_default();
+        let frameworks: Vec<String> = Vec::new(); // TODO: Add frameworks field to Repository
 
-            RepositoryResponse { schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                id: r.id,
-                repo_id: r.repo_id,
-                path: r.path,
-                languages,
-                default_branch: r.default_branch,
-                status: r.status,
-                frameworks,
-                file_count: Some(0),   // TODO: Get from CodeGraphMetadata
-                symbol_count: Some(0), // TODO: Get from CodeGraphMetadata
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-            }
-        })
-        .collect();
+        // Fetch latest CodeGraphMetadata for file/symbol counts
+        let (file_count, symbol_count) = match state
+            .db
+            .get_latest_code_graph_metadata(&r.repo_id)
+            .await
+        {
+            Ok(Some(metadata)) => (Some(metadata.file_count as i64), Some(metadata.symbol_count as i64)),
+            _ => (None, None),
+        };
+
+        responses.push(RepositoryResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            id: r.id,
+            repo_id: r.repo_id,
+            path: r.path,
+            languages,
+            default_branch: r.default_branch,
+            status: r.status,
+            frameworks,
+            file_count,
+            symbol_count,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        });
+    }
 
     Ok(Json(responses))
 }
@@ -5608,36 +5617,125 @@ pub async fn get_commit_diff(
     )
 )]
 pub async fn debug_routing(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
 ) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // TODO: Integrate with actual router service
-    // For now, return enhanced debug info based on request
+    use adapteros_lora_router::{CodeFeatures, Router, RouterWeights, AdapterInfo};
+
+    // Extract code features from prompt and context
+    let combined_context = match req.context {
+        Some(ctx) => format!("{} {}", req.prompt, ctx),
+        None => req.prompt.clone(),
+    };
+    let code_features = CodeFeatures::from_context(&combined_context);
+
+    // Fetch all adapters from database
+    let adapters = state.db.list_adapters()
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list adapters: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to fetch adapters for routing debug")
+                        .with_code("ADAPTER_FETCH_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Convert database adapters to router AdapterInfo
+    let adapter_infos: Vec<AdapterInfo> = adapters
+        .iter()
+        .map(|adapter| {
+            let languages = adapter
+                .languages_json
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<usize>>(json).ok())
+                .unwrap_or_default();
+
+            AdapterInfo {
+                id: adapter.id.clone(),
+                framework: adapter.framework.clone(),
+                languages,
+                tier: adapter.tier.clone(),
+            }
+        })
+        .collect();
+
+    // Create router and route with code features
+    let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+    let decision = router.route_with_code_features(&code_features, &adapter_infos);
+    let explanation = router.explain_score(&code_features.to_vector());
+
+    // Build adapter scores
+    let mut adapter_scores: Vec<AdapterScore> = Vec::new();
+    for (idx, adapter) in adapter_infos.iter().enumerate() {
+        let is_selected = decision.indices.iter().any(|&i| i as usize == idx);
+        let gate_value = if is_selected {
+            let position = decision.indices.iter().position(|&i| i as usize == idx).unwrap_or(0);
+            decision.gates_f32()[position] as f64
+        } else {
+            0.0
+        };
+
+        adapter_scores.push(AdapterScore {
+            adapter_id: adapter.id.clone(),
+            score: explanation.total_score as f64,
+            gate_value,
+            selected: is_selected,
+        });
+    }
+
+    // Extract language from code features
+    let detected_lang_idx = code_features
+        .lang_one_hot
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(idx, _)| idx);
+
+    let language = detected_lang_idx.and_then(|idx| {
+        match idx {
+            0 => Some("python"),
+            1 => Some("rust"),
+            2 => Some("javascript"),
+            3 => Some("typescript"),
+            4 => Some("go"),
+            5 => Some("java"),
+            6 => Some("cpp"),
+            7 => Some("csharp"),
+            _ => None,
+        }
+    }).map(|s| s.to_string());
+
+    let frameworks: Vec<String> = code_features.framework_prior
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect();
+
+    let selected_adapters: Vec<String> = decision.indices
+        .iter()
+        .filter_map(|&idx| adapter_infos.get(idx as usize).map(|a| a.id.clone()))
+        .collect();
+
     Ok(Json(RoutingDebugResponse {
         features: FeatureVector {
-            language: Some("rust".to_string()),
-            frameworks: vec!["axum".to_string()],
-            symbol_hits: 5,
-            path_tokens: vec!["handlers".to_string()],
-            verb: "debug".to_string(),
+            language,
+            frameworks,
+            symbol_hits: code_features.symbol_hits as i32,
+            path_tokens: code_features.path_tokens.clone(),
+            verb: format!("{:?}", code_features.prompt_verb),
         },
-        adapter_scores: vec![
-            AdapterScore {
-                adapter_id: "rust-code-v1".to_string(),
-                score: 0.85,
-                gate_value: 0.75,
-                selected: true,
-            },
-            AdapterScore {
-                adapter_id: "general-coding-v1".to_string(),
-                score: 0.65,
-                gate_value: 0.60,
-                selected: false,
-            },
-        ],
-        selected_adapters: vec!["rust-code-v1".to_string()],
-        explanation: format!("Selected rust-code-v1 based on prompt '{}'", req.prompt),
+        adapter_scores,
+        selected_adapters,
+        explanation: format!(
+            "Router selected {} adapters with entropy {:.3}. {}",
+            decision.indices.len(),
+            decision.entropy,
+            explanation.format()
+        ),
     }))
 }
 
@@ -5783,71 +5881,82 @@ pub async fn routing_decisions(
     };
 
     // Convert database records to API response format
-    let items: Vec<RoutingDecision> = db_decisions
-        .iter()
-        .map(|db_decision| {
-            // Parse candidates JSON
-            let candidates: Vec<adapteros_db::RouterCandidate> =
-                serde_json::from_str(&db_decision.candidate_adapters)
-                    .unwrap_or_default();
+    let mut items: Vec<RoutingDecision> = Vec::new();
+    for db_decision in db_decisions.iter() {
+        // Parse candidates JSON
+        let candidates: Vec<adapteros_db::RouterCandidate> =
+            serde_json::from_str(&db_decision.candidate_adapters)
+                .unwrap_or_default();
 
-            // Convert to API format with Q15 to float conversion
-            let candidate_infos: Vec<RouterCandidateInfo> = candidates
-                .iter()
-                .map(|c| {
-                    let gate_float = (c.gate_q15 as f32) / 32768.0;
-                    RouterCandidateInfo {
-                        adapter_idx: c.adapter_idx,
-                        adapter_name: None,  // TODO: Lookup from registry if needed
-                        raw_score: c.raw_score,
-                        gate_q15: c.gate_q15,
-                        gate_float,
-                        selected: c.gate_q15 > 0,
-                    }
-                })
-                .collect();
+        // Lookup stack name from adapter_stacks table if stack_id is available
+        let stack_name = if let Some(stack_id) = &db_decision.stack_id {
+            state.db
+                .get_stack(&params.tenant, stack_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|stack| stack.name)
+        } else {
+            None
+        };
 
-            // Extract selected adapters for legacy field
-            let adapters_used: Vec<String> = db_decision
-                .selected_adapter_ids
-                .clone()
-                .unwrap_or_default()
-                .split(',')
-                .map(|s| s.to_string())
-                .collect();
+        // Convert to API format with Q15 to float conversion
+        let candidate_infos: Vec<RouterCandidateInfo> = candidates
+            .iter()
+            .map(|c| {
+                let gate_float = (c.gate_q15 as f32) / 32768.0;
+                RouterCandidateInfo {
+                    adapter_idx: c.adapter_idx,
+                    adapter_name: None,  // adapter_idx is internal routing index; adapter IDs are in adapters_used
+                    raw_score: c.raw_score,
+                    gate_q15: c.gate_q15,
+                    gate_float,
+                    selected: c.gate_q15 > 0,
+                }
+            })
+            .collect();
 
-            // Extract activations (gate values as floats)
-            let activations: Vec<f64> = candidate_infos
-                .iter()
-                .filter(|c| c.selected)
-                .map(|c| c.gate_float as f64)
-                .collect();
+        // Extract selected adapters for legacy field
+        let adapters_used: Vec<String> = db_decision
+            .selected_adapter_ids
+            .clone()
+            .unwrap_or_default()
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
 
-            RoutingDecision {
-                id: db_decision.id.clone(),
-                tenant_id: db_decision.tenant_id.clone(),
-                timestamp: db_decision.timestamp.clone(),
-                request_id: db_decision.request_id.clone(),
-                step: db_decision.step,
-                input_token_id: db_decision.input_token_id,
-                stack_id: db_decision.stack_id.clone(),
-                stack_name: None,  // TODO: Join with adapter_stacks table if needed
-                stack_hash: db_decision.stack_hash.clone(),
-                entropy: db_decision.entropy,
-                tau: db_decision.tau,
-                entropy_floor: db_decision.entropy_floor,
-                k_value: db_decision.k_value,
-                candidates: candidate_infos,
-                router_latency_us: db_decision.router_latency_us,
-                total_inference_latency_us: db_decision.total_inference_latency_us,
-                overhead_pct: db_decision.overhead_pct,
-                adapters_used,
-                activations,
-                reason: format!("entropy={:.2}, k={}", db_decision.entropy, db_decision.k_value.unwrap_or(0)),
-                trace_id: db_decision.request_id.clone().unwrap_or_default(),
-            }
-        })
-        .collect();
+        // Extract activations (gate values as floats)
+        let activations: Vec<f64> = candidate_infos
+            .iter()
+            .filter(|c| c.selected)
+            .map(|c| c.gate_float as f64)
+            .collect();
+
+        items.push(RoutingDecision {
+            id: db_decision.id.clone(),
+            tenant_id: db_decision.tenant_id.clone(),
+            timestamp: db_decision.timestamp.clone(),
+            request_id: db_decision.request_id.clone(),
+            step: db_decision.step,
+            input_token_id: db_decision.input_token_id,
+            stack_id: db_decision.stack_id.clone(),
+            stack_name,
+            stack_hash: db_decision.stack_hash.clone(),
+            entropy: db_decision.entropy,
+            tau: db_decision.tau,
+            entropy_floor: db_decision.entropy_floor,
+            k_value: db_decision.k_value,
+            candidates: candidate_infos,
+            router_latency_us: db_decision.router_latency_us,
+            total_inference_latency_us: db_decision.total_inference_latency_us,
+            overhead_pct: db_decision.overhead_pct,
+            adapters_used,
+            activations,
+            reason: format!("entropy={:.2}, k={}", db_decision.entropy, db_decision.k_value.unwrap_or(0)),
+            trace_id: db_decision.request_id.clone().unwrap_or_default(),
+        });
+    }
 
     info!(count = items.len(), "Successfully retrieved routing decisions");
 

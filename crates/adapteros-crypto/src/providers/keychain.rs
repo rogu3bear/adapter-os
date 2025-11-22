@@ -2527,17 +2527,17 @@ mod tests {
             .generate("debug-key", KeyAlgorithm::Ed25519)
             .await
             .unwrap();
-        println!("Generated handle: {:?}", handle);
+        debug!(handle = ?handle, "Generated handle");
 
         // Test signing - this should work if the key was stored
         let message = b"Hello, world!";
         match provider.sign("debug-key", message).await {
             Ok(signature) => {
-                println!("Signing successful, signature len: {}", signature.len());
+                info!(signature_len = signature.len(), "Signing successful");
                 assert!(!signature.is_empty());
             }
             Err(e) => {
-                println!("Signing failed: {:?}", e);
+                error!(error = ?e, "Signing failed");
                 panic!("Signing should work after key generation");
             }
         }

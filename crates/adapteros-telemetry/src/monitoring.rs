@@ -161,7 +161,8 @@ impl<S: TelemetrySink> MonitoringTelemetry<S> {
             builder = builder.component(component.clone());
         }
         self.sink
-            .log_event(builder.metadata(serde_json::to_value(metadata)?).build())
+            .log_event(builder.metadata(serde_json::to_value(metadata)?)
+                .build()?)
     }
 }
 

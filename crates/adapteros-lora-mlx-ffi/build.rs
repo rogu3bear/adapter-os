@@ -256,7 +256,7 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         .include(".");
 
     // Define macro to indicate real MLX compilation
-    build.define("MLX_REAL", None);
+    build.define("MLX_REAL", "1");
 
     if cfg!(target_env = "msvc") {
         build.flag("/EHsc");

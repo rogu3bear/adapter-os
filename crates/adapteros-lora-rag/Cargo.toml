@@ -28,5 +28,5 @@ pgvector = []
 fts5 = []
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

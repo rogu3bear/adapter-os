@@ -34,7 +34,7 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-api-types = { path = "../adapteros-api-types" }
-blake3 = "1.5"
+blake3 = { workspace = true }
 hex = "0.4"
 
 # Process management
@@ -61,4 +61,4 @@ metrics-exporter-prometheus = "0.15"
 
 [dev-dependencies]
 tokio-test = "0.4"
-tempfile = "3.0"
+tempfile = { workspace = true }

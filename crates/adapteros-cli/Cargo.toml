@@ -59,12 +59,12 @@ toml = "0.8"
 tempfile = "3.8"
 walkdir = "2.4"
 chrono = "0.4"
-hex = "0.4"
+hex = { workspace = true }
 zip = "1.0"
 fs_extra = "1.3"
 sysinfo = "0.30"
 sqlx = { workspace = true }
-blake3 = "1.5"
+blake3 = { workspace = true }
 hyper-util = "0.1"
 tower = "0.4"
 once_cell = "1.19"

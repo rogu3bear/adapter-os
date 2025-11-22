@@ -5,7 +5,6 @@
 
 use adapteros_api::streaming::{StreamChoice, StreamChunk, StreamDelta, StreamMessage};
 use adapteros_api::{ChatCompletionRequest, ChatMessage};
-use adapteros_core::AosError;
 use adapteros_lora_worker::Worker;
 use adapteros_manifest::{AdapterEntry, ManifestV3, Policies, TrustLevel};
 use futures::StreamExt;

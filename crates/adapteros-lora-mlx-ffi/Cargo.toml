@@ -40,6 +40,7 @@ cc = "1.0"
 [dev-dependencies]
 tempfile.workspace = true
 tokio.workspace = true
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
 default = []
@@ -108,3 +109,6 @@ test = false
 name = "mlx_seed_test"
 test = false
 
+[[bench]]
+name = "mlx_performance"
+harness = false

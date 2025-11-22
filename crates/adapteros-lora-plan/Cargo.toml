@@ -18,4 +18,4 @@ safetensors = { workspace = true }
 memmap2 = { workspace = true }
 tracing = { workspace = true }
 rusqlite = { workspace = true }
-tempfile = "3.0"
+tempfile = { workspace = true }

@@ -335,6 +335,41 @@ void mlx_hidden_states_free(mlx_array_t* hidden_states, int num_hidden) {
     }
 }
 
+// Stub hidden state names for the 4 target modules
+static const char* g_stub_hidden_state_names[] = {
+    "layer.0.self_attn.q_proj",
+    "layer.0.self_attn.k_proj",
+    "layer.0.self_attn.v_proj",
+    "layer.0.self_attn.o_proj"
+};
+static const int g_stub_hidden_state_count = 4;
+
+// Get the name of a hidden state at the given index (stub implementation)
+int mlx_model_get_hidden_state_name(
+    mlx_model_t* model,
+    int index,
+    char* out_name,
+    int out_name_len
+) {
+    if (!model || index < 0 || index >= g_stub_hidden_state_count) return 0;
+
+    const char* name = g_stub_hidden_state_names[index];
+    int name_len = static_cast<int>(std::strlen(name));
+
+    // If buffer provided and large enough, copy the name
+    if (out_name && out_name_len > name_len) {
+        std::memcpy(out_name, name, name_len + 1); // Include null terminator
+    }
+
+    return name_len;
+}
+
+// Get the number of hidden states stored in the model (stub implementation)
+int mlx_model_get_hidden_state_count(mlx_model_t* model) {
+    if (!model) return 0;
+    return g_stub_hidden_state_count;
+}
+
 // Core operations
 mlx_array_t* mlx_add(mlx_array_t* a, mlx_array_t* b) {
     if (!a || !b) return nullptr;

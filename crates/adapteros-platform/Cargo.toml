@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 serde = { version = "1.0", features = ["derive"] }
-tracing = "0.1"
+tracing = { workspace = true }
 dirs = "5.0"
 tempfile = "3.8"
 

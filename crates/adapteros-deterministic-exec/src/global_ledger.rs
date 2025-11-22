@@ -256,9 +256,15 @@ impl GlobalTickLedger {
                 "event_type": event_type,
                 "event_hash": event_hash.to_hex(),
             }))
-            .build();
+            .build()
+            .map_err(|e| {
+                warn!("Failed to build tick ledger entry event: {}", e);
+                e
+            });
 
-            let _ = telemetry.log_event(event);
+            if let Ok(event) = event {
+                let _ = telemetry.log_event(event);
+            }
         }
 
         debug!(
@@ -408,9 +414,15 @@ impl GlobalTickLedger {
                 "consistent": consistent,
                 "divergence_count": divergence_count,
             }))
-            .build();
+            .build()
+            .map_err(|e| {
+                warn!("Failed to build cross-host consistency event: {}", e);
+                e
+            });
 
-            let _ = telemetry.log_event(event);
+            if let Ok(event) = event {
+                let _ = telemetry.log_event(event);
+            }
         }
 
         if consistent {

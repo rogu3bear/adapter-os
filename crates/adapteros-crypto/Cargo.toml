@@ -24,7 +24,7 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-hex = "0.4"
+hex = { workspace = true }
 base64 = "0.22"
 subtle = "2.5"
 zeroize = { version = "1.7", features = ["zeroize_derive"] }

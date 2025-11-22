@@ -39,6 +39,8 @@ tracing = { workspace = true }
 hex = { workspace = true }
 safetensors = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+memmap2 = { workspace = true }
+tempfile = { workspace = true }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -48,7 +50,7 @@ core-foundation = { workspace = true }
 
 [build-dependencies]
 cc = "1.0"
-blake3 = "1.5"
+blake3 = { workspace = true }
 
 [dev-dependencies]
 adapteros-memory = { path = "../adapteros-memory" }

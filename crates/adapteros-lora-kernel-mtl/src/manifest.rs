@@ -171,7 +171,7 @@ impl ManifestVerifier {
                 "build_timestamp": manifest.build_timestamp,
                 "toolchain": manifest.toolchain_metadata
             }))
-            .build();
+            .build()?;
 
             telemetry.log_event(event)?;
         }

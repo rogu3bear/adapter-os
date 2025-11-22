@@ -36,7 +36,7 @@ parking_lot = { version = "0.12", optional = true }
 
 # File adapters
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
-tempfile = "3.0"
+tempfile = { workspace = true }
 
 # Unix signal handling (Unix-only)
 [target.'cfg(unix)'.dependencies]
@@ -55,7 +55,7 @@ rand_chacha = "0.3"
 hex = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = { workspace = true }
 
 [features]
 default = []

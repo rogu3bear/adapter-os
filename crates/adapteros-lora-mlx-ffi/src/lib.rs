@@ -12,6 +12,7 @@ pub mod backend;
 pub mod embedding;
 pub mod generation;
 pub mod lora;
+pub mod memory_pool;
 pub mod monitoring;
 pub mod routing;
 pub mod streaming;
@@ -25,6 +26,7 @@ pub use backend::MLXFFIBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
 pub use generation::{GenerationConfig, MLXGenerator};
 pub use lora::{LoRAAdapter, LoRAConfig};
+pub use memory_pool::{MLXMemoryPool, MLXMemoryPoolConfig, MemoryPoolStats, MemoryPressureEvent};
 pub use routing::apply_multi_lora;
 pub use tensor::MLXFFITensor;
 pub use tokenizer::MLXTokenizer;
@@ -831,36 +833,88 @@ impl MLXFFIModel {
         let logits: Vec<f32> =
             unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
 
-        // Process hidden states - requires real MLX FFI implementation
+        // Extract hidden states from the FFI layer
         let mut hidden_states = std::collections::HashMap::new();
 
         if !hidden_states_ptr.is_null() && num_hidden > 0 {
-            // Hidden states extraction not yet implemented
-            // Real implementation requires:
-            // 1. MLX array layout parsing (shape, strides, dtype)
-            // 2. Per-layer hidden state extraction
-            // 3. Module name mapping (q_proj, k_proj, v_proj, o_proj)
-            //
-            // WARNING: Training/fine-tuning will not work correctly without real hidden states
-            tracing::warn!(
-                "MLX hidden states requested but extraction not implemented. \
-                 Returning empty hidden states. Training will not work correctly."
-            );
+            // The hidden_states_ptr points to an array of mlx_array_t* pointers
+            // We need to cast it appropriately and extract data from each array
+            let hidden_array_ptr = hidden_states_ptr as *mut *mut mlx_array_t;
 
-            unsafe { mlx_array_free(hidden_states_ptr) };
+            for i in 0..num_hidden {
+                // Get the module name for this hidden state
+                let mut name_buf = [0i8; 256];
+                let name_len = unsafe {
+                    mlx_model_get_hidden_state_name(
+                        self.model,
+                        i,
+                        name_buf.as_mut_ptr(),
+                        name_buf.len() as i32,
+                    )
+                };
 
-            // Return empty instead of fake data - caller must handle this
-            // Do NOT return dummy values like vec![0.1; ...] as that corrupts training
+                if name_len <= 0 {
+                    tracing::warn!(
+                        "Failed to get name for hidden state index {}, skipping",
+                        i
+                    );
+                    continue;
+                }
+
+                // Convert C string to Rust String
+                let module_name = unsafe {
+                    std::ffi::CStr::from_ptr(name_buf.as_ptr())
+                        .to_string_lossy()
+                        .to_string()
+                };
+
+                // Get the hidden state array for this index
+                let hidden_array = unsafe { *hidden_array_ptr.add(i as usize) };
+                if hidden_array.is_null() {
+                    tracing::warn!(
+                        "Hidden state array at index {} is null, skipping",
+                        i
+                    );
+                    continue;
+                }
+
+                // Extract data from the hidden state array
+                let hidden_size = unsafe { mlx_array_size(hidden_array) };
+                let hidden_data = unsafe { mlx_array_data(hidden_array) };
+
+                if hidden_data.is_null() || hidden_size == 0 {
+                    tracing::warn!(
+                        "Hidden state '{}' has null data or zero size, skipping",
+                        module_name
+                    );
+                    continue;
+                }
+
+                // Copy the data to a Vec
+                let hidden_vec: Vec<f32> =
+                    unsafe { std::slice::from_raw_parts(hidden_data, hidden_size).to_vec() };
+
+                tracing::trace!(
+                    "Extracted hidden state '{}': {} elements",
+                    module_name,
+                    hidden_vec.len()
+                );
+
+                hidden_states.insert(module_name, hidden_vec);
+            }
+
+            // Clean up hidden states array using the proper FFI function
+            unsafe { mlx_hidden_states_free(hidden_states_ptr, num_hidden) };
         }
 
-        // Clean up
+        // Clean up input and output arrays
         unsafe {
             mlx_array_free(input_array);
             mlx_array_free(output_array);
         }
 
         tracing::debug!(
-            "MLX FFI forward with hidden states: {} tokens -> {} logits, {} hidden state modules",
+            "MLX FFI forward with hidden states: {} tokens -> {} logits, {} hidden state modules extracted",
             token_ids.len(),
             logits.len(),
             hidden_states.len()
@@ -910,6 +964,16 @@ extern "C" {
         hidden_states: *mut *mut mlx_array_t,
         hidden_count: *mut i32,
     ) -> *mut mlx_array_t;
+
+    // Hidden states access (pub for use in backend.rs)
+    pub fn mlx_hidden_states_free(hidden_states: *mut mlx_array_t, num_hidden: i32);
+    pub fn mlx_model_get_hidden_state_name(
+        model: *mut mlx_model_t,
+        index: i32,
+        out_name: *mut std::os::raw::c_char,
+        out_name_len: i32,
+    ) -> i32;
+    pub fn mlx_model_get_hidden_state_count(model: *mut mlx_model_t) -> i32;
 
     // Array operations
     fn mlx_array_from_data(data: *const f32, size: i32) -> *mut mlx_array_t;

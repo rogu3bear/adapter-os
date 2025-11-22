@@ -382,6 +382,30 @@ impl Db {
         Ok(metadata)
     }
 
+    /// Get latest CodeGraph metadata for a repository
+    pub async fn get_latest_code_graph_metadata(
+        &self,
+        repo_id: &str,
+    ) -> Result<Option<CodeGraphMetadata>> {
+        let metadata = sqlx::query_as::<_, CodeGraphMetadata>(
+            r#"
+            SELECT id, repo_id, commit_sha, hash_b3, file_count, symbol_count, test_count,
+                   languages_json, frameworks_json, size_bytes, symbol_index_hash,
+                   vector_index_hash, test_map_hash, created_at
+            FROM code_graph_metadata
+            WHERE repo_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(repo_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get latest code graph metadata: {}", e)))?;
+
+        Ok(metadata)
+    }
+
     /// Create scan job
     pub async fn create_scan_job(&self, repo_id: &str, commit_sha: &str) -> Result<String> {
         let id = generate_id();

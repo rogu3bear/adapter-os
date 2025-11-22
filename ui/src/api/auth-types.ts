@@ -4,27 +4,28 @@
 // 【2025-01-20†refactor†auth_types】
 
 export interface LoginRequest {
+  username: string;  // Required by backend
   email: string;
   password: string;
 }
 
 export interface LoginResponse {
+  schema_version: string;  // Required by backend API
   token: string;
   user_id: string;
+  tenant_id: string;  // Required by backend (not optional)
   role: string;
-  email?: string;
-  display_name?: string;
-  tenant_id?: string;
-  expires_at?: string;
+  expires_in: number;  // Changed from expires_at to expires_in (seconds)
 }
 
 export interface UserInfoResponse {
+  schema_version: string;  // Required by backend API
   user_id: string;
   email: string;
   role: string;
+  created_at: string;  // Required by backend (not optional)
   display_name?: string;
   tenant_id?: string;
-  created_at?: string;
   last_login_at?: string;
   mfa_enabled?: boolean;
   permissions?: string[];

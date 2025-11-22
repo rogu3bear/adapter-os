@@ -371,7 +371,7 @@ impl PolicyHashWatcher {
                 "cpid": self.cpid,
                 "violation_type": "policy_hash_mismatch",
             }))
-            .build(),
+            .build()?,
         ) {
             error!(error = %e, "Failed to log quarantine event");
         }

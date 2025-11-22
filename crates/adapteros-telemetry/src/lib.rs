@@ -144,7 +144,8 @@ impl TelemetryWriter {
     ) -> Result<()> {
         let event = TelemetryEventBuilder::new(event_type, level, message, identity.clone())
             .metadata(metadata.unwrap_or_default())
-            .build();
+            .build()
+            .map_err(|e| AosError::Config(format!("Failed to build telemetry event: {}", e)))?;
         self.log_event(event)
     }
 
@@ -161,7 +162,8 @@ impl TelemetryWriter {
         let metadata = serde_json::to_value(payload)?;
         let event = TelemetryEventBuilder::new(event_type, LogLevel::Info, message, identity)
             .metadata(metadata)
-            .build();
+            .build()
+            .map_err(|e| AosError::Config(format!("Failed to build telemetry event: {}", e)))?;
 
         self.log_event(event)
     }
