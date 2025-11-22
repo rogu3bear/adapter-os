@@ -2,7 +2,7 @@
 
 **High-performance inference runtime with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.**
 
-AdapterOS (v0.3-alpha) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution, modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (v0.1.0) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution, modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
@@ -12,7 +12,7 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 23 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 28 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -27,9 +27,9 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 
 ```mermaid
 graph TB
-    subgraph Runtime[AdapterOS Runtime alpha-v0.01-1]
+    subgraph Runtime[AdapterOS Runtime v0.1.0]
         subgraph Control[Control Layer]
-            Policy[Policy Registry<br/>23 Canonical Packs]
+            Policy[Policy Registry<br/>28 Canonical Packs]
             Router[K-Sparse Router<br/>Q15 Quantized Gates]
             Kernels[Modular Metal Kernels<br/>.metallib]
         end
@@ -73,7 +73,7 @@ graph TB
 ```
 
 **Key Components:**
-- **Policy Registry**: 23 canonical policy packs (egress, determinism, router, evidence, etc.)
+- **Policy Registry**: 28 canonical policy packs (egress, determinism, router, evidence, etc.)
 - **K-Sparse Router**: Top-K adapter selection with Q15 quantized gates
 - **Modular Kernels**: Precompiled `.metallib` kernels for deterministic execution
 - **Adapter Registry**: Content-addressed LoRA adapter storage
@@ -111,8 +111,9 @@ See [installer/README.md](installer/README.md) for details.
 ### Prerequisites
 
 - **macOS 13.0+** with Apple Silicon (M1/M2/M3/M4)
-- **Rust 1.75+**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- **MLX**: `pip install mlx` (Python bindings for development)
+- **Rust (nightly toolchain)**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (see `rust-toolchain.toml` for exact channel)
+- **pnpm 8+**: Required for UI development (`npm install -g pnpm`)
+- **MLX**: `pip install mlx` (Optional - for MLX backend development only)
 
 ### Build
 
@@ -127,31 +128,41 @@ cargo build --release
 # Note: CoreML backend is the primary production backend (ANE acceleration)
 # MLX backend is available for research/training
 # Metal backend serves as fallback for legacy systems
+```
 
-# Initialize the database
-./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
+### Database Initialization
+
+```bash
+# Run database migrations
+cargo run -p adapteros-orchestrator -- db migrate
+
+# Initialize the default tenant
+cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid 1000
+```
 
 ### Import a Model
 
-```bash
-# Download Qwen 2.5 7B (or use the included model)
-./target/release/aosctl import-model \
-  --name qwen2.5-7b \
-  --weights models/qwen2.5-7b-mlx/weights.safetensors \
-  --config models/qwen2.5-7b-mlx/config.json \
-  --tokenizer models/qwen2.5-7b-mlx/tokenizer.json
-```
+> **Note**: The `import-model` command requires the MLX backend which is currently
+> disabled in the default build. To set up a model for inference, download an
+> MLX-format model and set the `AOS_MLX_FFI_MODEL` environment variable:
 
+```bash
+# Download Qwen 2.5 7B MLX format (~3.8GB)
+huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
+    --include "*.safetensors" "*.json" \
+    --local-dir models/qwen2.5-7b-mlx
+
+# Set the model path for the server
+export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
+
+# See QUICKSTART.md for complete setup instructions
+```
 ### Register LoRA Adapters
 
 ```bash
 # Register your LoRA adapters with semantic names
 # Format: {tenant}/{domain}/{purpose}/{revision}
-./target/release/aosctl register-adapter \
-  --name "tenant-a/engineering/code-review/r001" \
-  --hash <adapter-hash> \
-  --tier persistent \
-  --rank 16
+./target/release/aosctl register-adapter tenant-a/engineering/code-review/r001 b3:abc123... --tier persistent --rank 16
 
 # See docs/ADAPTER_TAXONOMY.md for naming conventions
 ```
@@ -159,14 +170,15 @@ cargo build --release
 ### Start Serving
 
 ```bash
-# Build and serve a plan
-./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
-./target/release/aosctl serve --plan-id <plan-id>
+# Option 1: Start the REST API server directly
+cargo run --release -p adapteros-server-api
 
-# Or use the integrated server
-./target/release/mplora-server --config configs/cp.toml
+# Option 2: Use aosctl to serve with a specific tenant and plan
+./target/release/aosctl serve --tenant default --plan <plan-id>
+
+# The server listens on port 8080 by default
+# See QUICKSTART.md for complete setup and configuration
 ```
-
 ---
 
 ## 📦 Components
@@ -175,12 +187,12 @@ cargo build --release
 
 | Crate | Purpose |
 |-------|---------|
-| `adapteros-worker` | Inference engine with policy enforcement |
-| `adapteros-router` | K-sparse LoRA routing with Q15 quantized gates |
-| `adapteros-kernel-mtl` | Modular Metal kernels with deterministic compilation |
-| `adapteros-plan` | Plan builder and loader |
+| `adapteros-lora-worker` | Inference engine with policy enforcement |
+| `adapteros-lora-router` | K-sparse LoRA routing with Q15 quantized gates |
+| `adapteros-lora-kernel-mtl` | Modular Metal kernels with deterministic compilation |
+| `adapteros-lora-plan` | Plan builder and loader |
 | `adapteros-chat` | Chat template processor (ChatML, etc.) |
-| `adapteros-rag` | Evidence retrieval with HNSW vector search |
+| `adapteros-lora-rag` | Evidence retrieval with HNSW vector search |
 
 ### Management
 
@@ -195,7 +207,7 @@ cargo build --release
 
 | Crate | Purpose |
 |-------|---------|
-| `adapteros-policy` | 23-pack policy registry with enforcement |
+| `adapteros-policy` | 28-pack policy registry with enforcement |
 | `adapteros-telemetry` | Canonical JSON event logging with Merkle trees |
 | `adapteros-crypto` | Ed25519 signing, BLAKE3 hashing, HKDF |
 | `adapteros-artifacts` | Content-addressed artifact store with SBOM |
@@ -238,14 +250,14 @@ kernel void fused_attention_lora(
 
 ### 3. **Policy Enforcement**
 
-23 canonical policy packs ensure compliance:
+28 canonical policy packs ensure compliance:
 - **Egress Ruleset**: Zero network during serving, PF enforcement
 - **Determinism Ruleset**: Precompiled kernels, HKDF seeding
 - **Router Ruleset**: K bounds, entropy floor, Q15 gates
 - **Evidence Ruleset**: Mandatory open-book grounding
 - **Refusal Ruleset**: Abstain on low confidence
 - **Naming Ruleset**: Semantic adapter naming with lineage tracking
-- **And 17 more** for security, compliance, and quality
+- **And 22 more** for security, compliance, and quality
 
 ### 4. **Deterministic Execution**
 
@@ -256,6 +268,22 @@ Reproducible inference with:
 - Embedded `.metallib` kernels (no runtime compilation)
 - Canonical JSON serialization (JCS)
 - Configuration freeze with BLAKE3 hashing
+
+### 5. **Adapter Lifecycle Management**
+
+Adapters transition through lifecycle states for efficient memory management:
+
+```
+Unloaded -> Cold -> Warm -> Hot -> Resident
+    ^                              |
+    +------ (eviction) -----------+
+```
+
+- **Promotion**: Adapters move to higher states based on activation frequency
+- **Demotion/Eviction**: Inactive adapters are demoted or evicted under memory pressure
+- **Pinning**: Critical adapters can be pinned to prevent eviction
+
+See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentation.
 
 ---
 
@@ -288,13 +316,12 @@ cargo clippy --workspace -- -D warnings
 ### Duplication Monitoring
 
 - Run a local scan: `make dup` (writes reports under `var/reports/jscpd/<timestamp>`)
-- See `docs/DUPLICATION_MONITORING.md` for CI integration and enforcement options.
 
 ---
 
 ## Performance
 
-Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.01-1:
+Benchmarked on **M3 Max (128GB unified memory)** with v0.1.0:
 
 | Configuration | Tokens/sec | Latency (p95) | Memory | Determinism |
 |--------------|-----------|---------------|---------|-------------|
@@ -315,7 +342,7 @@ Example `configs/cp.toml`:
 port = 8080
 
 [db]
-path = "var/aos.db"
+path = "var/aos-cp.sqlite3"
 
 [security]
 jwt_secret = "your-secret-key"
@@ -339,11 +366,11 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ## 🛠️ Alpha Release Features
 
-AdapterOS alpha-v0.01-1 includes:
+AdapterOS v0.1.0 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 23 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 28 canonical policy packs with CLI commands
 - ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
@@ -367,7 +394,7 @@ AdapterOS alpha-v0.01-1 includes:
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
 - **[System Architecture](docs/architecture.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 23 canonical policy packs
+- **[Policy Registry](docs/POLICIES.md)** - 28 canonical policy packs
 - **[Adapter Taxonomy](docs/ADAPTER_TAXONOMY.md)** - Semantic naming and lineage tracking
 
 ### Key Topics
@@ -381,6 +408,17 @@ AdapterOS alpha-v0.01-1 includes:
 - **Rust API**: Run `cargo doc --open`
 - **REST API**: See [docs/control-plane.md](docs/control-plane.md) - includes hot-swap endpoints like `POST /v1/adapter-stacks/{id}/activate` for zero-downtime stack swaps
 - **CLI Commands**: See [crates/adapteros-cli/docs/aosctl_manual.md](crates/adapteros-cli/docs/aosctl_manual.md)
+
+### Web UI Ports
+
+The Web UI can be started in different modes with different ports:
+
+| Script | Port | Description |
+|--------|------|-------------|
+| `./launch.sh` | 3200 | Production-style launcher (unified startup) |
+| `scripts/start.sh` | 5173 | Vite development server (hot reload) |
+
+Both are valid startup methods - `launch.sh` is recommended for quick demos while `scripts/start.sh` is better for UI development with live reloading.
 
 ---
 
@@ -429,7 +467,7 @@ Dual-licensed under Apache 2.0 or MIT at your option.
 
 ---
 
-**AdapterOS alpha-v0.01-1 - Built with ❤️ for Apple Silicon**
+**AdapterOS v0.1.0 - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
 
@@ -445,28 +483,24 @@ AdapterOS supports pluggable extensions via the PluginRegistry.
 
 ### API Examples
 
-To enable the Git plugin for the default tenant:
+To enable the Git plugin (tenant is determined from JWT claims):
 
 ```bash
 curl -X POST http://localhost:8080/v1/plugins/git/enable \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{"tenant_id": "default"}'
+  -H "Authorization: Bearer $JWT"
 ```
 
-To disable the Git plugin for a specific tenant:
+To disable the Git plugin (tenant is determined from JWT claims):
 
 ```bash
 curl -X POST http://localhost:8080/v1/plugins/git/disable \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{"tenant_id": "default"}'
+  -H "Authorization: Bearer $JWT"
 ```
 
-To check plugin status for all tenants:
+To list all plugins and their status:
 
 ```bash
-curl -X GET http://localhost:8080/v1/plugins/health \
+curl -X GET http://localhost:8080/v1/plugins \
   -H "Authorization: Bearer $JWT"
 ```
 
