@@ -148,10 +148,10 @@ show_access_info() {
 ╔══════════════════════════════════════════════════════════════╗
 ║                           ACCESS URLS                        ║
 ╠══════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${WHITE}  Backend API:     ${GREEN}http://localhost:3300${WHITE}"
+    echo -e "${WHITE}  Backend API:     ${GREEN}http://localhost:8080${WHITE}"
     echo -e "${WHITE}  Web Dashboard:   ${GREEN}http://localhost:3200${WHITE}"
-    echo -e "${WHITE}  Health Check:    ${GREEN}curl http://localhost:3300/healthz${WHITE}"
-    echo -e "${WHITE}  API Docs:        ${GREEN}http://localhost:3300/docs${WHITE} (if enabled)"
+    echo -e "${WHITE}  Health Check:    ${GREEN}curl http://localhost:8080/healthz${WHITE}"
+    echo -e "${WHITE}  API Docs:        ${GREEN}http://localhost:8080/docs${WHITE} (if enabled)"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${YELLOW}💡 Pro Tips:${NC}"
@@ -204,9 +204,9 @@ launch_system() {
     fi
 
     # Check and free ports
-    if ! check_port 3300 "Backend API"; then
-        if ! kill_port_processes 3300 "Backend API"; then
-            error_msg "Cannot free port 3300. Please kill conflicting processes manually."
+    if ! check_port 8080 "Backend API"; then
+        if ! kill_port_processes 8080 "Backend API"; then
+            error_msg "Cannot free port 8080. Please kill conflicting processes manually."
             exit 1
         fi
     fi
@@ -224,14 +224,14 @@ launch_system() {
     status_msg "Starting services..."
 
     # 1. Start Backend (most critical)
-    status_msg "Starting Backend Server on port 3300..."
+    status_msg "Starting Backend Server on port 8080..."
     if ./scripts/service-manager.sh start backend; then
         success_msg "Backend Server process started"
 
         # Wait for backend to be ready - verify HTTP response
-        if wait_for_service "http://localhost:3300/v1/meta" "Backend API"; then
-            success_msg "Backend is responding on port 3300"
-        elif wait_for_service "http://localhost:3300/healthz" "Backend Health"; then
+        if wait_for_service "http://localhost:8080/v1/meta" "Backend API"; then
+            success_msg "Backend is responding on port 8080"
+        elif wait_for_service "http://localhost:8080/healthz" "Backend Health"; then
             success_msg "Backend health endpoint responding"
         else
             # Process check as last resort
@@ -361,14 +361,14 @@ case "${1:-}" in
         fi
         
         ./scripts/service-manager.sh start backend
-        wait_for_service "http://localhost:3300/healthz" "Backend API"
-        echo -e "${GREEN}Backend ready at http://localhost:3300${NC}"
+        wait_for_service "http://localhost:8080/healthz" "Backend API"
+        echo -e "${GREEN}Backend ready at http://localhost:8080${NC}"
         ;;
     "ui")
         # Launch only UI
         echo -e "${BLUE}Launching UI Only...${NC}"
         ./scripts/service-manager.sh start backend
-        wait_for_service "http://localhost:3300/healthz" "Backend API"
+        wait_for_service "http://localhost:8080/healthz" "Backend API"
         ./scripts/service-manager.sh start ui
         echo -e "${GREEN}UI ready at http://localhost:3200${NC}"
         ;;
