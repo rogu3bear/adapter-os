@@ -353,26 +353,30 @@ impl PolicyHashWatcher {
             .map_err(|e| AosError::Database(format!("Failed to insert quarantine record: {}", e)))?;
 
         // Log telemetry event (100% sampling)
-        if let Err(e) = self.telemetry.log_event(
-            adapteros_telemetry::TelemetryEventBuilder::new(
-                adapteros_telemetry::EventType::Custom("policy.quarantine_triggered".to_string()),
-                adapteros_telemetry::LogLevel::Warn,
-                format!("Policy quarantine triggered: {}", reason),
-                IdentityEnvelope::new(
-                    "system".to_string(),
-                    "policy".to_string(),
-                    "hash_validation".to_string(),
-                    "v1.0".to_string(),
-                ),
-            )
-            .component("adapteros-policy".to_string())
-            .metadata(serde_json::json!({
-                "reason": reason,
-                "cpid": self.cpid,
-                "violation_type": "policy_hash_mismatch",
-            }))
-            .build()?,
-        ) {
+        let event = adapteros_telemetry::TelemetryEventBuilder::new(
+            adapteros_telemetry::EventType::Custom("policy.quarantine_triggered".to_string()),
+            adapteros_telemetry::LogLevel::Warn,
+            format!("Policy quarantine triggered: {}", reason),
+            IdentityEnvelope::new(
+                "system".to_string(),
+                "policy".to_string(),
+                "hash_validation".to_string(),
+                "v1.0".to_string(),
+            ),
+        )
+        .component("adapteros-policy".to_string())
+        .metadata(serde_json::json!({
+            "reason": reason,
+            "cpid": self.cpid,
+            "violation_type": "policy_hash_mismatch",
+        }))
+        .build()
+        .map_err(|e| {
+            error!(error = %e, "Failed to build quarantine telemetry event");
+            e
+        })?;
+
+        if let Err(e) = self.telemetry.log_event(event) {
             error!(error = %e, "Failed to log quarantine event");
         }
 

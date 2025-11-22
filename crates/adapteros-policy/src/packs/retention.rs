@@ -46,7 +46,6 @@ impl Default for RetentionConfig {
     }
 }
 
-
 /// Retention policy implementation
 pub struct RetentionPolicy {
     config: RetentionConfig,

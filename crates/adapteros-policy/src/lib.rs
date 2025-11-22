@@ -11,6 +11,7 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::if_same_then_else)]
 
+pub mod policy_integrity;
 pub mod policy_pack;
 pub mod policy_packs;
 pub mod registry;
@@ -32,6 +33,9 @@ pub mod security_monitoring;
 pub mod security_response;
 pub mod threat_detection;
 
+// CVE client for vulnerability database integration
+pub mod cve_client;
+
 // Policy packs implemented in Phase 3
 pub mod packs;
 
@@ -50,6 +54,10 @@ pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, Rol
 pub use code_metrics::{
     AnswerRelevanceRate, CodeMetrics, CompileSuccessRate, MetricsSummary, TestPass1,
 };
+pub use cve_client::{
+    AffectedRange, CachedOsvResponse, OsvClient, OsvClientConfig, OsvClientStats, OsvResponse,
+    OsvVulnerability, PackageEcosystem, VersionEvent,
+};
 pub use hash_watcher::{HashViolation, PolicyHashWatcher, ValidationResult};
 pub use mplora::{MploraConfig, MploraPolicy};
 pub use numeric::validate_numeric_units;
@@ -60,6 +68,10 @@ pub use packs::{
 pub use patch_policy::{
     CodePolicy, ComprehensiveValidation, FilePatch, LintValidation, PatchPolicyEngine,
     SecurityValidation, SecurityViolation, TestValidation,
+};
+pub use policy_integrity::{
+    compute_blake3_hash, PolicyIntegrityMetadata, PolicyIntegrityVerifier,
+    PolicyVerificationResult, RecoveryAction, TamperDetectionResult, VerificationStats,
 };
 pub use policy_pack::{PolicyPackRegistry, SignedPolicyPack};
 pub use policy_packs::{
@@ -236,7 +248,10 @@ impl PolicyEngine {
         }
 
         // Check RNG seeding method matches policy
-        let rng_matches = match (self.policies.determinism.rng.as_str(), &report.rng_seed_method) {
+        let rng_matches = match (
+            self.policies.determinism.rng.as_str(),
+            &report.rng_seed_method,
+        ) {
             ("hkdf_seeded", AttestationRngMethod::HkdfSeeded) => true,
             ("fixed_seed", AttestationRngMethod::FixedSeed(_)) => true,
             _ => false,
@@ -296,11 +311,7 @@ impl PolicyEngine {
     /// version constraints, known vulnerabilities, and supply chain integrity.
     pub fn check_dependency_security(&self, dependencies: &[String]) -> Result<bool> {
         // Check for known insecure patterns in dependencies
-        let insecure_patterns = [
-            "yanked",
-            "deprecated",
-            "vulnerable",
-        ];
+        let insecure_patterns = ["yanked", "deprecated", "vulnerable"];
 
         for dep in dependencies {
             let dep_lower = dep.to_lowercase();

@@ -26,3 +26,6 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
+blake3 = "1.5"
+reqwest = { workspace = true }
+governor = "0.6"

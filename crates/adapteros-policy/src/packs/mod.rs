@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod artifacts;
 pub mod build_release;
 pub mod compliance;
+pub mod dependency_security;
 pub mod determinism;
 pub mod deterministic_io;
 pub mod drift;
@@ -18,6 +19,8 @@ pub mod memory;
 pub mod mplora;
 pub mod naming_policy;
 pub mod numeric;
+// TODO: Fix nvd_client compilation errors (RateLimiter generic args, NvdClient trait)
+// pub mod nvd_client;
 pub mod output;
 pub mod performance;
 pub mod rag;
@@ -26,6 +29,7 @@ pub mod retention;
 pub mod router;
 pub mod secrets;
 pub mod telemetry;
+pub mod version_matcher;
 
 // Re-export policy implementations
 pub use adapters::{
@@ -34,6 +38,11 @@ pub use adapters::{
 pub use artifacts::{ArtifactMetadata, ArtifactValidation, ArtifactsConfig, ArtifactsPolicy};
 pub use build_release::{BuildMetrics, BuildReleaseConfig, BuildReleasePolicy, ReplayTestResults};
 pub use compliance::{ComplianceConfig, CompliancePolicy, ControlMatrixEntry, EvidenceEntry};
+pub use dependency_security::{
+    CacheStats, CveDataSource, CveEntry, CveProvider, DependencySecurityConfig,
+    DependencySecurityPolicy, DependencyViolation, DependencyViolationType,
+    DependencyVulnerability, SecurityAssessmentResult, VulnerabilitySeverity,
+};
 pub use determinism::{
     DeterminismConfig, DeterminismPolicy, EpsilonBounds, RngSeedingMethod, TieBreakRule,
     ToolchainRequirements,
@@ -71,6 +80,11 @@ pub use numeric::{
     NumericClaim, NumericConfig, NumericPolicy, PrecisionInfo, PrecisionRequirements, RangeLimit,
     RoundingMode, UnitConversion, ValidationRules,
 };
+// NvdClient exports disabled - module is not compiled due to errors
+// pub use nvd_client::{
+//     NvdApiResponse, NvdClient, NvdCve, NvdCveWrapper, NvdCvssData, NvdCvssV30, NvdCvssV31,
+//     NvdDescription, NvdError, NvdMetrics, NvdReference, NvdWeakness,
+// };
 pub use output::{LlmOutput, OutputConfig, OutputPolicy, SafetyCheckResult};
 pub use performance::{InferenceMetrics, PerformanceConfig, PerformancePolicy, PerformanceStats};
 pub use rag::{
@@ -94,6 +108,7 @@ pub use telemetry::{
     RetentionConfig as TelemetryRetentionConfig, SamplingConfig, TelemetryBundle, TelemetryConfig,
     TelemetryPolicy,
 };
+pub use version_matcher::{CpeVersionMatcher, OsvVersionRange, Version, VersionRange};
 
 /// Policy pack factory for creating policy instances
 pub struct PolicyPackFactory;
@@ -212,6 +227,11 @@ impl PolicyPackFactory {
     /// Create a naming policy with default configuration
     pub fn create_naming_policy() -> NamingPolicy {
         NamingPolicy::new(NamingConfig::default())
+    }
+
+    /// Create a dependency security policy with default configuration
+    pub fn create_dependency_security_policy() -> DependencySecurityPolicy {
+        DependencySecurityPolicy::new(DependencySecurityConfig::default())
     }
 }
 
