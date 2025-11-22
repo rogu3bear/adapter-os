@@ -1,0 +1,14 @@
+{
+  "feature": "Patch Crate Empty Modules",
+  "severity": "high",
+  "base_commit": "ccae80f07f628621d6c605cd4ba1c637463a055d",
+  "files": [
+    {"path": "crates/adapteros-patch/src/audit.rs", "lines": "all", "type": "empty"},
+    {"path": "crates/adapteros-patch/src/crypto.rs", "lines": "all", "type": "empty"},
+    {"path": "crates/adapteros-patch/src/engine.rs", "lines": "all", "type": "empty"},
+    {"path": "crates/adapteros-patch/src/policy.rs", "lines": "all", "type": "empty"},
+    {"path": "crates/adapteros-patch/src/validation.rs", "lines": "all", "type": "empty"}
+  ],
+  "description": "Empty source files in adapteros-patch. Claims to provide policy validation and crypto but modules are empty.",
+  "created": "2025-11-21"
+}

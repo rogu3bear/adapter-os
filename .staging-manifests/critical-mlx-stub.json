@@ -1,0 +1,11 @@
+{
+  "feature": "MLX Backend Stub",
+  "severity": "critical",
+  "base_commit": "ccae80f07f628621d6c605cd4ba1c637463a055d",
+  "files": [
+    {"path": "crates/adapteros-lora-mlx-ffi/src/backend.rs", "lines": "383-442", "type": "stub"},
+    {"path": "crates/adapteros-lora-mlx-ffi/src/mlx_cpp_wrapper.cpp", "lines": "1-654", "type": "stub"}
+  ],
+  "description": "MLX backend returns dummy logits. C++ wrapper is complete stub with StubArray/StubModel.",
+  "created": "2025-11-21"
+}
