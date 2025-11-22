@@ -123,7 +123,7 @@ Code analysis, domain adapter layer, and codebase ingestion.
 
 - [Code Ingestion Status](./CODE_INGESTION_STATUS.md)
 - [Codebase Ingestion](./CODEBASE_INGESTION.md)
-- [Domain Adapter Layer](./domain-adapter-layer.md)
+- [Domain Adapter Layer](./DOMAIN-ADAPTER-LAYER.md)
 - [CodeGraph Spec](./CODEGRAPH-SPEC.md)
 
 ---
@@ -220,7 +220,7 @@ Troubleshooting guides, runbooks, and common issues.
 
 - [Troubleshooting](./TROUBLESHOOTING.md)
 - [Operational Runbook](./OPERATIONAL_RUNBOOK.md)
-- [Runaway Prevention](./runaway-prevention.md)
+- [Runaway Prevention](./RUNAWAY-PREVENTION.md)
 
 ---
 

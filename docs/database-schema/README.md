@@ -205,7 +205,7 @@ Troubleshooting guide for operational issues:
 ### Core Architecture
 - [System Architecture](../ARCHITECTURE.md) - Overall system design
 - [Control Plane](../CONTROL-PLANE.md) - Control plane lifecycle
-- [Runaway Prevention](../runaway-prevention.md) - Safety mechanisms
+- [Runaway Prevention](../RUNAWAY-PREVENTION.md) - Safety mechanisms
 
 ### Code Intelligence
 - [Code Intelligence](../code-intelligence/README.md) - Code analysis stack

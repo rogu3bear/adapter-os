@@ -316,7 +316,7 @@ flowchart TD
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
 - [Control Plane](../../CONTROL-PLANE.md) - Control plane architecture
-- [Runaway Prevention](../../runaway-prevention.md) - Safety mechanisms
+- [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms
 - [Deployment Guide](../../DEPLOYMENT.md) - Deployment procedures
 
 ## Implementation References

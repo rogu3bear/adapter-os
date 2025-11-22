@@ -105,7 +105,7 @@ sequenceDiagram
 ## Related Documentation
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
-- [Runaway Prevention](../../runaway-prevention.md) - Safety mechanisms and incident procedures
+- [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms and incident procedures
 
 ---
 

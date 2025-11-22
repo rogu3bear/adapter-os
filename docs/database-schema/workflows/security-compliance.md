@@ -350,7 +350,7 @@ ORDER BY a.created_at DESC;
 ## Related Documentation
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
-- [Runaway Prevention](../../runaway-prevention.md) - Safety mechanisms
+- [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms
 - [Code Policies](../../code-intelligence/CODE-POLICIES.md) - Policy configuration
 
 ## Implementation References
