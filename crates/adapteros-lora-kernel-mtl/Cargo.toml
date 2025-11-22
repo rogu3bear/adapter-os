@@ -9,10 +9,27 @@ license.workspace = true
 # Default: Metal backend only
 default = ["metal-backend"]
 
+# =============================================================================
+# BACKEND FEATURE FLAGS (crate-local)
+# =============================================================================
+# These features control which backend implementations are compiled into this crate.
+# They are INDEPENDENT of workspace-level features - enable explicitly when needed.
+#
+# Usage:
+#   cargo build -p adapteros-lora-kernel-mtl --features metal-backend
+#   cargo build -p adapteros-lora-kernel-mtl --features coreml-backend
+#   cargo build -p adapteros-lora-kernel-mtl --features all-backends
+#
+# Note: The coreml-backend feature in THIS crate enables CoreML code paths within
+# the Metal kernel crate. For the standalone CoreML crate, use adapteros-lora-kernel-coreml.
+# =============================================================================
+
 # Metal backend (GPU acceleration via Metal Performance Shaders)
+# Enabled by default - provides deterministic GPU kernels
 metal-backend = []
 
-# CoreML backend (Neural Engine acceleration via CoreML)
+# CoreML backend integration (Neural Engine acceleration via CoreML)
+# Enables CoreML code paths within this crate for hybrid Metal+CoreML execution
 coreml-backend = []
 
 # Enable all backends (Metal + CoreML)

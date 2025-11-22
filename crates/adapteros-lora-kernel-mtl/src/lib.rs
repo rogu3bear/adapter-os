@@ -78,6 +78,8 @@ pub use mplora::MploraKernel;
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
 pub use optimization::{KernelOptimizationPlan, KernelOptimizer, KernelPerformanceMetrics};
 pub use recovery::RecoveryWrapper;
+#[cfg(target_os = "macos")]
+pub use recovery::RecoveryResult;
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
 pub use rms_norm::{RmsNormConfig, RmsNormKernel};
 pub use vision_kernels::{
@@ -609,19 +611,48 @@ impl MetalKernels {
         Ok(())
     }
 
-    /// Validate embedding dimensions match model config
-    fn validate_embedding_dimensions(&mut self, embedding_weights: &[f32]) -> Result<()> {
-        let vocab_size = 152064; // Qwen2.5-7B vocab size
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let expected_size = vocab_size * hidden_size;
+    /// Infer and store embedding dimensions from embedding weights tensor
+    ///
+    /// Instead of hardcoding model-specific dimensions (e.g., Qwen2.5-7B: 152064x3584),
+    /// this method parses the SafeTensors plan bytes to extract the actual embedding
+    /// tensor shape, making the kernel work with any compatible model architecture.
+    fn validate_embedding_dimensions(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        // Parse SafeTensors format to get embedding tensor shape
+        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
+            AosError::Kernel(format!("Failed to parse SafeTensors for dimensions: {}", e))
+        })?;
 
-        if embedding_weights.len() != expected_size {
+        // Common embedding tensor names across different model architectures
+        let embedding_names = [
+            "model.embed_tokens.weight",      // LLaMA, Qwen, Mistral
+            "transformer.wte.weight",         // GPT-2, GPT-J
+            "embeddings.word_embeddings.weight", // BERT
+            "embed_tokens.weight",            // Shortened form
+            "wte.weight",                     // Shortened form
+        ];
+
+        // Find embedding tensor
+        let tensor = embedding_names
+            .iter()
+            .find_map(|name| tensors.tensor(name).ok())
+            .ok_or_else(|| {
+                let available: Vec<_> = tensors.names().into_iter().collect();
+                AosError::Kernel(format!(
+                    "Embedding tensor not found for dimension inference. Tried: {:?}. Available tensors: {:?}",
+                    embedding_names, available
+                ))
+            })?;
+
+        // Extract dimensions from tensor shape [vocab_size, hidden_size]
+        let shape = tensor.shape();
+        let (vocab_size, hidden_size) = if shape.len() == 2 {
+            (shape[0], shape[1])
+        } else {
             return Err(AosError::Kernel(format!(
-                "Embedding dimension mismatch: expected {}, got {}",
-                expected_size,
-                embedding_weights.len()
+                "Expected 2D embedding tensor for dimension inference, got shape: {:?}",
+                shape
             )));
-        }
+        };
 
         self.embedding_dimensions = Some(EmbeddingDimensions {
             vocab_size,
@@ -629,9 +660,9 @@ impl MetalKernels {
         });
 
         tracing::info!(
-            "Embedding dimensions validated: {}x{}",
-            vocab_size,
-            hidden_size
+            vocab_size = vocab_size,
+            hidden_size = hidden_size,
+            "Inferred embedding dimensions from SafeTensors (no hardcoded values)"
         );
         Ok(())
     }
@@ -864,11 +895,20 @@ impl MetalKernels {
     }
 
     /// Create intermediate buffers for transformer computation
+    ///
+    /// Uses the dynamically inferred hidden_size from embedding dimensions
+    /// instead of hardcoding model-specific values.
     fn create_intermediate_buffers(&mut self) -> Result<IntermediateBuffers> {
-        let hidden_size = 3584; // Qwen2.5-7B hidden size
-        let seq_len = 1; // Single token for now
+        // Get hidden_size from previously inferred embedding dimensions
+        let dimensions = self.embedding_dimensions.as_ref().ok_or_else(|| {
+            AosError::Kernel(
+                "Embedding dimensions not set - call validate_embedding_dimensions first".to_string(),
+            )
+        })?;
+        let hidden_size = dimensions.hidden_size;
+        let seq_len = 1; // Single token for autoregressive generation
 
-        let buffer_size = hidden_size * seq_len * std::mem::size_of::<f32>() as u64;
+        let buffer_size = (hidden_size * seq_len * std::mem::size_of::<f32>()) as u64;
 
         let hidden_states = self
             .device
@@ -879,12 +919,12 @@ impl MetalKernels {
             .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
         let k_output = self.device.new_buffer(
-            (hidden_size / 8) * seq_len * std::mem::size_of::<f32>() as u64, // GQA
+            ((hidden_size / 8) * seq_len * std::mem::size_of::<f32>()) as u64, // GQA
             MTLResourceOptions::StorageModeShared,
         );
 
         let v_output = self.device.new_buffer(
-            (hidden_size / 8) * seq_len * std::mem::size_of::<f32>() as u64, // GQA
+            ((hidden_size / 8) * seq_len * std::mem::size_of::<f32>()) as u64, // GQA
             MTLResourceOptions::StorageModeShared,
         );
 
@@ -1229,9 +1269,17 @@ impl MetalKernels {
 
 impl FusedKernels for MetalKernels {
     /// Load plan and initialize Metal kernels
+    ///
+    /// The plan_bytes contain SafeTensors model weights. Model dimensions (vocab_size,
+    /// hidden_size) are dynamically inferred from tensor shapes rather than hardcoded,
+    /// allowing the kernel to work with any compatible transformer model architecture.
     fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
         // Load the Metal library
         self.load_library()?;
+
+        // Infer and store model dimensions from SafeTensors tensor shapes
+        // This must be called before create_intermediate_buffers() and parse_embedding_weights()
+        self.validate_embedding_dimensions(plan_bytes)?;
 
         // Parse plan_bytes and extract embedding weights
         let embedding_weights = self.parse_embedding_weights(plan_bytes)?;
@@ -1239,13 +1287,10 @@ impl FusedKernels for MetalKernels {
         // Create Metal buffer for embedding matrix
         self.create_embedding_buffer(&embedding_weights)?;
 
-        // Validate embedding dimensions match model config
-        self.validate_embedding_dimensions(&embedding_weights)?;
-
         // Initialize kernels
         self.mlp_kernel = Some(FusedMlpKernel::new(self.device.clone())?);
 
-        // Create default GQA config for Qwen2.5-7B-Instruct
+        // Create GQA config - note: this may still need parameterization for non-Qwen models
         let gqa_config = GqaConfig::default();
 
         self.qkv_kernel = Some(FusedQkvKernel::new(

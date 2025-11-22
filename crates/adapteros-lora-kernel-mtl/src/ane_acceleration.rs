@@ -366,54 +366,22 @@ impl ANEAccelerator {
         // Update session state
         session.state = ANESessionState::Executing;
 
-        // Execute on ANE (placeholder implementation)
-        let start_time = std::time::Instant::now();
-
-        // Simulate ANE execution
-        let model_config = session.model_config.clone();
-        let output_data = Self::simulate_ane_execution_static(&model_config, input_data)?;
-
-        let execution_time = start_time.elapsed();
-
-        // Update performance metrics
-        self.performance_metrics.total_executions += 1;
-        self.performance_metrics.total_execution_time_us += execution_time.as_micros() as u64;
-        self.performance_metrics.avg_execution_time_us =
-            self.performance_metrics.total_execution_time_us as f32
-                / self.performance_metrics.total_executions as f32;
-
-        // Update session state
-        session.state = ANESessionState::Completed;
-
-        debug!(
-            "ANE execution completed: {}μs, {} outputs",
-            execution_time.as_micros(),
-            output_data.len()
+        // ANE execution not yet implemented - return error instead of fake results
+        // Real implementation requires:
+        // 1. CoreML model compilation to ANE-optimized format
+        // 2. MLProgram API for ANE dispatch
+        // 3. Metal buffer interop for data transfer
+        //
+        // Until implemented, callers should use Metal or MLX backends
+        session.state = ANESessionState::Failed(
+            "ANE execution not implemented".to_string()
         );
 
-        Ok(output_data)
-    }
-
-    /// Simulate ANE execution (placeholder)
-    fn simulate_ane_execution_static(config: &ANEModelConfig, input: &[f32]) -> Result<Vec<f32>> {
-        // This is a placeholder implementation
-        // In a real implementation, you would:
-        // 1. Convert input data to ANE format
-        // 2. Execute on ANE hardware
-        // 3. Convert output back to standard format
-
-        let output_size = config.output_dimensions.iter().product::<usize>();
-        let mut output = vec![0.0; output_size];
-
-        // Simple simulation: output = input * 0.5 (scaled)
-        let scale_factor = 0.5;
-        for (i, &input_val) in input.iter().enumerate() {
-            if i < output.len() {
-                output[i] = input_val * scale_factor;
-            }
-        }
-
-        Ok(output)
+        Err(AosError::Kernel(
+            "ANE execution not implemented. Use Metal or MLX backend instead. \
+             ANE requires CoreML MLProgram compilation which is not yet available."
+                .to_string(),
+        ))
     }
 
     /// Get ANE capabilities

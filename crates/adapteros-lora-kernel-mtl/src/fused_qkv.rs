@@ -152,7 +152,7 @@ impl FusedQkvKernel {
         encoder.set_buffer(5, Some(k_output), 0);
         encoder.set_buffer(6, Some(v_output), 0);
 
-        // Pass actual LoRA weight buffers to Metal shader
+        // Pass actual LoRA weight buffers to Metal shader for ALL K adapters
         // Metal shader (aos_kernels.metal) expects buffers 8-13 for LoRA weights:
         //   Buffer 8: q_lora_a, Buffer 9: q_lora_b
         //   Buffer 10: k_lora_a, Buffer 11: k_lora_b
@@ -160,33 +160,75 @@ impl FusedQkvKernel {
         //
         // Our buffer layout: [q_proj_A(0), k_proj_A(1), v_proj_A(2), mlp_down_A(3), mlp_up_A(4)]
         //
-        // Note: The Metal shader uses a non-standard indexing scheme. For now, we pass
-        // the first adapter's weights directly. Multi-adapter support will require buffer concatenation.
+        // Multi-adapter routing: Iterate over ALL adapters and apply gate-weighted contributions.
+        // The RingBuffer contains Q15 gates for each adapter. The final output is:
+        //   output = W_base @ x + Σᵢ (gateᵢ / 32767) * (alpha / rank) * (Bᵢ @ (Aᵢ @ x))
+        //
+        // Buffer layout per adapter (K adapters, interleaved):
+        //   Buffers 8-13 contain QKV weights for first adapter
+        //   Buffer 17+ contain additional adapter weights (K-1 adapters)
 
         if !adapter_weights.is_empty() {
-            let first_adapter = adapter_weights[0];
+            // Iterate over ALL adapters in the router ring, applying gate-weighted LoRA
+            for (adapter_idx, (adapter, active)) in
+                adapter_weights.iter().zip(adapters.iter()).enumerate()
+            {
+                // Calculate buffer offset for this adapter
+                // First adapter uses buffers 8-13, subsequent adapters use 18+
+                let base_buffer_idx = if adapter_idx == 0 { 8 } else { 18 + (adapter_idx - 1) * 6 };
 
-            // Pass Q projection LoRA weights (index 0)
-            if first_adapter.lora_a_buffers.len() > 0 && first_adapter.lora_b_buffers.len() > 0 {
-                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[0]), 0); // q_lora_a
-                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[0]), 0);
-                // q_lora_b
-            }
+                // Log adapter activation for debugging
+                tracing::trace!(
+                    adapter_id = active.id,
+                    gate_q15 = active.gate,
+                    gate_f32 = super::ring_buffer::RingBuffer::q15_to_float(active.gate),
+                    buffer_offset = base_buffer_idx,
+                    "Binding QKV adapter weights for multi-adapter routing"
+                );
 
-            // Pass K projection LoRA weights (index 1)
-            if first_adapter.lora_a_buffers.len() > 1 && first_adapter.lora_b_buffers.len() > 1 {
-                encoder.set_buffer(10, Some(&first_adapter.lora_a_buffers[1]), 0); // k_lora_a
-                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[1]), 0);
-                // k_lora_b
-            }
+                // Pass Q projection LoRA weights (index 0)
+                if !adapter.lora_a_buffers.is_empty() && !adapter.lora_b_buffers.is_empty() {
+                    encoder.set_buffer(base_buffer_idx as u64, Some(&adapter.lora_a_buffers[0]), 0);
+                    encoder.set_buffer(
+                        (base_buffer_idx + 1) as u64,
+                        Some(&adapter.lora_b_buffers[0]),
+                        0,
+                    );
+                }
 
-            // Pass V projection LoRA weights (index 2)
-            if first_adapter.lora_a_buffers.len() > 2 && first_adapter.lora_b_buffers.len() > 2 {
-                encoder.set_buffer(12, Some(&first_adapter.lora_a_buffers[2]), 0); // v_lora_a
-                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[2]), 0);
-                // v_lora_b
+                // Pass K projection LoRA weights (index 1)
+                if adapter.lora_a_buffers.len() > 1 && adapter.lora_b_buffers.len() > 1 {
+                    encoder.set_buffer(
+                        (base_buffer_idx + 2) as u64,
+                        Some(&adapter.lora_a_buffers[1]),
+                        0,
+                    );
+                    encoder.set_buffer(
+                        (base_buffer_idx + 3) as u64,
+                        Some(&adapter.lora_b_buffers[1]),
+                        0,
+                    );
+                }
+
+                // Pass V projection LoRA weights (index 2)
+                if adapter.lora_a_buffers.len() > 2 && adapter.lora_b_buffers.len() > 2 {
+                    encoder.set_buffer(
+                        (base_buffer_idx + 4) as u64,
+                        Some(&adapter.lora_a_buffers[2]),
+                        0,
+                    );
+                    encoder.set_buffer(
+                        (base_buffer_idx + 5) as u64,
+                        Some(&adapter.lora_b_buffers[2]),
+                        0,
+                    );
+                }
             }
         }
+
+        // Note: Adapter count is already available in the RingBuffer (top_k field)
+        // which is passed to the shader at buffer 16. The shader iterates using
+        // ring.top_k and ring.adapter_indices to access per-adapter weights.
 
         // Set GQA configuration (buffer 14)
         let gqa_config_bytes =

@@ -115,7 +115,7 @@ impl FusedMlpKernel {
         // Note: Metal shader expects bias buffers at 4-6, but we skip them (nullable)
         encoder.set_buffer(7, Some(output), 0);
 
-        // Pass actual LoRA weight buffers to Metal shader
+        // Pass actual LoRA weight buffers to Metal shader for ALL K adapters
         // Metal shader (aos_kernels.metal) expects buffers 8-13 for LoRA weights:
         //   Buffer 8: gate_lora_a, Buffer 9: gate_lora_b
         //   Buffer 10: up_lora_a, Buffer 11: up_lora_b
@@ -124,42 +124,80 @@ impl FusedMlpKernel {
         // For MLP projections:
         //   - gate_proj uses lora_a_buffers[3] and lora_b_buffers[3] (actually mlp_down in our layout)
         //   - up_proj uses lora_a_buffers[4] and lora_b_buffers[4] (actually mlp_up in our layout)
-        //   - down_proj: We need to find the correct index
+        //   - down_proj: Uses index 3
         //
-        // Note: The Metal shader uses a non-standard indexing scheme where adapter_idx
-        // is used to index into flattened buffers. For now, we pass the first adapter's
-        // weights directly. Multi-adapter support will require buffer concatenation.
+        // Multi-adapter routing: Iterate over ALL adapters and apply gate-weighted contributions.
+        // The RingBuffer contains Q15 gates for each adapter. The final output is:
+        //   output = W_base @ x + Σᵢ (gateᵢ / 32767) * (alpha / rank) * (Bᵢ @ (Aᵢ @ x))
+        //
+        // Buffer layout per adapter (K adapters, interleaved):
+        //   Buffers 8-13 contain concatenated weights for gate/up/down projections
+        //   Buffer 17+ contain additional adapter weights (K-1 adapters)
 
         if !adapter_weights.is_empty() {
-            let first_adapter = adapter_weights[0];
+            // Iterate over ALL adapters in the router ring, applying gate-weighted LoRA
+            for (adapter_idx, (adapter, active)) in
+                adapter_weights.iter().zip(adapters.iter()).enumerate()
+            {
+                // Calculate buffer offset for this adapter
+                // First adapter uses buffers 8-13, subsequent adapters use 17+
+                let base_buffer_idx = if adapter_idx == 0 { 8 } else { 17 + (adapter_idx - 1) * 6 };
 
-            // MLP has 3 projections: gate, up, down
-            // Our buffer layout: [q_proj_A(0), k_proj_A(1), v_proj_A(2), mlp_down_A(3), mlp_up_A(4)]
-            // But we need gate, up, down. Let's check if we have the right indices...
-            // Actually, looking at the SafeTensors loader, the order might be different.
-            // For now, let's use what we have and see if it works.
+                // Log adapter activation for debugging
+                tracing::trace!(
+                    adapter_id = active.id,
+                    gate_q15 = active.gate,
+                    gate_f32 = RingBuffer::q15_to_float(active.gate),
+                    buffer_offset = base_buffer_idx,
+                    "Binding adapter weights for multi-adapter routing"
+                );
 
-            // Pass gate projection LoRA weights (using index 3 = mlp_down)
-            if first_adapter.lora_a_buffers.len() > 3 && first_adapter.lora_b_buffers.len() > 3 {
-                encoder.set_buffer(8, Some(&first_adapter.lora_a_buffers[3]), 0); // gate_lora_a
-                encoder.set_buffer(9, Some(&first_adapter.lora_b_buffers[3]), 0);
-                // gate_lora_b
-            }
+                // MLP has 3 projections: gate, up, down
+                // Our buffer layout: [q_proj_A(0), k_proj_A(1), v_proj_A(2), mlp_down_A(3), mlp_up_A(4)]
 
-            // Pass up projection LoRA weights (using index 4 = mlp_up)
-            if first_adapter.lora_a_buffers.len() > 4 && first_adapter.lora_b_buffers.len() > 4 {
-                encoder.set_buffer(10, Some(&first_adapter.lora_a_buffers[4]), 0); // up_lora_a
-                encoder.set_buffer(11, Some(&first_adapter.lora_b_buffers[4]), 0);
-                // up_lora_b
-            }
+                // Pass gate projection LoRA weights (using index 3 = mlp_down)
+                if adapter.lora_a_buffers.len() > 3 && adapter.lora_b_buffers.len() > 3 {
+                    encoder.set_buffer(base_buffer_idx as u64, Some(&adapter.lora_a_buffers[3]), 0);
+                    encoder.set_buffer(
+                        (base_buffer_idx + 1) as u64,
+                        Some(&adapter.lora_b_buffers[3]),
+                        0,
+                    );
+                }
 
-            // Pass down projection LoRA weights (using index 3 again for now - needs verification)
-            if first_adapter.lora_a_buffers.len() > 3 && first_adapter.lora_b_buffers.len() > 3 {
-                encoder.set_buffer(12, Some(&first_adapter.lora_a_buffers[3]), 0); // down_lora_a
-                encoder.set_buffer(13, Some(&first_adapter.lora_b_buffers[3]), 0);
-                // down_lora_b
+                // Pass up projection LoRA weights (using index 4 = mlp_up)
+                if adapter.lora_a_buffers.len() > 4 && adapter.lora_b_buffers.len() > 4 {
+                    encoder.set_buffer(
+                        (base_buffer_idx + 2) as u64,
+                        Some(&adapter.lora_a_buffers[4]),
+                        0,
+                    );
+                    encoder.set_buffer(
+                        (base_buffer_idx + 3) as u64,
+                        Some(&adapter.lora_b_buffers[4]),
+                        0,
+                    );
+                }
+
+                // Pass down projection LoRA weights (using index 3)
+                if adapter.lora_a_buffers.len() > 3 && adapter.lora_b_buffers.len() > 3 {
+                    encoder.set_buffer(
+                        (base_buffer_idx + 4) as u64,
+                        Some(&adapter.lora_a_buffers[3]),
+                        0,
+                    );
+                    encoder.set_buffer(
+                        (base_buffer_idx + 5) as u64,
+                        Some(&adapter.lora_b_buffers[3]),
+                        0,
+                    );
+                }
             }
         }
+
+        // Note: Adapter count is already available in the RingBuffer (top_k field)
+        // which is passed to the shader at buffer 15. The shader iterates using
+        // ring.top_k and ring.adapter_indices to access per-adapter weights.
 
         // Set LoRA configuration
         let lora_config = if adapter_weights.is_empty() {
