@@ -1,0 +1,170 @@
+# Security Regression Test Suite Configuration
+# Last Updated: 2025-11-22
+
+[test]
+# Test execution configuration
+fail_fast = true  # Stop on first security failure
+timeout_seconds = 300  # Maximum test duration
+parallel_workers = 1  # Serialize security tests for consistency
+
+[security_critical_crates]
+# Crates that require strict security checking
+crates = [
+    "adapteros-crypto",
+    "adapteros-core",
+    "adapteros-base-llm",
+    "adapteros-domain",
+    "adapteros-db",
+    "adapteros-deterministic-exec",
+    "adapteros-lora-router",
+]
+
+[unsafe_code]
+# Unsafe code policy
+allow_in = ["adapteros-crypto/src/providers"]  # FFI bridges OK here
+must_have_safety_doc = true
+must_have_comment = true
+
+[crypto_operations]
+# Cryptographic operation requirements
+require_constant_time = [
+    "signature_verify",
+    "compare_secret",
+    "key_compare",
+]
+require_zeroization = [
+    "SecretKey",
+    "KeyMaterial",
+    "SensitiveData",
+]
+require_error_handling = [
+    "sign_bytes",
+    "verify_signature",
+    "decrypt_envelope",
+]
+
+[panic_detection]
+# Panic detection patterns
+forbidden_in = [
+    "adapteros-crypto/src/signature.rs",
+    "adapteros-crypto/src/secret.rs",
+    "adapteros-crypto/src/bundle_sign.rs",
+    "adapteros-crypto/src/envelope.rs",
+    "adapteros-crypto/src/providers/keychain.rs",
+]
+
+forbidden_patterns = [
+    "unwrap()",
+    "expect(",
+    "panic!",
+    ".unwrap_or_else(panic",
+]
+
+allowed_contexts = [
+    "test_",      # Test code
+    "cfg(test)",  # Test modules
+    "examples",   # Example code
+]
+
+[input_validation]
+# Input validation requirements
+validate_functions = [
+    "verify_signature",
+    "decrypt_envelope",
+    "from_bytes",
+    "new",
+]
+
+minimum_checks = 1
+
+[error_messages]
+# Error message security
+forbidden_keywords = [
+    "secret",
+    "key",
+    "password",
+    "token",
+    "credential",
+    "private",
+]
+
+# Allowed in error context (lower risk)
+allowed_keywords = [
+    "error",
+    "failed",
+    "invalid",
+    "missing",
+]
+
+[dependencies]
+# Required security dependencies
+required = [
+    "zeroize",
+    "ed25519",
+    "sha2",
+    "thiserror",
+]
+
+# Minimum versions (advisory)
+minimum_versions = [
+    "zeroize >= 1.7",
+    "ed25519-dalek >= 2.1",
+]
+
+[hkdf_seeding]
+# HKDF seeding policy
+require_hkdf = [
+    "adapteros-lora-router",
+    "adapteros-deterministic-exec",
+]
+
+forbidden_direct_rng = [
+    "rand::thread_rng",
+    "rand::OsRng",
+]
+
+allowed_contexts = [
+    "test_",
+    "cfg(test)",
+    "ffi",
+]
+
+[ci_schedule]
+# CI/CD execution schedule
+on_push = ["main", "develop"]
+on_pull_request = true
+frequency = "every_pr"
+
+# Paths that trigger security tests
+trigger_paths = [
+    "crates/adapteros-crypto/**",
+    "crates/adapteros-core/**",
+    "crates/adapteros-db/**",
+    "crates/adapteros-domain/**",
+    "crates/adapteros-base-llm/**",
+    "crates/adapteros-deterministic-exec/**",
+    "tests/security_regression_suite.rs",
+]
+
+[reporting]
+# Test result reporting
+generate_reports = true
+report_directory = "target/security-reports"
+include_timing = true
+include_coverage = true
+
+# GitHub integration
+post_to_pr = true
+post_to_issues = false
+slack_webhook = "${SLACK_WEBHOOK_URL}"  # Optional
+
+[linting]
+# Clippy security checks
+enable = true
+flags = [
+    "-D unsafe_code",
+    "-D clippy::panic",
+    "-D clippy::unwrap_used",
+    "-D clippy::expect_used",
+    "-W clippy::all",
+]

@@ -110,7 +110,10 @@ impl GitWatcher {
         })?;
 
         if repos.is_empty() {
-            warn!(component = "git_watcher", "No repositories configured for Git watcher");
+            warn!(
+                component = "git_watcher",
+                "No repositories configured for Git watcher"
+            );
             self.is_running = true;
             return Ok(());
         }
@@ -558,7 +561,10 @@ impl GitSubsystem {
         }
 
         if self.enabled_tenants.read().await.is_empty() {
-            debug!(component = "git_subsystem", "No tenants enabled for Git polling");
+            debug!(
+                component = "git_subsystem",
+                "No tenants enabled for Git polling"
+            );
             return Ok(());
         }
 

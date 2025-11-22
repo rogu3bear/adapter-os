@@ -70,7 +70,7 @@ Backend Factory Integration ✅
 ├── BackendChoice::Mlx variant added
 ├── Auto-detection of MLX availability
 ├── Fallback chain: CoreML → Metal → MLX
-├── Feature flag gating (experimental-backends)
+├── Feature flag gating (multi-backend)
 └── Error handling with helpful messages
 
 Router Integration ✅
@@ -202,7 +202,7 @@ cargo build -p adapteros-lora-mlx-ffi
 cargo build -p adapteros-lora-mlx-ffi --features real-mlx
 
 # Full workspace with MLX enabled
-cargo build --workspace --features experimental-backends,real-mlx --release
+cargo build --workspace --features multi-backend,real-mlx --release
 
 ================================================================================
 TESTING COMMANDS

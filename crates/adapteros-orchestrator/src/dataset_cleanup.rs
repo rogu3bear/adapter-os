@@ -235,17 +235,13 @@ impl DatasetCleanupManager {
     }
 
     /// Archive old and unused datasets
-    pub async fn archive_old_datasets(
-        &self,
-        days_threshold: Option<u32>,
-    ) -> Result<CleanupResult> {
+    pub async fn archive_old_datasets(&self, days_threshold: Option<u32>) -> Result<CleanupResult> {
         info!("Starting dataset archival scan");
 
         let threshold_days = days_threshold.unwrap_or(self.config.archive_age_days);
         let mut result = CleanupResult::default();
 
-        let cutoff_date = chrono::Utc::now()
-            - chrono::Duration::days(threshold_days as i64);
+        let cutoff_date = chrono::Utc::now() - chrono::Duration::days(threshold_days as i64);
 
         let datasets = self.db.list_training_datasets(10000).await?;
 
@@ -267,7 +263,8 @@ impl DatasetCleanupManager {
 
                     // Ensure archive directory exists
                     if let Some(parent) = archive_path.parent() {
-                        std::fs::create_dir_all(parent).context("Failed to create archive directory")?;
+                        std::fs::create_dir_all(parent)
+                            .context("Failed to create archive directory")?;
                     }
 
                     // Archive dataset

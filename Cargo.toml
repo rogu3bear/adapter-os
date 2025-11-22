@@ -8,9 +8,7 @@ repository = "https://github.com/rogu3bear/mplora"
 
 [workspace]
 resolver = "2"
-exclude = [
-    "crates/adapteros-server",  # Server crate - excluded for stable main merge
-]
+exclude = []  # adapteros-server temporarily included for building
 members = [
     "crates/adapteros-core",
     "crates/adapteros-crypto",
@@ -39,7 +37,7 @@ members = [
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
-    # "crates/adapteros-server",  # Server crate - excluded for stable main merge
+    "crates/adapteros-server",  # Re-enabled for building
     "crates/adapteros-server-api",
     "crates/adapteros-db",
     "crates/adapteros-client",
@@ -107,7 +105,7 @@ replay = []
 # ACTIVATION:
 #   cargo build --features coreml-backend   # Enable CoreML backend
 #   cargo build --features metal-backend    # Enable Metal backend
-#   cargo build --features experimental-backends  # Enable MLX development
+#   cargo build --features multi-backend  # Enable MLX development
 #
 # =============================================================================
 
@@ -125,7 +123,7 @@ real-mlx = []        # Real MLX library (requires mlx-rs or C++ FFI)
 
 # Combined feature sets
 stub-backends = ["mlx-backend"]  # All stub implementations
-experimental-backends = ["mlx-backend"]  # Alias for development backends
+multi-backend = ["mlx-backend"]  # Alias for development backends
 full = ["telemetry", "metrics", "replay"]
 no-metal = []  # Explicitly disable Metal (for Linux/CI)
 
@@ -149,11 +147,14 @@ cdp = []  # Chrome DevTools Protocol support
 [dependencies]
 # Re-export key crates for integration tests
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
+adapteros-core = { path = "crates/adapteros-core" }
+# Removed: SingleFileAdapter - using unified binary format in adapteros-aos
 anyhow = "1.0"
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+safetensors.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # Re-enabled for MVP
@@ -266,6 +267,7 @@ tree-sitter = "0.20"
 
 # Testing
 proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [profile.release]
 opt-level = 3

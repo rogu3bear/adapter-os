@@ -11,13 +11,13 @@ default = []
 # =============================================================================
 # INGEST-DOCS FEATURE FLAGS
 # =============================================================================
-# experimental-backends: Enable MLX-based embedding models
+# multi-backend: Enable MLX-based embedding models
 #   - Adds adapteros-lora-mlx-ffi dependency
 #   - Enables ProductionEmbeddingModel::MLX variant
 #   - Without this, falls back to SimpleEmbeddingModel
 # =============================================================================
 
-experimental-backends = ["dep:adapteros-lora-mlx-ffi"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

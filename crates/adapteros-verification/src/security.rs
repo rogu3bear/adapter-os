@@ -440,23 +440,25 @@ impl SecurityVerifier {
             if let Ok(lock_file) = toml::from_str::<toml::Value>(&content) {
                 if let Some(packages) = lock_file.get("package").and_then(|p| p.as_array()) {
                     for package in packages {
-                        let name = package.get("name")
+                        let name = package
+                            .get("name")
                             .and_then(|n| n.as_str())
                             .unwrap_or("unknown")
                             .to_string();
-                        let version = package.get("version")
+                        let version = package
+                            .get("version")
                             .and_then(|v| v.as_str())
                             .unwrap_or("0.0.0")
                             .to_string();
 
                         // Check for known problematic patterns
-                        let is_vulnerable = name.contains("unmaintained") ||
-                            version.starts_with("0.0.") ||
-                            (name == "ring" && version.starts_with("0.16")); // Example
+                        let is_vulnerable = name.contains("unmaintained")
+                            || version.starts_with("0.0.")
+                            || (name == "ring" && version.starts_with("0.16")); // Example
 
-                        let is_outdated = version.starts_with("0.") &&
-                            !version.starts_with("0.9") &&
-                            !name.contains("sys");
+                        let is_outdated = version.starts_with("0.")
+                            && !version.starts_with("0.9")
+                            && !name.contains("sys");
 
                         if is_vulnerable {
                             vulnerable_count += 1;
@@ -471,7 +473,8 @@ impl SecurityVerifier {
                                 license_issues.push(LicenseIssue {
                                     package: name.clone(),
                                     license: "GPL".to_string(),
-                                    description: "Copyleft license may have compatibility issues".to_string(),
+                                    description: "Copyleft license may have compatibility issues"
+                                        .to_string(),
                                     severity: "medium".to_string(),
                                 });
                                 Some("GPL".to_string())
@@ -486,7 +489,12 @@ impl SecurityVerifier {
                                 version,
                                 latest_version: None, // Would need crates.io API for this
                                 license,
-                                security_status: if is_vulnerable { "vulnerable" } else { "secure" }.to_string(),
+                                security_status: if is_vulnerable {
+                                    "vulnerable"
+                                } else {
+                                    "secure"
+                                }
+                                .to_string(),
                                 vulnerability_count: if is_vulnerable { 1 } else { 0 },
                             });
                         }
@@ -498,7 +506,8 @@ impl SecurityVerifier {
         let total_dependencies = dependencies.len() as u32;
 
         // Calculate insecure based on vulnerability status
-        let insecure_count = dependencies.iter()
+        let insecure_count = dependencies
+            .iter()
             .filter(|d| d.security_status == "vulnerable")
             .count() as u32;
 
@@ -549,13 +558,17 @@ impl SecurityVerifier {
                             file: relative_path.clone(),
                             line: (line_num + 1) as u32,
                             column: (trimmed.find("unsafe").unwrap_or(0) + 1) as u32,
-                            suggestion: Some("Ensure unsafe code is necessary and properly audited".to_string()),
+                            suggestion: Some(
+                                "Ensure unsafe code is necessary and properly audited".to_string(),
+                            ),
                         });
                         score -= 2.0;
                     }
 
                     // Check for hardcoded secrets patterns
-                    if (trimmed.contains("password") || trimmed.contains("secret") || trimmed.contains("api_key"))
+                    if (trimmed.contains("password")
+                        || trimmed.contains("secret")
+                        || trimmed.contains("api_key"))
                         && trimmed.contains("\"")
                         && !trimmed.starts_with("//")
                     {
@@ -566,19 +579,26 @@ impl SecurityVerifier {
                             file: relative_path.clone(),
                             line: (line_num + 1) as u32,
                             column: 1,
-                            suggestion: Some("Use environment variables or secure secret management".to_string()),
+                            suggestion: Some(
+                                "Use environment variables or secure secret management".to_string(),
+                            ),
                         });
                         score -= 10.0;
                     }
 
                     // Check for SQL injection patterns
-                    if trimmed.contains("format!(") &&
-                       (trimmed.contains("SELECT") || trimmed.contains("INSERT") || trimmed.contains("UPDATE") || trimmed.contains("DELETE"))
+                    if trimmed.contains("format!(")
+                        && (trimmed.contains("SELECT")
+                            || trimmed.contains("INSERT")
+                            || trimmed.contains("UPDATE")
+                            || trimmed.contains("DELETE"))
                     {
                         security_issues.push(CodeSecurityIssue {
                             issue_type: "sql_injection".to_string(),
                             severity: "high".to_string(),
-                            description: "Potential SQL injection vulnerability - use parameterized queries".to_string(),
+                            description:
+                                "Potential SQL injection vulnerability - use parameterized queries"
+                                    .to_string(),
                             file: relative_path.clone(),
                             line: (line_num + 1) as u32,
                             column: 1,
@@ -605,7 +625,10 @@ impl SecurityVerifier {
                         });
                     }
 
-                    if trimmed.contains("bcrypt") || trimmed.contains("argon2") || trimmed.contains("scrypt") {
+                    if trimmed.contains("bcrypt")
+                        || trimmed.contains("argon2")
+                        || trimmed.contains("scrypt")
+                    {
                         security_patterns.push(SecurityPattern {
                             name: "secure_hashing".to_string(),
                             pattern_type: "good_practice".to_string(),
@@ -680,7 +703,11 @@ impl SecurityVerifier {
         let security_policy_exists = self.workspace_root.join("SECURITY.md").exists()
             || self.workspace_root.join(".github/SECURITY.md").exists();
 
-        if !security_policy_exists && standards.iter().any(|s| s.contains("security") || s.contains("SOC2")) {
+        if !security_policy_exists
+            && standards
+                .iter()
+                .any(|s| s.contains("security") || s.contains("SOC2"))
+        {
             violations.push(ComplianceViolation {
                 id: "COMP-003".to_string(),
                 description: "Missing security policy".to_string(),
@@ -690,7 +717,8 @@ impl SecurityVerifier {
                 line: None,
             });
             score -= 10.0;
-            recommendations.push("Add SECURITY.md with vulnerability disclosure process".to_string());
+            recommendations
+                .push("Add SECURITY.md with vulnerability disclosure process".to_string());
         }
 
         // 4. Check for dependency lockfile
@@ -713,7 +741,11 @@ impl SecurityVerifier {
             || self.workspace_root.join(".gitlab-ci.yml").exists()
             || self.workspace_root.join(".circleci").exists();
 
-        if !ci_exists && standards.iter().any(|s| s.contains("CI") || s.contains("automation")) {
+        if !ci_exists
+            && standards
+                .iter()
+                .any(|s| s.contains("CI") || s.contains("automation"))
+        {
             violations.push(ComplianceViolation {
                 id: "COMP-005".to_string(),
                 description: "Missing CI/CD configuration".to_string(),

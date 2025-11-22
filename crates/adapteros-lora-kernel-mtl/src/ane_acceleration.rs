@@ -373,9 +373,7 @@ impl ANEAccelerator {
         // 3. Metal buffer interop for data transfer
         //
         // Until implemented, callers should use Metal or MLX backends
-        session.state = ANESessionState::Failed(
-            "ANE execution not implemented".to_string()
-        );
+        session.state = ANESessionState::Failed("ANE execution not implemented".to_string());
 
         Err(AosError::Kernel(
             "ANE execution not implemented. Use Metal or MLX backend instead. \

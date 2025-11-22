@@ -395,13 +395,19 @@ impl PerformanceVerifier {
         let mut total_binary_size = 0u64;
 
         if target_dir.exists() {
-            for entry in std::fs::read_dir(&target_dir).into_iter().flatten().flatten() {
+            for entry in std::fs::read_dir(&target_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
                 let path = entry.path();
                 if path.is_file() {
                     if let Ok(metadata) = std::fs::metadata(&path) {
                         let size = metadata.len();
-                        if size > 1024 * 1024 { // Files larger than 1MB
-                            let name = path.file_name()
+                        if size > 1024 * 1024 {
+                            // Files larger than 1MB
+                            let name = path
+                                .file_name()
                                 .and_then(|n| n.to_str())
                                 .unwrap_or("unknown")
                                 .to_string();
@@ -452,8 +458,10 @@ impl PerformanceVerifier {
             recommendations.push("Build in release mode for accurate memory analysis".to_string());
         }
 
-        if peak_memory_bytes > 500 * 1024 * 1024 { // > 500MB
-            recommendations.push("Consider implementing memory pooling for large allocations".to_string());
+        if peak_memory_bytes > 500 * 1024 * 1024 {
+            // > 500MB
+            recommendations
+                .push("Consider implementing memory pooling for large allocations".to_string());
         }
 
         recommendations.push("Monitor memory usage in production".to_string());
@@ -490,8 +498,8 @@ impl PerformanceVerifier {
         }
 
         // Test 3: JSON parsing latency (represents data processing)
-        let cargo_toml_content = std::fs::read_to_string(self.workspace_root.join("Cargo.toml"))
-            .unwrap_or_default();
+        let cargo_toml_content =
+            std::fs::read_to_string(self.workspace_root.join("Cargo.toml")).unwrap_or_default();
         for _ in 0..10 {
             let start = std::time::Instant::now();
             let _ = toml::from_str::<toml::Value>(&cargo_toml_content);
@@ -508,8 +516,14 @@ impl PerformanceVerifier {
         };
 
         let p50_latency_ms = latencies.get(latencies.len() / 2).copied().unwrap_or(0.0);
-        let p95_latency_ms = latencies.get(latencies.len() * 95 / 100).copied().unwrap_or(0.0);
-        let p99_latency_ms = latencies.get(latencies.len() * 99 / 100).copied().unwrap_or(0.0);
+        let p95_latency_ms = latencies
+            .get(latencies.len() * 95 / 100)
+            .copied()
+            .unwrap_or(0.0);
+        let p99_latency_ms = latencies
+            .get(latencies.len() * 99 / 100)
+            .copied()
+            .unwrap_or(0.0);
         let max_latency_ms = latencies.last().copied().unwrap_or(0.0);
 
         // Build distribution
@@ -537,14 +551,12 @@ impl PerformanceVerifier {
         latency_distribution.insert("50ms+".to_string(), bucket_50_plus);
 
         // Check if targets are met
-        let targets_met = targets.iter().all(|(key, target)| {
-            match key.as_str() {
-                "avg" => avg_latency_ms <= *target,
-                "p95" => p95_latency_ms <= *target,
-                "p99" => p99_latency_ms <= *target,
-                "max" => max_latency_ms <= *target,
-                _ => true,
-            }
+        let targets_met = targets.iter().all(|(key, target)| match key.as_str() {
+            "avg" => avg_latency_ms <= *target,
+            "p95" => p95_latency_ms <= *target,
+            "p99" => p99_latency_ms <= *target,
+            "max" => max_latency_ms <= *target,
+            _ => true,
         });
 
         Ok(LatencyResults {
@@ -575,7 +587,11 @@ impl PerformanceVerifier {
             .max_depth(3)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs" || ext == "toml"))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map_or(false, |ext| ext == "rs" || ext == "toml")
+            })
             .filter(|e| !e.path().to_string_lossy().contains("/target/"))
             .take(100)
         {
@@ -617,13 +633,11 @@ impl PerformanceVerifier {
         operation_throughput.insert("serialization".to_string(), ops_per_second * 0.8);
 
         // Check if targets are met
-        let targets_met = targets.iter().all(|(key, target)| {
-            match key.as_str() {
-                "ops_per_second" => ops_per_second >= *target,
-                "bytes_per_second" => bytes_per_second >= *target,
-                "requests_per_second" => requests_per_second >= *target,
-                _ => true,
-            }
+        let targets_met = targets.iter().all(|(key, target)| match key.as_str() {
+            "ops_per_second" => ops_per_second >= *target,
+            "bytes_per_second" => bytes_per_second >= *target,
+            "requests_per_second" => requests_per_second >= *target,
+            _ => true,
         });
 
         Ok(ThroughputResults {
@@ -659,7 +673,8 @@ impl PerformanceVerifier {
 
         // Calculate disk utilization (as percentage of a 10GB threshold)
         let disk_threshold = 10 * 1024 * 1024 * 1024u64; // 10GB
-        let disk_io_utilization_percent = ((target_size as f64 / disk_threshold as f64) * 100.0).min(100.0);
+        let disk_io_utilization_percent =
+            ((target_size as f64 / disk_threshold as f64) * 100.0).min(100.0);
 
         if disk_io_utilization_percent > 80.0 {
             bottlenecks.push(ResourceBottleneck {

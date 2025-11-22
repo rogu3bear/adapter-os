@@ -8,7 +8,7 @@
 
 #![cfg(target_os = "macos")]
 
-use metal::{Device, MTLResourceOptions, Buffer};
+use metal::{Buffer, Device, MTLResourceOptions};
 use std::sync::Arc;
 
 // =============================================================================
@@ -186,7 +186,10 @@ impl MockMlpWeights {
         Self {
             gate_weight: deterministic_weights(hidden_size * intermediate_size, seed),
             up_weight: deterministic_weights(hidden_size * intermediate_size, seed.wrapping_add(1)),
-            down_weight: deterministic_weights(intermediate_size * hidden_size, seed.wrapping_add(2)),
+            down_weight: deterministic_weights(
+                intermediate_size * hidden_size,
+                seed.wrapping_add(2),
+            ),
             hidden_size,
             intermediate_size,
         }
@@ -268,7 +271,10 @@ pub fn cpu_swiglu(gate: &[f32], up: &[f32]) -> Vec<f32> {
 pub fn cpu_softmax(input: &[f32]) -> Vec<f32> {
     let max_val = input.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let exp_sum: f32 = input.iter().map(|&x| (x - max_val).exp()).sum();
-    input.iter().map(|&x| (x - max_val).exp() / exp_sum).collect()
+    input
+        .iter()
+        .map(|&x| (x - max_val).exp() / exp_sum)
+        .collect()
 }
 
 /// CPU RMS normalization
@@ -389,7 +395,12 @@ pub fn assert_bit_exact(a: &[f32], b: &[f32], msg: &str) {
         assert!(
             av.to_bits() == bv.to_bits(),
             "{}: bit mismatch at index {}: {} ({:#x}) vs {} ({:#x})",
-            msg, i, av, av.to_bits(), bv, bv.to_bits()
+            msg,
+            i,
+            av,
+            av.to_bits(),
+            bv,
+            bv.to_bits()
         );
     }
 }

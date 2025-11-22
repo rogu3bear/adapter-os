@@ -91,7 +91,11 @@ pub struct StatisticalMeasures {
 
 impl BaselineService {
     /// Create a new baseline service
-    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: BaselineConfig) -> Self {
+    pub fn new(
+        db: Arc<Db>,
+        telemetry_writer: Arc<TelemetryWriter>,
+        config: BaselineConfig,
+    ) -> Self {
         Self {
             db,
             telemetry_writer,
@@ -582,16 +586,18 @@ impl BaselineService {
         let cutoff_time = chrono::Utc::now();
 
         let cutoff_time_str = cutoff_time.to_rfc3339();
-        let deleted_count = sqlx::query(
-            "DELETE FROM process_performance_baselines WHERE expires_at < ?",
-        )
-        .bind(&cutoff_time_str)
-        .execute(self.db.pool())
-        .await
-        .map_err(|e| {
-            adapteros_core::AosError::Database(format!("Failed to cleanup baselines: {}", e))
-        })?
-        .rows_affected();
+        let deleted_count =
+            sqlx::query("DELETE FROM process_performance_baselines WHERE expires_at < ?")
+                .bind(&cutoff_time_str)
+                .execute(self.db.pool())
+                .await
+                .map_err(|e| {
+                    adapteros_core::AosError::Database(format!(
+                        "Failed to cleanup baselines: {}",
+                        e
+                    ))
+                })?
+                .rows_affected();
 
         if deleted_count > 0 {
             info!("Cleaned up {} expired baselines", deleted_count);
@@ -642,13 +648,13 @@ impl BaselineService {
 
     /// Get active workers for a tenant
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query(
-            "SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'",
-        )
-        .bind(tenant_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get workers: {}", e)))?;
+        let rows = sqlx::query("SELECT id FROM workers WHERE tenant_id = ? AND status = 'active'")
+            .bind(tenant_id)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!("Failed to get workers: {}", e))
+            })?;
 
         let workers = rows
             .into_iter()

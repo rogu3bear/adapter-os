@@ -4,7 +4,7 @@ use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "mplora-orchestrator")]
@@ -70,6 +70,9 @@ async fn main() -> Result<()> {
                 db_path,
                 bundles_path,
                 manifests_path,
+                skip_dependency_checks: false,
+                allow_degraded_mode: false,
+                require_telemetry_bundles: true,
             };
 
             let orchestrator = Orchestrator::new(config);

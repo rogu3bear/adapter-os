@@ -285,7 +285,6 @@ impl Span {
             byte_length,
         }
     }
-
 }
 
 impl std::fmt::Display for Span {

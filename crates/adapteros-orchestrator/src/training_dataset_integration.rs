@@ -386,7 +386,7 @@ mod tests {
 
         // Create a test database
         let db_path = temp_dir.path().join("test.db");
-        let db = Db::new(db_path.to_str().unwrap()).await.unwrap();
+        let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
 
         let manager = TrainingDatasetManager::new(db, temp_dir.path().to_path_buf(), None);
 

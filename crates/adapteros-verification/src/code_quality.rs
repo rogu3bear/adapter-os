@@ -470,8 +470,10 @@ impl CodeQualityVerifier {
                     let trimmed = line.trim();
 
                     // Detect function start
-                    if (trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") ||
-                        trimmed.starts_with("async fn ") || trimmed.starts_with("pub async fn "))
+                    if (trimmed.starts_with("fn ")
+                        || trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("async fn ")
+                        || trimmed.starts_with("pub async fn "))
                         && !in_function
                     {
                         in_function = true;
@@ -493,7 +495,9 @@ impl CodeQualityVerifier {
                         brace_depth -= line.matches('}').count() as i32;
 
                         // Count complexity-increasing constructs
-                        let complexity_keywords = ["if ", "else if ", "while ", "for ", "match ", "&&", "||", "?"];
+                        let complexity_keywords = [
+                            "if ", "else if ", "while ", "for ", "match ", "&&", "||", "?",
+                        ];
                         for keyword in &complexity_keywords {
                             current_complexity += trimmed.matches(keyword).count() as u32;
                         }
@@ -518,7 +522,8 @@ impl CodeQualityVerifier {
 
                             // Track complex functions
                             if current_complexity > max_complexity {
-                                let relative_path = entry.path()
+                                let relative_path = entry
+                                    .path()
                                     .strip_prefix(&self.workspace_root)
                                     .unwrap_or(entry.path())
                                     .to_string_lossy()
@@ -612,15 +617,16 @@ impl CodeQualityVerifier {
                             total_public_items += 1;
 
                             // Check if previous line(s) have documentation
-                            let has_doc = prev_line_is_doc ||
-                                (i > 0 && lines[i - 1].trim().starts_with("///"));
+                            let has_doc = prev_line_is_doc
+                                || (i > 0 && lines[i - 1].trim().starts_with("///"));
 
                             if has_doc {
                                 documented_items += 1;
                             } else {
                                 // Extract item name
                                 let name = extract_item_name(trimmed, item_type);
-                                let relative_path = entry.path()
+                                let relative_path = entry
+                                    .path()
                                     .strip_prefix(&self.workspace_root)
                                     .unwrap_or(entry.path())
                                     .to_string_lossy()
@@ -656,14 +662,26 @@ impl CodeQualityVerifier {
         }
 
         if !missing_docs.is_empty() {
-            let undoc_funcs = missing_docs.iter().filter(|d| d.item_type == "function").count();
-            let undoc_structs = missing_docs.iter().filter(|d| d.item_type == "struct").count();
+            let undoc_funcs = missing_docs
+                .iter()
+                .filter(|d| d.item_type == "function")
+                .count();
+            let undoc_structs = missing_docs
+                .iter()
+                .filter(|d| d.item_type == "struct")
+                .count();
 
             if undoc_funcs > 10 {
-                issues.push(format!("{} public functions lack documentation", undoc_funcs));
+                issues.push(format!(
+                    "{} public functions lack documentation",
+                    undoc_funcs
+                ));
             }
             if undoc_structs > 5 {
-                issues.push(format!("{} public structs lack documentation", undoc_structs));
+                issues.push(format!(
+                    "{} public structs lack documentation",
+                    undoc_structs
+                ));
             }
         }
 
@@ -701,23 +719,30 @@ impl CodeQualityVerifier {
                             let code_str = code.as_str().unwrap_or("");
 
                             // Check for dead code lints
-                            if code_str == "dead_code" || code_str == "unused_variables"
-                                || code_str == "unused_imports" || code_str == "unused_mut"
+                            if code_str == "dead_code"
+                                || code_str == "unused_variables"
+                                || code_str == "unused_imports"
+                                || code_str == "unused_mut"
                             {
-                                let msg_text = message.get("message")
+                                let msg_text = message
+                                    .get("message")
                                     .and_then(|m| m.as_str())
                                     .unwrap_or("unknown");
 
                                 // Extract location
-                                if let Some(spans) = message.get("spans").and_then(|s| s.as_array()) {
+                                if let Some(spans) = message.get("spans").and_then(|s| s.as_array())
+                                {
                                     if let Some(span) = spans.first() {
-                                        let file = span.get("file_name")
+                                        let file = span
+                                            .get("file_name")
                                             .and_then(|f| f.as_str())
                                             .unwrap_or("unknown")
                                             .to_string();
-                                        let line = span.get("line_start")
+                                        let line = span
+                                            .get("line_start")
                                             .and_then(|l| l.as_u64())
-                                            .unwrap_or(0) as u32;
+                                            .unwrap_or(0)
+                                            as u32;
 
                                         // Extract name from message
                                         let name = extract_dead_code_name(msg_text);
@@ -767,9 +792,12 @@ impl CodeQualityVerifier {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
                 for line in content.lines() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ")
-                        || trimmed.starts_with("struct ") || trimmed.starts_with("pub struct ")
-                        || trimmed.starts_with("const ") || trimmed.starts_with("pub const ")
+                    if trimmed.starts_with("fn ")
+                        || trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("struct ")
+                        || trimmed.starts_with("pub struct ")
+                        || trimmed.starts_with("const ")
+                        || trimmed.starts_with("pub const ")
                         || trimmed.starts_with("let ")
                     {
                         total_items += 1;

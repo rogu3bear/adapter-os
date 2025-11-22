@@ -187,7 +187,9 @@ pub struct HealthChecker {
 impl HealthChecker {
     /// Create a new health checker
     pub fn new(interval: Duration) -> Self {
-        Self { _interval: interval }
+        Self {
+            _interval: interval,
+        }
     }
 
     /// Check worker health
@@ -500,8 +502,7 @@ impl SupervisorDaemon {
         self.restart_worker(tenant_id).await?;
 
         // Record restart in database
-        self.record_restart(tenant_id, attempts)
-            .await?;
+        self.record_restart(tenant_id, attempts).await?;
 
         // Update last_restart time
         {
@@ -532,9 +533,7 @@ impl SupervisorDaemon {
             #[cfg(unix)]
             {
                 use std::process::Command;
-                let _ = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .output();
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
             }
             // Give the OS time to clean up
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -565,7 +564,10 @@ impl SupervisorDaemon {
             )));
         }
 
-        info!("Worker {} restarted successfully with PID {}", tenant_id, new_pid);
+        info!(
+            "Worker {} restarted successfully with PID {}",
+            tenant_id, new_pid
+        );
         Ok(())
     }
 
@@ -635,16 +637,13 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
         )
     };
 
-    let child = Command::new(&binary)
-        .args(&args)
-        .spawn()
-        .map_err(|e| {
-            AosError::Worker(format!(
-                "Failed to spawn worker process {}: {}",
-                binary.display(),
-                e
-            ))
-        })?;
+    let child = Command::new(&binary).args(&args).spawn().map_err(|e| {
+        AosError::Worker(format!(
+            "Failed to spawn worker process {}: {}",
+            binary.display(),
+            e
+        ))
+    })?;
 
     let pid = child.id();
     info!(
@@ -687,7 +686,9 @@ mod tests {
         };
 
         let supervisor = SupervisorDaemon::new(config).await.unwrap();
-        supervisor.register_worker("test-tenant".to_string(), Some(12345)).await;
+        supervisor
+            .register_worker("test-tenant".to_string(), Some(12345))
+            .await;
 
         let status = supervisor.get_worker_status("test-tenant").await;
         assert_eq!(status, Some(WorkerStatus::Healthy));
@@ -724,7 +725,9 @@ mod tests {
         };
 
         let supervisor = SupervisorDaemon::new(config).await.unwrap();
-        supervisor.register_worker("test-tenant".to_string(), Some(12345)).await;
+        supervisor
+            .register_worker("test-tenant".to_string(), Some(12345))
+            .await;
 
         // Simulate crash
         supervisor

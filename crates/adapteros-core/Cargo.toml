@@ -33,6 +33,8 @@ fastrand = "2.0"
 [dev-dependencies]
 proptest = { workspace = true }
 rand = { workspace = true }
+criterion = "0.5"
+tempfile = "3.8"
 
 [features]
 default = ["schemars-support"]
@@ -48,3 +50,8 @@ optional = true
 [lib]
 name = "adapteros_core"
 path = "src/lib.rs"
+
+# BLAKE3 and HKDF performance benchmarks
+[[bench]]
+name = "hash_benchmarks"
+harness = false

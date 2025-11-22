@@ -1,5 +1,6 @@
 //! Report generation for orchestrator results
 
+use crate::gates::DependencyCheckResult;
 use adapteros_core::time;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,8 @@ impl GateResult {
 pub struct GateReport {
     pub cpid: String,
     pub timestamp: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dependency_checks: Vec<DependencyCheckResult>,
     pub gates: HashMap<String, GateResult>,
     pub all_passed: bool,
 }
@@ -55,9 +58,14 @@ impl GateReport {
         Self {
             cpid,
             timestamp: time::now_rfc3339(),
+            dependency_checks: Vec::new(),
             gates: HashMap::new(),
             all_passed: true,
         }
+    }
+
+    pub fn set_dependency_checks(&mut self, checks: Vec<DependencyCheckResult>) {
+        self.dependency_checks = checks;
     }
 
     pub fn add_result(&mut self, gate_name: String, result: GateResult) {
@@ -87,6 +95,46 @@ impl GateReport {
                 "❌ FAILED"
             }
         ));
+
+        // Dependency checks section
+        if !self.dependency_checks.is_empty() {
+            md.push_str("## Dependency Status\n\n");
+            md.push_str("| Gate | Dependencies | Degradation | Messages |\n");
+            md.push_str("|------|--------------|-------------|----------|\n");
+
+            for dep_check in &self.dependency_checks {
+                let avail_status = if dep_check.all_available {
+                    "✅ All Available"
+                } else {
+                    "⚠️ Some Missing"
+                };
+
+                let degradation = match dep_check.degradation_level {
+                    0 => "None",
+                    1 => "Partial",
+                    _ => "Critical",
+                };
+
+                let messages = if dep_check.messages.is_empty() {
+                    "None".to_string()
+                } else {
+                    dep_check
+                        .messages
+                        .iter()
+                        .take(1)
+                        .map(|m| m.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                };
+
+                md.push_str(&format!(
+                    "| {} | {} | {} | {} |\n",
+                    dep_check.gate_id, avail_status, degradation, messages
+                ));
+            }
+
+            md.push('\n');
+        }
 
         md.push_str("## Gate Results\n\n");
         md.push_str("| Gate | Status | Message |\n");
@@ -128,4 +176,3 @@ impl GateReport {
         Ok(())
     }
 }
-

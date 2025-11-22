@@ -1,9 +1,9 @@
 [package]
 name = "adapteros-orchestrator"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Core

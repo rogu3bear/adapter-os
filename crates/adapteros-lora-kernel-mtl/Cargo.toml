@@ -70,24 +70,25 @@ cc = "1.0"
 [dev-dependencies]
 bytemuck = { workspace = true }
 adapteros-memory = { path = "../adapteros-memory" }
+criterion = "0.5"
 
-# Disable tests that need API refactoring
+# Metal kernel tests
 [[test]]
 name = "fused_mlp_smoke"
-test = false
 
 [[test]]
 name = "fused_qkv_flash_smoke"
-test = false
 
 [[test]]
 name = "metal_enhancement_tests"
-test = false
 
 [[test]]
 name = "multi_backend_tests"
-test = false
 
 [[test]]
 name = "coreml_backend_tests"
-test = false
+
+# Metal kernel performance benchmarks
+[[bench]]
+name = "kernel_benchmarks"
+harness = false

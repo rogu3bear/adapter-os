@@ -10,7 +10,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 #[test]
-#[cfg(any(feature = "mlx-ffi-backend", feature = "experimental-backends"))]
+#[cfg(any(feature = "mlx-ffi-backend", feature = "multi-backend"))]
 fn test_mlx_import_command_exists_with_feature() {
     // This test verifies that import-model command is available when mlx-ffi-backend is enabled
 
@@ -41,7 +41,7 @@ fn test_mlx_import_command_exists_with_feature() {
 }
 
 #[test]
-#[cfg(not(any(feature = "mlx-ffi-backend", feature = "experimental-backends")))]
+#[cfg(not(any(feature = "mlx-ffi-backend", feature = "multi-backend")))]
 fn test_mlx_import_command_not_available_without_feature() {
     // When feature is not enabled, import should fail with feature error
     // Note: This test may not run if extended-tests feature is required
@@ -104,7 +104,7 @@ fn test_mlx_import_command_not_available_without_feature() {
 }
 
 #[test]
-#[cfg(any(feature = "mlx-ffi-backend", feature = "experimental-backends"))]
+#[cfg(any(feature = "mlx-ffi-backend", feature = "multi-backend"))]
 fn test_mlx_import_validates_files_exist() {
     // Test that import command validates all required files exist
 

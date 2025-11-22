@@ -5,7 +5,9 @@
 //! - Telemetry reporting
 //! - Automatic cleanup scheduling
 
-use crate::gpu_memory_pool::{GpuMemoryPool, GpuMemoryPoolConfig, GpuMemoryStats, MemoryPressureEvent};
+use crate::gpu_memory_pool::{
+    GpuMemoryPool, GpuMemoryPoolConfig, GpuMemoryStats, MemoryPressureEvent,
+};
 use crate::vram::VramTracker;
 use adapteros_core::{AosError, Result};
 use std::sync::Arc;
@@ -125,27 +127,28 @@ impl GpuMemoryManager {
     pub fn set_telemetry_sink(&mut self, sink: Arc<dyn TelemetrySink>) {
         // Register pressure callback
         let sink_clone = Arc::clone(&sink);
-        self.pool.register_pressure_callback(Box::new(move |event: MemoryPressureEvent| {
-            let stats = GpuMemoryStatsSnapshot {
-                active_bytes: event.current_usage,
-                pooled_bytes: 0, // Not available in pressure event
-                total_bytes: event.current_usage,
-                hit_rate: 0.0,
-                pooled_count: 0,
-            };
+        self.pool
+            .register_pressure_callback(Box::new(move |event: MemoryPressureEvent| {
+                let stats = GpuMemoryStatsSnapshot {
+                    active_bytes: event.current_usage,
+                    pooled_bytes: 0, // Not available in pressure event
+                    total_bytes: event.current_usage,
+                    hit_rate: 0.0,
+                    pooled_count: 0,
+                };
 
-            let telemetry_event = GpuMemoryTelemetryEvent {
-                event_type: GpuMemoryEventType::PressureDetected {
-                    level: event.pressure_level,
-                    bytes_to_free: event.bytes_to_free,
-                },
-                timestamp: event.timestamp,
-                stats,
-                context: None,
-            };
+                let telemetry_event = GpuMemoryTelemetryEvent {
+                    event_type: GpuMemoryEventType::PressureDetected {
+                        level: event.pressure_level,
+                        bytes_to_free: event.bytes_to_free,
+                    },
+                    timestamp: event.timestamp,
+                    stats,
+                    context: None,
+                };
 
-            sink_clone.send(telemetry_event);
-        }));
+                sink_clone.send(telemetry_event);
+            }));
 
         self.telemetry_sink = Some(sink);
     }
@@ -172,12 +175,16 @@ impl GpuMemoryManager {
         });
 
         self.cleanup_handle = Some(handle);
-        info!(interval_secs = interval.as_secs(), "Started cleanup scheduler");
+        info!(
+            interval_secs = interval.as_secs(),
+            "Started cleanup scheduler"
+        );
     }
 
     /// Stop cleanup scheduler
     pub fn stop_cleanup_scheduler(&mut self) {
-        self.shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = self.cleanup_handle.take() {
             let _ = handle.join();
         }

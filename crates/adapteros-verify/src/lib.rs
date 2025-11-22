@@ -103,6 +103,15 @@ pub enum VerifyError {
 
     #[error("Anyhow error: {0}")]
     Anyhow(#[from] anyhow::Error),
+
+    #[error("AOS error: {0}")]
+    Aos(String),
+}
+
+impl From<adapteros_core::AosError> for VerifyError {
+    fn from(err: adapteros_core::AosError) -> Self {
+        VerifyError::Aos(err.to_string())
+    }
 }
 
 /// Result type for verification operations

@@ -403,8 +403,10 @@ impl Metal3xMemoryManager {
         for pool in &mut self.memory_pools {
             if pool.deallocate(buffer.clone()) {
                 self.allocation_stats.total_deallocations += 1;
-                self.allocation_stats.current_memory_usage =
-                    self.allocation_stats.current_memory_usage.saturating_sub(buffer_size);
+                self.allocation_stats.current_memory_usage = self
+                    .allocation_stats
+                    .current_memory_usage
+                    .saturating_sub(buffer_size);
 
                 debug!(
                     size = buffer_size,
@@ -415,7 +417,10 @@ impl Metal3xMemoryManager {
             }
         }
 
-        warn!(size = buffer_size, "Attempted to deallocate unknown Metal 3.x buffer");
+        warn!(
+            size = buffer_size,
+            "Attempted to deallocate unknown Metal 3.x buffer"
+        );
         Ok(())
     }
 

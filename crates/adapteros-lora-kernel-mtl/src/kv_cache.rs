@@ -38,10 +38,10 @@ pub struct KVCacheConfig {
 impl Default for KVCacheConfig {
     fn default() -> Self {
         Self {
-            num_layers: 28,        // Qwen2.5-7B default
-            max_seq_len: 4096,     // Default context length
-            num_kv_heads: 4,       // GQA: 4 KV heads
-            head_dim: 128,         // Per-head dimension
+            num_layers: 28,    // Qwen2.5-7B default
+            max_seq_len: 4096, // Default context length
+            num_kv_heads: 4,   // GQA: 4 KV heads
+            head_dim: 128,     // Per-head dimension
             batch_size: 1,
         }
     }
@@ -61,7 +61,10 @@ impl KVCacheConfig {
 
     /// Calculate bytes per layer for K or V cache
     pub fn bytes_per_layer(&self) -> u64 {
-        (self.batch_size * self.num_kv_heads * self.max_seq_len * self.head_dim
+        (self.batch_size
+            * self.num_kv_heads
+            * self.max_seq_len
+            * self.head_dim
             * std::mem::size_of::<f32>()) as u64
     }
 
@@ -309,9 +312,9 @@ impl KVCache {
     /// Returns references to the key and value cache buffers along with
     /// the current sequence position.
     pub fn get_layer_cache(&self, layer_idx: usize) -> Option<(&Buffer, &Buffer, usize)> {
-        self.layers.get(layer_idx).map(|layer| {
-            (&layer.key_cache, &layer.value_cache, layer.seq_pos)
-        })
+        self.layers
+            .get(layer_idx)
+            .map(|layer| (&layer.key_cache, &layer.value_cache, layer.seq_pos))
     }
 
     /// Get mutable reference to layer cache
@@ -514,7 +517,8 @@ mod tests {
             batch_size: 1,
         };
 
-        let cache = KVCache::new(Arc::new(device), config).expect("KV cache creation should succeed");
+        let cache =
+            KVCache::new(Arc::new(device), config).expect("KV cache creation should succeed");
 
         assert_eq!(cache.num_layers(), 2);
         assert_eq!(cache.seq_pos(), 0);
@@ -534,7 +538,8 @@ mod tests {
             batch_size: 1,
         };
 
-        let mut cache = KVCache::new(Arc::new(device), config).expect("KV cache creation should succeed");
+        let mut cache =
+            KVCache::new(Arc::new(device), config).expect("KV cache creation should succeed");
 
         // Simulate updating the cache
         if let Some(layer) = cache.get_layer_cache_mut(0) {
@@ -559,7 +564,8 @@ mod tests {
             batch_size: 1,
         };
 
-        let cache = LayerKVCache::new(&device, &config).expect("Layer cache creation should succeed");
+        let cache =
+            LayerKVCache::new(&device, &config).expect("Layer cache creation should succeed");
 
         assert_eq!(cache.seq_pos, 0);
         assert_eq!(cache.max_seq_len, 100);

@@ -88,8 +88,7 @@ impl RmsNormKernel {
         // Validate buffer sizes
         let expected_input_size =
             batch_size * (self.config.hidden_size as usize) * std::mem::size_of::<f32>();
-        let expected_weight_size =
-            (self.config.hidden_size as usize) * std::mem::size_of::<f32>();
+        let expected_weight_size = (self.config.hidden_size as usize) * std::mem::size_of::<f32>();
 
         if (input.length() as usize) < expected_input_size {
             return Err(AosError::Validation(format!(

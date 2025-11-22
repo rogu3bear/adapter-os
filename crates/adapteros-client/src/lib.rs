@@ -15,7 +15,9 @@ use anyhow::Result;
 pub use types::*;
 
 // Re-export telemetry types needed by trait
-pub use adapteros_api_types::telemetry::{TelemetryBundleResponse, ApiTelemetryEvent as TelemetryEvent};
+pub use adapteros_api_types::telemetry::{
+    ApiTelemetryEvent as TelemetryEvent, TelemetryBundleResponse,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::NativeClient as DefaultClient;

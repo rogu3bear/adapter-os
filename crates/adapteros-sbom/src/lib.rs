@@ -134,7 +134,6 @@ impl SpdxDocument {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

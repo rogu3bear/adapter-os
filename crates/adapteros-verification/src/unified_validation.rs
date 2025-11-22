@@ -1445,7 +1445,7 @@ impl UnifiedVerificationFramework {
 
     fn emit_telemetry(&self, event_type: &str, message: &str, payload: serde_json::Value) {
         if let Some(writer) = &self.telemetry {
-            let event = TelemetryEventBuilder::new(
+            match TelemetryEventBuilder::new(
                 EventType::Custom(event_type.to_string()),
                 LogLevel::Info,
                 message.to_string(),
@@ -1457,10 +1457,16 @@ impl UnifiedVerificationFramework {
                 ),
             )
             .metadata(payload)
-            .build();
-
-            if let Err(err) = writer.log_event(event) {
-                warn!("Failed to emit verification telemetry: {}", err);
+            .build()
+            {
+                Ok(event) => {
+                    if let Err(err) = writer.log_event(event) {
+                        warn!("Failed to emit verification telemetry: {}", err);
+                    }
+                }
+                Err(err) => {
+                    warn!("Failed to build telemetry event: {}", err);
+                }
             }
         }
     }
@@ -2674,9 +2680,7 @@ impl VerificationFramework for UnifiedVerificationFramework {
         let target_dir = self.workspace_root.join("target");
         let available_space = if target_dir.exists() {
             // Estimate based on target directory size
-            fs::metadata(&target_dir)
-                .map(|m| m.len())
-                .unwrap_or(0)
+            fs::metadata(&target_dir).map(|m| m.len()).unwrap_or(0)
         } else {
             0
         };
@@ -2721,14 +2725,15 @@ impl VerificationFramework for UnifiedVerificationFramework {
             .current_dir(&self.workspace_root)
             .output();
 
-        let deps_valid = output
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        let deps_valid = output.map(|o| o.status.success()).unwrap_or(false);
 
         let (status, result) = if deps_locked && deps_valid {
             (CheckStatus::Pass, "Dependency validation passed")
         } else if deps_valid {
-            (CheckStatus::Warning, "Dependencies not locked (Cargo.lock missing)")
+            (
+                CheckStatus::Warning,
+                "Dependencies not locked (Cargo.lock missing)",
+            )
         } else {
             (CheckStatus::Fail, "Dependency resolution failed")
         };
@@ -2756,13 +2761,21 @@ impl VerificationFramework for UnifiedVerificationFramework {
         let (status, result, details) = match output {
             Ok(output) => {
                 if output.status.success() {
-                    (CheckStatus::Pass, "Build check passed", json!({"success": true}))
+                    (
+                        CheckStatus::Pass,
+                        "Build check passed",
+                        json!({"success": true}),
+                    )
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    (CheckStatus::Fail, "Build check failed", json!({
-                        "success": false,
-                        "error": stderr.chars().take(500).collect::<String>()
-                    }))
+                    (
+                        CheckStatus::Fail,
+                        "Build check failed",
+                        json!({
+                            "success": false,
+                            "error": stderr.chars().take(500).collect::<String>()
+                        }),
+                    )
                 }
             }
             Err(e) => (

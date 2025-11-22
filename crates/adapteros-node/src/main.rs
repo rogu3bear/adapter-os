@@ -1,9 +1,6 @@
 use adapteros_artifacts::CasStore;
 use adapteros_core::B3Hash;
 use adapteros_crypto::SigningKey;
-use ed25519_dalek::Signer;
-#[allow(unused_imports)]
-use tracing::error;
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
@@ -13,12 +10,15 @@ use axum::{
     Router,
 };
 use clap::Parser;
+use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::UnixListener;
 use tokio::sync::RwLock;
+#[allow(unused_imports)]
+use tracing::error;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -38,7 +38,11 @@ struct Cli {
     production_mode: bool,
 
     /// Unix Domain Socket path for production mode
-    #[arg(long, env = "AOS_NODE_UDS_PATH", default_value = "/var/run/aos/node.sock")]
+    #[arg(
+        long,
+        env = "AOS_NODE_UDS_PATH",
+        default_value = "/var/run/aos/node.sock"
+    )]
     uds_path: String,
 
     /// CAS store directory for artifacts
@@ -171,7 +175,9 @@ async fn main() -> Result<()> {
         axum::serve(listener, app).await?;
     } else {
         // Development mode: TCP binding allowed
-        warn!("Node agent running in DEVELOPMENT mode with TCP binding - not suitable for production");
+        warn!(
+            "Node agent running in DEVELOPMENT mode with TCP binding - not suitable for production"
+        );
 
         let addr = format!("0.0.0.0:{}", cli.port);
         let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -312,7 +318,13 @@ async fn node_status(State(state): State<AppState>) -> impl IntoResponse {
         .unwrap_or_else(|| "unknown".to_string());
 
     // Calculate actual uptime from component hash computation time
-    let uptime_secs = state.component_hashes.read().await.computed_at.elapsed().as_secs();
+    let uptime_secs = state
+        .component_hashes
+        .read()
+        .await
+        .computed_at
+        .elapsed()
+        .as_secs();
 
     let response = NodeStatusResponse {
         worker_count: workers.len(),
@@ -382,7 +394,8 @@ async fn node_hashes(State(state): State<AppState>) -> impl IntoResponse {
     let workers = state.agent.list_workers().await.unwrap_or_default();
     for worker in workers {
         // Compute adapter hash from plan_id and tenant
-        let adapter_hash = B3Hash::hash(format!("{}:{}", worker.tenant_id, worker.plan_id).as_bytes());
+        let adapter_hash =
+            B3Hash::hash(format!("{}:{}", worker.tenant_id, worker.plan_id).as_bytes());
         hashes.push(ComponentHashResponse {
             component: format!("adapter:{}", worker.plan_id),
             hash: adapter_hash.to_hex(),
@@ -528,7 +541,12 @@ fn compute_plan_hash(plan_path: &std::path::Path) -> B3Hash {
 
         for entry in entries {
             let path = entry.path();
-            if path.is_file() && (path.extension().map(|e| e == "json" || e == "yaml").unwrap_or(false)) {
+            if path.is_file()
+                && (path
+                    .extension()
+                    .map(|e| e == "json" || e == "yaml")
+                    .unwrap_or(false))
+            {
                 if let Ok(contents) = std::fs::read(&path) {
                     hasher.update(path.file_name().unwrap_or_default().as_encoded_bytes());
                     hasher.update(&contents);
@@ -590,7 +608,9 @@ fn sign_manifest(data: &[u8]) -> Result<String> {
     let signing_key = if key_path.exists() {
         // Load existing key
         let key_bytes = std::fs::read(key_path)?;
-        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| anyhow::anyhow!("Invalid key length"))?;
+        let key_array: [u8; 32] = key_bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Invalid key length"))?;
         SigningKey::from_bytes(&key_array)
     } else {
         // Generate new key for this node

@@ -209,7 +209,8 @@ impl EvidenceIndexManager {
                 } else {
                     symbol.name.clone()
                 };
-                let span_hash = B3Hash::hash(format!("{}:{}", symbol.symbol_id, symbol.commit_sha).as_bytes());
+                let span_hash =
+                    B3Hash::hash(format!("{}:{}", symbol.symbol_id, symbol.commit_sha).as_bytes());
 
                 let mut metadata = StdHashMap::new();
                 metadata.insert("kind".to_string(), symbol.kind.clone());
@@ -243,7 +244,8 @@ impl EvidenceIndexManager {
                 } else {
                     test.test_name.clone()
                 };
-                let span_hash = B3Hash::hash(format!("{}:{}", test.test_id, test.commit_sha).as_bytes());
+                let span_hash =
+                    B3Hash::hash(format!("{}:{}", test.test_id, test.commit_sha).as_bytes());
 
                 let mut metadata = StdHashMap::new();
                 if let Some(ref target_id) = test.target_symbol_id {
@@ -272,7 +274,8 @@ impl EvidenceIndexManager {
         // Convert IndexedDoc to EvidenceSpan
         if let Ok(docs) = doc_results {
             for doc in docs {
-                let span_hash = B3Hash::hash(format!("{}:{}", doc.doc_id, doc.commit_sha).as_bytes());
+                let span_hash =
+                    B3Hash::hash(format!("{}:{}", doc.doc_id, doc.commit_sha).as_bytes());
 
                 let mut metadata = StdHashMap::new();
                 metadata.insert("doc_type".to_string(), doc.doc_type.clone());

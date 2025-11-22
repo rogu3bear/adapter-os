@@ -195,7 +195,9 @@ impl RetryBudget {
     /// Check if retry is allowed by budget
     async fn check_budget(&self) -> Result<()> {
         // Check concurrent retry limit
-        let active = self.active_retries.load(std::sync::atomic::Ordering::SeqCst);
+        let active = self
+            .active_retries
+            .load(std::sync::atomic::Ordering::SeqCst);
         if active >= self.config.max_concurrent_retries {
             return Err(AosError::ResourceExhaustion(
                 "Retry budget exceeded: too many concurrent retries".to_string(),
@@ -216,7 +218,8 @@ impl RetryBudget {
     /// Acquire budget for a retry operation
     async fn acquire(&self) -> Result<RetryBudgetGuard> {
         self.check_budget().await?;
-        self.active_retries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.active_retries
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(RetryBudgetGuard {
             budget: self.clone(),
         })
@@ -230,7 +233,9 @@ pub struct RetryBudgetGuard {
 
 impl Drop for RetryBudgetGuard {
     fn drop(&mut self) {
-        self.budget.active_retries.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.budget
+            .active_retries
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -298,11 +303,13 @@ impl Default for RetryManager {
 }
 
 impl RetryManager {
-
     /// Create retry manager with circuit breaker
     pub fn with_circuit_breaker(config: CircuitBreakerConfig) -> Self {
         Self {
-            circuit_breaker: Some(Arc::new(StandardCircuitBreaker::new("retry-manager".to_string(), config))),
+            circuit_breaker: Some(Arc::new(StandardCircuitBreaker::new(
+                "retry-manager".to_string(),
+                config,
+            ))),
             budget: None,
             metrics: None,
         }
@@ -327,13 +334,11 @@ impl RetryManager {
     }
 
     /// Execute an operation with retry policy
-    pub async fn execute_with_policy<F, T>(
-        &self,
-        policy: &RetryPolicy,
-        operation: F,
-    ) -> Result<T>
+    pub async fn execute_with_policy<F, T>(&self, policy: &RetryPolicy, operation: F) -> Result<T>
     where
-        F: Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>> + Send + Sync,
+        F: Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>
+            + Send
+            + Sync,
         T: Send,
     {
         let start_time = Instant::now();
@@ -358,9 +363,11 @@ impl RetryManager {
 
         // Execute with circuit breaker if configured, holding budget guard throughout
         let result = if let Some(cb) = &self.circuit_breaker {
-            self.execute_with_circuit_breaker(cb, policy, operation, budget_guard).await
+            self.execute_with_circuit_breaker(cb, policy, operation, budget_guard)
+                .await
         } else {
-            self.execute_with_retry(policy, operation, budget_guard).await
+            self.execute_with_retry(policy, operation, budget_guard)
+                .await
         };
 
         // Record metrics
@@ -387,7 +394,9 @@ impl RetryManager {
         budget_guard: Option<RetryBudgetGuard>,
     ) -> Result<T>
     where
-        F: Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>> + Send + Sync,
+        F: Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>
+            + Send
+            + Sync,
         T: Send,
     {
         // Hold the budget guard for the entire circuit breaker operation duration
@@ -406,7 +415,9 @@ impl RetryManager {
         budget_guard: Option<RetryBudgetGuard>,
     ) -> Result<T>
     where
-        F: Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>> + Send + Sync,
+        F: Fn() -> std::pin::Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>
+            + Send
+            + Sync,
         T: Send,
     {
         // Hold the budget guard for the entire retry operation duration
@@ -422,7 +433,10 @@ impl RetryManager {
                     // Record success on retry
                     if attempt > 1 {
                         if let Some(metrics) = &self.metrics {
-                            metrics.record_retry_success(&policy.service_type, Duration::from_millis(0));
+                            metrics.record_retry_success(
+                                &policy.service_type,
+                                Duration::from_millis(0),
+                            );
                         }
                     }
                     return Ok(result);
@@ -452,7 +466,7 @@ impl RetryManager {
                         // Apply exponential backoff
                         delay = std::cmp::min(
                             Duration::from_millis(
-                                (delay.as_millis() as f64 * policy.backoff_factor) as u64
+                                (delay.as_millis() as f64 * policy.backoff_factor) as u64,
                             ),
                             policy.max_delay,
                         );
@@ -471,9 +485,9 @@ impl RetryManager {
             // Retry IO errors that look like network/connection issues
             AosError::Io(err) => {
                 let err_lower = err.to_lowercase();
-                err_lower.contains("connection") ||
-                err_lower.contains("timeout") ||
-                err_lower.contains("network")
+                err_lower.contains("connection")
+                    || err_lower.contains("timeout")
+                    || err_lower.contains("network")
             }
             // Don't retry other errors
             _ => false,
@@ -661,13 +675,15 @@ mod tests {
         assert!(manager.should_retry(&AosError::Network("connection failed".to_string())));
 
         // Should retry timeout errors
-        assert!(manager.should_retry(&AosError::Timeout { duration: Duration::from_secs(5) }));
+        assert!(manager.should_retry(&AosError::Timeout {
+            duration: Duration::from_secs(5)
+        }));
 
         // Should retry connection-related IO errors
-        assert!(manager.should_retry(&AosError::Io(std::io::Error::new(
-            std::io::ErrorKind::ConnectionRefused,
-            "connection refused"
-        ).to_string())));
+        assert!(manager.should_retry(&AosError::Io(
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused")
+                .to_string()
+        )));
 
         // Should not retry other errors
         assert!(!manager.should_retry(&AosError::Validation("invalid input".to_string())));
@@ -742,10 +758,18 @@ mod tests {
         }
 
         // Verify budget constraints were enforced
-        assert!(budget_exhaustion_count > 0, "Budget should have been exhausted for some operations");
-        assert!(success_count == 0, "No operations should succeed (they all fail)");
-        assert!(max_concurrent_seen.load(Ordering::SeqCst) <= 2,
-                "Should not exceed max_concurrent_retries limit");
+        assert!(
+            budget_exhaustion_count > 0,
+            "Budget should have been exhausted for some operations"
+        );
+        assert!(
+            success_count == 0,
+            "No operations should succeed (they all fail)"
+        );
+        assert!(
+            max_concurrent_seen.load(Ordering::SeqCst) <= 2,
+            "Should not exceed max_concurrent_retries limit"
+        );
     }
 
     #[tokio::test]
@@ -803,6 +827,10 @@ mod tests {
         // we should see rate limiting kick in
         // Note: The rate limiting may not cause delays if operations complete very fast
         // The important thing is that some operations are rejected due to rate limits
-        assert!(budget_errors > 0, "Rate limiting should have occurred: got {} budget errors", budget_errors);
+        assert!(
+            budget_errors > 0,
+            "Rate limiting should have occurred: got {} budget errors",
+            budget_errors
+        );
     }
 }

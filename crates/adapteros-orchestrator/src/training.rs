@@ -16,7 +16,9 @@ use tokio::sync::RwLock;
 use tracing::{error, info};
 
 // Re-export canonical types from adapteros_types
-pub use adapteros_types::training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
+pub use adapteros_types::training::{
+    TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
+};
 
 /// Training service for managing jobs
 pub struct TrainingService {
@@ -283,8 +285,10 @@ impl TrainingService {
 
         if let Some(started) = &job.started_at {
             logs.push(format!("Training started at {}", started));
-            logs.push(format!("Configuration: rank={}, alpha={}, epochs={}",
-                job.config.rank, job.config.alpha, job.total_epochs));
+            logs.push(format!(
+                "Configuration: rank={}, alpha={}, epochs={}",
+                job.config.rank, job.config.alpha, job.total_epochs
+            ));
         }
 
         if job.current_epoch > 0 {
@@ -293,7 +297,10 @@ impl TrainingService {
             }
             logs.push(format!("Current loss: {:.4}", job.current_loss));
             if job.tokens_per_second > 0.0 {
-                logs.push(format!("Throughput: {:.1} tokens/sec", job.tokens_per_second));
+                logs.push(format!(
+                    "Throughput: {:.1} tokens/sec",
+                    job.tokens_per_second
+                ));
             }
         }
 
@@ -365,6 +372,9 @@ async fn run_training_job(
         batch_size: orchestrator_cfg.batch_size as usize,
         epochs: orchestrator_cfg.epochs as usize,
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
+        preferred_backend: None, // auto-select
+        require_gpu: false,
+        max_gpu_memory_mb: 0, // unlimited
     };
 
     // Load training examples from dataset if available, otherwise use synthetic fallback

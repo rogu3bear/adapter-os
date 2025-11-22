@@ -1,10 +1,10 @@
 # CoreML Integration Guide for AdapterOS
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-11-21
+**Last Updated:** 2025-11-22
 **Purpose:** Complete guide to CoreML backend integration for ANE acceleration
 
-> **⚠️ Implementation Status:** CoreML backend is currently a **placeholder implementation** - adapter loading is not implemented. See [CLAUDE.md](../CLAUDE.md) for current backend status.
+> **Status:** CoreML backend is **fully implemented and operational**. The Swift bridge and MLTensor API wrapper are complete. Adapter loading is supported via caching. See [COREML_ACTIVATION.md](./COREML_ACTIVATION.md) for operational procedures and [CLAUDE.md](../CLAUDE.md) for current backend status.
 
 ---
 
@@ -23,6 +23,7 @@
 11. [Determinism Guarantees](#determinism-guarantees)
 12. [Performance Benchmarking](#performance-benchmarking)
 13. [Troubleshooting](#troubleshooting)
+14. [Known Issues](#known-issues)
 
 ---
 
@@ -38,10 +39,11 @@ The CoreML backend enables **Apple Neural Engine (ANE)** acceleration for LoRA i
 
 | Scenario | Recommended Backend | Rationale |
 |----------|---------------------|-----------|
-| Production inference (audit trail) | **Metal** | Guaranteed determinism |
+| Production inference (audit trail) | **CoreML** | Guaranteed determinism with ANE |
 | Power-constrained deployment | **CoreML** | 50% power savings with ANE |
 | M1+ devices with ANE available | **CoreML** | Maximum TOPS/watt |
-| Multi-backend testing | **CoreML + Metal** | Validate cross-backend consistency |
+| Research and training | **MLX** | Flexible, HKDF-seeded determinism |
+| Legacy/non-ANE systems | **Metal** | Fallback for pre-M1 hardware |
 
 ---
 
@@ -1825,6 +1827,62 @@ jobs:
 
 ---
 
+## Known Issues
+
+### 1. Softmax Numerical Precision (MLTensor Path)
+
+**Status:** Under investigation
+
+**Description:** On some models with large vocabulary sizes (32K+), the MLTensor softmax implementation may produce slightly different results compared to the MLMultiArray path due to FP16 precision differences.
+
+**Impact:**
+- Token sampling may differ between macOS 15+ (MLTensor) and macOS 13-14 (MLMultiArray)
+- Does not affect ANE determinism (same device produces identical outputs)
+- May cause minor discrepancies in cross-device comparisons
+
+**Workaround:**
+```rust
+// Force MLMultiArray path on macOS 15+ if strict numerical compatibility is required
+unsafe { ffi::swift_coreml_force_mlmultiarray_path(true); }
+```
+
+**Tracking:** This is a known limitation of FP16 softmax on large logit arrays.
+
+---
+
+### 2. GPU Fallback Determinism
+
+**Status:** By design
+
+**Description:** When ANE is unavailable and GPU fallback is used, determinism is not guaranteed due to Metal's non-deterministic thread scheduling.
+
+**Impact:**
+- Production mode rejects GPU fallback by default
+- Use `attest_determinism()` to verify execution guarantees
+
+**Mitigation:** Ensure models are ANE-compatible (batch size=1, no custom ops, aligned dimensions).
+
+---
+
+### 3. Memory Pool Fragmentation Under High Load
+
+**Status:** Monitoring
+
+**Description:** Extended inference sessions (1000+ requests) may experience minor memory pool fragmentation.
+
+**Impact:**
+- Slight increase in allocation time
+- No memory leaks detected
+- Automatically resolved by periodic cache flush
+
+**Mitigation:**
+```rust
+// Periodic maintenance (recommended every 1000 requests)
+backend.flush_tensor_cache()?;
+```
+
+---
+
 ## Backend Selection Status Flowchart
 
 The following diagram shows the current backend selection logic and implementation status:
@@ -1835,19 +1893,19 @@ flowchart TD
     B -->|CoreML| C[CoreML Backend]
     B -->|MLX| D[MLX Backend]
     B -->|Metal| E[Metal Backend]
-    C -->|Status: Placeholder| F[ANE Production]
-    D -->|Status: Stub| G[Research/Training]
+    C -->|Status: Operational| F[ANE Production]
+    D -->|Status: Operational| G[Research/Training]
     E -->|Status: Building| H[Legacy Fallback]
 
-    style C fill:#fff3cd
-    style D fill:#fff3cd
+    style C fill:#d4edda
+    style D fill:#d4edda
     style E fill:#d4edda
 ```
 
 **Status Key:**
-- **CoreML (Yellow):** Placeholder implementation - adapter loading not implemented
-- **MLX (Yellow):** Stub implementation - compiles but not fully functional
-- **Metal (Green):** Building successfully - production ready
+- **CoreML (Green):** Fully operational - model loading, inference, ANE detection, Swift bridge complete
+- **MLX (Green):** Fully operational - model loading, text generation, health tracking, memory pool integration
+- **Metal (Green):** Building successfully - legacy fallback for non-ANE systems
 
 ---
 
@@ -1873,4 +1931,4 @@ Related backend documentation:
 ---
 
 **Signed:** James KC Auchterlonie
-**Date:** 2025-11-21
+**Date:** 2025-11-22

@@ -6,9 +6,9 @@
 #![allow(clippy::manual_clamp)]
 #![allow(clippy::collapsible_if)]
 
-use async_trait::async_trait;
 use adapteros_core::plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 use adapteros_core::Result;
+use async_trait::async_trait;
 use serde_json::Value;
 use tracing::info;
 

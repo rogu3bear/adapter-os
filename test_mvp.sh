@@ -38,13 +38,13 @@ else
     exit 1
 fi
 
-# Check experimental-backends feature works
+# Check multi-backend feature works
 echo ""
 echo "4️⃣ Testing Build Features..."
-if ! cargo check --workspace --exclude adapteros-lora-mlx-ffi --quiet 2>&1 | grep -q "experimental-backends"; then
-    echo "✅ No experimental-backends warnings"
+if ! cargo check --workspace --exclude adapteros-lora-mlx-ffi --quiet 2>&1 | grep -q "multi-backend"; then
+    echo "✅ No multi-backend warnings"
 else
-    echo "❌ Still has experimental-backends warnings"
+    echo "❌ Still has multi-backend warnings"
     exit 1
 fi
 

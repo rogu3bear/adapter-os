@@ -176,7 +176,10 @@ impl NodeAgent {
                         started_at: Instant::now(),
                     };
 
-                    self.workers.write().await.insert(simulated_pid, worker_info);
+                    self.workers
+                        .write()
+                        .await
+                        .insert(simulated_pid, worker_info);
                     info!(pid = simulated_pid, "Simulated worker created");
                     return Ok(simulated_pid);
                 }

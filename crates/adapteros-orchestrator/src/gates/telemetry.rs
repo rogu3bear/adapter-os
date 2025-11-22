@@ -4,13 +4,14 @@
 //! This ensures complete audit trail and prevents promotion with gaps
 //! in the telemetry record.
 
-use crate::{Gate, OrchestratorConfig};
+use crate::{DependencyChecker, Gate, OrchestratorConfig};
 use adapteros_crypto::signature::{PublicKey, Signature};
 use adapteros_db::Db;
 use adapteros_telemetry::bundle::SignatureMetadata;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::{debug, warn};
 
 /// Telemetry verification gate
 #[derive(Debug, Default)]
@@ -23,22 +24,64 @@ impl Gate for TelemetryGate {
     }
 
     async fn check(&self, config: &OrchestratorConfig) -> Result<()> {
-        tracing::debug!("Verifying telemetry chain");
+        debug!("Verifying telemetry chain");
+
+        // Check dependencies first
+        let checker = DependencyChecker::new();
+        let deps = checker.check_gate("telemetry")?;
+
+        if !deps.all_available {
+            debug!(messages = ?deps.messages, "Some telemetry dependencies missing");
+        }
 
         // Connect to database for signature verification
         let db = Db::connect(&config.db_path).await?;
 
-        // Load bundles for this CPID
-        let bundle_dir = Path::new("var/telemetry").join(&config.cpid);
+        // Try to resolve telemetry directory
+        let bundle_dir = if let Some(resolved) = deps.get_resolved_path("telemetry_dir") {
+            let path = Path::new(&resolved).join(&config.cpid);
+            if path.exists() {
+                if resolved != "var/telemetry" {
+                    warn!("Using fallback telemetry path: {}", resolved);
+                }
+                path
+            } else {
+                // Fallback to default
+                Path::new("var/telemetry").join(&config.cpid)
+            }
+        } else {
+            Path::new("var/telemetry").join(&config.cpid)
+        };
 
         if !bundle_dir.exists() {
-            anyhow::bail!("No telemetry bundles found for CPID: {}", config.cpid);
+            // Try to handle missing bundles gracefully
+            if config.require_telemetry_bundles {
+                anyhow::bail!(
+                    "No telemetry bundles found for CPID: {}. Checked: {}",
+                    config.cpid,
+                    bundle_dir.display()
+                );
+            } else {
+                warn!(
+                    bundle_dir = %bundle_dir.display(),
+                    "Telemetry bundles not required but not found - proceeding with caution"
+                );
+                return Ok(());
+            }
         }
 
         let bundles = discover_bundles(&bundle_dir)?;
 
         if bundles.is_empty() {
-            anyhow::bail!("No telemetry bundles found in: {}", bundle_dir.display());
+            if config.require_telemetry_bundles {
+                anyhow::bail!("No telemetry bundles found in: {}", bundle_dir.display());
+            } else {
+                warn!(
+                    bundle_dir = %bundle_dir.display(),
+                    "No telemetry bundles found but not required"
+                );
+                return Ok(());
+            }
         }
 
         verify_chain(&bundles, &db, &config.cpid).await?;
@@ -139,7 +182,11 @@ async fn verify_chain(bundles: &[BundleInfo], db: &Db, cpid: &str) -> Result<()>
 }
 
 /// Verify signature metadata against database record
-async fn verify_signature_against_db(metadata: &SignatureMetadata, db: &Db, cpid: &str) -> Result<()> {
+async fn verify_signature_against_db(
+    metadata: &SignatureMetadata,
+    db: &Db,
+    cpid: &str,
+) -> Result<()> {
     // Look up stored signature by merkle root (bundle hash)
     let stored_sig = db
         .get_bundle_signature(&metadata.merkle_root)

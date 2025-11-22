@@ -283,7 +283,7 @@ Err(AosError::Kernel(
 | Feature Flag | Crate | Purpose | Status |
 |--------------|-------|---------|--------|
 | `real-mlx` | adapteros-lora-mlx-ffi | Real MLX library integration | Stub without flag |
-| `experimental-backends` | workspace | Enables MLX development backend | Stub |
+| `multi-backend` | workspace | Enables MLX development backend | Stub |
 | `coreml-backend` | adapteros-lora-worker | CoreML + Neural Engine support | Partial |
 | `ane-optimizations` | adapteros-lora-kernel-coreml | ANE-specific code paths | Placeholder |
 | `secd-support` | adapteros-cli | Secure Enclave Daemon support | Incomplete |

@@ -4,14 +4,28 @@
 //! - Sequential: Adapters are executed one after another, output feeds into next
 //! - Parallel: All adapters execute simultaneously, results are merged
 //! - UpstreamDownstream: Two-phase execution with upstream adapters first, then downstream
+//!
+//! # Backend Integration
+//!
+//! The module supports both real and mock kernel backends:
+//! - **RealBackendAdapterBackend**: Uses actual hardware backends (Metal/CoreML/MLX) for production
+//! - **MockAdapterBackend**: Lightweight testing backend with minimal overhead
+//! - **KernelAdapterBackend**: Legacy generic backend (deprecated, use RealBackendAdapterBackend instead)
+//!
+//! # Feature Flags
+//!
+//! To enable specific backends:
+//! - `coreml-backend`: CoreML + Apple Neural Engine (macOS 13+)
+//! - `multi-backend`: MLX FFI backend (research/training)
+//! - `mlx-backend`: Alias for multi-backend
 
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::{AdapterLookup, FusedKernels, IoBuffers, RouterRing};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 /// Workflow type for adapter execution
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -335,7 +349,357 @@ pub struct AdapterExecutionResult {
     pub state_updates: HashMap<String, Vec<f32>>,
 }
 
+/// Production execution backend using real kernel implementations
+///
+/// This backend integrates directly with hardware kernels (Metal/CoreML/MLX)
+/// to provide actual LoRA inference with proper determinism attestation.
+///
+/// # Example Usage
+///
+/// ```ignore
+/// use adapteros_lora_lifecycle::RealBackendAdapterBackend;
+/// use std::sync::Arc;
+///
+/// // Initialize with automatic backend selection (CoreML -> Metal -> MLX)
+/// let backend = RealBackendAdapterBackend::new_auto(
+///     vec!["adapter1".to_string(), "adapter2".to_string()],
+///     152064  // Qwen2.5 vocab size
+/// ).await?;
+///
+/// // Or use a specific backend
+/// #[cfg(target_os = "macos")]
+/// let backend = RealBackendAdapterBackend::new_metal(
+///     vec!["adapter1".to_string()],
+///     152064
+/// ).await?;
+///
+/// // Use with WorkflowExecutor
+/// let executor = WorkflowExecutor::new(
+///     WorkflowType::Sequential,
+///     vec!["adapter1".to_string()],
+///     Arc::new(backend)
+/// );
+/// let result = executor.execute(context).await?;
+/// ```
+///
+/// # Backend Selection
+///
+/// The `new_auto` method uses this fallback chain:
+/// 1. CoreML with Apple Neural Engine (most power-efficient)
+/// 2. Metal (production, guaranteed determinism)
+/// 3. MLX (experimental, requires explicit feature flag)
+pub struct RealBackendAdapterBackend {
+    /// The actual fused kernel backend (Metal/CoreML/MLX)
+    kernels: Arc<Mutex<Box<dyn FusedKernels>>>,
+    /// Adapter name to routing index mapping
+    adapter_name_to_index: HashMap<String, u16>,
+    /// Vocabulary size for output buffers
+    vocab_size: usize,
+    /// Backend identifier for logging/diagnostics
+    backend_name: String,
+}
+
+impl RealBackendAdapterBackend {
+    /// Create a new real backend with automatic selection (CoreML -> Metal -> MLX)
+    ///
+    /// # Arguments
+    /// * `adapter_names` - List of adapter names in routing order
+    /// * `vocab_size` - Model vocabulary size
+    ///
+    /// # Errors
+    /// * If no suitable backend is available on the system
+    /// * If kernel initialization fails
+    pub async fn new_auto(adapter_names: Vec<String>, vocab_size: usize) -> Result<Self> {
+        // Try CoreML first (most power-efficient)
+        #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+        {
+            match Self::new_coreml(adapter_names.clone(), vocab_size).await {
+                Ok(backend) => return Ok(backend),
+                Err(e) => {
+                    warn!(error = %e, "CoreML initialization failed, trying Metal");
+                }
+            }
+        }
+
+        // Try Metal (production, deterministic)
+        #[cfg(target_os = "macos")]
+        {
+            match Self::new_metal(adapter_names.clone(), vocab_size).await {
+                Ok(backend) => return Ok(backend),
+                Err(e) => {
+                    warn!(error = %e, "Metal initialization failed, trying MLX");
+                    // Continue to MLX fallback
+                }
+            }
+        }
+
+        // Try MLX (experimental)
+        #[cfg(feature = "multi-backend")]
+        {
+            return Self::new_mlx("/dev/null".to_string(), adapter_names, vocab_size).await;
+        }
+
+        // If we reach here, no backend was available
+        #[allow(unreachable_code)]
+        Err(AosError::Config(
+            "No suitable backend available. Ensure Metal GPU, CoreML with ANE, or MLX is present."
+                .to_string(),
+        ))
+    }
+
+    /// Create a new real backend with Metal backend
+    ///
+    /// # Errors
+    /// * If Metal is not available (non-macOS system)
+    /// * If kernel initialization fails
+    #[cfg(target_os = "macos")]
+    pub async fn new_metal(adapter_names: Vec<String>, vocab_size: usize) -> Result<Self> {
+        use adapteros_lora_kernel_mtl::MetalKernels;
+
+        info!(
+            adapters_count = adapter_names.len(),
+            vocab_size = vocab_size,
+            "Initializing RealBackendAdapterBackend with Metal backend"
+        );
+
+        let mut kernels = MetalKernels::new().map_err(|e| {
+            error!(error = %e, "Failed to initialize Metal kernels");
+            AosError::Kernel(format!("Metal initialization failed: {}", e))
+        })?;
+
+        // Attest to determinism
+        kernels.attest_determinism().map_err(|e| {
+            warn!(error = %e, "Metal backend failed determinism attestation");
+            e
+        })?;
+
+        let backend_name = kernels.device_name().to_string();
+        let adapter_name_to_index = adapter_names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, i as u16))
+            .collect();
+
+        Ok(Self {
+            kernels: Arc::new(Mutex::new(Box::new(kernels))),
+            adapter_name_to_index,
+            vocab_size,
+            backend_name,
+        })
+    }
+
+    /// Create a new real backend with CoreML backend
+    ///
+    /// # Errors
+    /// * If CoreML feature is not enabled or not available
+    /// * If kernel initialization fails
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    pub async fn new_coreml(adapter_names: Vec<String>, vocab_size: usize) -> Result<Self> {
+        use adapteros_lora_kernel_coreml::{init_coreml, ComputeUnits, CoreMLBackend};
+
+        info!(
+            adapters_count = adapter_names.len(),
+            vocab_size = vocab_size,
+            "Initializing RealBackendAdapterBackend with CoreML backend"
+        );
+
+        // Initialize CoreML runtime
+        init_coreml().map_err(|e| {
+            error!(error = %e, "Failed to initialize CoreML runtime");
+            e
+        })?;
+
+        // Use CpuAndNeuralEngine for optimal ANE utilization
+        let compute_units = ComputeUnits::CpuAndNeuralEngine;
+        let backend = CoreMLBackend::new(compute_units, false).map_err(|e| {
+            error!(error = %e, "Failed to create CoreML backend");
+            e
+        })?;
+
+        let mut kernels = backend;
+
+        // Attest to determinism
+        kernels.attest_determinism().map_err(|e| {
+            warn!(error = %e, "CoreML backend failed determinism attestation");
+            e
+        })?;
+
+        let backend_name = kernels.device_name().to_string();
+        let adapter_name_to_index = adapter_names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, i as u16))
+            .collect();
+
+        Ok(Self {
+            kernels: Arc::new(Mutex::new(Box::new(kernels))),
+            adapter_name_to_index,
+            vocab_size,
+            backend_name,
+        })
+    }
+
+    /// Create a new real backend with MLX backend
+    ///
+    /// # Arguments
+    /// * `model_path` - Path to the MLX model file
+    /// * `adapter_names` - List of adapter names in routing order
+    /// * `vocab_size` - Model vocabulary size
+    ///
+    /// # Errors
+    /// * If multi-backend feature is not enabled
+    /// * If MLX model cannot be loaded
+    /// * If kernel initialization fails
+    #[cfg(feature = "multi-backend")]
+    pub async fn new_mlx(
+        model_path: String,
+        adapter_names: Vec<String>,
+        vocab_size: usize,
+    ) -> Result<Self> {
+        use adapteros_lora_mlx_ffi::{MLXFFIBackend, MLXFFIModel};
+
+        info!(
+            model_path = %model_path,
+            adapters_count = adapter_names.len(),
+            vocab_size = vocab_size,
+            "Initializing RealBackendAdapterBackend with MLX backend"
+        );
+
+        // Load the model
+        let model = MLXFFIModel::load(&model_path).map_err(|e| {
+            error!(error = %e, model_path = %model_path, "Failed to load MLX model");
+            AosError::Kernel(format!("MLX model load failed: {}", e))
+        })?;
+
+        let backend = MLXFFIBackend::new(model);
+        let mut kernels = backend;
+
+        // Attest to determinism (note: MLX may be non-deterministic)
+        if let Err(e) = kernels.attest_determinism() {
+            warn!(error = %e, "MLX backend may not provide determinism guarantees");
+        }
+
+        let backend_name = kernels.device_name().to_string();
+        let adapter_name_to_index = adapter_names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, i as u16))
+            .collect();
+
+        Ok(Self {
+            kernels: Arc::new(Mutex::new(Box::new(kernels))),
+            adapter_name_to_index,
+            vocab_size,
+            backend_name,
+        })
+    }
+
+    /// Get the backend device name
+    pub fn backend_name(&self) -> &str {
+        &self.backend_name
+    }
+}
+
+impl AdapterExecutionBackend for RealBackendAdapterBackend {
+    async fn execute_adapter(
+        &self,
+        adapter_id: &str,
+        input_tokens: &[u32],
+        _model_state: &HashMap<String, Vec<f32>>,
+    ) -> Result<AdapterExecutionResult> {
+        debug!(
+            adapter_id = %adapter_id,
+            input_tokens_len = input_tokens.len(),
+            "Executing adapter with real backend"
+        );
+
+        // Get adapter index for routing
+        let adapter_index = self
+            .adapter_name_to_index
+            .get(adapter_id)
+            .copied()
+            .ok_or_else(|| {
+                AosError::NotFound(format!(
+                    "Adapter not found in routing table: {}",
+                    adapter_id
+                ))
+            })?;
+
+        // Create router ring with single adapter
+        let mut ring = RouterRing::new(1);
+        ring.set(&[adapter_index], &[i16::MAX]); // Full weight to single adapter
+
+        // Create IO buffers
+        let mut io = IoBuffers::new(self.vocab_size);
+        io.input_ids = input_tokens.to_vec();
+
+        // Execute kernel
+        {
+            let mut kernels = self.kernels.lock().await;
+            kernels.run_step(&ring, &mut io).map_err(|e| {
+                error!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Kernel execution failed"
+                );
+                e
+            })?;
+        }
+
+        // Convert logits to output tokens (simplified: argmax)
+        let output_tokens = if io.output_logits.is_empty() {
+            vec![]
+        } else {
+            // Find argmax
+            let (max_idx, _) = io
+                .output_logits
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or((0, &0.0));
+            vec![max_idx as u32]
+        };
+
+        debug!(
+            adapter_id = %adapter_id,
+            output_tokens_len = output_tokens.len(),
+            "Adapter execution completed"
+        );
+
+        Ok(AdapterExecutionResult {
+            output_tokens,
+            state_updates: HashMap::new(),
+        })
+    }
+}
+
 /// Mock execution backend for testing
+///
+/// Lightweight testing backend that simulates adapter execution without
+/// requiring actual hardware kernels. Used for unit tests and integration
+/// tests where real kernel access is not available or necessary.
+///
+/// # Features
+///
+/// - No hardware dependencies
+/// - Deterministic output (input tokens echoed as output)
+/// - Minimal memory footprint
+/// - Fast execution (10ms per adapter)
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_lora_lifecycle::{WorkflowExecutor, WorkflowType, MockAdapterBackend};
+/// use std::sync::Arc;
+///
+/// let backend = Arc::new(MockAdapterBackend);
+/// let executor = WorkflowExecutor::new(
+///     WorkflowType::Sequential,
+///     vec!["adapter1".to_string()],
+///     backend
+/// );
+/// let result = executor.execute(context).await?;
+/// ```
 #[derive(Default)]
 pub struct MockAdapterBackend;
 
@@ -358,51 +722,40 @@ impl AdapterExecutionBackend for MockAdapterBackend {
     }
 }
 
-/// Real kernel-based execution backend
+/// Deprecated: Use `RealBackendAdapterBackend` instead
 ///
-/// Executes adapters using Metal/MLX kernels with actual LoRA transformations.
+/// Generic kernel-based execution backend for advanced use cases.
+/// This type remains for backwards compatibility with code using the `AdapterLookup` trait.
 ///
-/// # Usage Example
+/// # Migration Guide
 ///
+/// If you have code like:
 /// ```ignore
-/// use adapteros_lora_kernel_mtl::MetalKernels;
-/// use adapteros_lora_lifecycle::{KernelAdapterBackend, WorkflowExecutor, WorkflowType};
-/// use std::sync::Arc;
-/// use tokio::sync::Mutex;
-///
-/// // Initialize kernels (usually from Worker)
-/// let kernels = MetalKernels::new(/* ... */);
-/// let kernels_arc = Arc::new(Mutex::new(kernels));
-///
-/// // Create kernel backend with adapter mapping
-/// let adapter_names = vec!["adapter_1".to_string(), "adapter_2".to_string()];
 /// let backend = KernelAdapterBackend::new(
 ///     kernels_arc.clone(),
+///     lookup_arc,
 ///     adapter_names.clone(),
-///     152064  // Qwen2.5 vocab size
-/// );
-///
-/// // Create and execute workflow
-/// let executor = WorkflowExecutor::new(
-///     WorkflowType::UpstreamDownstream,
-///     adapter_names,
-///     Arc::new(backend)
+///     152064
 /// );
 /// ```
 ///
-/// # Note on Worker Integration
+/// Replace with:
+/// ```ignore
+/// // For automatic backend selection:
+/// let backend = RealBackendAdapterBackend::new_auto(
+///     adapter_names,
+///     152064
+/// ).await?;
 ///
-/// The Worker struct currently owns kernels directly, making it difficult to share
-/// them with workflows. To use KernelAdapterBackend properly:
+/// // Or for specific backend:
+/// let backend = RealBackendAdapterBackend::new_metal(
+///     adapter_names,
+///     152064
+/// ).await?;
+/// ```
 ///
-/// 1. **Option A**: Refactor Worker to store `kernels: Arc<Mutex<K>>` instead of `K`
-/// 2. **Option B**: Create workflows outside Worker with separate kernel instances
-/// 3. **Option C**: Use MockAdapterBackend for testing (current Worker approach)
-///
-/// Real kernel-based execution backend
-///
-/// Uses the `AdapterLookup` trait to break circular dependency with adapteros-lora-worker.
-/// The worker crate implements `AdapterLookup` for its `AdapterTable`.
+/// The new `RealBackendAdapterBackend` integrates with direct kernel creation
+/// for automatic capability detection and backend selection.
 pub struct KernelAdapterBackend<K: FusedKernels, L: AdapterLookup> {
     /// Adapter lookup (abstracts AdapterTable)
     lookup: Arc<L>,
@@ -417,11 +770,18 @@ pub struct KernelAdapterBackend<K: FusedKernels, L: AdapterLookup> {
 impl<K: FusedKernels, L: AdapterLookup> KernelAdapterBackend<K, L> {
     /// Create a new kernel adapter backend
     ///
+    /// # Deprecated
+    /// Use `RealBackendAdapterBackend::new_auto()` or similar instead.
+    ///
     /// # Arguments
     /// * `kernels` - Fused kernels for GPU execution
     /// * `lookup` - Adapter lookup implementation
     /// * `adapter_names` - List of adapter names in routing order
     /// * `vocab_size` - Model vocabulary size
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use RealBackendAdapterBackend::new_auto() instead"
+    )]
     pub fn new(
         kernels: Arc<Mutex<K>>,
         lookup: Arc<L>,
@@ -473,7 +833,14 @@ impl<K: FusedKernels + 'static, L: AdapterLookup + 'static> AdapterExecutionBack
         // Execute kernel
         {
             let mut kernels = self.kernels.lock().await;
-            kernels.run_step(&ring, &mut io)?;
+            kernels.run_step(&ring, &mut io).map_err(|e| {
+                error!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Kernel execution failed"
+                );
+                e
+            })?;
         }
 
         // Convert logits to output tokens (simplified: argmax)

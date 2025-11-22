@@ -2,7 +2,7 @@
 
 This feature provides a dedicated `adapteros-aos` crate with:
 
-- Memory-mapped `.aos` loading with zero-copy weight access (AOS 2.0 layout, or ZIP Stored fallback)
+- Memory-mapped `.aos` loading with zero-copy weight access (AOS 3.0 format with 64-byte header)
 - Atomic hot-swap to replace adapters in sub-millisecond time
 - A simple LRU cache to avoid repeated I/O
 
@@ -27,5 +27,15 @@ Response includes `swap_time_ms` and `old_adapter` ID (if any).
 
 ## Notes
 
-- Zero-copy is guaranteed for AOS 2.0 artifacts because weights live in an aligned section. For ZIP v1 files, the loader falls back to `MmapAdapterLoader` and requires weights entries to use ZIP Stored; otherwise it streams and caches on demand.
+- Zero-copy is guaranteed for AOS 3.0 artifacts because weights start at byte 64 (after the cache-line aligned header). Legacy v1/v2 formats are also supported with automatic format detection.
 - Hot-swap only replaces the in-memory pointer to the adapter mapping; consumers should dereference through the manager each time to benefit from atomicity.
+
+## Format Support
+
+| Format | Header Size | Zero-Copy | Notes |
+|--------|-------------|-----------|-------|
+| AOS 3.0 | 64 bytes | Yes | Current format, cache-line aligned |
+| AOS 2.0 | 268 bytes | Yes | Legacy format with larger header |
+| AOS 1.0 | 8 bytes | Yes | Simple legacy format |
+
+See [AOS Format Specification](../AOS_FORMAT.md) for details.

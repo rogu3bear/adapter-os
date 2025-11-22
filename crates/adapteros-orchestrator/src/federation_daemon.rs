@@ -302,7 +302,9 @@ impl FederationDaemon {
         }))
         .build();
 
-        let _ = self.telemetry.log_event(event);
+        if let Ok(evt) = event {
+            let _ = self.telemetry.log_event(evt);
+        }
         Ok(())
     }
 
@@ -320,7 +322,9 @@ impl FederationDaemon {
         }))
         .build();
 
-        let _ = self.telemetry.log_event(event);
+        if let Ok(evt) = event {
+            let _ = self.telemetry.log_event(evt);
+        }
         Ok(())
     }
 
@@ -339,7 +343,9 @@ impl FederationDaemon {
         }))
         .build();
 
-        let _ = self.telemetry.log_event(event);
+        if let Ok(evt) = event {
+            let _ = self.telemetry.log_event(evt);
+        }
         Ok(())
     }
 

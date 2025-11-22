@@ -395,7 +395,10 @@ impl ReplaySession {
             }
         }
 
-        info!("All {} outputs match expected values", expected_events.len());
+        info!(
+            "All {} outputs match expected values",
+            expected_events.len()
+        );
         Ok(())
     }
 
@@ -417,7 +420,13 @@ impl ReplaySession {
         }
 
         // Verify all processed events have valid hashes
-        for (i, event) in self.trace_bundle.events.iter().take(current_idx).enumerate() {
+        for (i, event) in self
+            .trace_bundle
+            .events
+            .iter()
+            .take(current_idx)
+            .enumerate()
+        {
             if !event.verify_hash() {
                 return Err(ReplayError::HashMismatch {
                     step: i,
@@ -427,10 +436,7 @@ impl ReplaySession {
             }
         }
 
-        info!(
-            "Determinism validated for {} events",
-            current_idx
-        );
+        info!("Determinism validated for {} events", current_idx);
         Ok(())
     }
 

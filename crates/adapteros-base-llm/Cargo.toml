@@ -10,6 +10,7 @@ description = "Base LLM integration for AdapterOS Layer 1"
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core" }
+adapteros-config = { path = "../adapteros-config" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-trace = { path = "../adapteros-trace" }
 

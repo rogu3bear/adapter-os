@@ -294,9 +294,10 @@ impl BranchManager {
         };
 
         // Check if session exists
-        let existing = self.db.get_git_session(&session.id).await.map_err(|e| {
-            AosError::Database(format!("Failed to check existing session: {}", e))
-        })?;
+        let existing =
+            self.db.get_git_session(&session.id).await.map_err(|e| {
+                AosError::Database(format!("Failed to check existing session: {}", e))
+            })?;
 
         if existing.is_some() {
             // Update existing session

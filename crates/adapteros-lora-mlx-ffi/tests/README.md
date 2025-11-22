@@ -127,7 +127,7 @@ cargo test -p adapteros-lora-mlx-ffi --test deterministic_seeding_tests
 
 ### Run with experimental features:
 ```bash
-cargo test -p adapteros-lora-mlx-ffi --features experimental-backends
+cargo test -p adapteros-lora-mlx-ffi --features multi-backend
 ```
 
 ### Run ignored tests (require real models):

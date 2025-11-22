@@ -77,9 +77,9 @@ pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use mplora::MploraKernel;
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
 pub use optimization::{KernelOptimizationPlan, KernelOptimizer, KernelPerformanceMetrics};
-pub use recovery::RecoveryWrapper;
 #[cfg(target_os = "macos")]
 pub use recovery::RecoveryResult;
+pub use recovery::RecoveryWrapper;
 pub use ring_buffer::{ActiveAdapter, RingBuffer};
 pub use rms_norm::{RmsNormConfig, RmsNormKernel};
 pub use vision_kernels::{
@@ -90,8 +90,7 @@ pub use vram::VramTracker;
 
 // GPU memory management exports
 pub use gpu_memory_pool::{
-    GpuMemoryPool, GpuMemoryPoolConfig, GpuMemoryStats, MemoryPressureCallback,
-    MemoryPressureEvent,
+    GpuMemoryPool, GpuMemoryPoolConfig, GpuMemoryStats, MemoryPressureCallback, MemoryPressureEvent,
 };
 pub use memory_integration::{
     GpuMemoryEventType, GpuMemoryManager, GpuMemoryReport, GpuMemoryStatsSnapshot,
@@ -247,10 +246,8 @@ impl MetalKernels {
         let device_arc = Arc::new(device);
 
         // Initialize GPU memory pool with default config
-        let memory_pool = GpuMemoryPool::new(
-            Arc::clone(&device_arc),
-            GpuMemoryPoolConfig::default(),
-        );
+        let memory_pool =
+            GpuMemoryPool::new(Arc::clone(&device_arc), GpuMemoryPoolConfig::default());
 
         Ok(Self {
             device: device_arc,
@@ -381,10 +378,14 @@ impl MetalKernels {
 
     /// Get comprehensive memory report
     pub fn memory_report(&self) -> GpuMemoryReport {
-        let pool_stats = self.memory_pool.as_ref()
+        let pool_stats = self
+            .memory_pool
+            .as_ref()
             .map(|p| p.stats())
             .unwrap_or_default();
-        let pool_buckets = self.memory_pool.as_ref()
+        let pool_buckets = self
+            .memory_pool
+            .as_ref()
             .map(|p| p.pool_info())
             .unwrap_or_default();
 
@@ -493,17 +494,16 @@ impl MetalKernels {
     /// This method extracts the embedding matrix for Metal kernel execution.
     fn parse_embedding_weights(&self, plan_bytes: &[u8]) -> Result<Vec<f32>> {
         // Parse SafeTensors format
-        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
-            AosError::Kernel(format!("Failed to parse SafeTensors: {}", e))
-        })?;
+        let tensors = SafeTensors::deserialize(plan_bytes)
+            .map_err(|e| AosError::Kernel(format!("Failed to parse SafeTensors: {}", e)))?;
 
         // Common embedding tensor names across different model architectures
         let embedding_names = [
-            "model.embed_tokens.weight",      // LLaMA, Qwen, Mistral
-            "transformer.wte.weight",         // GPT-2, GPT-J
+            "model.embed_tokens.weight",         // LLaMA, Qwen, Mistral
+            "transformer.wte.weight",            // GPT-2, GPT-J
             "embeddings.word_embeddings.weight", // BERT
-            "embed_tokens.weight",            // Shortened form
-            "wte.weight",                     // Shortened form
+            "embed_tokens.weight",               // Shortened form
+            "wte.weight",                        // Shortened form
         ];
 
         // Find embedding tensor
@@ -552,7 +552,9 @@ impl MetalKernels {
             Dtype::F32 => {
                 // Direct conversion from f32 bytes
                 if !data.len().is_multiple_of(4) {
-                    return Err(AosError::Kernel("Invalid f32 tensor data length".to_string()));
+                    return Err(AosError::Kernel(
+                        "Invalid f32 tensor data length".to_string(),
+                    ));
                 }
                 let floats: Vec<f32> = data
                     .chunks_exact(4)
@@ -563,7 +565,9 @@ impl MetalKernels {
             Dtype::F16 => {
                 // Convert from f16 to f32
                 if !data.len().is_multiple_of(2) {
-                    return Err(AosError::Kernel("Invalid f16 tensor data length".to_string()));
+                    return Err(AosError::Kernel(
+                        "Invalid f16 tensor data length".to_string(),
+                    ));
                 }
                 let floats: Vec<f32> = data
                     .chunks_exact(2)
@@ -577,7 +581,9 @@ impl MetalKernels {
             Dtype::BF16 => {
                 // Convert from bf16 to f32
                 if !data.len().is_multiple_of(2) {
-                    return Err(AosError::Kernel("Invalid bf16 tensor data length".to_string()));
+                    return Err(AosError::Kernel(
+                        "Invalid bf16 tensor data length".to_string(),
+                    ));
                 }
                 let floats: Vec<f32> = data
                     .chunks_exact(2)
@@ -624,11 +630,11 @@ impl MetalKernels {
 
         // Common embedding tensor names across different model architectures
         let embedding_names = [
-            "model.embed_tokens.weight",      // LLaMA, Qwen, Mistral
-            "transformer.wte.weight",         // GPT-2, GPT-J
+            "model.embed_tokens.weight",         // LLaMA, Qwen, Mistral
+            "transformer.wte.weight",            // GPT-2, GPT-J
             "embeddings.word_embeddings.weight", // BERT
-            "embed_tokens.weight",            // Shortened form
-            "wte.weight",                     // Shortened form
+            "embed_tokens.weight",               // Shortened form
+            "wte.weight",                        // Shortened form
         ];
 
         // Find embedding tensor
@@ -670,9 +676,8 @@ impl MetalKernels {
     /// Parse LM head weights from SafeTensors plan bytes
     fn parse_lm_head_weights(&self, plan_bytes: &[u8]) -> Result<LmHeadWeights> {
         // Parse SafeTensors format
-        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
-            AosError::Kernel(format!("Failed to parse SafeTensors: {}", e))
-        })?;
+        let tensors = SafeTensors::deserialize(plan_bytes)
+            .map_err(|e| AosError::Kernel(format!("Failed to parse SafeTensors: {}", e)))?;
 
         // Common LM head tensor names across different model architectures
         let lm_head_names = [
@@ -765,9 +770,8 @@ impl MetalKernels {
     /// For a full implementation, this would iterate over all layers.
     fn parse_transformer_weights(&self, plan_bytes: &[u8]) -> Result<TransformerWeights> {
         // Parse SafeTensors format
-        let tensors = SafeTensors::deserialize(plan_bytes).map_err(|e| {
-            AosError::Kernel(format!("Failed to parse SafeTensors: {}", e))
-        })?;
+        let tensors = SafeTensors::deserialize(plan_bytes)
+            .map_err(|e| AosError::Kernel(format!("Failed to parse SafeTensors: {}", e)))?;
 
         // Load layer 0 weights (can be extended to load all layers)
         let layer_idx = 0;
@@ -779,9 +783,9 @@ impl MetalKernels {
             format!("model.layers.{}.mlp.w1.weight", layer_idx),        // Alternative
         ];
         let up_names = [
-            format!("model.layers.{}.mlp.up_proj.weight", layer_idx),   // LLaMA, Qwen
-            format!("transformer.h.{}.mlp.c_fc2.weight", layer_idx),    // GPT-J style
-            format!("model.layers.{}.mlp.w3.weight", layer_idx),        // Alternative
+            format!("model.layers.{}.mlp.up_proj.weight", layer_idx), // LLaMA, Qwen
+            format!("transformer.h.{}.mlp.c_fc2.weight", layer_idx),  // GPT-J style
+            format!("model.layers.{}.mlp.w3.weight", layer_idx),      // Alternative
         ];
         let down_names = [
             format!("model.layers.{}.mlp.down_proj.weight", layer_idx), // LLaMA, Qwen
@@ -902,7 +906,8 @@ impl MetalKernels {
         // Get hidden_size from previously inferred embedding dimensions
         let dimensions = self.embedding_dimensions.as_ref().ok_or_else(|| {
             AosError::Kernel(
-                "Embedding dimensions not set - call validate_embedding_dimensions first".to_string(),
+                "Embedding dimensions not set - call validate_embedding_dimensions first"
+                    .to_string(),
             )
         })?;
         let hidden_size = dimensions.hidden_size;
@@ -1027,7 +1032,8 @@ impl MetalKernels {
             .ok_or_else(|| AosError::Kernel("Intermediate buffers not initialized".to_string()))?;
 
         // Read hidden states from GPU and copy to intermediate buffer
-        let result_hidden_states = self.safe_read_floats_from_buffer(&hidden_buffer, hidden_states.len())?;
+        let result_hidden_states =
+            self.safe_read_floats_from_buffer(&hidden_buffer, hidden_states.len())?;
 
         // Copy to the intermediate hidden_states buffer for use by transformer layers
         unsafe {

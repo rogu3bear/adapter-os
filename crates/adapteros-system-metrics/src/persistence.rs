@@ -51,7 +51,11 @@ impl Default for PersistenceConfig {
 
 impl MetricsPersistenceService {
     /// Create a new metrics persistence service
-    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: PersistenceConfig) -> Self {
+    pub fn new(
+        db: Arc<Db>,
+        telemetry_writer: Arc<TelemetryWriter>,
+        config: PersistenceConfig,
+    ) -> Self {
         Self {
             db,
             telemetry_writer,
@@ -395,16 +399,15 @@ impl MetricsPersistenceService {
             .to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count = sqlx::query(
-            "DELETE FROM process_health_metrics WHERE collected_at < ?",
-        )
-        .bind(&cutoff_rfc3339)
-        .execute(self.db.pool())
-        .await
-        .map_err(|e| {
-            adapteros_core::AosError::Database(format!("Failed to cleanup metrics: {}", e))
-        })?
-        .rows_affected();
+        let deleted_count =
+            sqlx::query("DELETE FROM process_health_metrics WHERE collected_at < ?")
+                .bind(&cutoff_rfc3339)
+                .execute(self.db.pool())
+                .await
+                .map_err(|e| {
+                    adapteros_core::AosError::Database(format!("Failed to cleanup metrics: {}", e))
+                })?
+                .rows_affected();
 
         info!("Cleaned up {} old health metrics", deleted_count);
 
@@ -443,7 +446,9 @@ impl MetricsPersistenceService {
             .map(|row| {
                 use sqlx::Row;
                 WorkerInfo {
-                    id: row.get::<Option<String>, _>("id").unwrap_or_else(|| "unknown".to_string()),
+                    id: row
+                        .get::<Option<String>, _>("id")
+                        .unwrap_or_else(|| "unknown".to_string()),
                     tenant_id: row.get("tenant_id"),
                 }
             })
@@ -528,8 +533,10 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-            .expect("Failed to create telemetry writer"));
+        let telemetry_writer = Arc::new(
+            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
+                .expect("Failed to create telemetry writer"),
+        );
 
         let config = PersistenceConfig::default();
         let service = MetricsPersistenceService::new(db, telemetry_writer, config);

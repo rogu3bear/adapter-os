@@ -39,6 +39,9 @@ pub use orthogonal::OrthogonalConstraints;
 pub use path_routing::{compute_path_scores, DirectoryRoutingContext, PathRoutingScore};
 pub use scoring::{create_scorer, EntropyFloorScorer, ScoringFunction, WeightedScorer};
 
+// Import policy configuration for entropy floor
+use adapteros_policy::packs::router::RouterConfig;
+
 /// Router weights for feature importance
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterWeights {
@@ -197,6 +200,53 @@ impl Router {
             eps,
             _token_count: 0,
             full_log_tokens: 128, // Per Telemetry Ruleset #9
+            orthogonal_constraints: None,
+            orthogonal_enabled: false,
+            compression_ratio: 0.8,
+            shared_downsample: false,
+            active_stack_name: None,
+            active_stack_adapter_ids: None,
+            active_stack_hash: None,
+            telemetry_writer: None,
+            step_counter: 0,
+        }
+    }
+
+    /// Create a new router from policy configuration
+    ///
+    /// This constructor reads the entropy floor and other parameters from the policy configuration
+    /// instead of hardcoding values, ensuring consistency across the system.
+    ///
+    /// # Arguments
+    /// * `feature_weights` - Custom router weights for feature importance
+    /// * `k` - Number of top adapters to select (K-sparse parameter)
+    /// * `tau` - Temperature for softmax
+    /// * `policy_config` - Router policy configuration containing entropy floor and other settings
+    ///
+    /// # Returns
+    /// New Router instance configured from policy
+    pub fn new_with_policy_config(
+        feature_weights: RouterWeights,
+        k: usize,
+        tau: f32,
+        policy_config: &RouterConfig,
+    ) -> Self {
+        // Validate K against policy
+        if k > policy_config.k_sparse {
+            tracing::warn!(
+                "Requested k={} exceeds policy maximum k_sparse={}, clamping to policy maximum",
+                k,
+                policy_config.k_sparse
+            );
+        }
+
+        Self {
+            feature_weights,
+            k: k.min(policy_config.k_sparse),
+            tau,
+            eps: policy_config.entropy_floor,
+            _token_count: 0,
+            full_log_tokens: policy_config.sample_tokens_full,
             orthogonal_constraints: None,
             orthogonal_enabled: false,
             compression_ratio: 0.8,
@@ -542,7 +592,37 @@ impl Router {
     }
 
     /// Score and select top-K adapters
+    ///
+    /// # DEPRECATED - Use route_with_adapter_info() instead
+    ///
+    /// This method uses a global feature score that doesn't distinguish between adapters.
+    /// It's maintained for backward compatibility only.
+    ///
+    /// For proper per-adapter scoring:
+    /// ```ignore
+    /// // Old (deprecated):
+    /// let decision = router.route(&features, &priors);
+    ///
+    /// // New (recommended):
+    /// let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    /// ```
+    ///
+    /// The new API enables:
+    /// - Per-adapter feature scoring (language affinity, framework specialization)
+    /// - Proper orthogonality penalties during selection
+    /// - Stack-based filtering
+    /// - MPLoRA diversity controls
+    ///
+    /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for complete migration steps.
+    #[deprecated(
+        since = "0.01.1",
+        note = "Use route_with_adapter_info() for per-adapter scoring"
+    )]
     pub fn route(&mut self, features: &[f32], priors: &[f32]) -> Decision {
+        tracing::warn!(
+            "Router::route() is deprecated, use route_with_adapter_info() instead. \
+             See docs/ROUTER_MIGRATION.md for migration guide"
+        );
         // Compute weighted feature score once
         let feature_score = self.compute_weighted_score(features);
 
@@ -805,7 +885,22 @@ impl Router {
     }
 
     /// Route with k0 detection (no adapters qualify)
+    ///
+    /// # DEPRECATED - Use route_with_adapter_info() instead
+    ///
+    /// This method is deprecated in favor of route_with_adapter_info() which provides
+    /// better control over adapter selection and k0 detection through proper per-adapter scoring.
+    ///
+    /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for migration steps.
+    #[deprecated(
+        since = "0.01.1",
+        note = "Use route_with_adapter_info() for proper k0 detection"
+    )]
     pub fn route_with_k0_detection(&mut self, features: &[f32], priors: &[f32]) -> Decision {
+        tracing::warn!(
+            "Router::route_with_k0_detection() is deprecated, use route_with_adapter_info() instead. \
+             See docs/ROUTER_MIGRATION.md for migration guide"
+        );
         if priors.is_empty() {
             // Log k0 event
             let _ = self.log_k0_event("no_adapters_available", features);
@@ -1310,6 +1405,116 @@ mod tests {
             (total - 1.0).abs() < 0.001,
             "Default weights should sum to 1.0, got {}",
             total
+        );
+    }
+
+    #[test]
+    fn test_router_with_policy_config_entropy_floor() {
+        // Create a policy config with custom entropy floor
+        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
+        policy_config.entropy_floor = 0.05; // Custom entropy floor
+
+        let router =
+            Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+
+        // Verify that the entropy floor is read from policy config
+        assert_eq!(
+            router.entropy_floor(),
+            0.05,
+            "Entropy floor should match policy config"
+        );
+    }
+
+    #[test]
+    fn test_router_with_policy_config_sample_tokens() {
+        // Create a policy config with custom sample tokens
+        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
+        policy_config.sample_tokens_full = 256; // Custom sample tokens
+
+        let router =
+            Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+
+        // Verify that sample tokens is read from policy config
+        assert_eq!(
+            router.full_log_tokens, 256,
+            "Full log tokens should match policy config"
+        );
+    }
+
+    #[test]
+    fn test_router_with_policy_config_k_sparse_clamping() {
+        // Create a policy config with k_sparse limit
+        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
+        policy_config.k_sparse = 4; // Limit K to 4
+
+        // Try to create router with k=6 (exceeds policy limit)
+        let router =
+            Router::new_with_policy_config(RouterWeights::default(), 6, 1.0, &policy_config);
+
+        // Verify that k is clamped to policy maximum
+        assert_eq!(router.k, 4, "K should be clamped to policy maximum");
+    }
+
+    #[test]
+    fn test_entropy_floor_enforcement_with_policy_config() {
+        let mut policy_config = adapteros_policy::packs::router::RouterConfig::default();
+        policy_config.entropy_floor = 0.15; // Higher entropy floor
+
+        let mut router =
+            Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+
+        let features = vec![0.0; 5];
+        let priors = vec![1.0, 0.0, 0.0, 0.0, 0.0]; // One dominant prior
+
+        let decision = router.route(&features, &priors);
+        let gates = decision.gates_f32();
+
+        // All gates should be >= entropy floor / k
+        let min_gate = 0.15 / 3.0;
+        for &g in &gates {
+            assert!(
+                g >= min_gate - 0.001,
+                "Gate {} should be >= minimum {} required by policy",
+                g,
+                min_gate
+            );
+        }
+    }
+
+    #[test]
+    fn test_policy_config_different_entropy_floors() {
+        // Create two routers with different policy configs
+        let mut policy_low = adapteros_policy::packs::router::RouterConfig::default();
+        policy_low.entropy_floor = 0.01;
+
+        let mut policy_high = adapteros_policy::packs::router::RouterConfig::default();
+        policy_high.entropy_floor = 0.20;
+
+        let mut router_low =
+            Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_low);
+
+        let mut router_high =
+            Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_high);
+
+        // Same input
+        let features = vec![0.1; 5];
+        let priors = vec![0.9, 0.05, 0.03, 0.02, 0.0];
+
+        let decision_low = router_low.route(&features, &priors);
+        let decision_high = router_high.route(&features, &priors);
+
+        let gates_low = decision_low.gates_f32();
+        let gates_high = decision_high.gates_f32();
+
+        // Minimum gate in high entropy floor config should be larger
+        let actual_min_low = gates_low.iter().fold(f32::MAX, |a, &b| a.min(b));
+        let actual_min_high = gates_high.iter().fold(f32::MAX, |a, &b| a.min(b));
+
+        assert!(
+            actual_min_high >= actual_min_low - 0.001,
+            "Higher entropy floor should result in higher minimum gate: {} vs {}",
+            actual_min_high,
+            actual_min_low
         );
     }
 }

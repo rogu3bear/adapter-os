@@ -3,7 +3,7 @@
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-21 (CoreML activation documented, backend status updated)
+**Last Updated:** 2025-11-22 (AOS 3.0 format with 64-byte header documented)
 **Maintained by:** James KC Auchterlonie
 
 ---
@@ -165,15 +165,30 @@ init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, .
 
 **Details:** See [docs/DETERMINISTIC_EXECUTION.md](docs/DETERMINISTIC_EXECUTION.md) for HKDF hierarchy, global tick ledger, and multi-agent coordination
 
-### .aos Archive Format
+### .aos Archive Format (v3.0)
+
+64-byte header for optimal cache-line alignment:
+
 ```
-[0-3]   manifest_offset (u32 LE)
-[4-7]   manifest_len (u32 LE)
-[offset] manifest (JSON)
-[offset] weights (safetensors)
++--------+--------+------------------------------------------+
+| Offset | Size   | Field                                    |
++--------+--------+------------------------------------------+
+| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
+| 8      | 4      | Format version (u32 LE) = 3              |
+| 12     | 4      | Flags (u32 LE, reserved)                 |
+| 16     | 8      | Total file size (u64 LE)                 |
+| 24     | 8      | Weights offset (u64 LE)                  |
+| 32     | 8      | Weights size (u64 LE)                    |
+| 40     | 8      | Manifest offset (u64 LE)                 |
+| 48     | 8      | Manifest size (u64 LE)                   |
+| 56     | 8      | Reserved (padding)                       |
++--------+--------+------------------------------------------+
+| 64     | N      | Weights (SafeTensors or Q15)             |
+| 64+N   | M      | Manifest (JSON metadata)                 |
++--------+--------+------------------------------------------+
 ```
 
-Zero-copy loading with memory-mapped files → GPU VRAM direct transfer.
+Zero-copy loading with memory-mapped files, direct GPU VRAM transfer. See [docs/AOS_FORMAT.md](docs/AOS_FORMAT.md) for full specification.
 
 ---
 
@@ -379,7 +394,7 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 |---------|--------|-------------|----------|-------|
 | **CoreML** | **Implemented** (model loading, inference, Swift bridge with runtime dispatch) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
 | **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
-| **Metal** | Building successfully | Guaranteed | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
+| **Metal** | **Implemented** (precompiled Metal kernels, GPU acceleration) | **Guaranteed** | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
 
 **Implementation Status:**
 - CoreML: Fully implemented and operational. Supports model loading, inference, ANE detection, memory pooling, and MLTensor bridge (macOS 15+). Guaranteed determinism with ANE, graceful fallback to GPU on older systems. See [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) for operational guide.
@@ -394,6 +409,8 @@ use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend};
 let backend = create_backend(BackendChoice::CoreML { model_path: None })?;
 
 // Research/Training: MLX (HKDF-seeded determinism)
+// Note: Requires --features real-mlx and MLX C++ library for GPU acceleration
+// Falls back to software implementation if MLX not available
 let backend = create_backend(BackendChoice::Mlx { model_path })?;
 
 // Fallback: Metal (legacy, non-ANE systems)
@@ -426,7 +443,53 @@ xcode-select --install  # If swiftc not found
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
 - [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) - CoreML operational status & verification procedures
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML setup & ANE optimization
+- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX complete integration guide
+- [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) - MLX quick start and configuration patterns
+- [docs/MLX_BACKEND_DEPLOYMENT_GUIDE.md](docs/MLX_BACKEND_DEPLOYMENT_GUIDE.md) - MLX production deployment steps
+- [docs/MLX_ROUTER_HOTSWAP_INTEGRATION.md](docs/MLX_ROUTER_HOTSWAP_INTEGRATION.md) - MLX router and hot-swap integration
 - [docs/ADDING_NEW_BACKEND.md](docs/ADDING_NEW_BACKEND.md) - Template for new backends
+
+### MLX Backend Details
+
+The MLX backend is fully implemented for research and training workloads with enterprise-grade resilience:
+
+**Features:**
+- Model loading from directory or pre-serialized buffer
+- Forward passes, hidden state extraction, text generation
+- HKDF-seeded deterministic execution (RNG operations)
+- Circuit breaker with health monitoring and auto-recovery
+- Hot-swap support: live adapter loading/unloading
+- Multi-adapter routing via K-sparse selection with Q15 quantized gates
+- Memory pool integration with GC hints
+- Comprehensive error handling and FFI safety
+
+**Build & Deployment:**
+```bash
+# Build with MLX backend enabled
+cargo build -p adapteros-lora-mlx-ffi --features real-mlx --release
+
+# Start server with MLX backend
+export AOS_MLX_FFI_MODEL="./models/qwen2.5-7b-mlx"
+./target/release/aosctl serve --backend mlx --model-path ./models/qwen2.5-7b-mlx
+```
+
+**Usage Example:**
+```rust
+use adapteros_lora_mlx_ffi::{MLXFFIModel, generation::GenerationConfig};
+use adapteros_core::{derive_seed, B3Hash};
+
+let model = MLXFFIModel::load("./models/qwen2.5-7b-mlx")?;
+
+// Deterministic seeding
+let base_seed = B3Hash::hash(b"production-model");
+let seed = derive_seed(&base_seed, "text-generation:step-0");
+adapteros_lora_mlx_ffi::mlx_set_seed_from_bytes(&seed)?;
+
+// Generate text with reproducible results
+let text = model.generate("Once upon a time", 100)?;
+```
+
+See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start and configuration patterns.
 
 ---
 
@@ -748,6 +811,27 @@ cargo clippy --workspace -- -W dead_code
 cargo udeps                        # Unused dependencies
 ```
 
+### Benchmarking
+```bash
+# Run MLX FFI benchmarks (updates target/criterion/)
+cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark
+
+# Run with real MLX backend (requires mlx C++ library)
+cargo bench -p adapteros-lora-mlx-ffi --bench mlx_integration_benchmark --features real-mlx
+
+# Run integration verification tests with timing output
+cargo test -p adapteros-lora-mlx-ffi --test integration_verification -- --nocapture
+
+# View HTML benchmark reports
+open target/criterion/report/index.html
+```
+
+**After running benchmarks, update [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) with new results.**
+
+Key benchmark locations:
+- `crates/adapteros-lora-mlx-ffi/benches/mlx_integration_benchmark.rs` - MLX FFI benchmarks
+- `target/criterion/` - Criterion results and HTML reports
+
 ---
 
 ## Known Build Issues (Alpha v0.01-1)
@@ -799,10 +883,17 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 - [docs/DEPRECATED_PATTERNS.md](docs/DEPRECATED_PATTERNS.md) - Anti-patterns
 - [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) - CoreML activation & operational status
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend implementation guide
+- [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) - **MLX FFI benchmark results** (update after running benchmarks)
+- `crates/adapteros-lora-mlx-ffi/MLX_FFI_INTEGRATION_PROOF.md` - MLX FFI integration proof document
 - `crates/adapteros-policy/` - Policy implementations
 - `crates/adapteros-core/src/error.rs` - Error definitions
 
 ---
 
 **Rule:** When in doubt, follow patterns in `crates/`. All documentation and code signed by **James KC Auchterlonie**.
-- no python, only rust
+
+## Language Requirements
+- **Rust only** - No Python should be used or created
+- All tools, utilities, and scripts must be written in Rust or shell scripts
+- For any code generation, testing, or benchmarking: use Rust exclusively
+- Build automation: Rust (build.rs) or shell scripts only

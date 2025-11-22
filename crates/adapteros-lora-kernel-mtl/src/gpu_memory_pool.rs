@@ -41,8 +41,8 @@ impl Default for GpuMemoryPoolConfig {
             max_buffers_per_bucket: 16,
             max_pooled_memory: 512 * 1024 * 1024, // 512 MB
             idle_timeout_secs: 60,
-            min_buffer_size: 4 * 1024,            // 4 KB
-            max_buffer_size: 256 * 1024 * 1024,   // 256 MB
+            min_buffer_size: 4 * 1024,          // 4 KB
+            max_buffer_size: 256 * 1024 * 1024, // 256 MB
             pressure_threshold: 0.85,
             target_headroom: 0.15,
         }
@@ -189,7 +189,9 @@ impl GpuMemoryPool {
                     }
 
                     // Track active buffer
-                    self.active_buffers.write().insert(allocation_id, buffer_size);
+                    self.active_buffers
+                        .write()
+                        .insert(allocation_id, buffer_size);
 
                     debug!(
                         allocation_id = allocation_id,
@@ -212,10 +214,9 @@ impl GpuMemoryPool {
         // Check memory pressure before allocation
         self.check_memory_pressure()?;
 
-        let buffer = self.device.new_buffer(
-            size,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let buffer = self
+            .device
+            .new_buffer(size, MTLResourceOptions::StorageModeShared);
 
         let allocation_id = self.allocation_counter.fetch_add(1, Ordering::SeqCst);
 
@@ -251,7 +252,10 @@ impl GpuMemoryPool {
             match active.remove(&allocation_id) {
                 Some(s) => s,
                 None => {
-                    warn!(allocation_id = allocation_id, "Attempted to release unknown buffer");
+                    warn!(
+                        allocation_id = allocation_id,
+                        "Attempted to release unknown buffer"
+                    );
                     return;
                 }
             }
@@ -350,12 +354,12 @@ impl GpuMemoryPool {
             let mut stats = self.stats.write();
             stats.total_pooled_bytes -= total_freed;
             stats.timeout_cleanups += 1;
-            stats.pooled_buffer_count = pools.values().map(|q: &VecDeque<PooledGpuBuffer>| q.len()).sum();
+            stats.pooled_buffer_count = pools
+                .values()
+                .map(|q: &VecDeque<PooledGpuBuffer>| q.len())
+                .sum();
 
-            info!(
-                total_freed = total_freed,
-                "Cleaned up idle GPU buffers"
-            );
+            info!(total_freed = total_freed, "Cleaned up idle GPU buffers");
         }
 
         total_freed
@@ -368,8 +372,8 @@ impl GpuMemoryPool {
         let pressure_level = current_usage as f32 / self.total_device_memory as f32;
 
         if pressure_level >= self.config.pressure_threshold {
-            let bytes_to_free = current_usage -
-                ((1.0 - self.config.target_headroom) * self.total_device_memory as f32) as u64;
+            let bytes_to_free = current_usage
+                - ((1.0 - self.config.target_headroom) * self.total_device_memory as f32) as u64;
 
             let event = MemoryPressureEvent {
                 current_usage,
@@ -423,7 +427,10 @@ impl GpuMemoryPool {
             let mut stats = self.stats.write();
             stats.total_pooled_bytes -= total_freed;
             stats.pressure_cleanups += 1;
-            stats.pooled_buffer_count = pools.values().map(|q: &VecDeque<PooledGpuBuffer>| q.len()).sum();
+            stats.pooled_buffer_count = pools
+                .values()
+                .map(|q: &VecDeque<PooledGpuBuffer>| q.len())
+                .sum();
 
             info!(
                 total_freed = total_freed,
@@ -454,7 +461,8 @@ impl GpuMemoryPool {
     /// Clear all pooled buffers
     pub fn clear_pool(&self) {
         let mut pools = self.pools.write();
-        let total_freed: u64 = pools.values()
+        let total_freed: u64 = pools
+            .values()
             .flat_map(|q: &VecDeque<PooledGpuBuffer>| q.iter())
             .map(|p| p.size)
             .sum();
@@ -481,7 +489,8 @@ impl GpuMemoryPool {
     /// Get pool information for telemetry
     pub fn pool_info(&self) -> Vec<(u64, usize, u64)> {
         let pools = self.pools.read();
-        pools.iter()
+        pools
+            .iter()
             .map(|(bucket, queue): (&u64, &VecDeque<PooledGpuBuffer>)| {
                 let total_bytes: u64 = queue.iter().map(|p| p.size).sum();
                 (*bucket, queue.len(), total_bytes)

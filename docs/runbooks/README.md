@@ -31,6 +31,10 @@ These runbooks provide step-by-step procedures for diagnosing and resolving comm
 - [Health Check Failures](./HEALTH-CHECK-FAILURES.md) - Component degraded/unhealthy status
 - [Log Analysis](./LOG-ANALYSIS.md) - What to look for in logs
 - [Metrics Review](./METRICS-REVIEW.md) - Key operational metrics
+- [Alert Playbooks](./ALERT_PLAYBOOKS.md) - Prometheus alert response procedures
+
+### Critical Components
+- [Critical Components Runbook](./CRITICAL_COMPONENTS_RUNBOOK.md) - Metal backend, hot-swap, determinism, content addressing
 
 ### Escalation
 - [Escalation Guide](./ESCALATION.md) - When to escalate, severity levels
@@ -117,4 +121,4 @@ These runbooks are maintained as part of the AdapterOS codebase. Update them whe
 - File paths or commands are updated
 - New operational features are added
 
-Last updated: 2025-11-19
+Last updated: 2025-11-21

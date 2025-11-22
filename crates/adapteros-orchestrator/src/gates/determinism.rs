@@ -1,8 +1,9 @@
 //! Determinism gate: verifies replay produces zero diff
 
-use crate::{Gate, OrchestratorConfig};
+use crate::{DependencyChecker, Gate, OrchestratorConfig};
 use anyhow::{Context, Result};
 use std::path::Path;
+use tracing::{debug, warn};
 
 #[derive(Debug, Default)]
 pub struct DeterminismGate;
@@ -14,16 +15,50 @@ impl Gate for DeterminismGate {
     }
 
     async fn check(&self, config: &OrchestratorConfig) -> Result<()> {
-        // Look for replay bundle for this CPID
+        // Check dependencies
+        let checker = DependencyChecker::new();
+        let deps = checker.check_gate("determinism")?;
+
+        if !deps.all_available {
+            debug!(messages = ?deps.messages, "Some dependencies missing, attempting graceful degradation");
+        }
+
+        // Try primary bundles path first
         let bundle_path =
             Path::new(&config.bundles_path).join(format!("{}_replay.ndjson", config.cpid));
 
-        if !bundle_path.exists() {
-            anyhow::bail!(
-                "Replay bundle not found: {}. Run determinism test first.",
-                bundle_path.display()
-            );
-        }
+        let resolved_path = if bundle_path.exists() {
+            Some(bundle_path.clone())
+        } else {
+            // Try fallback paths
+            deps.get_resolved_path("replay_bundle")
+                .and_then(|fallback| {
+                    let path = Path::new(&fallback).join(format!("{}_replay.ndjson", config.cpid));
+                    if path.exists() {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                })
+        };
+
+        let bundle_path = match resolved_path {
+            Some(path) => {
+                if path != bundle_path {
+                    warn!("Using fallback path for replay bundle: {}", path.display());
+                }
+                path
+            }
+            None => {
+                anyhow::bail!(
+                    "Replay bundle not found: {}. Run determinism test first. \
+                     (checked primary: {}, fallbacks: {:?})",
+                    config.cpid,
+                    bundle_path.display(),
+                    deps.optional_paths.get("replay_bundle")
+                );
+            }
+        };
 
         // Load and check replay bundle
         let bundle = adapteros_telemetry::load_replay_bundle(&bundle_path)
@@ -36,8 +71,11 @@ impl Gate for DeterminismGate {
             anyhow::bail!("Replay bundle is empty");
         }
 
-        println!("    Replay events: {}", bundle.events.len());
-        println!("    Replay bundle loaded successfully");
+        tracing::info!(
+            bundle_path = %bundle_path.display(),
+            event_count = bundle.events.len(),
+            "Replay bundle loaded successfully"
+        );
 
         Ok(())
     }

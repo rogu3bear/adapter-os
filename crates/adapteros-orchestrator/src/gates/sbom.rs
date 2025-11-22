@@ -1,10 +1,11 @@
 //! SBOM gate: verifies SBOM is present and valid
 
-use crate::{Gate, OrchestratorConfig};
+use crate::{DependencyChecker, Gate, OrchestratorConfig};
 use adapteros_sbom::SpdxDocument;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
+use tracing::{info, warn};
 
 #[derive(Debug, Default)]
 pub struct SbomGate;
@@ -16,6 +17,14 @@ impl Gate for SbomGate {
     }
 
     async fn check(&self, _config: &OrchestratorConfig) -> Result<()> {
+        // Check dependencies first
+        let checker = DependencyChecker::new();
+        let deps = checker.check_gate("sbom")?;
+
+        if !deps.all_available {
+            warn!(messages = ?deps.messages, "Some SBOM dependencies missing");
+        }
+
         // Check if SBOM exists
         let sbom_path = Path::new("target/sbom.spdx.json");
 
@@ -39,16 +48,19 @@ impl Gate for SbomGate {
             anyhow::bail!("SBOM is empty (no packages or files)");
         }
 
-        println!("    Packages: {}", sbom.packages.len());
-        println!("    Files: {}", sbom.files.len());
-        println!("    SPDX version: {}", sbom.spdx_version);
+        info!(
+            packages = sbom.packages.len(),
+            files = sbom.files.len(),
+            spdx_version = %sbom.spdx_version,
+            "SBOM validated"
+        );
 
         // Check for signature
         let sig_path = Path::new("target/sbom.spdx.json.sig");
         if sig_path.exists() {
-            println!("    Signature: present ✓");
+            info!("SBOM signature verified");
         } else {
-            println!("    Signature: not present (optional)");
+            warn!("SBOM signature not present (optional)");
         }
 
         Ok(())

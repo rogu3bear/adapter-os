@@ -187,7 +187,10 @@ impl AgentBarrier {
                 "total_agents": self.agent_ids.len(),
                 "generation": self.generation.load(Ordering::Acquire),
             }))
-            .build()?;
+            .build()
+            .map_err(|e| CoordinationError::Failed {
+                reason: e.to_string(),
+            })?;
 
             let _ = telemetry.log_event(event);
         }
@@ -254,7 +257,9 @@ impl AgentBarrier {
             .build()
             .map_err(|e| {
                 warn!("Failed to build barrier wait_start event: {}", e);
-                e
+                CoordinationError::Failed {
+                    reason: e.to_string(),
+                }
             });
 
             if let Ok(event) = event {
@@ -318,11 +323,7 @@ impl AgentBarrier {
                         "total_agents": self.agent_ids.len(),
                         "timeout_seconds": timeout_duration.as_secs(),
                     }))
-                    .build()
-                    .map_err(|e| {
-                        warn!("Failed to build barrier timeout event: {}", e);
-                        e
-                    });
+                    .build();
 
                     if let Ok(event) = event {
                         let _ = telemetry.log_event(event);
@@ -402,11 +403,7 @@ impl AgentBarrier {
                                     "living_agents": living_count,
                                     "dead_agents": dead_count,
                                 }))
-                                .build()
-                                .map_err(|e| {
-                                    warn!("Failed to build barrier generation_advanced event: {}", e);
-                                    e
-                                });
+                                .build();
 
                             if let Ok(event) = event {
                                 let _ = telemetry.log_event(event);
@@ -452,11 +449,7 @@ impl AgentBarrier {
                                     "actual_gen": actual_gen,
                                     "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
                                 }))
-                                .build()
-                                .map_err(|e| {
-                                    warn!("Failed to build barrier cas_loser_proceed event: {}", e);
-                                    e
-                                });
+                                .build();
 
                                 if let Ok(event) = event {
                                     let _ = telemetry.log_event(event);

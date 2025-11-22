@@ -141,7 +141,11 @@ impl FusedMlpKernel {
             {
                 // Calculate buffer offset for this adapter
                 // First adapter uses buffers 8-13, subsequent adapters use 17+
-                let base_buffer_idx = if adapter_idx == 0 { 8 } else { 17 + (adapter_idx - 1) * 6 };
+                let base_buffer_idx = if adapter_idx == 0 {
+                    8
+                } else {
+                    17 + (adapter_idx - 1) * 6
+                };
 
                 // Log adapter activation for debugging
                 tracing::trace!(

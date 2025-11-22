@@ -158,7 +158,7 @@ fn mlx_forward(py: Python, model: PyObject, input: Vec<u32>) -> PyResult<Vec<f32
 ```
 
 **Experimental-Only Status**
-- Disabled by default (requires `--features experimental-backends`)
+- Disabled by default (requires `--features multi-backend`)
 - Compile-time guard prevents accidental production use
 - PyO3 linker issues on some macOS versions (known issue #1247)
 

@@ -34,6 +34,7 @@ pub mod index_snapshot;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
+pub mod paths;
 pub mod plugins;
 pub mod policy;
 pub mod retry_policy;
@@ -56,6 +57,7 @@ pub use hash::B3Hash;
 pub use id::CPID;
 pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
 pub use naming::{AdapterName, ForkType, StackName};
+pub use paths::{get_adapter_path, get_default_adapters_root, AdapterPaths};
 pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
 pub use seed::{

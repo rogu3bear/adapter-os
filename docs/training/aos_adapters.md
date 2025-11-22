@@ -8,7 +8,7 @@ Phase: 3 - Advanced Features (Documentation)
 Assigned: Intern H (Documentation Team)
 Status: Complete - Documentation implemented
 Dependencies: SingleFileAdapter, CLI commands, UI components
-Last Updated: 2025-11-02
+Last Updated: 2025-11-22
 
 COORDINATION NOTES:
 - This file affects: User documentation, API documentation, training guides
@@ -20,8 +20,8 @@ COORDINATION NOTES:
 ============================================================================ -->
 
 The `.aos` format provides a self-contained adapter package that includes:
-- LoRA weights (safetensors in v1, structured binary sections in v2)
-- Training data (JSONL format, compressed in v2)
+- LoRA weights (SafeTensors or Q15 quantized)
+- Training data (JSONL format)
 - Configuration (TOML captured in metadata)
 - Lineage tracking (JSON format)
 - Cryptographic signatures (Ed25519)
@@ -29,59 +29,46 @@ The `.aos` format provides a self-contained adapter package that includes:
 
 ## Format Versions
 
-AdapterOS maintains two interoperable `.aos` revisions:
+AdapterOS supports multiple `.aos` format versions for backwards compatibility:
 
-| Version | Container | Default Tooling | Primary Use Case |
-| ------- | --------- | ---------------- | ---------------- |
-| **v1 (ZIP)** | ZIP archive with discrete files (`manifest.json`, `weights.safetensors`, etc.) | `SingleFileAdapterPackager`, existing CLI commands | Backwards compatibility with legacy pipelines |
-| **v2 (AOS 2.0)** | Fixed-layout binary with 256-byte header + aligned sections | `Aos2Packager`, `Aos2Adapter` loader | Memory-mapped loading, zero-copy weights, faster verification |
+| Version | Header Size | Magic | Primary Use Case |
+| ------- | ----------- | ----- | ---------------- |
+| **v3 (Current)** | 64 bytes | `AOS3` | Production: 64-byte cache-aligned header, u64 offsets |
+| **v2 (Legacy)** | 268 bytes | `AOS2` | Legacy: Larger header with extended fields |
+| **v1 (Legacy)** | 8 bytes | None | Legacy: Simple manifest_offset/manifest_len header |
 
-Both versions share the `.aos` extension. `SingleFileAdapterLoader` and the runtime CLI auto-detect which format is on disk via the file header.
+All versions share the `.aos` extension. Loaders auto-detect the format via magic bytes or header structure.
 
 ## Benefits
 
 - **Self-contained**: All adapter components in a single file
 - **Portable**: Easy to share and deploy across environments
 - **Versioned**: Built-in lineage tracking and version management
-- **Signed**: Cryptographic integrity verification
-- **Efficient**: v1 uses ZIP compression; v2 stores metadata with zstd and keeps weights mmap-friendly
-- **Mmap-ready**: v2 exposes aligned sections for zero-copy loading when `LoadOptions::use_mmap` is enabled
-- **Compatible**: Works seamlessly with existing AdapterOS infrastructure, loaders, and registries
+- **Signed**: Cryptographic integrity verification (Ed25519)
+- **Efficient**: Binary format with optional weight quantization
+- **Mmap-ready**: 64-byte aligned header for zero-copy memory-mapped loading
+- **Compatible**: Works seamlessly with existing AdapterOS infrastructure
 
 ## Creating .aos Files
 
-### Format selection
-
-- Use **v1 (ZIP)** when you need parity with older pipelines or tools that expect discrete files inside the archive. This remains the default for `aosctl aos create` and `cargo xtask train-*` helpers.
-- Use **v2 (AOS 2.0)** when deploying to environments that benefit from memory-mapped weights or when you want deterministic section layouts for audit/logging.
-
-Both packagers produce artifacts that can be stored and verified by the same registry APIs.
-
-### From existing adapter (ZIP v1)
+### Command Line
 
 ```bash
-# Create from packaged adapter directory (ZIP-based v1)
-aosctl aos create \
-  --source adapters/code_lang_v1/weights.safetensors \
-  --output code_lang_v1.aos \
-  --adapter-id code_lang_v1 \
-  --version 1.0.0 \
-  --training-data training/datasets/base/code/adapteros/positive.jsonl \
-  --config training/configs/base_adapter.toml
+# Package adapter to .aos file
+aosctl adapter package ./weights.safetensors --manifest manifest.json -o adapter.aos
 
 # Create with signing
-aosctl aos create \
-  --source adapters/code_lang_v1/weights.safetensors \
-  --output code_lang_v1.aos \
-  --adapter-id code_lang_v1 \
-  --version 1.0.0 \
-  --sign
+aosctl adapter package \
+  ./weights.safetensors \
+  --manifest manifest.json \
+  --sign \
+  -o adapter.aos
 ```
 
-### From training pipeline (ZIP v1)
+### From Training Pipeline
 
 ```bash
-# Train and package in one step (ZIP-based v1)
+# Train and package in one step
 cargo xtask train-base-adapter \
   --manifest training/datasets/base/code/adapteros/manifest.json \
   --tokenizer models/qwen2.5-7b-mlx/tokenizer.json \
@@ -90,42 +77,58 @@ cargo xtask train-base-adapter \
   --adapter-id code_lang_v1
 ```
 
-### Programmatic packaging (AOS 2.0)
+### Programmatic (Rust)
 
-```rust,no_run
-use adapteros_single_file_adapter::{
-    Aos2Packager, Aos2PackageOptions, SingleFileAdapter,
-};
+```rust
+use std::io::Write;
 
-# async fn package(adapter: &SingleFileAdapter) -> adapteros_core::Result<()> {
-let options = Aos2PackageOptions {
-    compress_metadata: true,
-    compress_weights: false,
-    compression_level: 5,
-    include_combined_weights: true,
-};
+const AOS3_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
+const HEADER_SIZE: u64 = 64;
 
-Aos2Packager::save_with_options(adapter, "code_lang_v2.aos", options).await?;
-# Ok(())
-# }
+fn create_aos_file(
+    weights_data: &[u8],
+    manifest_json: &[u8],
+    output_path: &std::path::Path,
+) -> std::io::Result<()> {
+    let mut file = std::fs::File::create(output_path)?;
+
+    let weights_offset = HEADER_SIZE;
+    let weights_size = weights_data.len() as u64;
+    let manifest_offset = weights_offset + weights_size;
+    let manifest_size = manifest_json.len() as u64;
+    let total_size = manifest_offset + manifest_size;
+
+    // Write 64-byte header
+    file.write_all(AOS3_MAGIC)?;                           // 0-7: magic
+    file.write_all(&3u32.to_le_bytes())?;                  // 8-11: version
+    file.write_all(&0u32.to_le_bytes())?;                  // 12-15: flags
+    file.write_all(&total_size.to_le_bytes())?;            // 16-23: total_size
+    file.write_all(&weights_offset.to_le_bytes())?;        // 24-31: weights_offset
+    file.write_all(&weights_size.to_le_bytes())?;          // 32-39: weights_size
+    file.write_all(&manifest_offset.to_le_bytes())?;       // 40-47: manifest_offset
+    file.write_all(&manifest_size.to_le_bytes())?;         // 48-55: manifest_size
+    file.write_all(&[0u8; 8])?;                            // 56-63: reserved
+
+    // Write weights and manifest
+    file.write_all(weights_data)?;
+    file.write_all(manifest_json)?;
+
+    Ok(())
+}
 ```
-
-`Aos2Packager` aligns sections on page boundaries, emits a 256-byte header, and preserves signing information in a dedicated signatures section.
 
 ## Loading .aos Files
 
-`SingleFileAdapterLoader` auto-detects the file header, so the same code path works for both v1 (ZIP) and v2 (AOS 2.0). When `LoadOptions::use_mmap` is `true`, the loader:
-- maps v2 files directly with zero-copy weight access,
-- falls back to the mmap ZIP loader for v1 files when possible.
+Loaders auto-detect the format version by checking magic bytes.
 
-### Into Registry
+### Command Line
 
 ```bash
 # Load and register adapter
-aosctl aos load --path code_lang_v1.aos
+aosctl adapter load --path code_lang_v1.aos
 
 # Load with custom adapter ID
-aosctl aos load \
+aosctl adapter load \
   --path code_lang_v1.aos \
   --adapter-id my_custom_id
 ```
@@ -139,12 +142,11 @@ use adapteros_lora_lifecycle::LifecycleManager;
 lifecycle.load_aos_adapter(0, "code_lang_v1.aos").await?;
 ```
 
-### Direct loader API
+### Direct Loader API
 
-```rust,no_run
+```rust
 use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
 
-# async fn load(path: &str) -> adapteros_core::Result<()> {
 let options = LoadOptions {
     skip_verification: false,
     skip_signature_check: false,
@@ -153,22 +155,18 @@ let options = LoadOptions {
 
 let adapter = SingleFileAdapterLoader::load_with_options(path, options).await?;
 println!("Loaded format v{}", adapter.manifest.format_version);
-# Ok(())
-# }
 ```
 
 ## Verifying .aos Files
-
-Verification uses the same format detection logic, so the validator works with ZIP and AOS 2.0 artifacts without extra flags.
 
 ### Command Line
 
 ```bash
 # Verify integrity
-aosctl aos verify --path code_lang_v1.aos
+aosctl adapter validate adapter.aos
 
 # Verify with JSON output
-aosctl aos verify --path code_lang_v1.aos --format json
+aosctl adapter validate adapter.aos --format json
 ```
 
 ### Programmatic
@@ -176,7 +174,7 @@ aosctl aos verify --path code_lang_v1.aos --format json
 ```rust
 use adapteros_single_file_adapter::SingleFileAdapterValidator;
 
-let result = SingleFileAdapterValidator::validate("code_lang_v1.aos").await?;
+let result = SingleFileAdapterValidator::validate("adapter.aos").await?;
 if result.is_valid {
     println!("Adapter is valid");
 } else {
@@ -186,91 +184,134 @@ if result.is_valid {
 }
 ```
 
-## Detecting format version
+## Format Detection
 
-The crate exports `detect_format` to help tooling branch on layout-specific logic (e.g., analytics or migration scripts):
+The loader detects format version by checking magic bytes:
 
-```rust,no_run
-use adapteros_single_file_adapter::{detect_format, FormatVersion};
+```rust
+fn detect_aos_format(data: &[u8]) -> Option<u32> {
+    if data.len() < 12 {
+        return None;
+    }
 
-match detect_format("code_lang_v2.aos")? {
-    FormatVersion::AosV2 => println!("memory-mappable"),
-    FormatVersion::ZipV1 => println!("legacy ZIP"),
+    // AOS 3.0: "AOS3" magic (current)
+    if &data[0..4] == b"AOS3" {
+        return Some(3);
+    }
+
+    // AOS 2.0: "AOS2" magic (legacy)
+    if &data[0..4] == b"AOS2" {
+        return Some(2);
+    }
+
+    // Simple format (legacy): check for valid manifest offset/len
+    let offset = u32::from_le_bytes(data[0..4].try_into().ok()?);
+    let len = u32::from_le_bytes(data[4..8].try_into().ok()?);
+    if offset >= 8 && len > 0 && len < 1024 * 1024 {
+        return Some(1);
+    }
+
+    None
 }
 ```
 
 ## Extracting Components
 
-Extraction utilities (`aosctl aos extract`, registry tooling) detect the format version and decode either layout transparently.
-
 ```bash
 # Extract all components
-aosctl aos extract \
-  --path code_lang_v1.aos \
+aosctl adapter extract \
+  --path adapter.aos \
   --output-dir extracted/
 
 # Extract specific components
-aosctl aos extract \
-  --path code_lang_v1.aos \
+aosctl adapter extract \
+  --path adapter.aos \
   --output-dir extracted/ \
-  --components weights,training_data,lineage
+  --components weights,manifest
 ```
 
 ## File Structure
 
-Both format versions contain the same logical artifacts (manifest, weights, lineage, config, training data, signatures). Only the outer container changes.
-
-### Format v1 (ZIP layout)
+### Format v3 (64-byte header - Current)
 
 ```
-code_lang_v1.aos (ZIP container)
-├── manifest.json          # Adapter metadata
-├── weights.safetensors    # LoRA weights
-├── training_data.jsonl    # Training examples
-├── config.toml            # Training configuration
-├── lineage.json           # Evolution history
-├── signature.sig          # Cryptographic signature (optional)
-└── weight_groups.json     # Disk metadata (optional, newer builds only)
+adapter.aos (AOS 3.0 binary)
++--------+--------+------------------------------------------+
+| Offset | Size   | Field                                    |
++--------+--------+------------------------------------------+
+| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
+| 8      | 4      | Format version (u32 LE) = 3              |
+| 12     | 4      | Flags (u32 LE, reserved)                 |
+| 16     | 8      | Total file size (u64 LE)                 |
+| 24     | 8      | Weights offset (u64 LE)                  |
+| 32     | 8      | Weights size (u64 LE)                    |
+| 40     | 8      | Manifest offset (u64 LE)                 |
+| 48     | 8      | Manifest size (u64 LE)                   |
+| 56     | 8      | Reserved (padding)                       |
++--------+--------+------------------------------------------+
+| 64     | N      | Weights (SafeTensors or Q15)             |
+| 64+N   | M      | Manifest (JSON metadata)                 |
++--------+--------+------------------------------------------+
 ```
 
-### Format v2 (AOS 2.0 layout)
+### Format v2 (268-byte header - Legacy)
 
 ```
-code_lang_v2.aos (AOS 2.0 binary)
-┌───────────────────────────────┐
-│ Header (256 bytes)            │ magic, version, section offsets, checksum
-├───────────────────────────────┤
-│ Weights section               │ serialized `Aos2Weights`, optional zstd
-├───────────────────────────────┤
-│ Metadata section              │ zstd-compressed JSON (`Aos2Metadata`)
-├───────────────────────────────┤
-│ Signatures section            │ JSON payload, empty when unsigned
-└───────────────────────────────┘
+adapter.aos (AOS 2.0 binary)
++--------+--------+------------------------------------------+
+| 0-7    | 8      | Magic bytes: "AOS2\x00\x00\x00\x00"      |
+| 8-11   | 4      | Format version                           |
+| 12-19  | 8      | Total file size                          |
+| 20-27  | 8      | Weights offset                           |
+| 28-35  | 8      | Weights size                             |
+| 36-43  | 8      | Metadata offset                          |
+| 44-51  | 8      | Metadata size                            |
+| 52-267 | 216    | Extended fields / reserved               |
++--------+--------+------------------------------------------+
 ```
 
-The header aligns subsequent sections to the system page size so the loader can memory-map weights without copying.
+### Format v1 (8-byte header - Legacy)
 
-### Manifest Format (shared)
+```
+adapter.aos (Simple binary)
++--------+--------+------------------------------------------+
+| 0-3    | 4      | Manifest offset (u32 LE)                 |
+| 4-7    | 4      | Manifest length (u32 LE)                 |
++--------+--------+------------------------------------------+
+| 8      | N      | Weights data                             |
+| offset | M      | Manifest (JSON)                          |
++--------+--------+------------------------------------------+
+```
+
+### Manifest Format
 
 ```json
 {
-  "adapter_id": "code_lang_v1",
+  "format_version": 3,
+  "adapter_id": "tenant-a/engineering/code-review/r001",
+  "name": "Code Review Assistant",
   "version": "1.0.0",
   "rank": 16,
   "alpha": 32.0,
   "base_model": "qwen2.5-7b",
   "category": "code",
-  "scope": "global",
   "tier": "persistent",
-  "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+  "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
   "created_at": "2025-01-15T10:30:00Z",
   "weights_hash": "e7a75704bc81a1427ea880e1425e67c6b97367da0634f687a43ed45a37d63e29",
-  "training_data_hash": "3f8a9c7e2b1d5f6a8c4e9d7b2a5f8c3e1d4b7a9c6e2f5b8d1a4c7e9b3f6a8c2e",
-  "metadata": {}
+  "training_config": {
+    "rank": 16,
+    "alpha": 32.0,
+    "learning_rate": 0.0005,
+    "batch_size": 8
+  },
+  "metadata": {
+    "description": "Optimized for code review tasks"
+  }
 }
 ```
 
-### Lineage Format (shared)
+### Lineage Format
 
 ```json
 {
@@ -281,25 +322,6 @@ The header aligns subsequent sections to the system page size so the loader can 
   "mutations": [],
   "quality_delta": 0.0,
   "created_at": "2025-01-15T10:30:00Z"
-}
-```
-
-### Metadata bundle (v2)
-
-AOS 2.0 stores manifest, config, lineage, training data, and signature inside a single JSON structure before compression:
-
-```json
-{
-  "manifest": { "adapter_id": "code_lang_v2", "version": "1.1.0" },
-  "config": { "rank": 16, "hidden_dim": 4096 },
-  "lineage": { "parent_version": "1.0.0", "mutations": [] },
-  "training_data": [
-    { "input": "...", "output": "...", "tags": ["positive"] }
-  ],
-  "signature": {
-    "key_id": "ed25519:prod-signing",
-    "signature": "base64-encoded"
-  }
 }
 ```
 
@@ -314,13 +336,13 @@ Use semantic versioning for adapter versions:
 
 ```bash
 # Version 1.0.0 - Initial release
-aosctl aos create --version 1.0.0 ...
+aosctl adapter package --version 1.0.0 ...
 
 # Version 1.1.0 - Added new training examples
-aosctl aos create --version 1.1.0 ...
+aosctl adapter package --version 1.1.0 ...
 
 # Version 2.0.0 - Changed base model
-aosctl aos create --version 2.0.0 ...
+aosctl adapter package --version 2.0.0 ...
 ```
 
 ### Signing
@@ -328,17 +350,18 @@ aosctl aos create --version 2.0.0 ...
 Always sign production adapters:
 
 ```bash
-aosctl aos create \
-  --source adapters/prod_adapter/weights.safetensors \
-  --output prod_adapter.aos \
-  --sign
+aosctl adapter package \
+  ./weights.safetensors \
+  --manifest manifest.json \
+  --sign \
+  -o prod_adapter.aos
 ```
 
-### Format rollout
+### Format Selection
 
-- Default to AOS 2.0 for new deployments once all runtime nodes are on the latest loader release.
-- Keep ZIP-based artifacts for legacy consumers until they have validated the new binary layout.
-- Record the `manifest.format_version` in release notes so downstream services can enforce allowlists.
+- Use **v3** for all new adapters (current format with 64-byte header)
+- Legacy v1/v2 formats are supported for backwards compatibility only
+- New tooling should always produce v3 format
 
 ### Storage
 
@@ -346,34 +369,29 @@ Organize .aos files by version:
 
 ```
 adapters/
-├── code_lang_v1/
-│   ├── 1.0.0.aos
-│   ├── 1.1.0.aos
-│   └── latest.aos -> 1.1.0.aos
-├── rust_framework/
-│   ├── 1.0.0.aos
-│   └── latest.aos -> 1.0.0.aos
-└── tenant_001_codebase/
-    ├── 1.0.0.aos
-    ├── 1.1.0.aos
-    └── latest.aos -> 1.1.0.aos
+  code_lang_v1/
+    1.0.0.aos
+    1.1.0.aos
+    latest.aos -> 1.1.0.aos
+  rust_framework/
+    1.0.0.aos
+    latest.aos -> 1.0.0.aos
+  tenant_001_codebase/
+    1.0.0.aos
+    1.1.0.aos
+    latest.aos -> 1.1.0.aos
 ```
 
 ## Integration with Existing Systems
 
 ### AdapterLoader
 
-The `.aos` format integrates seamlessly with the existing `AdapterLoader`:
-
 ```rust
-// Load .aos adapter
 let mut loader = AdapterLoader::new(PathBuf::from("./adapters"));
-let handle = loader.load_aos_adapter(0, "code_lang_v1.aos").await?;
+let handle = loader.load_aos_adapter(0, "adapter.aos").await?;
 ```
 
 ### Registry
-
-Register .aos adapters in the database:
 
 ```rust
 use adapteros_registry::{AosAdapterMetadata, AosAdapterRegistry};
@@ -392,13 +410,8 @@ registry.register_aos_adapter(metadata)?;
 
 ### Lifecycle Management
 
-Use with lifecycle manager:
-
 ```rust
-// Load adapter
-lifecycle.load_aos_adapter(0, "code_lang_v1.aos").await?;
-
-// Adapter is now managed like any other adapter
+lifecycle.load_aos_adapter(0, "adapter.aos").await?;
 lifecycle.promote_adapter(0).await?;
 lifecycle.demote_adapter(0).await?;
 ```
@@ -407,16 +420,14 @@ lifecycle.demote_adapter(0).await?;
 
 ### Verification Failures
 
-If verification fails:
-
 1. Check file integrity:
    ```bash
-   aosctl aos verify --path adapter.aos --format json
+   aosctl adapter validate adapter.aos --format json
    ```
 
 2. Extract and inspect components:
    ```bash
-   aosctl aos extract --path adapter.aos --output-dir debug/
+   aosctl adapter extract --path adapter.aos --output-dir debug/
    ```
 
 3. Validate manifest:
@@ -426,28 +437,34 @@ If verification fails:
 
 ### Loading Errors
 
-If loading fails:
-
 1. Check adapter compatibility with base model
-2. Verify weights format (must be safetensors)
-3. Ensure training data is valid JSONL
-4. Check lineage version compatibility
+2. Verify weights format (SafeTensors or Q15)
+3. Check lineage version compatibility
 
 ### Performance Issues
-
-If loading is slow:
 
 1. Check file size (should be < 500MB)
 2. Ensure adequate disk space for extraction
 3. Consider using SSD for adapter storage
 4. Monitor memory usage during loading
 
-## Examples
+## Migration from Legacy Formats
 
-See [examples/aos_usage.rs](../../examples/aos_usage.rs) for complete usage examples.
+### From v1/v2 to v3
+
+```bash
+# Convert legacy adapter to v3 format
+aosctl adapter migrate --input legacy.aos --output modern.aos
+```
+
+Or programmatically:
+1. Load the legacy adapter using the auto-detecting loader
+2. Extract weights and manifest
+3. Repackage using the v3 writer
 
 ## References
 
+- [AOS Format Specification](../AOS_FORMAT.md)
 - [Training the AdapterOS Base Code Adapter](base_adapter.md)
 - [Adapter Lifecycle Management](../database-schema/workflows/ADAPTER-LIFECYCLE.md)
 - [Registry Schema](../database-schema/SCHEMA-DIAGRAM.md)

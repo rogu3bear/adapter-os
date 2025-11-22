@@ -25,7 +25,7 @@ mod multi_backend_integration {
                 preferred_order: vec![
                     BackendType::Metal,
                     BackendType::CoreML,
-                    BackendType::MLX,
+                    BackendType::Mlx,
                     BackendType::Mock,
                 ],
             }
@@ -44,7 +44,7 @@ mod multi_backend_integration {
 
             // Detect MLX
             if Self::is_mlx_available() {
-                self.available_backends.push(BackendType::MLX);
+                self.available_backends.push(BackendType::Mlx);
             }
 
             // Mock always available
@@ -205,7 +205,8 @@ mod multi_backend_integration {
         assert!(load_result.is_ok(), "Mock kernel load should succeed");
 
         // Create router ring
-        let ring = RouterRing::from_slices(&[0, 1, 2], &[16384, 8192, 4096]);
+        let mut ring = RouterRing::new(3);
+        ring.set(&[0, 1, 2], &[16384, 8192, 4096]);
 
         // Create IO buffers
         let mut io = IoBuffers::new(1000);
@@ -231,7 +232,8 @@ mod multi_backend_integration {
         kernels1.load(b"test").unwrap();
         kernels2.load(b"test").unwrap();
 
-        let ring = RouterRing::from_slices(&[0, 1], &[16384, 16384]);
+        let mut ring = RouterRing::new(2);
+        ring.set(&[0, 1], &[16384, 16384]);
 
         let mut io1 = IoBuffers::new(100);
         io1.input_ids = vec![1, 2, 3];
@@ -450,7 +452,7 @@ mod multi_backend_integration {
         let backends = vec![
             BackendType::Metal,
             BackendType::CoreML,
-            BackendType::MLX,
+            BackendType::Mlx,
             BackendType::Mock,
         ];
 

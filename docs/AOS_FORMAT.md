@@ -2,50 +2,76 @@
 
 ## Overview
 
-The `.aos` format is a single-file archive format for packaging LoRA adapters in AdapterOS. It provides a compact, self-contained, and versioned format for distributing adapter models.
+The `.aos` format is a single-file binary archive format for packaging LoRA adapters in AdapterOS. It provides a compact, self-contained, and versioned format for distributing adapter models with zero-copy memory-mapped loading.
 
 ## Format Version
 
-Current version: **2.0**
+Current version: **3.0**
 
 ## Binary Structure
 
-The AOS 2.0 format uses a simple binary layout optimized for memory-mapped loading:
+The AOS 3.0 format uses a 64-byte header for optimal memory alignment and cache efficiency:
 
 ```
-[Bytes 0-3]    manifest_offset (u32, little-endian)
-[Bytes 4-7]    manifest_len (u32, little-endian)
-[Bytes 8...]   weights_data (safetensors format or Q15 quantized)
-[manifest_offset...] manifest (JSON metadata)
++--------+--------+------------------------------------------+
+| Offset | Size   | Field                                    |
++--------+--------+------------------------------------------+
+| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
+| 8      | 4      | Format version (u32 LE) = 3              |
+| 12     | 4      | Flags (u32 LE, reserved)                 |
+| 16     | 8      | Total file size (u64 LE)                 |
+| 24     | 8      | Weights offset (u64 LE)                  |
+| 32     | 8      | Weights size (u64 LE)                    |
+| 40     | 8      | Manifest offset (u64 LE)                 |
+| 48     | 8      | Manifest size (u64 LE)                   |
+| 56     | 8      | Reserved (padding to 64 bytes)           |
++--------+--------+------------------------------------------+
+| 64     | N      | Weights data (SafeTensors or Q15)        |
+| 64+N   | M      | Manifest (JSON metadata)                 |
++--------+--------+------------------------------------------+
 ```
 
-### Header (8 bytes)
+### Header Fields (64 bytes)
 
-- **manifest_offset** (4 bytes): Byte offset where the manifest JSON begins
-- **manifest_len** (4 bytes): Length of the manifest JSON in bytes
+| Field | Offset | Size | Type | Description |
+|-------|--------|------|------|-------------|
+| `magic` | 0 | 8 | bytes | Magic identifier `AOS3\x00\x00\x00\x00` |
+| `version` | 8 | 4 | u32 LE | Format version (must be 3) |
+| `flags` | 12 | 4 | u32 LE | Reserved for future use (must be 0) |
+| `total_size` | 16 | 8 | u64 LE | Total file size in bytes |
+| `weights_offset` | 24 | 8 | u64 LE | Byte offset where weights begin |
+| `weights_size` | 32 | 8 | u64 LE | Size of weights data in bytes |
+| `manifest_offset` | 40 | 8 | u64 LE | Byte offset where manifest begins |
+| `manifest_size` | 48 | 8 | u64 LE | Size of manifest JSON in bytes |
+| `reserved` | 56 | 8 | bytes | Reserved padding (must be zeros) |
 
-Both values are stored as unsigned 32-bit integers in little-endian format.
+### Design Rationale
+
+- **64-byte alignment**: Matches CPU cache line size for optimal memory access
+- **8-byte fields**: Natural alignment for 64-bit systems, supports files up to 16 EB
+- **Magic bytes**: Enables reliable format detection
+- **Reserved fields**: Future-proofs the format without breaking compatibility
 
 ### Weights Section
 
-Starts at byte 8 and continues until `manifest_offset`. Contains the adapter weights in one of two formats:
+Starts at `weights_offset` (typically byte 64) with size `weights_size`. Contains adapter weights in one of:
 
-1. **SafeTensors format** (for compatibility)
-2. **Q15 quantized format** (for Metal kernels)
+1. **SafeTensors format** (recommended for compatibility)
+2. **Q15 quantized format** (optimized for Metal kernels)
 
-The weights include:
-- `lora_a` matrices for each target module
-- `lora_b` matrices for each target module
+Tensor naming convention:
+- `lora_a.{module}` - A matrix for each target module
+- `lora_b.{module}` - B matrix for each target module
 
 ### Manifest Section
 
-JSON metadata stored at the tail of the file, starting at `manifest_offset` with length `manifest_len`.
+JSON metadata starting at `manifest_offset` with size `manifest_size`. Must be valid UTF-8.
 
 ## Manifest Schema
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "adapter_id": "tenant-a/domain/purpose/r001",
   "name": "Human-readable adapter name",
   "version": "1.0.0",
@@ -56,7 +82,7 @@ JSON metadata stored at the tail of the file, starting at `manifest_offset` with
   "category": "code",
   "tier": "persistent",
   "created_at": "2025-01-18T12:00:00Z",
-  "weights_hash": "blake3_hash_hex",
+  "weights_hash": "blake3_64char_hex_string",
   "training_config": {
     "rank": 16,
     "alpha": 32.0,
@@ -74,33 +100,33 @@ JSON metadata stored at the tail of the file, starting at `manifest_offset` with
 
 ### Required Fields
 
-- **format_version**: Must be 2 for AOS 2.0
-- **adapter_id**: Semantic name following `{tenant}/{domain}/{purpose}/{revision}` pattern
-- **name**: Human-readable display name
-- **version**: Semantic version (e.g., "1.0.0")
-- **rank**: LoRA rank (typically 8-32)
-- **alpha**: LoRA scaling factor (typically 2x rank)
-- **base_model**: Base model identifier
-- **target_modules**: List of model layers to apply adapter to
-- **created_at**: ISO 8601 timestamp
-- **weights_hash**: BLAKE3 hash of weights data (hex-encoded)
+| Field | Type | Description |
+|-------|------|-------------|
+| `format_version` | integer | Must be 3 for AOS 3.0 |
+| `adapter_id` | string | Semantic name: `{tenant}/{domain}/{purpose}/{revision}` |
+| `name` | string | Human-readable display name |
+| `version` | string | Semantic version (e.g., "1.0.0") |
+| `rank` | integer | LoRA rank (typically 8-32) |
+| `alpha` | float | LoRA scaling factor (typically 2x rank) |
+| `base_model` | string | Base model identifier |
+| `target_modules` | array | List of model layers for adapter application |
+| `created_at` | string | ISO 8601 timestamp |
+| `weights_hash` | string | BLAKE3 hash of weights data (64 hex chars) |
 
 ### Optional Fields
 
-- **category**: Adapter category (code, documentation, creative, etc.)
-- **tier**: Lifecycle tier (persistent, ephemeral)
-- **training_config**: Training hyperparameters
-- **metadata**: Additional key-value pairs
+| Field | Type | Description |
+|-------|------|-------------|
+| `category` | string | Adapter category (code, documentation, creative) |
+| `tier` | string | Lifecycle tier (persistent, ephemeral) |
+| `training_config` | object | Training hyperparameters |
+| `metadata` | object | Additional key-value pairs |
 
 ## Weight Formats
 
 ### SafeTensors Format
 
 Standard SafeTensors format with tensors named:
-- `lora_a.{module}` - A matrix for each target module
-- `lora_b.{module}` - B matrix for each target module
-
-Example tensor names:
 - `lora_a.q_proj`, `lora_b.q_proj` (Query projection)
 - `lora_a.k_proj`, `lora_b.k_proj` (Key projection)
 - `lora_a.v_proj`, `lora_b.v_proj` (Value projection)
@@ -108,136 +134,212 @@ Example tensor names:
 
 ### Q15 Quantized Format
 
-For Metal kernel optimization, weights can be quantized to signed 16-bit integers:
+For Metal kernel optimization, weights quantized to signed 16-bit integers:
 - Range: -32768 to 32767
-- Scale: ±1.0 maps to ±32767
+- Scale: +/-1.0 maps to +/-32767
 - Dequantization: `float_value = q15_value / 32767.0`
 
 ## Creating AOS Files
 
-### Python Example
-
-```python
-import struct
-import json
-import hashlib
-
-def create_aos_file(weights_data, manifest, output_path):
-    # Serialize manifest to JSON
-    manifest_json = json.dumps(manifest, indent=2).encode('utf-8')
-
-    # Calculate offsets
-    header_size = 8
-    weights_offset = header_size
-    manifest_offset = weights_offset + len(weights_data)
-    manifest_len = len(manifest_json)
-
-    # Write file
-    with open(output_path, 'wb') as f:
-        # Write header
-        f.write(struct.pack('<II', manifest_offset, manifest_len))
-
-        # Write weights
-        f.write(weights_data)
-
-        # Write manifest
-        f.write(manifest_json)
-```
-
 ### Rust Example
 
-See `crates/adapteros-aos/src/aos2_writer.rs` for the reference implementation.
+```rust
+use std::io::Write;
+
+const AOS3_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
+const HEADER_SIZE: u64 = 64;
+
+fn create_aos_file(
+    weights_data: &[u8],
+    manifest_json: &[u8],
+    output_path: &std::path::Path,
+) -> std::io::Result<()> {
+    let mut file = std::fs::File::create(output_path)?;
+
+    let weights_offset = HEADER_SIZE;
+    let weights_size = weights_data.len() as u64;
+    let manifest_offset = weights_offset + weights_size;
+    let manifest_size = manifest_json.len() as u64;
+    let total_size = manifest_offset + manifest_size;
+
+    // Write 64-byte header
+    file.write_all(AOS3_MAGIC)?;                           // 0-7: magic
+    file.write_all(&3u32.to_le_bytes())?;                  // 8-11: version
+    file.write_all(&0u32.to_le_bytes())?;                  // 12-15: flags
+    file.write_all(&total_size.to_le_bytes())?;            // 16-23: total_size
+    file.write_all(&weights_offset.to_le_bytes())?;        // 24-31: weights_offset
+    file.write_all(&weights_size.to_le_bytes())?;          // 32-39: weights_size
+    file.write_all(&manifest_offset.to_le_bytes())?;       // 40-47: manifest_offset
+    file.write_all(&manifest_size.to_le_bytes())?;         // 48-55: manifest_size
+    file.write_all(&[0u8; 8])?;                            // 56-63: reserved
+
+    // Write weights
+    file.write_all(weights_data)?;
+
+    // Write manifest
+    file.write_all(manifest_json)?;
+
+    Ok(())
+}
+```
+
+### Implementation References
+
+- Writer: `crates/adapteros-lora-kernel-coreml/src/aos_loader.rs`
+- Loader: `crates/adapteros-aos/src/mmap_loader.rs`
+- Packager: `crates/adapteros-lora-worker/src/training/packager.rs`
 
 ## Loading AOS Files
 
-### Python Example
+### Rust Example
 
-```python
-import struct
-import json
+```rust
+use std::io::Read;
 
-def load_aos_file(file_path):
-    with open(file_path, 'rb') as f:
-        # Read header
-        manifest_offset, manifest_len = struct.unpack('<II', f.read(8))
+const AOS3_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
 
-        # Read weights
-        weights_size = manifest_offset - 8
-        weights_data = f.read(weights_size)
+struct AosHeader {
+    version: u32,
+    flags: u32,
+    total_size: u64,
+    weights_offset: u64,
+    weights_size: u64,
+    manifest_offset: u64,
+    manifest_size: u64,
+}
 
-        # Read manifest
-        manifest_json = f.read(manifest_len)
-        manifest = json.loads(manifest_json)
+fn load_aos_header(data: &[u8]) -> Result<AosHeader, &'static str> {
+    if data.len() < 64 {
+        return Err("File too small for AOS header");
+    }
 
-    return weights_data, manifest
+    // Verify magic bytes
+    if &data[0..8] != AOS3_MAGIC {
+        return Err("Invalid AOS magic bytes");
+    }
+
+    Ok(AosHeader {
+        version: u32::from_le_bytes(data[8..12].try_into().unwrap()),
+        flags: u32::from_le_bytes(data[12..16].try_into().unwrap()),
+        total_size: u64::from_le_bytes(data[16..24].try_into().unwrap()),
+        weights_offset: u64::from_le_bytes(data[24..32].try_into().unwrap()),
+        weights_size: u64::from_le_bytes(data[32..40].try_into().unwrap()),
+        manifest_offset: u64::from_le_bytes(data[40..48].try_into().unwrap()),
+        manifest_size: u64::from_le_bytes(data[48..56].try_into().unwrap()),
+    })
+}
 ```
 
 ### Memory Mapping (Zero-Copy)
 
-The format is designed for efficient memory-mapped loading:
+The format is optimized for memory-mapped loading:
 1. Map file into memory
-2. Parse 8-byte header to find manifest location
-3. Parse manifest JSON
-4. Access weights directly via memory mapping
+2. Parse 64-byte header
+3. Access weights directly via pointer offset
+4. Parse manifest JSON from mapped memory
+
+```rust
+use memmap2::Mmap;
+
+fn load_aos_mmap(path: &std::path::Path) -> std::io::Result<(Mmap, AosHeader)> {
+    let file = std::fs::File::open(path)?;
+    let mmap = unsafe { Mmap::map(&file)? };
+    let header = load_aos_header(&mmap).map_err(|e|
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+    )?;
+    Ok((mmap, header))
+}
+```
 
 ## Hash Verification
 
-The `weights_hash` field in the manifest should be the BLAKE3 hash of the weights data:
+The `weights_hash` field must contain the BLAKE3 hash of the weights data:
 
-```python
-import blake3
+```rust
+use blake3::Hasher;
 
-def verify_aos_file(file_path):
-    weights_data, manifest = load_aos_file(file_path)
-
-    # Compute hash of weights
-    computed_hash = blake3.blake3(weights_data).hexdigest()
-
-    # Compare with manifest
-    return computed_hash == manifest.get('weights_hash')
+fn verify_weights_hash(weights_data: &[u8], expected_hash: &str) -> bool {
+    let computed = blake3::hash(weights_data);
+    computed.to_hex().as_str() == expected_hash
+}
 ```
 
 ## File Size Limits
 
-- Maximum file size: 4 GB (due to 32-bit offsets)
-- Typical size: 100 KB - 10 MB for LoRA adapters
-- Recommended maximum: 500 MB
+| Limit | Value | Notes |
+|-------|-------|-------|
+| Maximum file size | 16 EB | Limited by u64 offsets |
+| Recommended maximum | 500 MB | For reasonable load times |
+| Typical size | 100 KB - 10 MB | Standard LoRA adapters |
+| Header size | 64 bytes | Fixed, cache-line aligned |
 
-## Compatibility
+## Format Detection
 
-### Version Detection
+Detect AOS format by checking magic bytes:
 
-Check the `format_version` field in the manifest:
-- Version 1: Legacy ZIP-based format (deprecated)
-- Version 2: Current binary format (this specification)
+```rust
+fn detect_aos_format(data: &[u8]) -> Option<u32> {
+    if data.len() < 12 {
+        return None;
+    }
 
-### Backward Compatibility
+    // AOS 3.0: "AOS3" magic
+    if &data[0..4] == b"AOS3" {
+        return Some(3);
+    }
 
-Loaders should check the format version and handle appropriately:
-```python
-if manifest['format_version'] != 2:
-    raise ValueError(f"Unsupported format version: {manifest['format_version']}")
+    // AOS 2.0: "AOS2" magic (legacy)
+    if &data[0..4] == b"AOS2" {
+        return Some(2);
+    }
+
+    // Simple format (legacy): check for valid manifest offset/len
+    let offset = u32::from_le_bytes(data[0..4].try_into().ok()?);
+    let len = u32::from_le_bytes(data[4..8].try_into().ok()?);
+    if offset >= 8 && len > 0 && len < 1024 * 1024 {
+        return Some(1);
+    }
+
+    None
+}
 ```
 
 ## Security Considerations
 
 ### Hash Verification
 
-Always verify the `weights_hash` to detect corruption or tampering:
+Always verify `weights_hash` before using weights:
 - Use BLAKE3 for fast, secure hashing
 - Reject files with mismatched hashes
+- Log verification failures for audit
 
 ### Size Validation
 
-Validate sizes before allocation:
-- Check that `manifest_offset + manifest_len <= file_size`
-- Limit maximum file size to prevent DoS
+Validate sizes before memory allocation:
+```rust
+fn validate_aos_header(header: &AosHeader, file_size: u64) -> Result<(), &'static str> {
+    if header.total_size > file_size {
+        return Err("Header total_size exceeds file size");
+    }
+    if header.weights_offset + header.weights_size > file_size {
+        return Err("Weights extend beyond file");
+    }
+    if header.manifest_offset + header.manifest_size > file_size {
+        return Err("Manifest extends beyond file");
+    }
+    if header.manifest_size > 10 * 1024 * 1024 {
+        return Err("Manifest too large (>10MB)");
+    }
+    Ok(())
+}
+```
 
 ### Manifest Validation
 
 - Validate all required fields are present
 - Check semantic naming conventions
-- Verify version compatibility
+- Verify format_version compatibility
+- Sanitize string inputs
 
 ## Examples
 
@@ -245,7 +347,7 @@ Validate sizes before allocation:
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "adapter_id": "default/test/example/r001",
   "name": "Example Adapter",
   "version": "1.0.0",
@@ -254,7 +356,7 @@ Validate sizes before allocation:
   "base_model": "qwen2.5-7b",
   "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
   "created_at": "2025-01-18T12:00:00Z",
-  "weights_hash": "0123456789abcdef..."
+  "weights_hash": "e7a75704bc81a1427ea880e1425e67c6b97367da0634f687a43ed45a37d63e29"
 }
 ```
 
@@ -262,7 +364,7 @@ Validate sizes before allocation:
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "adapter_id": "acme-corp/engineering/code-review/r001",
   "name": "Code Review Assistant",
   "version": "2.1.0",
@@ -297,32 +399,57 @@ Validate sizes before allocation:
 }
 ```
 
-## Tools and Utilities
-
-### Command Line
+## CLI Integration
 
 ```bash
-# Package adapter directory to .aos file
-python scripts/create_aos_adapter.py adapters/my_adapter/ -o my_adapter.aos
+# Package adapter to .aos file
+aosctl adapter package ./weights.safetensors --manifest manifest.json -o adapter.aos
 
 # Validate .aos file
-python scripts/validate_aos.py my_adapter.aos
+aosctl adapter validate adapter.aos
+
+# Show .aos file info
+aosctl adapter info adapter.aos
 
 # Extract manifest
-python -c "import struct, json; f=open('adapter.aos','rb'); o,l=struct.unpack('<II',f.read(8)); f.seek(o); print(json.loads(f.read(l)))"
+aosctl adapter manifest adapter.aos
 ```
 
-### Integration
+## Integration Points
 
 The AOS format integrates with:
-- AdapterOS lifecycle management
-- Metal kernel execution
-- Database registration
-- Hot-swap mechanisms
+- **Lifecycle Management**: `adapteros-lora-lifecycle` for state transitions
+- **Hot-Swap**: `adapteros-aos/hot_swap.rs` for live adapter replacement
+- **Memory Mapping**: `adapteros-aos/mmap_loader.rs` for zero-copy loading
+- **Metal Kernels**: Direct GPU VRAM transfer for Q15 weights
+- **Database Registration**: Content-addressed storage via BLAKE3 hash
+- **Federation**: Peer-to-peer adapter distribution
+
+## Migration from Previous Formats
+
+### From AOS 2.0 (268-byte header)
+
+AOS 2.0 files can be detected by the `AOS2` magic prefix. To migrate:
+1. Parse the 268-byte AOS 2.0 header
+2. Extract weights and manifest
+3. Repackage with 64-byte AOS 3.0 header
+
+### From Simple Format (8-byte header)
+
+Simple format files lack magic bytes. To migrate:
+1. Parse manifest_offset/manifest_len from first 8 bytes
+2. Extract weights and manifest
+3. Repackage with 64-byte AOS 3.0 header
 
 ## References
 
-- Implementation: `crates/adapteros-aos/src/aos2_writer.rs`
-- Loader: `crates/adapteros-aos/src/aos2_implementation.rs`
-- Packager: `crates/adapteros-lora-worker/src/training/packager.rs`
-- Tests: `test_data/adapters/*.aos`
+- Format implementation: `crates/adapteros-lora-kernel-coreml/src/aos_loader.rs`
+- Memory-mapped loader: `crates/adapteros-aos/src/mmap_loader.rs`
+- Hot-swap manager: `crates/adapteros-aos/src/hot_swap.rs`
+- Training packager: `crates/adapteros-lora-worker/src/training/packager.rs`
+- Architecture overview: `docs/architecture/AOS_FILETYPE_ARCHITECTURE.md`
+
+---
+
+**Last Updated**: 2025-11-22
+**Format Version**: 3.0

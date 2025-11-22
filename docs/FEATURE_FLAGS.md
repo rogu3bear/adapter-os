@@ -352,7 +352,7 @@ cargo build --release --no-default-features
 
 ---
 
-#### `experimental-backends`
+#### `multi-backend`
 
 **Purpose**: Alias for `mlx-backend` (experimental features).
 
@@ -374,7 +374,7 @@ cargo build --release --features mlx-backend
 | `metal-backend` | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `mlx-backend` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
 | `real-mlx` | ⚠️ Requires MLX | ⚠️ Requires MLX | ❌ | ❌ | ❌ |
-| `experimental-backends` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
+| `multi-backend` | ⚠️ Stub only | ⚠️ Stub only | ❌ | ❌ | ❌ |
 | `telemetry` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
 | `metrics` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
 | `replay` | ✅ | ✅ | ✅ | ⚠️ Untested | ✅ |
@@ -711,7 +711,7 @@ cargo xtask check-all
 | `full` | ⏳ | All | Not verified |
 | `coreml-backend,full` | ⏳ | macOS | Production + observability |
 | `metal-backend,full` | ⏳ | macOS | Metal + observability |
-| `experimental-backends` | ⚠️ | macOS | Stub implementation only (alias for mlx-backend) |
+| `multi-backend` | ⚠️ | macOS | Stub implementation only (alias for mlx-backend) |
 | `real-mlx` | ⚠️ | macOS | Requires MLX C++ library installed |
 
 **Legend**:
@@ -732,7 +732,7 @@ AdapterOS uses a two-level feature flag architecture:
 
 1. **Workspace-level features** (root `Cargo.toml`):
    - Define cross-cutting features available to the entire workspace
-   - Example: `coreml-backend`, `metal-backend`, `experimental-backends`
+   - Example: `coreml-backend`, `metal-backend`, `multi-backend`
    - These do NOT automatically propagate to crates
 
 2. **Crate-level features** (per-crate `Cargo.toml`):

@@ -193,7 +193,7 @@ keychain-services = "0.1"
 
 [features]
 default = ["deterministic-only"]
-experimental-backends = []
+multi-backend = []
 secure-enclave = ["security-framework", "core-foundation"]
 ```
 

@@ -115,7 +115,7 @@ impl AosWriter {
         // Serialize manifest to JSON
         let manifest_json = serde_json::to_vec_pretty(manifest)?;
 
-        // Calculate offsets (v3.0 layout)
+        // Calculate offsets
         let weights_offset = HEADER_SIZE as u64;
         let weights_size = weights_data.len() as u64;
         let manifest_offset = weights_offset + weights_size;
@@ -126,34 +126,28 @@ impl AosWriter {
         let mut file = File::create(output_path)
             .map_err(|e| AosError::Io(format!("Failed to create archive: {}", e)))?;
 
-        // Write 64-byte header (v3.0 format)
+        // Write 64-byte header
         let mut header = [0u8; HEADER_SIZE];
 
-        // Magic bytes [0-7]
-        header[0..8].copy_from_slice(&AOS_MAGIC);
+        // Magic bytes [0-3]
+        header[0..4].copy_from_slice(&AOS_MAGIC);
 
-        // Version [8-11]
-        header[8..12].copy_from_slice(&AOS_VERSION.to_le_bytes());
+        // Flags [4-7] - reserved, zeroed
+        header[4..8].copy_from_slice(&0u32.to_le_bytes());
 
-        // Flags [12-15] - reserved, zeroed
-        header[12..16].copy_from_slice(&0u32.to_le_bytes());
+        // Weights offset [8-15]
+        header[8..16].copy_from_slice(&weights_offset.to_le_bytes());
 
-        // Total file size [16-23]
-        header[16..24].copy_from_slice(&total_size.to_le_bytes());
+        // Weights size [16-23]
+        header[16..24].copy_from_slice(&weights_size.to_le_bytes());
 
-        // Weights offset [24-31]
-        header[24..32].copy_from_slice(&weights_offset.to_le_bytes());
+        // Manifest offset [24-31]
+        header[24..32].copy_from_slice(&manifest_offset.to_le_bytes());
 
-        // Weights size [32-39]
-        header[32..40].copy_from_slice(&weights_size.to_le_bytes());
+        // Manifest size [32-39]
+        header[32..40].copy_from_slice(&manifest_size.to_le_bytes());
 
-        // Manifest offset [40-47]
-        header[40..48].copy_from_slice(&manifest_offset.to_le_bytes());
-
-        // Manifest size [48-55]
-        header[48..56].copy_from_slice(&manifest_size.to_le_bytes());
-
-        // Reserved [56-63] - already zeroed
+        // Reserved [40-63] - already zeroed
 
         file.write_all(&header)
             .map_err(|e| AosError::Io(format!("Failed to write header: {}", e)))?;
@@ -308,7 +302,6 @@ mod tests {
         // Verify header
         let header = AosWriter::read_header(temp_file.path())?;
 
-        assert_eq!(header.version, AOS_VERSION);
         assert_eq!(header.weights_offset, HEADER_SIZE as u64);
         assert_eq!(header.weights_size, weights_data.len() as u64);
         assert_eq!(

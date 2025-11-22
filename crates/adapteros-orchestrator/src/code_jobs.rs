@@ -48,16 +48,16 @@ impl ArtifactStore {
             .join(format!("{}.codegraph.json", commit_sha));
 
         if let Some(parent) = artifact_path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                AosError::Io(format!("Failed to create artifact directory: {}", e))
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to create artifact directory: {}", e)))?;
         }
 
         let json = serde_json::to_string(graph).map_err(AosError::Serialization)?;
 
-        tokio::fs::write(&artifact_path, json).await.map_err(|e| {
-            AosError::Io(format!("Failed to write CodeGraph artifact: {}", e))
-        })?;
+        tokio::fs::write(&artifact_path, json)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to write CodeGraph artifact: {}", e)))?;
 
         Ok(artifact_path.to_string_lossy().to_string())
     }
@@ -69,9 +69,9 @@ impl ArtifactStore {
             .join(repo_id)
             .join(format!("{}.codegraph.json", commit_sha));
 
-        let json = tokio::fs::read_to_string(&artifact_path).await.map_err(|e| {
-            AosError::Io(format!("Failed to read CodeGraph artifact: {}", e))
-        })?;
+        let json = tokio::fs::read_to_string(&artifact_path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to read CodeGraph artifact: {}", e)))?;
 
         serde_json::from_str(&json).map_err(AosError::Serialization)
     }
@@ -136,13 +136,7 @@ impl CodeJobManager {
             Err(e) => {
                 error!(error = %e, "Failed to build CodeGraph");
                 self._db
-                    .update_scan_job_progress(
-                        &job_id,
-                        "failed",
-                        None,
-                        0,
-                        Some(&e.to_string()),
-                    )
+                    .update_scan_job_progress(&job_id, "failed", None, 0, Some(&e.to_string()))
                     .await?;
                 return Err(e);
             }
@@ -162,13 +156,7 @@ impl CodeJobManager {
 
         // Update job as completed
         self._db
-            .update_scan_job_progress(
-                &job_id,
-                "completed",
-                Some(&artifact_path),
-                100,
-                None,
-            )
+            .update_scan_job_progress(&job_id, "completed", Some(&artifact_path), 100, None)
             .await?;
 
         Ok(())
@@ -243,9 +231,7 @@ mod tests {
         let graph = CodeGraph::new();
 
         // Store it
-        let result = store
-            .store_codegraph(&graph, "test/repo", "abc123")
-            .await;
+        let result = store.store_codegraph(&graph, "test/repo", "abc123").await;
         assert!(result.is_ok());
 
         // Load it back

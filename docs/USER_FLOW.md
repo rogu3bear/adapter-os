@@ -1229,15 +1229,28 @@ Content-Type: application/json
 ## File Formats
 
 ### Adapter Package (.aos)
-- **Format:** ZIP archive with manifest and weights
+- **Format:** Binary archive with 64-byte header (AOS 3.0)
 - **Structure:**
   ```
-  adapter.aos
-  ├── manifest.json      # Adapter metadata
-  ├── weights.safetensors  # LoRA weights
-  ├── signature.pem      # Ed25519 signature
-  └── signature.sig      # Signature file
+  adapter.aos (AOS 3.0 binary)
+  +--------+--------+------------------------------------------+
+  | Offset | Size   | Field                                    |
+  +--------+--------+------------------------------------------+
+  | 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
+  | 8      | 4      | Format version (u32 LE) = 3              |
+  | 12     | 4      | Flags (reserved)                         |
+  | 16     | 8      | Total file size (u64 LE)                 |
+  | 24     | 8      | Weights offset (u64 LE)                  |
+  | 32     | 8      | Weights size (u64 LE)                    |
+  | 40     | 8      | Manifest offset (u64 LE)                 |
+  | 48     | 8      | Manifest size (u64 LE)                   |
+  | 56     | 8      | Reserved                                 |
+  +--------+--------+------------------------------------------+
+  | 64     | N      | Weights (SafeTensors or Q15)             |
+  | 64+N   | M      | Manifest (JSON metadata)                 |
+  +--------+--------+------------------------------------------+
   ```
+- **See:** [AOS Format Specification](AOS_FORMAT.md) for full details
 
 ### Training Data (JSONL)
 - **Format:** JSON Lines (one JSON object per line)

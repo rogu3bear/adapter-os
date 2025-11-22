@@ -1,4 +1,7 @@
 //! Integration tests for codebase ingestion pipeline
+//!
+//! These tests require external dependencies (tokenizers, models) and are marked as ignored.
+//! Run with: cargo test --test codebase_ingestion_test -- --ignored
 
 use adapteros_lora_worker::training::TrainingConfig;
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
@@ -7,7 +10,9 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 /// Test end-to-end codebase ingestion pipeline
+/// TODO: Requires tokenizer and model files, skipped in CI
 #[tokio::test]
+#[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_codebase_ingestion_end_to_end() {
     // Skip if tokenizer is not available
     let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
@@ -73,7 +78,7 @@ It contains basic math utilities.
             batch_size: 1,
             epochs: 1, // Just 1 epoch for testing
             hidden_dim: 768,
-            weight_group_config: Default::default(),
+            ..Default::default()
         },
         tokenizer_path: Some(tokenizer_path),
         max_pairs_per_symbol: 2,
@@ -112,7 +117,7 @@ It contains basic math utilities.
         "Manifest should exist"
     );
 
-    println!("✓ Codebase ingestion test passed");
+    println!("Codebase ingestion test passed");
     println!("  Symbols extracted: {}", result.symbols_count);
     println!("  Training examples: {}", result.examples_count);
     println!("  Final loss: {:.6}", result.final_loss);
@@ -121,7 +126,9 @@ It contains basic math utilities.
 }
 
 /// Test determinism: same codebase should produce same hash
+/// TODO: Requires tokenizer and model files, skipped in CI
 #[tokio::test]
+#[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_determinism() {
     // Skip if tokenizer is not available
     let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
@@ -165,7 +172,7 @@ pub fn square(n: i32) -> i32 {{
             batch_size: 1,
             epochs: 1,
             hidden_dim: 768,
-            weight_group_config: Default::default(),
+            ..Default::default()
         },
         tokenizer_path: Some(tokenizer_path),
         max_pairs_per_symbol: 2,
@@ -202,13 +209,15 @@ pub fn square(n: i32) -> i32 {{
         "Adapter hashes should match for identical codebases (deterministic training)"
     );
 
-    println!("✓ Determinism test passed");
+    println!("Determinism test passed");
     println!("  Content hash: {}", result1.content_hash);
     println!("  Adapter hash: {}", result1.adapter_hash);
 }
 
 /// Test that pipeline handles repositories with no documentation
+/// TODO: Requires tokenizer and model files, skipped in CI
 #[tokio::test]
+#[ignore = "Requires tokenizer and model files not available in CI"]
 async fn test_no_documentation() {
     let tokenizer_path = PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json");
     if !tokenizer_path.exists() {
@@ -243,7 +252,7 @@ pub fn undocumented_func(x: i32) -> i32 {{
             batch_size: 1,
             epochs: 1,
             hidden_dim: 768,
-            weight_group_config: Default::default(),
+            ..Default::default()
         },
         tokenizer_path: Some(tokenizer_path),
         max_pairs_per_symbol: 2,
@@ -267,13 +276,13 @@ pub fn undocumented_func(x: i32) -> i32 {{
                 "Should have generated at least negative examples"
             );
             println!(
-                "✓ No documentation test passed with {} examples",
+                "No documentation test passed with {} examples",
                 res.examples_count
             );
         }
         Err(e) => {
             // It's acceptable to fail if no examples can be generated
-            println!("✓ No documentation test handled correctly: {}", e);
+            println!("No documentation test handled correctly: {}", e);
         }
     }
 }

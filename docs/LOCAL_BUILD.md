@@ -194,7 +194,7 @@ cargo build --release --features full
 cargo build --release --features metal-backend
 
 # Experimental MLX backend (currently disabled due to PyO3 linker issues)
-cargo build --release --features experimental-backends
+cargo build --release --features multi-backend
 ```
 
 ### Makefile Shortcuts
@@ -240,7 +240,7 @@ AdapterOS uses feature flags to control compilation and enable/disable platform-
 | `replay` | Deterministic replay for debugging | All | ✅ Stable |
 | `full` | `telemetry` + `metrics` + `replay` | All | ✅ Stable |
 | `no-metal` | Explicitly disable Metal (same as `--no-default-features`) | Linux/CI | ✅ Stable |
-| `experimental-backends` | Alias for `mlx-backend` | macOS | ⚠️ Disabled |
+| `multi-backend` | Alias for `mlx-backend` | macOS | ⚠️ Disabled |
 
 ### Feature Flag Usage Examples
 
@@ -284,7 +284,7 @@ metal-backend = []
 mlx-backend = ["dep:pyo3"]
 full = ["telemetry", "metrics", "replay"]
 no-metal = []
-experimental-backends = ["mlx-backend"]
+multi-backend = ["mlx-backend"]
 ```
 
 ---

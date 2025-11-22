@@ -10,7 +10,7 @@
 
 #![cfg(target_os = "macos")]
 
-use metal::{Device, MTLResourceOptions, MTLSize, CompileOptions, Buffer};
+use metal::{Buffer, CompileOptions, Device, MTLResourceOptions, MTLSize};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -188,7 +188,10 @@ mod unit_tests {
     #[test]
     fn test_metal_device_availability() {
         let fixture = MetalTestFixture::new();
-        assert!(!fixture.device.name().is_empty(), "Metal device name should not be empty");
+        assert!(
+            !fixture.device.name().is_empty(),
+            "Metal device name should not be empty"
+        );
         println!("Using Metal device: {}", fixture.device.name());
     }
 
@@ -215,7 +218,11 @@ mod unit_tests {
 
         let device = Device::system_default().expect("Metal device required");
         let result = FusedMlpKernel::new(Arc::new(device));
-        assert!(result.is_ok(), "FusedMlpKernel creation failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "FusedMlpKernel creation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -225,7 +232,11 @@ mod unit_tests {
         let device = Device::system_default().expect("Metal device required");
         let gqa_config = GqaConfig::default();
         let result = FusedQkvKernel::new(Arc::new(device), gqa_config);
-        assert!(result.is_ok(), "FusedQkvKernel creation failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "FusedQkvKernel creation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -235,7 +246,11 @@ mod unit_tests {
         let device = Device::system_default().expect("Metal device required");
         let gqa_config = GqaConfig::default();
         let result = FlashAttentionKernel::new(Arc::new(device), gqa_config);
-        assert!(result.is_ok(), "FlashAttentionKernel creation failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "FlashAttentionKernel creation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -263,8 +278,14 @@ mod unit_tests {
         let lora_b = vec![0.1f32; out_size * rank];
 
         let output = cpu_lora_forward(
-            &input, &base_weight, &lora_a, &lora_b,
-            hidden_size, out_size, rank, alpha,
+            &input,
+            &base_weight,
+            &lora_a,
+            &lora_b,
+            hidden_size,
+            out_size,
+            rank,
+            alpha,
         );
 
         assert_eq!(output.len(), out_size);
@@ -340,9 +361,15 @@ kernel void simple_matmul(
 
         let fixture = MetalTestFixture::new();
         let options = CompileOptions::new();
-        let library = fixture.device.new_library_with_source(msl, &options).unwrap();
+        let library = fixture
+            .device
+            .new_library_with_source(msl, &options)
+            .unwrap();
         let function = library.get_function("simple_matmul", None).unwrap();
-        let pipeline = fixture.device.new_compute_pipeline_state_with_function(&function).unwrap();
+        let pipeline = fixture
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .unwrap();
 
         let n = 16usize;
         let input = generate_deterministic_weights(n, 12345);
@@ -382,7 +409,10 @@ kernel void simple_matmul(
                 assert!(
                     a.to_bits() == b.to_bits(),
                     "Non-deterministic output at index {}: run 0 = {}, run {} = {}",
-                    idx, a, i, b
+                    idx,
+                    a,
+                    i,
+                    b
                 );
             }
         }
@@ -420,9 +450,15 @@ kernel void lora_determinism(
 
         let fixture = MetalTestFixture::new();
         let options = CompileOptions::new();
-        let library = fixture.device.new_library_with_source(msl, &options).unwrap();
+        let library = fixture
+            .device
+            .new_library_with_source(msl, &options)
+            .unwrap();
         let function = library.get_function("lora_determinism", None).unwrap();
-        let pipeline = fixture.device.new_compute_pipeline_state_with_function(&function).unwrap();
+        let pipeline = fixture
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .unwrap();
 
         let hidden = 32usize;
         let rank = 8usize;
@@ -482,7 +518,10 @@ kernel void lora_determinism(
                 assert!(
                     expected.to_bits() == actual.to_bits(),
                     "Determinism failure at run {}, index {}: {} vs {}",
-                    i, idx, expected, actual
+                    i,
+                    idx,
+                    expected,
+                    actual
                 );
             }
         }
@@ -495,7 +534,10 @@ kernel void lora_determinism(
 
         // Verify different seeds produce different weights
         let different = weights1.iter().zip(weights2.iter()).any(|(a, b)| a != b);
-        assert!(different, "Different seeds should produce different weights");
+        assert!(
+            different,
+            "Different seeds should produce different weights"
+        );
     }
 }
 
@@ -548,9 +590,15 @@ kernel void lora_full_pipeline(
 
         let fixture = MetalTestFixture::new();
         let options = CompileOptions::new();
-        let library = fixture.device.new_library_with_source(msl, &options).unwrap();
+        let library = fixture
+            .device
+            .new_library_with_source(msl, &options)
+            .unwrap();
         let function = library.get_function("lora_full_pipeline", None).unwrap();
-        let pipeline = fixture.device.new_compute_pipeline_state_with_function(&function).unwrap();
+        let pipeline = fixture
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .unwrap();
 
         // Test multiple configurations
         let configs = [
@@ -567,8 +615,7 @@ kernel void lora_full_pipeline(
 
             // CPU reference
             let cpu_output = cpu_lora_forward(
-                &input, &base_w, &lora_a, &lora_b,
-                hidden, out_size, rank, alpha,
+                &input, &base_w, &lora_a, &lora_b, hidden, out_size, rank, alpha,
             );
 
             // GPU execution
@@ -584,19 +631,23 @@ kernel void lora_full_pipeline(
 
             let hidden_buf = fixture.device.new_buffer_with_data(
                 &hidden_u as *const _ as *const _,
-                4, MTLResourceOptions::StorageModeShared,
+                4,
+                MTLResourceOptions::StorageModeShared,
             );
             let out_size_buf = fixture.device.new_buffer_with_data(
                 &out_size_u as *const _ as *const _,
-                4, MTLResourceOptions::StorageModeShared,
+                4,
+                MTLResourceOptions::StorageModeShared,
             );
             let rank_buf = fixture.device.new_buffer_with_data(
                 &rank_u as *const _ as *const _,
-                4, MTLResourceOptions::StorageModeShared,
+                4,
+                MTLResourceOptions::StorageModeShared,
             );
             let alpha_buf = fixture.device.new_buffer_with_data(
                 &alpha as *const _ as *const _,
-                4, MTLResourceOptions::StorageModeShared,
+                4,
+                MTLResourceOptions::StorageModeShared,
             );
 
             let cmd = fixture.queue.new_command_buffer();
@@ -611,10 +662,7 @@ kernel void lora_full_pipeline(
             enc.set_buffer(6, Some(&out_size_buf), 0);
             enc.set_buffer(7, Some(&rank_buf), 0);
             enc.set_buffer(8, Some(&alpha_buf), 0);
-            enc.dispatch_thread_groups(
-                MTLSize::new(out_size as u64, 1, 1),
-                MTLSize::new(1, 1, 1),
-            );
+            enc.dispatch_thread_groups(MTLSize::new(out_size as u64, 1, 1), MTLSize::new(1, 1, 1));
             enc.end_encoding();
             cmd.commit();
             cmd.wait_until_completed();
@@ -626,7 +674,10 @@ kernel void lora_full_pipeline(
             assert!(
                 result.is_ok(),
                 "CPU/GPU parity failed for hidden={}, out={}, rank={}: {:?}",
-                hidden, out_size, rank, result.err()
+                hidden,
+                out_size,
+                rank,
+                result.err()
             );
         }
     }
@@ -663,7 +714,12 @@ kernel void lora_full_pipeline(
 
         for k in k_values {
             let result = RingBuffer::new(Arc::new(device.clone()), k);
-            assert!(result.is_ok(), "RingBuffer creation failed for k={}: {:?}", k, result.err());
+            assert!(
+                result.is_ok(),
+                "RingBuffer creation failed for k={}: {:?}",
+                k,
+                result.err()
+            );
         }
     }
 }
@@ -681,7 +737,10 @@ mod performance_tests {
         let sizes = [1024, 4096, 16384, 65536];
 
         println!("\nBuffer Creation Benchmarks:");
-        println!("{:<15} {:>15} {:>15}", "Size", "Time (us)", "Throughput (MB/s)");
+        println!(
+            "{:<15} {:>15} {:>15}",
+            "Size", "Time (us)", "Throughput (MB/s)"
+        );
         println!("{:-<45}", "");
 
         for size in sizes {
@@ -728,9 +787,15 @@ kernel void matmul(
 
         let fixture = MetalTestFixture::new();
         let options = CompileOptions::new();
-        let library = fixture.device.new_library_with_source(msl, &options).unwrap();
+        let library = fixture
+            .device
+            .new_library_with_source(msl, &options)
+            .unwrap();
         let function = library.get_function("matmul", None).unwrap();
-        let pipeline = fixture.device.new_compute_pipeline_state_with_function(&function).unwrap();
+        let pipeline = fixture
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .unwrap();
 
         let sizes = [64, 128, 256, 512];
 
@@ -748,7 +813,8 @@ kernel void matmul(
             let n_u = n as u32;
             let n_buf = fixture.device.new_buffer_with_data(
                 &n_u as *const _ as *const _,
-                4, MTLResourceOptions::StorageModeShared,
+                4,
+                MTLResourceOptions::StorageModeShared,
             );
 
             // Warmup
@@ -828,15 +894,24 @@ kernel void lora_single(
 
         let fixture = MetalTestFixture::new();
         let options = CompileOptions::new();
-        let library = fixture.device.new_library_with_source(msl, &options).unwrap();
+        let library = fixture
+            .device
+            .new_library_with_source(msl, &options)
+            .unwrap();
         let function = library.get_function("lora_single", None).unwrap();
-        let pipeline = fixture.device.new_compute_pipeline_state_with_function(&function).unwrap();
+        let pipeline = fixture
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .unwrap();
 
         let hidden_sizes = [256, 512, 1024, 2048];
         let ranks = [4, 8, 16, 32];
 
         println!("\nLoRA Overhead Benchmarks:");
-        println!("{:<10} {:<8} {:>15} {:>15}", "Hidden", "Rank", "Time (us)", "Params/sec (M)");
+        println!(
+            "{:<10} {:<8} {:>15} {:>15}",
+            "Hidden", "Rank", "Time (us)", "Params/sec (M)"
+        );
         println!("{:-<50}", "");
 
         for &hidden in &hidden_sizes {
@@ -854,11 +929,13 @@ kernel void lora_single(
                 let rank_u = rank as u32;
                 let hidden_buf = fixture.device.new_buffer_with_data(
                     &hidden_u as *const _ as *const _,
-                    4, MTLResourceOptions::StorageModeShared,
+                    4,
+                    MTLResourceOptions::StorageModeShared,
                 );
                 let rank_buf = fixture.device.new_buffer_with_data(
                     &rank_u as *const _ as *const _,
-                    4, MTLResourceOptions::StorageModeShared,
+                    4,
+                    MTLResourceOptions::StorageModeShared,
                 );
 
                 // Warmup
@@ -908,7 +985,10 @@ kernel void lora_single(
                 let params = 2 * rank * hidden; // A + B parameters
                 let params_per_sec = (params * iterations) as f64 / elapsed.as_secs_f64() / 1e6;
 
-                println!("{:<10} {:<8} {:>15.2} {:>15.2}", hidden, rank, time_us, params_per_sec);
+                println!(
+                    "{:<10} {:<8} {:>15.2} {:>15.2}",
+                    hidden, rank, time_us, params_per_sec
+                );
             }
         }
     }
@@ -927,9 +1007,9 @@ mod stress_tests {
 
         // Test increasingly large buffers (up to 64MB)
         let sizes = [
-            1_000_000,    // 4 MB
-            4_000_000,    // 16 MB
-            16_000_000,   // 64 MB
+            1_000_000,  // 4 MB
+            4_000_000,  // 16 MB
+            16_000_000, // 64 MB
         ];
 
         for size in sizes {
@@ -966,9 +1046,15 @@ kernel void add_one(
 
         let fixture = MetalTestFixture::new();
         let options = CompileOptions::new();
-        let library = fixture.device.new_library_with_source(msl, &options).unwrap();
+        let library = fixture
+            .device
+            .new_library_with_source(msl, &options)
+            .unwrap();
         let function = library.get_function("add_one", None).unwrap();
-        let pipeline = fixture.device.new_compute_pipeline_state_with_function(&function).unwrap();
+        let pipeline = fixture
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .unwrap();
 
         let size = 1024;
         let data = vec![0.0f32; size];
@@ -981,10 +1067,7 @@ kernel void add_one(
             let enc = cmd.new_compute_command_encoder();
             enc.set_compute_pipeline_state(&pipeline);
             enc.set_buffer(0, Some(&buffer), 0);
-            enc.dispatch_thread_groups(
-                MTLSize::new(size as u64, 1, 1),
-                MTLSize::new(1, 1, 1),
-            );
+            enc.dispatch_thread_groups(MTLSize::new(size as u64, 1, 1), MTLSize::new(1, 1, 1));
             enc.end_encoding();
             cmd.commit();
             cmd.wait_until_completed();
@@ -1049,11 +1132,7 @@ mod edge_case_tests {
     fn test_nan_and_inf_handling() {
         let fixture = MetalTestFixture::new();
 
-        let data = vec![
-            f32::NAN,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-        ];
+        let data = vec![f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
 
         let buffer = fixture.create_buffer(&data);
         let result = fixture.read_buffer(&buffer, data.len());

@@ -28,7 +28,7 @@ This document provides a template for adding new inference backends to AdapterOS
 1. **Trait-Based Abstraction:** All backends implement `FusedKernels`
 2. **Determinism First:** Attestation reports validated before serving
 3. **Memory Safety:** Use established FFI patterns (see `OBJECTIVE_CPP_FFI_PATTERNS.md`)
-4. **Feature Flags:** Experimental backends behind `--features experimental-backends`
+4. **Feature Flags:** Experimental backends behind `--features multi-backend`
 5. **Zero-Cost Abstraction:** Trait objects have minimal overhead
 
 ---
@@ -52,7 +52,7 @@ Before implementing a new backend, ensure you have:
 - [ ] Create new crate: `crates/adapteros-lora-kernel-<backend>/`
 - [ ] Add to workspace: `Cargo.toml` in repo root
 - [ ] Add `build.rs` for native library linking
-- [ ] Add feature flag: `experimental-backends` or production-ready
+- [ ] Add feature flag: `multi-backend` or production-ready
 - [ ] Document backend in `README.md`
 
 ### Phase 2: Core Implementation
@@ -606,17 +606,17 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
         // ... existing cases
 
         BackendChoice::MyBackend => {
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(feature = "multi-backend")]
             {
                 let backend = adapteros_lora_kernel_mybackend::MyBackend::new()?;
                 tracing::info!("Created MyBackend: {}", backend.device_name());
                 Ok(Box::new(backend))
             }
 
-            #[cfg(not(feature = "experimental-backends"))]
+            #[cfg(not(feature = "multi-backend"))]
             {
                 Err(AosError::PolicyViolation(
-                    "MyBackend requires --features experimental-backends".to_string()
+                    "MyBackend requires --features multi-backend".to_string()
                 ))
             }
         }

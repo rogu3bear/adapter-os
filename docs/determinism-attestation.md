@@ -74,7 +74,7 @@ assert!(report.metallib_hash.is_some());
 
 The MLX backend is experimental and non-deterministic:
 
-- **Requires**: `--features experimental-backends`
+- **Requires**: `--features multi-backend`
 - **Use Case**: Development and experimentation only
 - **NOT FOR PRODUCTION**: Cannot guarantee reproducible outputs
 
@@ -96,10 +96,10 @@ cargo build  # Includes only Metal backend
 
 Production builds use this configuration by default. Only the Metal backend is available.
 
-### Optional: `experimental-backends`
+### Optional: `multi-backend`
 
 ```bash
-cargo build --features experimental-backends
+cargo build --features multi-backend
 ```
 
 Enables MLX and CoreML backends for development/testing. **NOT FOR PRODUCTION**.
@@ -199,7 +199,7 @@ aosctl audit-determinism
 # Output JSON format
 aosctl audit-determinism --format json
 
-# Audit MLX backend (requires experimental-backends feature)
+# Audit MLX backend (requires multi-backend feature)
 aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
 ```
 
@@ -244,7 +244,7 @@ The serve command includes compile-time and runtime guards:
 ### Compile-Time Guard
 
 ```rust
-#[cfg(feature = "experimental-backends")]
+#[cfg(feature = "multi-backend")]
 {
     if !matches!(backend, BackendType::Metal) {
         warn!("⚠️  EXPERIMENTAL BACKENDS ENABLED - NOT FOR PRODUCTION ⚠️");
@@ -257,9 +257,9 @@ The serve command includes compile-time and runtime guards:
 ```rust
 let backend_choice = match backend {
     BackendType::Mlx => {
-        #[cfg(not(feature = "experimental-backends"))]
+        #[cfg(not(feature = "multi-backend"))]
         {
-            return Err("MLX backend requires --features experimental-backends");
+            return Err("MLX backend requires --features multi-backend");
         }
         // ...
     }
@@ -296,7 +296,7 @@ fn test_attestation_validation_failure_forbidden_flags() {
 ```rust
 // tests/backend_selection.rs
 #[test]
-#[cfg(not(feature = "experimental-backends"))]
+#[cfg(not(feature = "multi-backend"))]
 fn test_mlx_backend_requires_feature_flag() {
     let result = create_backend(BackendChoice::Mlx { ... });
     assert!(result.is_err());
@@ -366,7 +366,7 @@ Attestation failures are logged to telemetry:
 
 ```bash
 # Development/testing only
-cargo build --features experimental-backends
+cargo build --features multi-backend
 ./target/debug/aosctl serve --backend mlx --model-path ./models/test
 ```
 
@@ -394,10 +394,10 @@ cargo build --features experimental-backends
 
 ### Backend Requires Feature Flag
 
-**Error**: `MLX backend requires --features experimental-backends`
+**Error**: `MLX backend requires --features multi-backend`
 
 **Solution**: Either:
-1. Rebuild with `cargo build --features experimental-backends` (dev only)
+1. Rebuild with `cargo build --features multi-backend` (dev only)
 2. Switch to Metal backend for production use
 
 ## References

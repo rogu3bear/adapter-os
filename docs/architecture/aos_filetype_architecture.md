@@ -394,9 +394,34 @@ inference_engine.use_adapter(&handle)?;
 direct_loader.hot_swap("my_adapter", &new_hash).await?;
 ```
 
+## Current Format (v3)
+
+The AOS 3.0 format uses a 64-byte cache-line aligned header:
+
+```
++--------+--------+------------------------------------------+
+| Offset | Size   | Field                                    |
++--------+--------+------------------------------------------+
+| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
+| 8      | 4      | Format version (u32 LE) = 3              |
+| 12     | 4      | Flags (reserved)                         |
+| 16     | 8      | Total file size (u64 LE)                 |
+| 24     | 8      | Weights offset (u64 LE)                  |
+| 32     | 8      | Weights size (u64 LE)                    |
+| 40     | 8      | Manifest offset (u64 LE)                 |
+| 48     | 8      | Manifest size (u64 LE)                   |
+| 56     | 8      | Reserved                                 |
++--------+--------+------------------------------------------+
+| 64     | N      | Weights (SafeTensors or Q15)             |
+| 64+N   | M      | Manifest (JSON metadata)                 |
++--------+--------+------------------------------------------+
+```
+
+See [AOS Format Specification](../AOS_FORMAT.md) for full details.
+
 ## Future Enhancements
 
-### v3 Format Features
+### v4 Format Considerations
 
 - **Hierarchical Weights**: Group weights by layer/module
 - **Sparse Deltas**: Store only changed weights
@@ -418,13 +443,15 @@ direct_loader.hot_swap("my_adapter", &new_hash).await?;
 
 ## References
 
-- [AOS Format Specification](../training/AOS_ADAPTERS.md)
+- [AOS Format Specification](../AOS_FORMAT.md)
+- [Training Documentation](../training/AOS_ADAPTERS.md)
 - [Implementation Summary](../../AOS_FORMAT_IMPLEMENTATION_SUMMARY.md)
 - [Integration Tests](../../tests/integration_aos_filetype.rs)
 - [CLI Documentation](../../crates/adapteros-cli/src/commands/aos.rs)
 
 ---
 
-**Last Updated**: 2025-10-20  
-**Status**: ✅ Production Ready
+**Last Updated**: 2025-11-22
+**Format Version**: 3.0
+**Status**: Production Ready
 

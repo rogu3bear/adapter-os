@@ -19,7 +19,7 @@ pub const EMBEDDING_DIMENSION: usize = 384;
 /// Production-ready embedding model selector
 pub enum ProductionEmbeddingModel {
     /// MLX-based transformer embedding model (recommended for production)
-    #[cfg(feature = "experimental-backends")]
+    #[cfg(feature = "multi-backend")]
     MLX(adapteros_lora_mlx_ffi::MLXEmbeddingModel),
     /// Simple feature-based fallback
     Simple(SimpleEmbeddingModel),
@@ -30,7 +30,7 @@ impl ProductionEmbeddingModel {
     ///
     /// Attempts to load MLX model first, falls back to SimpleEmbeddingModel if not available
     pub fn load<P: AsRef<Path>>(_model_path: Option<P>, tokenizer: Arc<Tokenizer>) -> Self {
-        #[cfg(feature = "experimental-backends")]
+        #[cfg(feature = "multi-backend")]
         {
             if let Some(path) = _model_path {
                 match adapteros_lora_mlx_ffi::MLXEmbeddingModel::load(path) {
@@ -56,7 +56,7 @@ impl ProductionEmbeddingModel {
 impl EmbeddingModel for ProductionEmbeddingModel {
     fn encode_text(&self, text: &str) -> Result<Vec<f32>> {
         match self {
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(feature = "multi-backend")]
             ProductionEmbeddingModel::MLX(model) => model.encode_text(text),
             ProductionEmbeddingModel::Simple(model) => model.encode_text(text),
         }
@@ -64,7 +64,7 @@ impl EmbeddingModel for ProductionEmbeddingModel {
 
     fn model_hash(&self) -> B3Hash {
         match self {
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(feature = "multi-backend")]
             ProductionEmbeddingModel::MLX(model) => model.model_hash(),
             ProductionEmbeddingModel::Simple(model) => model.model_hash(),
         }
@@ -72,7 +72,7 @@ impl EmbeddingModel for ProductionEmbeddingModel {
 
     fn dimension(&self) -> usize {
         match self {
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(feature = "multi-backend")]
             ProductionEmbeddingModel::MLX(model) => model.dimension(),
             ProductionEmbeddingModel::Simple(model) => model.dimension(),
         }

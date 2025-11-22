@@ -97,7 +97,8 @@ impl AdapterLoader {
         }
 
         let memory_bytes = Self::calculate_memory_bytes(&metadata, weights_data.data.len());
-        self.loaded.insert(adapter_id, (adapter_path.clone(), weights_data));
+        self.loaded
+            .insert(adapter_id, (adapter_path.clone(), weights_data));
 
         tracing::info!(
             adapter_id = adapter_id,
@@ -201,7 +202,8 @@ impl AdapterLoader {
         .map_err(|e| AosError::Lifecycle(format!("Failed to spawn load task: {}", e)))??;
 
         // Update internal state
-        self.loaded.insert(adapter_id, (handle.path.clone(), weights_data));
+        self.loaded
+            .insert(adapter_id, (handle.path.clone(), weights_data));
 
         Ok(handle)
     }
@@ -238,7 +240,10 @@ impl AdapterLoader {
     }
 
     /// Load and parse SafeTensors file, returning weights and metadata
-    fn load_and_parse_safetensors(&self, adapter_path: &PathBuf) -> Result<(LoadedWeights, AdapterMetadata)> {
+    fn load_and_parse_safetensors(
+        &self,
+        adapter_path: &PathBuf,
+    ) -> Result<(LoadedWeights, AdapterMetadata)> {
         // Open and memory-map the file for efficient reading
         let file = File::open(adapter_path)
             .map_err(|e| AosError::Lifecycle(format!("Failed to open adapter file: {}", e)))?;
@@ -330,7 +335,9 @@ impl AdapterLoader {
 
     /// Get raw weight data for an adapter (for GPU upload)
     pub fn get_weights(&self, adapter_id: u16) -> Option<&[u8]> {
-        self.loaded.get(&adapter_id).map(|(_, weights)| weights.data.as_slice())
+        self.loaded
+            .get(&adapter_id)
+            .map(|(_, weights)| weights.data.as_slice())
     }
 }
 
@@ -379,14 +386,8 @@ mod tests {
         let lora_a_data: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4]; // rank=2, dim=2
         let lora_b_data: Vec<f32> = vec![0.5, 0.6, 0.7, 0.8]; // dim=2, rank=2
 
-        let lora_a_bytes: Vec<u8> = lora_a_data
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
-        let lora_b_bytes: Vec<u8> = lora_b_data
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let lora_a_bytes: Vec<u8> = lora_a_data.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let lora_b_bytes: Vec<u8> = lora_b_data.iter().flat_map(|f| f.to_le_bytes()).collect();
 
         let mut tensors = StdHashMap::new();
         tensors.insert(
@@ -408,7 +409,8 @@ mod tests {
             .expect("Test TensorView creation should succeed"),
         );
 
-        let serialized = serialize(tensors, &None).expect("Test SafeTensors serialization should succeed");
+        let serialized =
+            serialize(tensors, &None).expect("Test SafeTensors serialization should succeed");
         fs::write(path, &serialized).expect("Test file write should succeed");
         serialized
     }
@@ -424,10 +426,7 @@ mod tests {
         let serialized = create_test_safetensors(&adapter_path);
 
         let mut expected_hashes = HashMap::new();
-        expected_hashes.insert(
-            "test_adapter".to_string(),
-            B3Hash::hash(&serialized),
-        );
+        expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(&serialized));
         let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
 
         // Load adapter
@@ -441,7 +440,10 @@ mod tests {
         // Verify metadata was extracted
         assert_eq!(handle.metadata.num_parameters, 8); // 4 + 4 parameters
         assert_eq!(handle.metadata.rank, Some(2));
-        assert!(handle.metadata.target_modules.contains(&"q_proj".to_string()));
+        assert!(handle
+            .metadata
+            .target_modules
+            .contains(&"q_proj".to_string()));
 
         // Verify we can get weights
         assert!(loader.get_weights(0).is_some());

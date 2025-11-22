@@ -39,9 +39,9 @@ impl ModelLoader {
         let model_registry = adapteros_registry::models::ModelRegistry::new(conn);
 
         // Load model record from registry
-        let model_record = model_registry
-            .get_model(model_name)?
-            .ok_or_else(|| AosError::NotFound(format!("Model '{}' not found in registry", model_name)))?;
+        let model_record = model_registry.get_model(model_name)?.ok_or_else(|| {
+            AosError::NotFound(format!("Model '{}' not found in registry", model_name))
+        })?;
 
         debug!(
             model_name = %model_name,
@@ -115,9 +115,8 @@ impl ModelLoader {
             })?;
 
             // Parse tokenizer_config.json
-            let tokenizer_cfg: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
-                AosError::Config(format!("Invalid tokenizer config JSON: {}", e))
-            })?;
+            let tokenizer_cfg: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| AosError::Config(format!("Invalid tokenizer config JSON: {}", e)))?;
 
             // Extract chat_template if present
             let template_str = tokenizer_cfg
@@ -152,7 +151,8 @@ impl ModelLoader {
 
             let chat_template_config = ChatTemplate {
                 name: architecture.to_string(),
-                template: template_str.unwrap_or_else(|| Self::default_template_for_arch(architecture)),
+                template: template_str
+                    .unwrap_or_else(|| Self::default_template_for_arch(architecture)),
                 special_tokens: SpecialTokens { bos, eos, unk, pad },
             };
 
@@ -171,7 +171,9 @@ impl ModelLoader {
                 "tokenizer_config.json not found, using architecture defaults"
             );
 
-            Ok(ChatTemplateProcessor::new(Self::default_chat_template(architecture)))
+            Ok(ChatTemplateProcessor::new(Self::default_chat_template(
+                architecture,
+            )))
         }
     }
 
@@ -251,9 +253,8 @@ impl ModelLoader {
                 ))
             })?;
 
-            let config: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
-                AosError::Config(format!("Invalid config JSON: {}", e))
-            })?;
+            let config: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| AosError::Config(format!("Invalid config JSON: {}", e)))?;
 
             // Check for quantization config
             if let Some(quant_config) = config.get("quantization_config") {

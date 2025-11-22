@@ -395,7 +395,8 @@ impl CoreMLBackend {
         } else {
             // Write plan bytes to a temporary .mlmodelc file
             let temp_dir = std::env::temp_dir();
-            let model_path = temp_dir.join(format!("aos_coreml_{}.mlmodelc", plan_hash.to_short_hex()));
+            let model_path =
+                temp_dir.join(format!("aos_coreml_{}.mlmodelc", plan_hash.to_short_hex()));
 
             // Create the model directory and write the plan bytes
             fs::create_dir_all(&model_path)
@@ -416,7 +417,8 @@ impl CoreMLBackend {
             .map_err(|e| AosError::CoreML(format!("Model load failed: {}", e)))?;
 
         // Get model metadata
-        let coreml_meta = model.metadata()
+        let coreml_meta = model
+            .metadata()
             .map_err(|e| AosError::CoreML(format!("Failed to get metadata: {}", e)))?;
 
         let metadata = LocalModelMetadata {
@@ -466,7 +468,10 @@ impl CoreMLBackend {
         let adapter_count = self.loaded_adapters.len();
         self.loaded_adapters.clear();
         self.adapter_hashes.clear();
-        info!(adapters_cleared = adapter_count, "Cleaned up loaded adapters");
+        info!(
+            adapters_cleared = adapter_count,
+            "Cleaned up loaded adapters"
+        );
         Ok(())
     }
 
@@ -612,36 +617,32 @@ impl FusedKernels for CoreMLBackend {
         );
 
         // Try to deserialize as AdapterPayload first (full format with config)
-        let (config, module_weights) = if let Ok(payload) =
-            serde_json::from_slice::<AdapterPayload>(weights)
-        {
-            debug!(adapter_id = id, "Parsed AdapterPayload format");
-            (
-                payload.config.unwrap_or_default(),
-                payload.weights,
-            )
-        }
-        // Try as simple WeightPayload (single module, typically "combined" or "default")
-        else if let Ok(payload) = serde_json::from_slice::<WeightPayload>(weights) {
-            debug!(adapter_id = id, "Parsed WeightPayload format");
-            let config = LoadedLoRAConfig::default();
-            let mut module_weights = HashMap::new();
-            module_weights.insert("combined".to_string(), payload);
-            (config, module_weights)
-        }
-        // Try safetensors format
-        else if weights.len() >= 8 && &weights[0..8] != b"{\n" && &weights[0..2] != b"{\"" {
-            debug!(adapter_id = id, "Attempting safetensors format parsing");
-            parse_safetensors_weights(id, weights)?
-        }
-        // Fallback: assume raw LoRA weights (JSON array of matrices)
-        else {
-            return Err(AosError::Parse(format!(
-                "Adapter {}: unrecognized weight format (size: {} bytes)",
-                id,
-                weights.len()
-            )));
-        };
+        let (config, module_weights) =
+            if let Ok(payload) = serde_json::from_slice::<AdapterPayload>(weights) {
+                debug!(adapter_id = id, "Parsed AdapterPayload format");
+                (payload.config.unwrap_or_default(), payload.weights)
+            }
+            // Try as simple WeightPayload (single module, typically "combined" or "default")
+            else if let Ok(payload) = serde_json::from_slice::<WeightPayload>(weights) {
+                debug!(adapter_id = id, "Parsed WeightPayload format");
+                let config = LoadedLoRAConfig::default();
+                let mut module_weights = HashMap::new();
+                module_weights.insert("combined".to_string(), payload);
+                (config, module_weights)
+            }
+            // Try safetensors format
+            else if weights.len() >= 8 && &weights[0..8] != b"{\n" && &weights[0..2] != b"{\"" {
+                debug!(adapter_id = id, "Attempting safetensors format parsing");
+                parse_safetensors_weights(id, weights)?
+            }
+            // Fallback: assume raw LoRA weights (JSON array of matrices)
+            else {
+                return Err(AosError::Parse(format!(
+                    "Adapter {}: unrecognized weight format (size: {} bytes)",
+                    id,
+                    weights.len()
+                )));
+            };
 
         // Pre-compute LoRA deltas for each module
         let mut deltas = HashMap::new();
@@ -1067,10 +1068,22 @@ mod tests {
         assert_eq!(delta.delta.len(), 4);
 
         // Check values with floating-point tolerance
-        assert!((delta.delta[0] - 3.0).abs() < 1e-6, "delta[0,0] should be 3.0");
-        assert!((delta.delta[1] - 6.0).abs() < 1e-6, "delta[0,1] should be 6.0");
-        assert!((delta.delta[2] - 4.0).abs() < 1e-6, "delta[1,0] should be 4.0");
-        assert!((delta.delta[3] - 8.0).abs() < 1e-6, "delta[1,1] should be 8.0");
+        assert!(
+            (delta.delta[0] - 3.0).abs() < 1e-6,
+            "delta[0,0] should be 3.0"
+        );
+        assert!(
+            (delta.delta[1] - 6.0).abs() < 1e-6,
+            "delta[0,1] should be 6.0"
+        );
+        assert!(
+            (delta.delta[2] - 4.0).abs() < 1e-6,
+            "delta[1,0] should be 4.0"
+        );
+        assert!(
+            (delta.delta[3] - 8.0).abs() < 1e-6,
+            "delta[1,1] should be 8.0"
+        );
     }
 
     #[test]
@@ -1105,10 +1118,7 @@ mod tests {
             vec![0.0, 0.0, 1.0],
             vec![1.0, 1.0, 1.0],
         ];
-        let lora_b = vec![
-            vec![1.0, 1.0, 1.0, 1.0],
-            vec![2.0, 2.0, 2.0, 2.0],
-        ];
+        let lora_b = vec![vec![1.0, 1.0, 1.0, 1.0], vec![2.0, 2.0, 2.0, 2.0]];
         let alpha = 4.0;
         let rank = 4;
 
@@ -1151,16 +1161,16 @@ mod tests {
     #[test]
     fn test_extract_module_name() {
         // Test various tensor naming patterns
-        assert_eq!(
-            extract_module_name("q_proj.lora_A", "lora_A"),
-            "q_proj"
-        );
+        assert_eq!(extract_module_name("q_proj.lora_A", "lora_A"), "q_proj");
         assert_eq!(
             extract_module_name("model.layers.5.self_attn.q_proj.lora_A.weight", "lora_A"),
             "q_proj"
         );
         assert_eq!(
-            extract_module_name("base_model.model.layers.12.self_attn.v_proj.lora_B.weight", "lora_B"),
+            extract_module_name(
+                "base_model.model.layers.12.self_attn.v_proj.lora_B.weight",
+                "lora_B"
+            ),
             "v_proj"
         );
         assert_eq!(
@@ -1261,10 +1271,9 @@ mod tests {
         let json_bytes = serde_json::to_vec(&payload).unwrap();
 
         // Parse and compute delta
-        let (config, module_weights) =
-            serde_json::from_slice::<AdapterPayload>(&json_bytes)
-                .map(|p| (p.config.unwrap_or_default(), p.weights))
-                .unwrap();
+        let (config, module_weights) = serde_json::from_slice::<AdapterPayload>(&json_bytes)
+            .map(|p| (p.config.unwrap_or_default(), p.weights))
+            .unwrap();
 
         assert_eq!(config.rank, 2);
         assert_eq!(config.alpha, 4.0);
@@ -1276,7 +1285,8 @@ mod tests {
             &q_proj_weights.lora_b,
             config.alpha,
             config.rank,
-        ).unwrap();
+        )
+        .unwrap();
 
         // For identity matrices: B @ A = I
         // scale = 4/2 = 2.0

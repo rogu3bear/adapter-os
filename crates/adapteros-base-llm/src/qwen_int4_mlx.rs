@@ -4,6 +4,7 @@
 //! and uses MLX FFI for Metal-backed inference with deterministic execution.
 
 use crate::{BaseLLM, BaseLLMMetadata, ModelState};
+use adapteros_config::ModelConfig;
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_lora_mlx_ffi::{LoRAAdapter, MLXFFIBackend, MLXFFIModel};
@@ -349,7 +350,13 @@ impl BaseLLM for Qwen25Int4Mlx {
         self.load_int4_weights(&manifest_dir)?;
 
         // Load model via MLX FFI - supports both standard load and pre-dequantized int4 weights
-        let model_path = std::env::var("AOS_MLX_FFI_MODEL").ok();
+        // Use unified ModelConfig with legacy AOS_MLX_FFI_MODEL fallback
+        let model_config = ModelConfig::from_env().ok();
+        let model_path = model_config
+            .as_ref()
+            .filter(|c| c.path.to_string_lossy() != "./models/qwen2.5-7b") // Not the default
+            .map(|c| c.path.to_string_lossy().to_string())
+            .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok());
 
         let (model, backend_arc) = if let Some(ref path) = model_path {
             // Standard path: load from MLX format

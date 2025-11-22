@@ -240,7 +240,10 @@ impl RecoveryWrapper {
         }
 
         let elapsed_us = start.elapsed().as_micros() as u64;
-        debug!(elapsed_us = elapsed_us, "Test dispatch completed successfully");
+        debug!(
+            elapsed_us = elapsed_us,
+            "Test dispatch completed successfully"
+        );
 
         Ok(elapsed_us)
     }
@@ -355,9 +358,12 @@ mod tests {
                 metal::Device::system_default().expect("Metal device should be available for test");
 
             // Test with buffer cleanup callback
-            let result = wrapper.attempt_recovery(&device, Some(|| {
-                // This closure would normally clear buffer references
-            }));
+            let result = wrapper.attempt_recovery(
+                &device,
+                Some(|| {
+                    // This closure would normally clear buffer references
+                }),
+            );
 
             assert!(result.is_ok());
             let _recovery_result = result.unwrap();

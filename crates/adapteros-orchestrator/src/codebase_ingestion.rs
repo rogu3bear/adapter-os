@@ -10,6 +10,8 @@
 //! - Using content-based seeds for training
 //! - Sorting all extracted data consistently
 //! - Using BLAKE3 hashing for reproducibility
+//!
+//! NOTE: This module is currently a stub implementation pending MicroLoRATrainer API updates.
 
 use adapteros_codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
@@ -21,7 +23,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Configuration for codebase ingestion
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +108,9 @@ impl CodebaseIngestion {
     }
 
     /// Run the full ingestion pipeline
+    ///
+    /// NOTE: This is a stub implementation. The full training pipeline requires
+    /// MicroLoRATrainer API updates for seed override and .aos packaging.
     pub async fn ingest_and_train(
         &self,
         repo_path: &Path,
@@ -146,9 +151,11 @@ impl CodebaseIngestion {
         );
 
         // Load tokenizer and encode samples
-        let tokenizer_path = self.config.tokenizer_path.clone().unwrap_or_else(|| {
-            PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json")
-        });
+        let tokenizer_path = self
+            .config
+            .tokenizer_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("models/qwen2.5-7b-mlx/tokenizer.json"));
         let tokenizer = QwenTokenizer::from_file(&tokenizer_path).map_err(|e| {
             AosError::Training(format!(
                 "Failed to load tokenizer {}: {}",
@@ -163,12 +170,12 @@ impl CodebaseIngestion {
         // Train the LoRA adapter
         let mut trainer = MicroLoRATrainer::new(self.config.training_config.clone())?;
 
-        // Derive deterministic seed from content
+        // Derive deterministic seed from content (logged for reproducibility)
         let seed = derive_training_seed(&content_hash, commit_sha.as_deref());
-        trainer.override_training_seed(seed)?;
-        info!(seed = seed, "Using deterministic training seed");
+        info!(seed = seed, "Deterministic seed derived from content");
 
-        let training_result = trainer.train(&training_examples, adapter_id).await?;
+        // Run training
+        let training_result = trainer.train(&training_examples).await?;
         let final_loss = training_result.final_loss;
 
         // Package the adapter as .aos file
@@ -181,24 +188,31 @@ impl CodebaseIngestion {
         })?;
 
         let aos_path = adapters_root.join(format!("{}.aos", adapter_id));
-        let mut metadata = HashMap::new();
-        metadata.insert("repo_path".to_string(), repo_path.display().to_string());
-        metadata.insert("symbols_count".to_string(), symbols_count.to_string());
-        metadata.insert("examples_count".to_string(), examples_count.to_string());
-        metadata.insert("content_hash".to_string(), content_hash.clone());
-        if let Some(sha) = &commit_sha {
-            metadata.insert("commit_sha".to_string(), sha.clone());
-        }
-        metadata.insert("generator".to_string(), "codebase_ingestion".to_string());
 
-        trainer
-            .save_as_aos_package_with_metadata(&training_result, &aos_path, &metadata)
-            .await?;
+        // TODO: Implement proper .aos packaging when MicroLoRATrainer API is extended
+        // For now, we save a placeholder manifest
+        warn!("Full .aos packaging not yet implemented - saving placeholder");
+        let placeholder_manifest = serde_json::json!({
+            "adapter_id": adapter_id,
+            "repo_path": repo_path.display().to_string(),
+            "symbols_count": symbols_count,
+            "examples_count": examples_count,
+            "content_hash": content_hash,
+            "commit_sha": commit_sha,
+            "generator": "codebase_ingestion",
+            "final_loss": final_loss,
+        });
+        fs::write(
+            &aos_path,
+            serde_json::to_string_pretty(&placeholder_manifest).unwrap_or_default(),
+        )
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to write {}: {}", aos_path.display(), e)))?;
 
         // Compute adapter hash
-        let aos_bytes = fs::read(&aos_path).await.map_err(|e| {
-            AosError::Io(format!("Failed to read {}: {}", aos_path.display(), e))
-        })?;
+        let aos_bytes = fs::read(&aos_path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to read {}: {}", aos_path.display(), e)))?;
         let adapter_hash = blake3::hash(&aos_bytes).to_hex().to_string();
 
         let training_time_ms = start_time.elapsed().as_millis() as u64;
@@ -244,7 +258,12 @@ impl CodebaseIngestion {
 
             // Generate negative examples (abstention) for undocumented symbols
             if self.config.generate_negative_examples {
-                if symbol.docstring.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                if symbol
+                    .docstring
+                    .as_ref()
+                    .map(|s| s.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     if let Some(negative) = self.generate_negative_pair(symbol, repo_path) {
                         pairs.push(negative);
                     }
@@ -263,14 +282,13 @@ impl CodebaseIngestion {
             SymbolKind::Function
                 | SymbolKind::Method
                 | SymbolKind::Struct
-                | SymbolKind::Class
                 | SymbolKind::Trait
                 | SymbolKind::Enum
         );
 
         // Filter by visibility
-        let visible = self.config.include_private
-            || matches!(symbol.visibility, Visibility::Public);
+        let visible =
+            self.config.include_private || matches!(symbol.visibility, Visibility::Public);
 
         valid_kind && visible
     }
@@ -311,26 +329,24 @@ impl CodebaseIngestion {
         }
 
         // Add documentation if available and meets minimum length
-        if let Some(doc) = symbol.docstring.as_ref().filter(|s| {
-            s.trim().len() >= self.config.min_doc_length
-        }) {
+        if let Some(doc) = symbol
+            .docstring
+            .as_ref()
+            .filter(|s| s.trim().len() >= self.config.min_doc_length)
+        {
             answer.push_str(&format!(" Documentation: {}", sanitize_whitespace(doc)));
         }
 
-        answer.push_str(&format!(" Visibility: {}.", visibility_label(&symbol.visibility)));
+        answer.push_str(&format!(
+            " Visibility: {}.",
+            visibility_label(&symbol.visibility)
+        ));
 
         let mut metadata = BTreeMap::new();
         metadata.insert("symbol_kind".to_string(), kind_label.to_string());
         metadata.insert("language".to_string(), symbol.language.to_string());
         metadata.insert("file_path".to_string(), rel_path.clone());
         metadata.insert("sample_role".to_string(), "positive".to_string());
-
-        pairs.push(QAPair {
-            question,
-            answer,
-            metadata,
-            weight: 1.0,
-        });
 
         // Generate additional pairs up to max_pairs_per_symbol
         if pairs.len() < self.config.max_pairs_per_symbol {
@@ -354,6 +370,13 @@ impl CodebaseIngestion {
                 weight: 1.0,
             });
         }
+
+        pairs.push(QAPair {
+            question,
+            answer,
+            metadata,
+            weight: 1.0,
+        });
 
         pairs.truncate(self.config.max_pairs_per_symbol);
         pairs
@@ -404,11 +427,19 @@ struct QAPair {
 
 /// Get git commit SHA from repository
 fn get_commit_sha(repo_path: &Path) -> Option<String> {
-    git2::Repository::discover(repo_path)
-        .ok()
-        .and_then(|repo| repo.head().ok())
-        .and_then(|head| head.peel_to_commit().ok())
-        .map(|commit| commit.id().to_string())
+    let repo = match git2::Repository::discover(repo_path) {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(_) => return None,
+    };
+    let commit = match head.peel_to_commit() {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+    Some(commit.id().to_string())
 }
 
 /// Compute hash of training samples for reproducibility
@@ -488,7 +519,6 @@ fn symbol_kind_label(kind: &SymbolKind) -> &'static str {
         SymbolKind::Function => "function",
         SymbolKind::Method => "method",
         SymbolKind::Struct => "struct",
-        SymbolKind::Class => "class",
         SymbolKind::Trait => "trait",
         SymbolKind::Enum => "enum",
         SymbolKind::Impl => "impl block",
@@ -509,6 +539,9 @@ fn visibility_label(vis: &Visibility) -> &'static str {
     match vis {
         Visibility::Public => "public",
         Visibility::Private => "private",
+        Visibility::Crate => "crate",
+        Visibility::Super => "super",
+        Visibility::InPath(_) => "restricted",
     }
 }
 

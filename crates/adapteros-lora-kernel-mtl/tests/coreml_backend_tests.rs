@@ -10,7 +10,7 @@
 mod coreml_tests {
     use adapteros_lora_kernel_mtl::ane_acceleration::{
         ANEAccelerator, ANECalibrationMethod, ANEDataType, ANELoRAConfig, ANEModelConfig,
-        ANEQuantization, ANESessionState,
+        ANEQuantization,
     };
 
     #[test]
@@ -150,7 +150,7 @@ mod coreml_tests {
                 },
             };
 
-            let session_id = accelerator.create_session(model_config).unwrap();
+            let _session_id = accelerator.create_session(model_config).unwrap();
             assert!(accelerator.active_session_count() > 0);
         }
     }
@@ -255,14 +255,14 @@ mod coreml_tests {
                 return;
             }
 
-            for size in sizes {
+            for size in &sizes {
                 let model_config = ANEModelConfig {
                     model_id: format!("inference_size_{}", size),
-                    input_dimensions: vec![1, size],
-                    output_dimensions: vec![1, size],
+                    input_dimensions: vec![1, *size],
+                    output_dimensions: vec![1, *size],
                     data_type: ANEDataType::Float16,
                     lora_config: ANELoRAConfig {
-                        rank: (size / 16).min(64),
+                        rank: (*size / 16).min(64),
                         alpha: 16.0,
                         target_modules: vec!["proj".to_string()],
                         quantization: ANEQuantization {
@@ -397,6 +397,7 @@ mod coreml_tests {
             }
 
             for (bits, calibration) in quantization_configs {
+                let calibration_clone = calibration.clone();
                 let model_config = ANEModelConfig {
                     model_id: format!("quant_{}_{:?}", bits, calibration),
                     input_dimensions: vec![1, 512],
@@ -409,7 +410,7 @@ mod coreml_tests {
                         quantization: ANEQuantization {
                             enabled: true,
                             bits,
-                            calibration_method: calibration,
+                            calibration_method: calibration_clone,
                         },
                     },
                 };

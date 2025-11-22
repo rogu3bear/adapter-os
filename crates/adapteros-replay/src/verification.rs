@@ -179,10 +179,7 @@ impl TolerantVerifier {
     }
 
     /// Compare JSON values with floating point tolerance
-    pub fn compare_json_values(
-        expected: &serde_json::Value,
-        actual: &serde_json::Value,
-    ) -> bool {
+    pub fn compare_json_values(expected: &serde_json::Value, actual: &serde_json::Value) -> bool {
         match (expected, actual) {
             (serde_json::Value::Number(e), serde_json::Value::Number(a)) => {
                 match (e.as_f64(), a.as_f64()) {

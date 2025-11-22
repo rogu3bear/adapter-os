@@ -1333,7 +1333,9 @@ impl UnifiedTestingFramework {
                                     }
                                 }
                                 serde_json::Value::Bool(b) => query_builder.bind(*b),
-                                serde_json::Value::Null => query_builder.bind(Option::<String>::None),
+                                serde_json::Value::Null => {
+                                    query_builder.bind(Option::<String>::None)
+                                }
                                 _ => query_builder.bind(param.to_string()),
                             };
                         }
@@ -1341,10 +1343,8 @@ impl UnifiedTestingFramework {
                         match query_builder.fetch_all(&pool).await {
                             Ok(rows) => {
                                 result.status = TestStatus::Passed;
-                                result.output = Some(format!(
-                                    "SELECT returned {} rows",
-                                    rows.len()
-                                ));
+                                result.output =
+                                    Some(format!("SELECT returned {} rows", rows.len()));
                             }
                             Err(e) => {
                                 result.status = TestStatus::Failed;
@@ -1368,7 +1368,9 @@ impl UnifiedTestingFramework {
                                     }
                                 }
                                 serde_json::Value::Bool(b) => query_builder.bind(*b),
-                                serde_json::Value::Null => query_builder.bind(Option::<String>::None),
+                                serde_json::Value::Null => {
+                                    query_builder.bind(Option::<String>::None)
+                                }
                                 _ => query_builder.bind(param.to_string()),
                             };
                         }
@@ -1384,7 +1386,8 @@ impl UnifiedTestingFramework {
                             }
                             Err(e) => {
                                 result.status = TestStatus::Failed;
-                                result.error = Some(format!("{} failed: {}", operation.to_uppercase(), e));
+                                result.error =
+                                    Some(format!("{} failed: {}", operation.to_uppercase(), e));
                             }
                         }
                     }
@@ -1403,7 +1406,8 @@ impl UnifiedTestingFramework {
                     }
                     _ => {
                         result.status = TestStatus::Error;
-                        result.error = Some(format!("Unsupported database operation: {}", operation));
+                        result.error =
+                            Some(format!("Unsupported database operation: {}", operation));
                     }
                 }
 
@@ -1522,42 +1526,67 @@ impl UnifiedTestingFramework {
                 if let Some(actual_val) = actual {
                     if actual_val == expected {
                         result.status = TestStatus::Passed;
-                        result.output = Some(format!("Assertion passed: {:?} equals {:?}", actual_val, expected));
+                        result.output = Some(format!(
+                            "Assertion passed: {:?} equals {:?}",
+                            actual_val, expected
+                        ));
                     } else {
                         result.status = TestStatus::Failed;
-                        result.error = Some(format!("Assertion failed: expected {:?}, got {:?}", expected, actual_val));
+                        result.error = Some(format!(
+                            "Assertion failed: expected {:?}, got {:?}",
+                            expected, actual_val
+                        ));
                     }
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some("Missing 'actual' parameter for equals assertion".to_string());
+                    result.error =
+                        Some("Missing 'actual' parameter for equals assertion".to_string());
                 }
             }
             "not_equals" => {
                 if let Some(actual_val) = actual {
                     if actual_val != expected {
                         result.status = TestStatus::Passed;
-                        result.output = Some(format!("Assertion passed: {:?} not equals {:?}", actual_val, expected));
+                        result.output = Some(format!(
+                            "Assertion passed: {:?} not equals {:?}",
+                            actual_val, expected
+                        ));
                     } else {
                         result.status = TestStatus::Failed;
-                        result.error = Some(format!("Assertion failed: values are equal: {:?}", expected));
+                        result.error = Some(format!(
+                            "Assertion failed: values are equal: {:?}",
+                            expected
+                        ));
                     }
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some("Missing 'actual' parameter for not_equals assertion".to_string());
+                    result.error =
+                        Some("Missing 'actual' parameter for not_equals assertion".to_string());
                 }
             }
             "contains" => {
-                if let (Some(serde_json::Value::String(haystack)), serde_json::Value::String(needle)) = (actual, expected) {
+                if let (
+                    Some(serde_json::Value::String(haystack)),
+                    serde_json::Value::String(needle),
+                ) = (actual, expected)
+                {
                     if haystack.contains(needle) {
                         result.status = TestStatus::Passed;
-                        result.output = Some(format!("Assertion passed: '{}' contains '{}'", haystack, needle));
+                        result.output = Some(format!(
+                            "Assertion passed: '{}' contains '{}'",
+                            haystack, needle
+                        ));
                     } else {
                         result.status = TestStatus::Failed;
-                        result.error = Some(format!("Assertion failed: '{}' does not contain '{}'", haystack, needle));
+                        result.error = Some(format!(
+                            "Assertion failed: '{}' does not contain '{}'",
+                            haystack, needle
+                        ));
                     }
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some("Contains assertion requires string parameters".to_string());
+                    result.error =
+                        Some("Contains assertion requires string parameters".to_string());
                 }
             }
             "exists" => {
@@ -1576,43 +1605,69 @@ impl UnifiedTestingFramework {
                 }
             }
             "greater_than" => {
-                if let (Some(actual_val), Some(expected_num)) = (actual.and_then(|v| v.as_f64()), expected.as_f64()) {
+                if let (Some(actual_val), Some(expected_num)) =
+                    (actual.and_then(|v| v.as_f64()), expected.as_f64())
+                {
                     if actual_val > expected_num {
                         result.status = TestStatus::Passed;
-                        result.output = Some(format!("Assertion passed: {} > {}", actual_val, expected_num));
+                        result.output = Some(format!(
+                            "Assertion passed: {} > {}",
+                            actual_val, expected_num
+                        ));
                     } else {
                         result.status = TestStatus::Failed;
-                        result.error = Some(format!("Assertion failed: {} is not greater than {}", actual_val, expected_num));
+                        result.error = Some(format!(
+                            "Assertion failed: {} is not greater than {}",
+                            actual_val, expected_num
+                        ));
                     }
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some("Greater than assertion requires numeric parameters".to_string());
+                    result.error =
+                        Some("Greater than assertion requires numeric parameters".to_string());
                 }
             }
             "less_than" => {
-                if let (Some(actual_val), Some(expected_num)) = (actual.and_then(|v| v.as_f64()), expected.as_f64()) {
+                if let (Some(actual_val), Some(expected_num)) =
+                    (actual.and_then(|v| v.as_f64()), expected.as_f64())
+                {
                     if actual_val < expected_num {
                         result.status = TestStatus::Passed;
-                        result.output = Some(format!("Assertion passed: {} < {}", actual_val, expected_num));
+                        result.output = Some(format!(
+                            "Assertion passed: {} < {}",
+                            actual_val, expected_num
+                        ));
                     } else {
                         result.status = TestStatus::Failed;
-                        result.error = Some(format!("Assertion failed: {} is not less than {}", actual_val, expected_num));
+                        result.error = Some(format!(
+                            "Assertion failed: {} is not less than {}",
+                            actual_val, expected_num
+                        ));
                     }
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some("Less than assertion requires numeric parameters".to_string());
+                    result.error =
+                        Some("Less than assertion requires numeric parameters".to_string());
                 }
             }
             "regex" => {
-                if let (Some(serde_json::Value::String(text)), serde_json::Value::String(pattern)) = (actual, expected) {
+                if let (Some(serde_json::Value::String(text)), serde_json::Value::String(pattern)) =
+                    (actual, expected)
+                {
                     match regex::Regex::new(pattern) {
                         Ok(re) => {
                             if re.is_match(text) {
                                 result.status = TestStatus::Passed;
-                                result.output = Some(format!("Assertion passed: text matches pattern '{}'", pattern));
+                                result.output = Some(format!(
+                                    "Assertion passed: text matches pattern '{}'",
+                                    pattern
+                                ));
                             } else {
                                 result.status = TestStatus::Failed;
-                                result.error = Some(format!("Assertion failed: text does not match pattern '{}'", pattern));
+                                result.error = Some(format!(
+                                    "Assertion failed: text does not match pattern '{}'",
+                                    pattern
+                                ));
                             }
                         }
                         Err(e) => {
@@ -1643,7 +1698,8 @@ impl UnifiedTestingFramework {
                     }
                 } else {
                     result.status = TestStatus::Failed;
-                    result.error = Some("Missing 'actual' parameter for not_empty assertion".to_string());
+                    result.error =
+                        Some("Missing 'actual' parameter for not_empty assertion".to_string());
                 }
             }
             _ => {
@@ -1707,11 +1763,15 @@ impl UnifiedTestingFramework {
                 let key = parameters
                     .get("key")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AosError::Config("Missing 'key' for set_env action".to_string()))?;
+                    .ok_or_else(|| {
+                        AosError::Config("Missing 'key' for set_env action".to_string())
+                    })?;
                 let value = parameters
                     .get("value")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AosError::Config("Missing 'value' for set_env action".to_string()))?;
+                    .ok_or_else(|| {
+                        AosError::Config("Missing 'value' for set_env action".to_string())
+                    })?;
 
                 std::env::set_var(key, value);
                 result.status = TestStatus::Passed;
@@ -1722,7 +1782,9 @@ impl UnifiedTestingFramework {
                 let key = parameters
                     .get("key")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AosError::Config("Missing 'key' for get_env action".to_string()))?;
+                    .ok_or_else(|| {
+                        AosError::Config("Missing 'key' for get_env action".to_string())
+                    })?;
 
                 match std::env::var(key) {
                     Ok(value) => {
@@ -1737,10 +1799,13 @@ impl UnifiedTestingFramework {
             }
             "json_parse" => {
                 // Parse and validate JSON
-                let json_str = parameters
-                    .get("json")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| AosError::Config("Missing 'json' for json_parse action".to_string()))?;
+                let json_str =
+                    parameters
+                        .get("json")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            AosError::Config("Missing 'json' for json_parse action".to_string())
+                        })?;
 
                 match serde_json::from_str::<serde_json::Value>(json_str) {
                     Ok(parsed) => {
@@ -2058,19 +2123,18 @@ impl UnifiedTestingFramework {
         result: &mut AssertionResult,
     ) -> Result<()> {
         // Get required parameters
-        let json_data = assertion
-            .parameters
-            .get("json")
-            .ok_or_else(|| {
-                AosError::Config("Missing 'json' parameter for JSONPath assertion".to_string())
-            })?;
+        let json_data = assertion.parameters.get("json").ok_or_else(|| {
+            AosError::Config("Missing 'json' parameter for JSONPath assertion".to_string())
+        })?;
 
         let path = assertion
             .parameters
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                AosError::Config("Missing or invalid 'path' parameter for JSONPath assertion".to_string())
+                AosError::Config(
+                    "Missing or invalid 'path' parameter for JSONPath assertion".to_string(),
+                )
             })?;
 
         let expected = assertion.parameters.get("expected");
@@ -2113,7 +2177,9 @@ impl UnifiedTestingFramework {
     /// Extract a value from JSON using a simple JSONPath expression
     fn extract_json_path(&self, json: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
         // Handle root reference
-        let path = path.strip_prefix("$.").unwrap_or(path.strip_prefix("$").unwrap_or(path));
+        let path = path
+            .strip_prefix("$.")
+            .unwrap_or(path.strip_prefix("$").unwrap_or(path));
 
         if path.is_empty() {
             return Some(json.clone());
@@ -2204,20 +2270,22 @@ impl UnifiedTestingFramework {
                 self.execute_assertion_step(step, condition, expected, &mut step_result)
                     .await?;
             }
-            TestAction::Custom {
-                action_type,
-                data,
-            } => {
+            TestAction::Custom { action_type, data } => {
                 // Convert data to HashMap for execute_custom_step
-                let parameters: HashMap<String, serde_json::Value> = if let serde_json::Value::Object(map) = data {
-                    map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-                } else {
-                    HashMap::new()
-                };
+                let parameters: HashMap<String, serde_json::Value> =
+                    if let serde_json::Value::Object(map) = data {
+                        map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                    } else {
+                        HashMap::new()
+                    };
                 self.execute_custom_step(step, action_type, &parameters, &mut step_result)
                     .await?;
             }
-            TestAction::NetworkOperation { operation, host, port } => {
+            TestAction::NetworkOperation {
+                operation,
+                host,
+                port,
+            } => {
                 debug!(
                     step_id = %step.id,
                     operation = %operation,
@@ -2232,15 +2300,19 @@ impl UnifiedTestingFramework {
                         let addr = format!("{}:{}", host, port);
                         match tokio::time::timeout(
                             tokio::time::Duration::from_secs(5),
-                            tokio::net::TcpStream::connect(&addr)
-                        ).await {
+                            tokio::net::TcpStream::connect(&addr),
+                        )
+                        .await
+                        {
                             Ok(Ok(_)) => {
                                 step_result.status = TestStatus::Passed;
-                                step_result.output = Some(format!("Successfully connected to {}", addr));
+                                step_result.output =
+                                    Some(format!("Successfully connected to {}", addr));
                             }
                             Ok(Err(e)) => {
                                 step_result.status = TestStatus::Failed;
-                                step_result.error = Some(format!("Connection failed to {}: {}", addr, e));
+                                step_result.error =
+                                    Some(format!("Connection failed to {}: {}", addr, e));
                             }
                             Err(_) => {
                                 step_result.status = TestStatus::Timeout;
@@ -2254,11 +2326,13 @@ impl UnifiedTestingFramework {
                             Ok(addrs) => {
                                 let addrs: Vec<_> = addrs.collect();
                                 step_result.status = TestStatus::Passed;
-                                step_result.output = Some(format!("Resolved {} to {} addresses", host, addrs.len()));
+                                step_result.output =
+                                    Some(format!("Resolved {} to {} addresses", host, addrs.len()));
                             }
                             Err(e) => {
                                 step_result.status = TestStatus::Failed;
-                                step_result.error = Some(format!("DNS resolution failed for {}: {}", host, e));
+                                step_result.error =
+                                    Some(format!("DNS resolution failed for {}: {}", host, e));
                             }
                         }
                     }
@@ -2267,15 +2341,19 @@ impl UnifiedTestingFramework {
                         let addr = format!("{}:{}", host, port);
                         match tokio::time::timeout(
                             tokio::time::Duration::from_secs(2),
-                            tokio::net::TcpStream::connect(&addr)
-                        ).await {
+                            tokio::net::TcpStream::connect(&addr),
+                        )
+                        .await
+                        {
                             Ok(Ok(_)) => {
                                 step_result.status = TestStatus::Passed;
-                                step_result.output = Some(format!("Port {} is open on {}", port, host));
+                                step_result.output =
+                                    Some(format!("Port {} is open on {}", port, host));
                             }
                             _ => {
                                 step_result.status = TestStatus::Failed;
-                                step_result.error = Some(format!("Port {} is closed on {}", port, host));
+                                step_result.error =
+                                    Some(format!("Port {} is closed on {}", port, host));
                             }
                         }
                     }
@@ -2360,7 +2438,8 @@ impl UnifiedTestingFramework {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
                         AosError::Config(
-                            "Missing or invalid 'path' parameter for file_not_exists assertion".to_string(),
+                            "Missing or invalid 'path' parameter for file_not_exists assertion"
+                                .to_string(),
                         )
                     })?;
 
@@ -2384,7 +2463,10 @@ impl UnifiedTestingFramework {
                     .get("table")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        AosError::Config("Missing 'table' parameter for DatabaseRecordExists assertion".to_string())
+                        AosError::Config(
+                            "Missing 'table' parameter for DatabaseRecordExists assertion"
+                                .to_string(),
+                        )
                     })?;
                 let condition = assertion
                     .parameters
@@ -2399,7 +2481,8 @@ impl UnifiedTestingFramework {
                     .await
                 {
                     Ok(pool) => {
-                        let query = format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, condition);
+                        let query =
+                            format!("SELECT COUNT(*) as cnt FROM {} WHERE {}", table, condition);
                         match sqlx::query_scalar::<_, i64>(&query).fetch_one(&pool).await {
                             Ok(count) => {
                                 if count > 0 {
@@ -2418,14 +2501,16 @@ impl UnifiedTestingFramework {
                             }
                             Err(e) => {
                                 assertion_result.status = TestStatus::Error;
-                                assertion_result.message = Some(format!("Database query failed: {}", e));
+                                assertion_result.message =
+                                    Some(format!("Database query failed: {}", e));
                             }
                         }
                         pool.close().await;
                     }
                     Err(e) => {
                         assertion_result.status = TestStatus::Error;
-                        assertion_result.message = Some(format!("Database connection failed: {}", e));
+                        assertion_result.message =
+                            Some(format!("Database connection failed: {}", e));
                     }
                 }
             }
@@ -2436,7 +2521,9 @@ impl UnifiedTestingFramework {
                     .get("url")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        AosError::Config("Missing 'url' parameter for ApiResponse assertion".to_string())
+                        AosError::Config(
+                            "Missing 'url' parameter for ApiResponse assertion".to_string(),
+                        )
                     })?;
                 let method = assertion
                     .parameters
@@ -2461,7 +2548,8 @@ impl UnifiedTestingFramework {
                     "DELETE" => client.delete(url),
                     _ => {
                         assertion_result.status = TestStatus::Error;
-                        assertion_result.message = Some(format!("Unsupported HTTP method: {}", method));
+                        assertion_result.message =
+                            Some(format!("Unsupported HTTP method: {}", method));
                         return Ok(assertion_result);
                     }
                 };
@@ -2480,7 +2568,10 @@ impl UnifiedTestingFramework {
                                 messages.push(format!("Status {} matches expected", status));
                             } else {
                                 passed = false;
-                                messages.push(format!("Status {} does not match expected {}", status, expected));
+                                messages.push(format!(
+                                    "Status {} does not match expected {}",
+                                    status, expected
+                                ));
                             }
                         } else {
                             messages.push(format!("Response status: {}", status));
@@ -2496,7 +2587,11 @@ impl UnifiedTestingFramework {
                             }
                         }
 
-                        assertion_result.status = if passed { TestStatus::Passed } else { TestStatus::Failed };
+                        assertion_result.status = if passed {
+                            TestStatus::Passed
+                        } else {
+                            TestStatus::Failed
+                        };
                         assertion_result.message = Some(messages.join("; "));
                     }
                     Err(e) => {
@@ -2519,15 +2614,19 @@ impl UnifiedTestingFramework {
                             .get("key")
                             .and_then(|v| v.as_str())
                             .ok_or_else(|| {
-                                AosError::Config("Missing 'key' parameter for env_var_set assertion".to_string())
+                                AosError::Config(
+                                    "Missing 'key' parameter for env_var_set assertion".to_string(),
+                                )
                             })?;
 
                         if std::env::var(key).is_ok() {
                             assertion_result.status = TestStatus::Passed;
-                            assertion_result.message = Some(format!("Environment variable '{}' is set", key));
+                            assertion_result.message =
+                                Some(format!("Environment variable '{}' is set", key));
                         } else {
                             assertion_result.status = TestStatus::Failed;
-                            assertion_result.message = Some(format!("Environment variable '{}' is not set", key));
+                            assertion_result.message =
+                                Some(format!("Environment variable '{}' is not set", key));
                         }
                     }
                     "env_var_equals" => {
@@ -2537,28 +2636,37 @@ impl UnifiedTestingFramework {
                             .get("key")
                             .and_then(|v| v.as_str())
                             .ok_or_else(|| {
-                                AosError::Config("Missing 'key' parameter for env_var_equals assertion".to_string())
+                                AosError::Config(
+                                    "Missing 'key' parameter for env_var_equals assertion"
+                                        .to_string(),
+                                )
                             })?;
                         let expected = assertion
                             .parameters
                             .get("expected")
                             .and_then(|v| v.as_str())
                             .ok_or_else(|| {
-                                AosError::Config("Missing 'expected' parameter for env_var_equals assertion".to_string())
+                                AosError::Config(
+                                    "Missing 'expected' parameter for env_var_equals assertion"
+                                        .to_string(),
+                                )
                             })?;
 
                         match std::env::var(key) {
                             Ok(value) if value == expected => {
                                 assertion_result.status = TestStatus::Passed;
-                                assertion_result.message = Some(format!("{}={} matches expected", key, value));
+                                assertion_result.message =
+                                    Some(format!("{}={} matches expected", key, value));
                             }
                             Ok(value) => {
                                 assertion_result.status = TestStatus::Failed;
-                                assertion_result.message = Some(format!("{}={}, expected {}", key, value, expected));
+                                assertion_result.message =
+                                    Some(format!("{}={}, expected {}", key, value, expected));
                             }
                             Err(_) => {
                                 assertion_result.status = TestStatus::Failed;
-                                assertion_result.message = Some(format!("Environment variable '{}' not set", key));
+                                assertion_result.message =
+                                    Some(format!("Environment variable '{}' not set", key));
                             }
                         }
                     }
@@ -2568,7 +2676,10 @@ impl UnifiedTestingFramework {
                             .get("path")
                             .and_then(|v| v.as_str())
                             .ok_or_else(|| {
-                                AosError::Config("Missing 'path' parameter for directory_exists assertion".to_string())
+                                AosError::Config(
+                                    "Missing 'path' parameter for directory_exists assertion"
+                                        .to_string(),
+                                )
                             })?;
 
                         let p = std::path::Path::new(path);
@@ -2577,10 +2688,12 @@ impl UnifiedTestingFramework {
                             assertion_result.message = Some(format!("Directory exists: {}", path));
                         } else if p.exists() {
                             assertion_result.status = TestStatus::Failed;
-                            assertion_result.message = Some(format!("Path exists but is not a directory: {}", path));
+                            assertion_result.message =
+                                Some(format!("Path exists but is not a directory: {}", path));
                         } else {
                             assertion_result.status = TestStatus::Failed;
-                            assertion_result.message = Some(format!("Directory does not exist: {}", path));
+                            assertion_result.message =
+                                Some(format!("Directory does not exist: {}", path));
                         }
                     }
                     "file_size" => {
@@ -2589,10 +2702,18 @@ impl UnifiedTestingFramework {
                             .get("path")
                             .and_then(|v| v.as_str())
                             .ok_or_else(|| {
-                                AosError::Config("Missing 'path' parameter for file_size assertion".to_string())
+                                AosError::Config(
+                                    "Missing 'path' parameter for file_size assertion".to_string(),
+                                )
                             })?;
-                        let min_size = assertion.parameters.get("min_size").and_then(|v| v.as_u64());
-                        let max_size = assertion.parameters.get("max_size").and_then(|v| v.as_u64());
+                        let min_size = assertion
+                            .parameters
+                            .get("min_size")
+                            .and_then(|v| v.as_u64());
+                        let max_size = assertion
+                            .parameters
+                            .get("max_size")
+                            .and_then(|v| v.as_u64());
 
                         match std::fs::metadata(path) {
                             Ok(meta) => {
@@ -2618,12 +2739,17 @@ impl UnifiedTestingFramework {
                                     }
                                 }
 
-                                assertion_result.status = if passed { TestStatus::Passed } else { TestStatus::Failed };
+                                assertion_result.status = if passed {
+                                    TestStatus::Passed
+                                } else {
+                                    TestStatus::Failed
+                                };
                                 assertion_result.message = Some(messages.join("; "));
                             }
                             Err(e) => {
                                 assertion_result.status = TestStatus::Error;
-                                assertion_result.message = Some(format!("Failed to get file metadata: {}", e));
+                                assertion_result.message =
+                                    Some(format!("Failed to get file metadata: {}", e));
                             }
                         }
                     }

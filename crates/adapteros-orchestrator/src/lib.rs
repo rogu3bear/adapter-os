@@ -6,6 +6,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub mod code_jobs;
+pub mod codebase_ingestion;
+pub mod dataset_cleanup;
 pub mod federation_daemon;
 pub mod gates;
 pub mod report;
@@ -14,6 +16,10 @@ pub mod training;
 pub mod training_dataset_integration;
 
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
+pub use codebase_ingestion::{CodebaseIngestion, IngestionConfig, IngestionResult};
+pub use dataset_cleanup::{
+    CleanupConfig, CleanupResult, DatasetCleanupManager, StorageHealthReport, StorageQuotaStatus,
+};
 pub use federation_daemon::{
     FederationDaemon, FederationDaemonConfig, FederationVerificationReport,
 };
@@ -39,6 +45,12 @@ pub struct OrchestratorConfig {
     pub bundles_path: String,
     /// Path to manifests
     pub manifests_path: String,
+    /// Skip dependency checks before running gates
+    pub skip_dependency_checks: bool,
+    /// Allow gates to run with degraded dependencies
+    pub allow_degraded_mode: bool,
+    /// Require telemetry bundles to exist
+    pub require_telemetry_bundles: bool,
 }
 
 impl Default for OrchestratorConfig {
@@ -49,6 +61,9 @@ impl Default for OrchestratorConfig {
             db_path: "var/aos-cp.sqlite3".to_string(),
             bundles_path: "/srv/aos/bundles".to_string(),
             manifests_path: "manifests".to_string(),
+            skip_dependency_checks: false,
+            allow_degraded_mode: false,
+            require_telemetry_bundles: true,
         }
     }
 }
@@ -57,6 +72,7 @@ impl Default for OrchestratorConfig {
 pub struct Orchestrator {
     config: OrchestratorConfig,
     gates: Vec<Box<dyn Gate>>,
+    dependency_checker: DependencyChecker,
 }
 
 impl Orchestrator {
@@ -71,12 +87,78 @@ impl Orchestrator {
             Box::new(SecurityGate),
         ];
 
-        Self { config, gates }
+        let dependency_checker = DependencyChecker::new();
+
+        Self {
+            config,
+            gates,
+            dependency_checker,
+        }
+    }
+
+    /// Run dependency checks before gates
+    pub async fn check_dependencies(&self) -> Result<Vec<DependencyCheckResult>> {
+        if self.config.skip_dependency_checks {
+            tracing::debug!("Skipping dependency checks as configured");
+            return Ok(Vec::new());
+        }
+
+        let gate_ids: Vec<&str> = vec![
+            "determinism",
+            "metrics",
+            "metallib",
+            "sbom",
+            "performance",
+            "security",
+        ];
+
+        let results = self.dependency_checker.check_gates(&gate_ids)?;
+
+        // Log dependency check results
+        for result in &results {
+            if result.all_available {
+                tracing::info!(gate = %result.gate_id, "All dependencies available");
+            } else {
+                match result.degradation_level {
+                    2 => tracing::error!(gate = %result.gate_id, "Critical dependencies missing"),
+                    1 => {
+                        tracing::warn!(gate = %result.gate_id, messages = ?result.messages, "Some optional dependencies missing")
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check if any critical gates have missing dependencies
+        for result in &results {
+            let deps = self
+                .dependency_checker
+                .get_definition(&result.gate_id)
+                .ok_or_else(|| anyhow::anyhow!("Unknown gate: {}", result.gate_id))?;
+
+            if deps.severity == GateSeverity::Critical && result.degradation_level == 2 {
+                if !self.config.allow_degraded_mode {
+                    anyhow::bail!(
+                        "Critical dependencies missing for gate '{}': {:?}",
+                        result.gate_id,
+                        result.messages
+                    );
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     /// Run all gates and return report
     pub async fn run(&self) -> Result<GateReport> {
         let mut report = GateReport::new(self.config.cpid.clone());
+
+        // Run dependency checks first
+        let dep_results = self.check_dependencies().await?;
+        if !dep_results.is_empty() {
+            report.set_dependency_checks(dep_results);
+        }
 
         for gate in &self.gates {
             let gate_name = gate.name();

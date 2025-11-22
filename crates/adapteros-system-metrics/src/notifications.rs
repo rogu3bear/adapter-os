@@ -106,7 +106,11 @@ impl crate::alerting::NotificationSender for NotificationSenderImpl {
 
 impl NotificationService {
     /// Create a new notification service
-    pub fn new(db: Arc<Db>, telemetry_writer: Arc<TelemetryWriter>, config: NotificationConfig) -> Self {
+    pub fn new(
+        db: Arc<Db>,
+        telemetry_writer: Arc<TelemetryWriter>,
+        config: NotificationConfig,
+    ) -> Self {
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
             .build()
@@ -497,11 +501,18 @@ impl NotificationService {
                 recipient: row.get("recipient"),
                 message: row.get("message"),
                 status: crate::monitoring_types::NotificationStatus::from_string(row.get("status")),
-                sent_at: row.get::<Option<chrono::NaiveDateTime>, _>("sent_at").map(|dt| dt.and_utc()),
-                delivered_at: row.get::<Option<chrono::NaiveDateTime>, _>("delivered_at").map(|dt| dt.and_utc()),
+                sent_at: row
+                    .get::<Option<chrono::NaiveDateTime>, _>("sent_at")
+                    .map(|dt| dt.and_utc()),
+                delivered_at: row
+                    .get::<Option<chrono::NaiveDateTime>, _>("delivered_at")
+                    .map(|dt| dt.and_utc()),
                 error_message: row.get("error_message"),
                 retry_count: row.get::<Option<i64>, _>("retry_count").unwrap_or(0),
-                created_at: row.get::<Option<chrono::NaiveDateTime>, _>("created_at").unwrap_or_default().and_utc(),
+                created_at: row
+                    .get::<Option<chrono::NaiveDateTime>, _>("created_at")
+                    .unwrap_or_default()
+                    .and_utc(),
             });
         }
 
@@ -599,8 +610,10 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let telemetry_writer = Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-            .expect("Failed to create telemetry writer"));
+        let telemetry_writer = Arc::new(
+            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
+                .expect("Failed to create telemetry writer"),
+        );
 
         let config = NotificationConfig::default();
         let service = NotificationService::new(db, telemetry_writer, config);

@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 // Re-export types from codegraph for convenience
-pub use adapteros_codegraph::types::{Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
+pub use adapteros_codegraph::types::{
+    Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility,
+};
 
 /// Chunking configuration
 #[derive(Debug, Clone)]
@@ -143,7 +145,6 @@ impl CodeChunker {
     pub fn new(config: ChunkConfig) -> Self {
         Self { config }
     }
-
 }
 
 impl Default for CodeChunker {
@@ -153,7 +154,6 @@ impl Default for CodeChunker {
 }
 
 impl CodeChunker {
-
     /// Chunk a file based on its symbols
     pub fn chunk_file(
         &self,

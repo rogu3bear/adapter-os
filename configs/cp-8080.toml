@@ -24,7 +24,7 @@ global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 [paths]
 artifacts_root = "var/artifacts"
 bundles_root = "var/bundles"
-adapters_root = "adapters"
+adapters_root = "var/adapters"
 plan_dir = "plan"
 
 [worker.safety]

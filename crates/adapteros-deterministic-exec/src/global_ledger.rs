@@ -241,7 +241,7 @@ impl GlobalTickLedger {
                 "ledger".to_string(),
                 IdentityEnvelope::default_revision(),
             );
-            let event = TelemetryEventBuilder::new(
+            match TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom("tick_ledger.entry".to_string()),
                 LogLevel::Debug,
                 format!("Tick ledger entry recorded: tick {}", tick),
@@ -257,13 +257,13 @@ impl GlobalTickLedger {
                 "event_hash": event_hash.to_hex(),
             }))
             .build()
-            .map_err(|e| {
-                warn!("Failed to build tick ledger entry event: {}", e);
-                e
-            });
-
-            if let Ok(event) = event {
-                let _ = telemetry.log_event(event);
+            {
+                Ok(event) => {
+                    let _ = telemetry.log_event(event);
+                }
+                Err(e) => {
+                    warn!("Failed to build tick ledger entry event: {}", e);
+                }
             }
         }
 
@@ -390,7 +390,7 @@ impl GlobalTickLedger {
                 "tick_ledger.inconsistent"
             };
 
-            let event = TelemetryEventBuilder::new(
+            match TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom(event_type.to_string()),
                 if consistent {
                     LogLevel::Info
@@ -415,13 +415,13 @@ impl GlobalTickLedger {
                 "divergence_count": divergence_count,
             }))
             .build()
-            .map_err(|e| {
-                warn!("Failed to build cross-host consistency event: {}", e);
-                e
-            });
-
-            if let Ok(event) = event {
-                let _ = telemetry.log_event(event);
+            {
+                Ok(event) => {
+                    let _ = telemetry.log_event(event);
+                }
+                Err(e) => {
+                    warn!("Failed to build cross-host consistency event: {}", e);
+                }
             }
         }
 

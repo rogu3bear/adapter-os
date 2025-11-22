@@ -169,7 +169,6 @@ pub struct TraceBundle {
     pub bundle_hash: B3Hash,
 }
 
-
 impl TraceBundle {
     /// Create a new trace bundle
     pub fn new(

@@ -201,7 +201,7 @@ impl SystemMetricsDb {
             FROM threshold_violations
             WHERE resolved_at IS NULL
             ORDER BY timestamp DESC
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await
@@ -233,14 +233,12 @@ impl SystemMetricsDb {
             .expect("System time before UNIX epoch")
             .as_secs() as i64;
 
-        sqlx::query(
-            "UPDATE threshold_violations SET resolved_at = ? WHERE id = ?",
-        )
-        .bind(timestamp)
-        .bind(violation_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
+        sqlx::query("UPDATE threshold_violations SET resolved_at = ? WHERE id = ?")
+            .bind(timestamp)
+            .bind(violation_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to resolve violation: {}", e)))?;
 
         Ok(())
     }
@@ -332,13 +330,12 @@ impl SystemMetricsDb {
 
     /// Get configuration value
     pub async fn get_config(&self, key: &str) -> Result<Option<String>> {
-        let row = sqlx::query(
-            "SELECT config_value FROM system_metrics_config WHERE config_key = ?",
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
+        let row =
+            sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
 
         Ok(row.map(|r| {
             use sqlx::Row;
@@ -377,13 +374,11 @@ impl SystemMetricsDb {
             .as_secs() as i64
             - (retention_days as i64 * 24 * 3600);
 
-        let result = sqlx::query(
-            "DELETE FROM system_metrics WHERE timestamp < ?",
-        )
-        .bind(cutoff_time)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
+        let result = sqlx::query("DELETE FROM system_metrics WHERE timestamp < ?")
+            .bind(cutoff_time)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
 
         Ok(result.rows_affected())
     }
