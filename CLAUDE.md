@@ -3,7 +3,7 @@
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-22 (AOS 3.0 format with 64-byte header documented)
+**Last Updated:** 2025-11-22 (AOS format with 64-byte header documented)
 **Maintained by:** James KC Auchterlonie
 
 ---
@@ -165,7 +165,7 @@ init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, .
 
 **Details:** See [docs/DETERMINISTIC_EXECUTION.md](docs/DETERMINISTIC_EXECUTION.md) for HKDF hierarchy, global tick ledger, and multi-agent coordination
 
-### .aos Archive Format (v3.0)
+### .aos Archive Format
 
 64-byte header for optimal cache-line alignment:
 
@@ -173,15 +173,13 @@ init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, .
 +--------+--------+------------------------------------------+
 | Offset | Size   | Field                                    |
 +--------+--------+------------------------------------------+
-| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
-| 8      | 4      | Format version (u32 LE) = 3              |
-| 12     | 4      | Flags (u32 LE, reserved)                 |
-| 16     | 8      | Total file size (u64 LE)                 |
-| 24     | 8      | Weights offset (u64 LE)                  |
-| 32     | 8      | Weights size (u64 LE)                    |
-| 40     | 8      | Manifest offset (u64 LE)                 |
-| 48     | 8      | Manifest size (u64 LE)                   |
-| 56     | 8      | Reserved (padding)                       |
+| 0      | 4      | Magic bytes: "AOS\x00"                   |
+| 4      | 4      | Flags (u32 LE, reserved)                 |
+| 8      | 8      | Weights offset (u64 LE)                  |
+| 16     | 8      | Weights size (u64 LE)                    |
+| 24     | 8      | Manifest offset (u64 LE)                 |
+| 32     | 8      | Manifest size (u64 LE)                   |
+| 40     | 24     | Reserved (padding to 64 bytes)           |
 +--------+--------+------------------------------------------+
 | 64     | N      | Weights (SafeTensors or Q15)             |
 | 64+N   | M      | Manifest (JSON metadata)                 |

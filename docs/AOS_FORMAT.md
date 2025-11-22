@@ -2,29 +2,23 @@
 
 ## Overview
 
-The `.aos` format is a single-file binary archive format for packaging LoRA adapters in AdapterOS. It provides a compact, self-contained, and versioned format for distributing adapter models with zero-copy memory-mapped loading.
-
-## Format Version
-
-Current version: **3.0**
+The `.aos` format is a single-file binary archive format for packaging LoRA adapters in AdapterOS. It provides a compact, self-contained format for distributing adapter models with zero-copy memory-mapped loading.
 
 ## Binary Structure
 
-The AOS 3.0 format uses a 64-byte header for optimal memory alignment and cache efficiency:
+The AOS format uses a 64-byte header for optimal memory alignment and cache efficiency:
 
 ```
 +--------+--------+------------------------------------------+
 | Offset | Size   | Field                                    |
 +--------+--------+------------------------------------------+
-| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
-| 8      | 4      | Format version (u32 LE) = 3              |
-| 12     | 4      | Flags (u32 LE, reserved)                 |
-| 16     | 8      | Total file size (u64 LE)                 |
-| 24     | 8      | Weights offset (u64 LE)                  |
-| 32     | 8      | Weights size (u64 LE)                    |
-| 40     | 8      | Manifest offset (u64 LE)                 |
-| 48     | 8      | Manifest size (u64 LE)                   |
-| 56     | 8      | Reserved (padding to 64 bytes)           |
+| 0      | 4      | Magic bytes: "AOS\x00"                   |
+| 4      | 4      | Flags (u32 LE, reserved)                 |
+| 8      | 8      | Weights offset (u64 LE)                  |
+| 16     | 8      | Weights size (u64 LE)                    |
+| 24     | 8      | Manifest offset (u64 LE)                 |
+| 32     | 8      | Manifest size (u64 LE)                   |
+| 40     | 24     | Reserved (padding to 64 bytes)           |
 +--------+--------+------------------------------------------+
 | 64     | N      | Weights data (SafeTensors or Q15)        |
 | 64+N   | M      | Manifest (JSON metadata)                 |
@@ -35,15 +29,13 @@ The AOS 3.0 format uses a 64-byte header for optimal memory alignment and cache 
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| `magic` | 0 | 8 | bytes | Magic identifier `AOS3\x00\x00\x00\x00` |
-| `version` | 8 | 4 | u32 LE | Format version (must be 3) |
-| `flags` | 12 | 4 | u32 LE | Reserved for future use (must be 0) |
-| `total_size` | 16 | 8 | u64 LE | Total file size in bytes |
-| `weights_offset` | 24 | 8 | u64 LE | Byte offset where weights begin |
-| `weights_size` | 32 | 8 | u64 LE | Size of weights data in bytes |
-| `manifest_offset` | 40 | 8 | u64 LE | Byte offset where manifest begins |
-| `manifest_size` | 48 | 8 | u64 LE | Size of manifest JSON in bytes |
-| `reserved` | 56 | 8 | bytes | Reserved padding (must be zeros) |
+| `magic` | 0 | 4 | bytes | Magic identifier `AOS\x00` |
+| `flags` | 4 | 4 | u32 LE | Reserved for future use (must be 0) |
+| `weights_offset` | 8 | 8 | u64 LE | Byte offset where weights begin |
+| `weights_size` | 16 | 8 | u64 LE | Size of weights data in bytes |
+| `manifest_offset` | 24 | 8 | u64 LE | Byte offset where manifest begins |
+| `manifest_size` | 32 | 8 | u64 LE | Size of manifest JSON in bytes |
+| `reserved` | 40 | 24 | bytes | Reserved padding (must be zeros) |
 
 ### Design Rationale
 
@@ -71,7 +63,6 @@ JSON metadata starting at `manifest_offset` with size `manifest_size`. Must be v
 
 ```json
 {
-  "format_version": 3,
   "adapter_id": "tenant-a/domain/purpose/r001",
   "name": "Human-readable adapter name",
   "version": "1.0.0",
@@ -102,7 +93,6 @@ JSON metadata starting at `manifest_offset` with size `manifest_size`. Must be v
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `format_version` | integer | Must be 3 for AOS 3.0 |
 | `adapter_id` | string | Semantic name: `{tenant}/{domain}/{purpose}/{revision}` |
 | `name` | string | Human-readable display name |
 | `version` | string | Semantic version (e.g., "1.0.0") |
@@ -146,7 +136,7 @@ For Metal kernel optimization, weights quantized to signed 16-bit integers:
 ```rust
 use std::io::Write;
 
-const AOS3_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
+const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 const HEADER_SIZE: u64 = 64;
 
 fn create_aos_file(
@@ -160,18 +150,15 @@ fn create_aos_file(
     let weights_size = weights_data.len() as u64;
     let manifest_offset = weights_offset + weights_size;
     let manifest_size = manifest_json.len() as u64;
-    let total_size = manifest_offset + manifest_size;
 
     // Write 64-byte header
-    file.write_all(AOS3_MAGIC)?;                           // 0-7: magic
-    file.write_all(&3u32.to_le_bytes())?;                  // 8-11: version
-    file.write_all(&0u32.to_le_bytes())?;                  // 12-15: flags
-    file.write_all(&total_size.to_le_bytes())?;            // 16-23: total_size
-    file.write_all(&weights_offset.to_le_bytes())?;        // 24-31: weights_offset
-    file.write_all(&weights_size.to_le_bytes())?;          // 32-39: weights_size
-    file.write_all(&manifest_offset.to_le_bytes())?;       // 40-47: manifest_offset
-    file.write_all(&manifest_size.to_le_bytes())?;         // 48-55: manifest_size
-    file.write_all(&[0u8; 8])?;                            // 56-63: reserved
+    file.write_all(&AOS_MAGIC)?;                            // 0-3: magic
+    file.write_all(&0u32.to_le_bytes())?;                   // 4-7: flags
+    file.write_all(&weights_offset.to_le_bytes())?;         // 8-15: weights_offset
+    file.write_all(&weights_size.to_le_bytes())?;           // 16-23: weights_size
+    file.write_all(&manifest_offset.to_le_bytes())?;        // 24-31: manifest_offset
+    file.write_all(&manifest_size.to_le_bytes())?;          // 32-39: manifest_size
+    file.write_all(&[0u8; 24])?;                            // 40-63: reserved
 
     // Write weights
     file.write_all(weights_data)?;
@@ -185,8 +172,9 @@ fn create_aos_file(
 
 ### Implementation References
 
-- Writer: `crates/adapteros-lora-kernel-coreml/src/aos_loader.rs`
+- Writer: `crates/adapteros-aos/src/writer.rs`
 - Loader: `crates/adapteros-aos/src/mmap_loader.rs`
+- Implementation: `crates/adapteros-aos/src/implementation.rs`
 - Packager: `crates/adapteros-lora-worker/src/training/packager.rs`
 
 ## Loading AOS Files
@@ -194,14 +182,10 @@ fn create_aos_file(
 ### Rust Example
 
 ```rust
-use std::io::Read;
-
-const AOS3_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
+const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 
 struct AosHeader {
-    version: u32,
     flags: u32,
-    total_size: u64,
     weights_offset: u64,
     weights_size: u64,
     manifest_offset: u64,
@@ -214,18 +198,16 @@ fn load_aos_header(data: &[u8]) -> Result<AosHeader, &'static str> {
     }
 
     // Verify magic bytes
-    if &data[0..8] != AOS3_MAGIC {
+    if &data[0..4] != &AOS_MAGIC {
         return Err("Invalid AOS magic bytes");
     }
 
     Ok(AosHeader {
-        version: u32::from_le_bytes(data[8..12].try_into().unwrap()),
-        flags: u32::from_le_bytes(data[12..16].try_into().unwrap()),
-        total_size: u64::from_le_bytes(data[16..24].try_into().unwrap()),
-        weights_offset: u64::from_le_bytes(data[24..32].try_into().unwrap()),
-        weights_size: u64::from_le_bytes(data[32..40].try_into().unwrap()),
-        manifest_offset: u64::from_le_bytes(data[40..48].try_into().unwrap()),
-        manifest_size: u64::from_le_bytes(data[48..56].try_into().unwrap()),
+        flags: u32::from_le_bytes(data[4..8].try_into().unwrap()),
+        weights_offset: u64::from_le_bytes(data[8..16].try_into().unwrap()),
+        weights_size: u64::from_le_bytes(data[16..24].try_into().unwrap()),
+        manifest_offset: u64::from_le_bytes(data[24..32].try_into().unwrap()),
+        manifest_size: u64::from_le_bytes(data[32..40].try_into().unwrap()),
     })
 }
 ```
@@ -278,29 +260,11 @@ fn verify_weights_hash(weights_data: &[u8], expected_hash: &str) -> bool {
 Detect AOS format by checking magic bytes:
 
 ```rust
-fn detect_aos_format(data: &[u8]) -> Option<u32> {
-    if data.len() < 12 {
-        return None;
+fn detect_aos_format(data: &[u8]) -> bool {
+    if data.len() < 4 {
+        return false;
     }
-
-    // AOS 3.0: "AOS3" magic
-    if &data[0..4] == b"AOS3" {
-        return Some(3);
-    }
-
-    // AOS 2.0: "AOS2" magic (legacy)
-    if &data[0..4] == b"AOS2" {
-        return Some(2);
-    }
-
-    // Simple format (legacy): check for valid manifest offset/len
-    let offset = u32::from_le_bytes(data[0..4].try_into().ok()?);
-    let len = u32::from_le_bytes(data[4..8].try_into().ok()?);
-    if offset >= 8 && len > 0 && len < 1024 * 1024 {
-        return Some(1);
-    }
-
-    None
+    &data[0..4] == b"AOS\x00"
 }
 ```
 
@@ -318,9 +282,6 @@ Always verify `weights_hash` before using weights:
 Validate sizes before memory allocation:
 ```rust
 fn validate_aos_header(header: &AosHeader, file_size: u64) -> Result<(), &'static str> {
-    if header.total_size > file_size {
-        return Err("Header total_size exceeds file size");
-    }
     if header.weights_offset + header.weights_size > file_size {
         return Err("Weights extend beyond file");
     }
@@ -338,7 +299,6 @@ fn validate_aos_header(header: &AosHeader, file_size: u64) -> Result<(), &'stati
 
 - Validate all required fields are present
 - Check semantic naming conventions
-- Verify format_version compatibility
 - Sanitize string inputs
 
 ## Examples
@@ -347,7 +307,6 @@ fn validate_aos_header(header: &AosHeader, file_size: u64) -> Result<(), &'stati
 
 ```json
 {
-  "format_version": 3,
   "adapter_id": "default/test/example/r001",
   "name": "Example Adapter",
   "version": "1.0.0",
@@ -364,7 +323,6 @@ fn validate_aos_header(header: &AosHeader, file_size: u64) -> Result<(), &'stati
 
 ```json
 {
-  "format_version": 3,
   "adapter_id": "acme-corp/engineering/code-review/r001",
   "name": "Code Review Assistant",
   "version": "2.1.0",
@@ -425,31 +383,14 @@ The AOS format integrates with:
 - **Database Registration**: Content-addressed storage via BLAKE3 hash
 - **Federation**: Peer-to-peer adapter distribution
 
-## Migration from Previous Formats
-
-### From AOS 2.0 (268-byte header)
-
-AOS 2.0 files can be detected by the `AOS2` magic prefix. To migrate:
-1. Parse the 268-byte AOS 2.0 header
-2. Extract weights and manifest
-3. Repackage with 64-byte AOS 3.0 header
-
-### From Simple Format (8-byte header)
-
-Simple format files lack magic bytes. To migrate:
-1. Parse manifest_offset/manifest_len from first 8 bytes
-2. Extract weights and manifest
-3. Repackage with 64-byte AOS 3.0 header
-
 ## References
 
-- Format implementation: `crates/adapteros-lora-kernel-coreml/src/aos_loader.rs`
+- Writer: `crates/adapteros-aos/src/writer.rs`
+- Implementation: `crates/adapteros-aos/src/implementation.rs`
 - Memory-mapped loader: `crates/adapteros-aos/src/mmap_loader.rs`
-- Hot-swap manager: `crates/adapteros-aos/src/hot_swap.rs`
 - Training packager: `crates/adapteros-lora-worker/src/training/packager.rs`
-- Architecture overview: `docs/architecture/AOS_FILETYPE_ARCHITECTURE.md`
+- Architecture overview: `docs/architecture/aos_filetype_architecture.md`
 
 ---
 
 **Last Updated**: 2025-11-22
-**Format Version**: 3.0
