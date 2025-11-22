@@ -210,7 +210,7 @@ final class ServicePanelClient {
 
     func startService(_ serviceId: String) async throws -> ServiceOperationResult {
         try validateServiceId(serviceId)
-        let endpoint = baseURL.appendingPathComponent("api/services/start")
+        let endpoint = baseURL.appendingPathComponent("v1/services/start")
         let request = ServiceRequest(serviceId: serviceId)
 
         return try await performRequest(endpoint: endpoint, method: "POST", body: request, operation: "start_service")
@@ -218,7 +218,7 @@ final class ServicePanelClient {
 
     func stopService(_ serviceId: String) async throws -> ServiceOperationResult {
         try validateServiceId(serviceId)
-        let endpoint = baseURL.appendingPathComponent("api/services/stop")
+        let endpoint = baseURL.appendingPathComponent("v1/services/stop")
         let request = ServiceRequest(serviceId: serviceId)
 
         return try await performRequest(endpoint: endpoint, method: "POST", body: request, operation: "stop_service")
@@ -226,7 +226,7 @@ final class ServicePanelClient {
 
     func getServiceStatus(_ serviceId: String) async throws -> ServiceInfo {
         try validateServiceId(serviceId)
-        let endpoint = baseURL.appendingPathComponent("api/services/status")
+        let endpoint = baseURL.appendingPathComponent("v1/services/status")
         let request = ServiceRequest(serviceId: serviceId)
 
         let result: ServiceStatusResult = try await performRequest(
@@ -244,26 +244,26 @@ final class ServicePanelClient {
     }
 
     func getAllServices() async throws -> [ServiceInfo] {
-        let endpoint = baseURL.appendingPathComponent("api/services")
+        let endpoint = baseURL.appendingPathComponent("v1/services")
         let result: ServicesListResult = try await performRequest(endpoint: endpoint, method: "GET", operation: "services")
 
         return result.services
     }
 
     func startAllEssentialServices() async throws -> EssentialServicesResult {
-        let endpoint = baseURL.appendingPathComponent("api/services/essential/start")
+        let endpoint = baseURL.appendingPathComponent("v1/services/essential/start")
 
         return try await performRequest(endpoint: endpoint, method: "POST", operation: "start_service")
     }
 
     func stopAllEssentialServices() async throws -> EssentialServicesResult {
-        let endpoint = baseURL.appendingPathComponent("api/services/essential/stop")
+        let endpoint = baseURL.appendingPathComponent("v1/services/essential/stop")
 
         return try await performRequest(endpoint: endpoint, method: "POST", operation: "stop_service")
     }
 
     func getEssentialServices() async throws -> [EssentialServiceInfo] {
-        let endpoint = baseURL.appendingPathComponent("api/services/essential")
+        let endpoint = baseURL.appendingPathComponent("v1/services/essential")
         let result: EssentialServicesListResult = try await performRequest(endpoint: endpoint, method: "GET", operation: "services")
 
         return result.essentialServices
@@ -280,7 +280,7 @@ final class ServicePanelClient {
     // MARK: - Health Check
 
     func checkHealth() async throws -> HealthStatus {
-        let endpoint = baseURL.appendingPathComponent("api/health")
+        let endpoint = baseURL.appendingPathComponent("healthz")
 
         return try await performRequest(endpoint: endpoint, method: "GET", operation: "health")
     }
@@ -370,7 +370,7 @@ final class ServicePanelClient {
         }
 
         // Add authentication for service management and model endpoints
-        if endpoint.path.contains("/api/services") || endpoint.path.contains("/v1/models") {
+        if endpoint.path.contains("/v1/services") || endpoint.path.contains("/v1/models") {
             let token = try getAuthToken()
             request.setValue(token, forHTTPHeaderField: "Authorization")
         }

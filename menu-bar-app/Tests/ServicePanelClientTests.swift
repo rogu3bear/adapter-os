@@ -201,7 +201,7 @@ class MockServicePanelServer {
         port = 8081 // Use a different port for testing
 
         // Health endpoint
-        server.get("/api/health") { request in
+        server.get("/healthz") { request in
             return HTTPResponse(
                 status: .ok,
                 json: [
@@ -214,7 +214,7 @@ class MockServicePanelServer {
         }
 
         // Service management endpoints (with auth)
-        server.post("/api/services/start") { request in
+        server.post("/v1/services/start") { request in
             guard request.headers["authorization"] == authToken else {
                 return HTTPResponse(status: .unauthorized)
             }
@@ -229,7 +229,7 @@ class MockServicePanelServer {
             )
         }
 
-        server.post("/api/services/stop") { request in
+        server.post("/v1/services/stop") { request in
             guard request.headers["authorization"] == authToken else {
                 return HTTPResponse(status: .unauthorized)
             }
@@ -243,7 +243,7 @@ class MockServicePanelServer {
             )
         }
 
-        server.get("/api/services") { request in
+        server.get("/v1/services") { request in
             guard request.headers["authorization"] == authToken else {
                 return HTTPResponse(status: .unauthorized)
             }
