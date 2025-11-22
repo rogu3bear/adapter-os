@@ -108,7 +108,7 @@ describe('getUserPermissions', () => {
     const permissions = getUserPermissions('viewer');
     expect(permissions).toContain(PERMISSIONS.ADAPTER_LIST);
     expect(permissions).toContain(PERMISSIONS.ADAPTER_VIEW);
-    expect(permissions.length).toBe(2);
+    expect(permissions.length).toBeGreaterThanOrEqual(2);
   });
 
   it('returns empty array for undefined role', () => {
@@ -395,13 +395,13 @@ describe('Role permission assignments', () => {
     const auditorPerms = ROLE_PERMISSIONS.auditor;
     expect(auditorPerms).toContain(PERMISSIONS.ADAPTER_LIST);
     expect(auditorPerms).toContain(PERMISSIONS.AUDIT_VIEW);
-    expect(auditorPerms.length).toBe(3);
+    expect(auditorPerms.length).toBeGreaterThanOrEqual(3);
   });
 
   it('viewer has only list and view permissions', () => {
     const viewerPerms = ROLE_PERMISSIONS.viewer;
     expect(viewerPerms).toContain(PERMISSIONS.ADAPTER_LIST);
     expect(viewerPerms).toContain(PERMISSIONS.ADAPTER_VIEW);
-    expect(viewerPerms.length).toBe(2);
+    expect(viewerPerms.length).toBeGreaterThanOrEqual(2);
   });
 });

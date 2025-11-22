@@ -64,7 +64,7 @@ export const MultiModelStatusWidget: React.FC = () => {
   );
 
   // Use fallback data if status is null
-  const statusData: AllModelsStatusResponse = status ?? { models: [], total_memory_mb: 0, active_model_count: 0 };
+  const statusData: AllModelsStatusResponse = status ?? { models: [], total_memory_mb: 0, active_model_count: 0, schema_version: "v1" };
 
   const models = statusData.models;
   const totalMemoryMb = statusData.total_memory_mb;

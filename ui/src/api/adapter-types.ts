@@ -104,10 +104,12 @@ export interface UpdateAdapterRequest {
 }
 
 export interface AdapterResponse {
+  schema_version: string;
   adapter: Adapter;
 }
 
 export interface ListAdaptersResponse {
+  schema_version: string;
   adapters: Adapter[];
   total: number;
   page: number;
@@ -124,12 +126,14 @@ export interface UnloadAdapterRequest {
 }
 
 export interface AdapterLoadResponse {
+  schema_version: string;
   adapter_id: string;
   state: AdapterState;
   vram_mb?: number;
 }
 
 export interface AdapterFingerprintResponse {
+  schema_version: string;
   adapter_id: string;
   fingerprint: string;
   buffer_size: number;
@@ -164,16 +168,44 @@ export interface UpdateAdapterStackRequest {
 }
 
 export interface AdapterStackResponse {
+  schema_version: string;
   stack: AdapterStack;
 }
 
 export interface ListAdapterStacksResponse {
+  schema_version: string;
   stacks: AdapterStack[];
   total: number;
 }
 
+export interface ActivateStackRequest {
+  stack_id: string;
+}
+
+export interface DeactivateStackRequest {
+  stack_id: string;
+}
+
+export interface ValidateStackNameRequest {
+  name: string;
+}
+
+export interface ValidateStackNameResponse {
+  schema_version: string;
+  valid: boolean;
+  message?: string;
+  errors?: string[];
+}
+
+export interface ValidateAdapterNameResponse {
+  valid: boolean;
+  error?: string;
+  suggestions?: string[];
+}
+
 // Adapter detail types
 export interface AdapterDetailResponse {
+  schema_version: string;
   adapter: Adapter;
   manifest: AdapterManifest;
   metrics: AdapterMetrics;
@@ -238,6 +270,7 @@ export interface LineageNode {
 }
 
 export interface AdapterLineageResponse {
+  schema_version: string;
   adapter_id: string;
   lineage: AdapterLineage;
   history: AdapterHistoryEntry[];
@@ -321,6 +354,7 @@ export interface AdapterActivation {
 }
 
 export interface AdapterStateResponse {
+  schema_version: string;
   adapter_id: string;
   current_state: AdapterState;
   previous_state?: AdapterState;
@@ -331,6 +365,7 @@ export interface AdapterStateResponse {
 }
 
 export interface AdapterHealthResponse {
+  schema_version: string;
   adapter_id: string;
   health: 'healthy' | 'degraded' | 'unhealthy';
   checks: Array<{
@@ -348,6 +383,7 @@ export interface UpdateAdapterPolicyRequest {
 }
 
 export interface UpdateAdapterPolicyResponse {
+  schema_version: string;
   adapter_id: string;
   applied_policies: string[];
   updated_at: string;
@@ -355,6 +391,7 @@ export interface UpdateAdapterPolicyResponse {
 
 // Lifecycle types
 export interface LifecycleTransitionResponse {
+  schema_version: string;
   adapter_id: string;
   from_state: AdapterState;
   to_state: AdapterState;
@@ -401,6 +438,7 @@ export interface CreateDomainAdapterRequest {
 }
 
 export interface TestDomainAdapterResponse {
+  schema_version: string;
   domain_adapter_id: string;
   test_results: Array<{
     test_name: string;
@@ -429,6 +467,7 @@ export interface DomainAdapterManifest {
 }
 
 export interface DomainAdapterExecutionResponse {
+  schema_version: string;
   domain_adapter_id: string;
   execution_id: string;
   result: unknown;
@@ -511,6 +550,7 @@ export interface AdapterActivationEvent {
 }
 
 export interface BatchInferItemResponse {
+  schema_version: string;
   id: string;
   text: string;
   response?: string;

@@ -23,6 +23,7 @@ const skeletonHeightMap: Record<LoadingStateSize, string> = {
 interface LoadingStateProps {
   title?: string;
   description?: string;
+  message?: string;
   skeletonLines?: number;
   size?: LoadingStateSize;
   className?: string;
@@ -31,6 +32,7 @@ interface LoadingStateProps {
 export function LoadingState({
   title,
   description,
+  message,
   skeletonLines = 0,
   size = 'md',
   className,
@@ -48,6 +50,7 @@ export function LoadingState({
       <Loader2 className={cn('animate-spin text-primary', spinnerClassMap[size])} aria-hidden="true" />
       {title && <h3 className="mt-3 text-sm font-medium text-foreground">{title}</h3>}
       {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+      {message && <p className="mt-1 text-sm text-muted-foreground">{message}</p>}
       {skeletonLines > 0 && (
         <div className="mt-4 w-full space-y-2">
           {Array.from({ length: skeletonLines }).map((_, index) => (

@@ -41,7 +41,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
       // If no tenant is selected and we have tenants, select the first one
       // Also validate that currently selected tenant still exists
       setSelectedTenantState((current) => {
-        if (tenantList.length === 0) {
+        if (!tenantList || tenantList.length === 0) {
           // No tenants available
           try {
             localStorage.removeItem('selectedTenant');

@@ -11,6 +11,8 @@ import * as types from './types';
 import * as authTypes from './auth-types';
 import * as trainingTypes from './training-types';
 import * as apiTypes from './api-types';
+import * as federationTypes from './federation-types';
+import * as pluginTypes from './plugin-types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
@@ -382,8 +384,24 @@ class ApiClient {
     return this.request<types.HealthResponse>('/healthz');
   }
 
+  async getHealthz(): Promise<types.HealthResponse> {
+    return this.health();
+  }
+
+  async getHealthzAll(): Promise<apiTypes.SystemHealthResponse> {
+    return this.request<apiTypes.SystemHealthResponse>('/healthz/all');
+  }
+
+  async getComponentHealth(component: string): Promise<types.ComponentHealth> {
+    return this.request<types.ComponentHealth>(`/healthz/${component}`);
+  }
+
   async ready(): Promise<types.HealthResponse> {
     return this.request<types.HealthResponse>('/readyz');
+  }
+
+  async getReadyz(): Promise<types.HealthResponse> {
+    return this.ready();
   }
 
   async meta(): Promise<types.MetaResponse> {
@@ -772,6 +790,62 @@ class ApiClient {
     return this.request<types.TrainingMetrics>(`/v1/training/jobs/${jobId}/metrics`);
   }
 
+  /**
+   * Download a training artifact file.
+   * Returns the download URL or triggers a blob download for the artifact.
+   */
+  async downloadArtifact(jobId: string, artifactId: string, filename?: string): Promise<void> {
+    const url = this.buildUrl(`/v1/training/jobs/${jobId}/artifacts/${artifactId}/download`);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to download artifact: ${response.statusText}`);
+      }
+
+      // Get filename from Content-Disposition header or use provided filename
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let downloadFilename = filename || artifactId;
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (filenameMatch && filenameMatch[1]) {
+          downloadFilename = filenameMatch[1].replace(/['"]/g, '');
+        }
+      }
+
+      // Create blob and trigger download
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = downloadFilename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+
+      logger.info('Artifact downloaded', {
+        component: 'ApiClient',
+        operation: 'downloadArtifact',
+        jobId,
+        artifactId,
+        filename: downloadFilename,
+      });
+    } catch (error) {
+      logger.error('Failed to download artifact', {
+        component: 'ApiClient',
+        operation: 'downloadArtifact',
+        jobId,
+        artifactId,
+      }, toError(error));
+      throw error;
+    }
+  }
+
   async listTrainingTemplates(): Promise<types.TrainingTemplate[]> {
     return this.request<types.TrainingTemplate[]>('/v1/training/templates');
   }
@@ -871,8 +945,8 @@ class ApiClient {
   }
 
   async unpinAdapter(adapterId: string): Promise<void> {
-    return this.request<void>(`/v1/adapters/${adapterId}/unpin`, {
-      method: 'POST',
+    return this.request<void>(`/v1/adapters/${adapterId}/pin`, {
+      method: 'DELETE',
     });
   }
 
@@ -892,7 +966,7 @@ class ApiClient {
   }
 
   async promoteAdapterState(adapterId: string, options: RequestInit = {}, skipRetry: boolean = false, cancelToken?: AbortSignal): Promise<types.AdapterStateResponse> {
-    return this.request<types.AdapterStateResponse>(`/v1/adapters/${adapterId}/promote`, {
+    return this.request<types.AdapterStateResponse>(`/v1/adapters/${adapterId}/state/promote`, {
       method: 'POST',
       ...options,
     }, skipRetry, cancelToken);
@@ -911,6 +985,13 @@ class ApiClient {
 
   async getAdapterHealth(adapterId: string): Promise<types.AdapterHealthResponse> {
     return this.request<types.AdapterHealthResponse>(`/v1/adapters/${adapterId}/health`);
+  }
+
+  async validateAdapterName(request: { name: string }): Promise<types.ValidateAdapterNameResponse> {
+    return this.request<types.ValidateAdapterNameResponse>('/v1/adapters/validate-name', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
   }
 
   // Category Policies
@@ -935,15 +1016,16 @@ class ApiClient {
   }
 
   async registerRepository(data: types.RegisterRepositoryRequest): Promise<types.Repository> {
-    return this.request<types.Repository>('/v1/repositories/register', {
+    return this.request<types.Repository>('/v1/code/register-repo', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async triggerRepositoryScan(repoId: string): Promise<void> {
-    return this.request(`/v1/repositories/${repoId}/scan`, {
+  async triggerRepositoryScan(repositoryId: string): Promise<types.TriggerScanResponse> {
+    return this.request<types.TriggerScanResponse>('/v1/code/scan', {
       method: 'POST',
+      body: JSON.stringify({ repository_id: repositoryId }),
     });
   }
 
@@ -1133,6 +1215,17 @@ class ApiClient {
     });
   }
 
+  async getScanStatus(jobId: string): Promise<types.TriggerScanResponse> {
+    return this.request<types.TriggerScanResponse>(`/v1/code/scan/${jobId}`);
+  }
+
+  async createCommitDelta(delta: types.CommitDeltaRequest): Promise<types.CommitDeltaResponse> {
+    return this.request<types.CommitDeltaResponse>('/v1/code/commit-delta', {
+      method: 'POST',
+      body: JSON.stringify(delta),
+    });
+  }
+
   // ===== Phase 10: Tenant Management =====
   async updateTenant(tenantId: string, name: string): Promise<types.TenantResponse> {
     return this.request<types.TenantResponse>(`/v1/tenants/${tenantId}`, {
@@ -1196,14 +1289,24 @@ class ApiClient {
   }
 
   // Domain Adapter API
+  // NOTE: listDomainAdapters and testDomainAdapter are used by DomainAdapterManager.tsx
+  // The other methods in this section are currently unused and may be candidates for removal.
   async listDomainAdapters(): Promise<types.DomainAdapter[]> {
     return this.request<types.DomainAdapter[]>('/v1/domain-adapters');
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async getDomainAdapter(adapterId: string): Promise<types.DomainAdapter> {
     return this.request<types.DomainAdapter>(`/v1/domain-adapters/${adapterId}`);
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async createDomainAdapter(data: types.CreateDomainAdapterRequest): Promise<types.DomainAdapter> {
     return this.request<types.DomainAdapter>('/v1/domain-adapters', {
       method: 'POST',
@@ -1211,6 +1314,10 @@ class ApiClient {
     });
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async loadDomainAdapter(adapterId: string, config?: Record<string, any>): Promise<types.DomainAdapter> {
     return this.request<types.DomainAdapter>(`/v1/domain-adapters/${adapterId}/load`, {
       method: 'POST',
@@ -1218,6 +1325,10 @@ class ApiClient {
     });
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async unloadDomainAdapter(adapterId: string): Promise<types.DomainAdapter> {
     return this.request<types.DomainAdapter>(`/v1/domain-adapters/${adapterId}/unload`, {
       method: 'POST',
@@ -1236,10 +1347,18 @@ class ApiClient {
     });
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async getDomainAdapterManifest(adapterId: string): Promise<types.DomainAdapterManifest> {
     return this.request<types.DomainAdapterManifest>(`/v1/domain-adapters/${adapterId}/manifest`);
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async executeDomainAdapter(adapterId: string, inputData: any): Promise<types.DomainAdapterExecutionResponse> {
     return this.request<types.DomainAdapterExecutionResponse>(`/v1/domain-adapters/${adapterId}/execute`, {
       method: 'POST',
@@ -1247,9 +1366,66 @@ class ApiClient {
     });
   }
 
+  /**
+   * @deprecated Currently unused - candidate for removal
+   * Last checked: 2025-11-22
+   */
   async deleteDomainAdapter(adapterId: string): Promise<void> {
     return this.request<void>(`/v1/domain-adapters/${adapterId}`, {
       method: 'DELETE',
+    });
+  }
+
+  // Adapter Stack API
+  async listAdapterStacks(): Promise<types.AdapterStack[]> {
+    const response = await this.request<types.ListAdapterStacksResponse>('/v1/adapter-stacks');
+    return response.stacks;
+  }
+
+  async createAdapterStack(stack: types.CreateAdapterStackRequest): Promise<types.AdapterStack> {
+    const response = await this.request<types.AdapterStackResponse>('/v1/adapter-stacks', {
+      method: 'POST',
+      body: JSON.stringify(stack),
+    });
+    return response.stack;
+  }
+
+  async getAdapterStack(id: string): Promise<types.AdapterStack> {
+    const response = await this.request<types.AdapterStackResponse>(`/v1/adapter-stacks/${id}`);
+    return response.stack;
+  }
+
+  async deleteAdapterStack(id: string): Promise<void> {
+    return this.request<void>(`/v1/adapter-stacks/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateAdapterStack(id: string, data: types.UpdateAdapterStackRequest): Promise<types.AdapterStack> {
+    const response = await this.request<types.AdapterStackResponse>(`/v1/adapter-stacks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    return response.stack;
+  }
+
+  async activateAdapterStack(id: string): Promise<types.AdapterStack> {
+    const response = await this.request<types.AdapterStackResponse>(`/v1/adapter-stacks/${id}/activate`, {
+      method: 'POST',
+    });
+    return response.stack;
+  }
+
+  async deactivateAdapterStack(): Promise<void> {
+    return this.request<void>('/v1/adapter-stacks/deactivate', {
+      method: 'POST',
+    });
+  }
+
+  async validateStackName(name: string): Promise<types.ValidateStackNameResponse> {
+    return this.request<types.ValidateStackNameResponse>('/v1/stacks/validate-name', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
     });
   }
 
@@ -1307,6 +1483,17 @@ class ApiClient {
   async listHealthMetrics(tenantId?: string): Promise<types.HealthMetric[]> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
     return this.request<types.HealthMetric[]>(`/v1/monitoring/health-metrics${query}`);
+  }
+
+  async listAnomalies(): Promise<apiTypes.Anomaly[]> {
+    return this.request<apiTypes.Anomaly[]>('/v1/monitoring/anomalies');
+  }
+
+  async updateAnomalyStatus(anomalyId: string, data: apiTypes.UpdateAnomalyStatusRequest): Promise<apiTypes.Anomaly> {
+    return this.request<apiTypes.Anomaly>(`/v1/monitoring/anomalies/${anomalyId}/status`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   // Replay API
@@ -1581,6 +1768,39 @@ class ApiClient {
     return this.request<types.AccessPattern[]>(`/v1/security/access-patterns${query}`);
   }
 
+  // Federation management methods
+  // Get overall federation status including node health and sync status
+  async getFederationStatus(): Promise<federationTypes.FederationStatusResponse> {
+    return this.request<federationTypes.FederationStatusResponse>('/v1/federation/status');
+  }
+
+  // Get current quarantine status for all nodes
+  async getQuarantineStatus(): Promise<federationTypes.QuarantineStatusResponse> {
+    return this.request<federationTypes.QuarantineStatusResponse>('/v1/federation/quarantine');
+  }
+
+  // Release a node from quarantine
+  async releaseQuarantine(request: federationTypes.ReleaseQuarantineRequest): Promise<federationTypes.ReleaseQuarantineResponse> {
+    return this.request<federationTypes.ReleaseQuarantineResponse>('/v1/federation/release-quarantine', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }, false, undefined, true); // allowMutationRetry: true for safety
+  }
+
+  // Get federation audit logs with optional filters
+  async getFederationAudit(filters?: federationTypes.FederationAuditFilters): Promise<federationTypes.FederationAuditResponse> {
+    const params = new URLSearchParams();
+    if (filters?.event_type) params.append('event_type', filters.event_type);
+    if (filters?.node_id) params.append('node_id', filters.node_id);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.start_time) params.append('start_time', filters.start_time);
+    if (filters?.end_time) params.append('end_time', filters.end_time);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.offset) params.append('offset', filters.offset.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<federationTypes.FederationAuditResponse>(`/v1/audit/federation${query}`);
+  }
+
   // Process debugging methods
   async getProcessLogs(workerId: string, filters?: types.ProcessLogFilters): Promise<types.ProcessLog[]> {
     const params = new URLSearchParams();
@@ -1815,6 +2035,18 @@ class ApiClient {
 
   async getMessageThread(workspaceId: string, threadId: string): Promise<types.Message[]> {
     return this.request<types.Message[]>(`/v1/workspaces/${workspaceId}/messages/${threadId}/thread`);
+  }
+
+  async markMessageRead(workspaceId: string, messageId: string): Promise<types.Message> {
+    return this.request<types.Message>(`/v1/workspaces/${workspaceId}/messages/${messageId}/read`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteMessage(workspaceId: string, messageId: string): Promise<void> {
+    return this.request<void>(`/v1/workspaces/${workspaceId}/messages/${messageId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Notification methods
@@ -2880,6 +3112,292 @@ class ApiClient {
     });
 
     return false;
+  }
+
+  // ============================================================================
+  // Plugin Management API
+  // ============================================================================
+
+  /**
+   * List all installed plugins
+   *
+   * Retrieves all plugins registered in the system with their current status.
+   *
+   * @returns List of plugins with counts
+   */
+  async listPlugins(): Promise<pluginTypes.ListPluginsResponse> {
+    logger.info('Listing plugins', {
+      component: 'ApiClient',
+      operation: 'listPlugins',
+    });
+    return this.request<pluginTypes.ListPluginsResponse>('/v1/plugins');
+  }
+
+  /**
+   * Get plugin details and status
+   *
+   * Retrieves detailed information about a specific plugin including
+   * its current status, enabled tenants, and any error state.
+   *
+   * @param pluginId - Unique plugin identifier (name)
+   * @returns Plugin details with status information
+   */
+  async getPlugin(pluginId: string): Promise<pluginTypes.PluginStatusResponse> {
+    logger.info('Getting plugin details', {
+      component: 'ApiClient',
+      operation: 'getPlugin',
+      pluginId,
+    });
+    return this.request<pluginTypes.PluginStatusResponse>(`/v1/plugins/${encodeURIComponent(pluginId)}`);
+  }
+
+  /**
+   * Get plugin status (alias for getPlugin)
+   *
+   * @param pluginId - Unique plugin identifier (name)
+   * @returns Plugin status information
+   */
+  async getPluginStatus(pluginId: string): Promise<pluginTypes.PluginStatusResponse> {
+    return this.getPlugin(pluginId);
+  }
+
+  /**
+   * Enable a plugin
+   *
+   * Activates a plugin for the specified tenants or globally.
+   * Requires appropriate permissions (typically Admin or Operator role).
+   *
+   * @param pluginId - Unique plugin identifier (name)
+   * @param options - Optional enable configuration (tenant_ids, reason, config)
+   * @returns Enable operation result
+   */
+  async enablePlugin(
+    pluginId: string,
+    options?: pluginTypes.EnablePluginRequest
+  ): Promise<pluginTypes.EnablePluginResponse> {
+    logger.info('Enabling plugin', {
+      component: 'ApiClient',
+      operation: 'enablePlugin',
+      pluginId,
+      tenantIds: options?.tenant_ids,
+    });
+    return this.request<pluginTypes.EnablePluginResponse>(
+      `/v1/plugins/${encodeURIComponent(pluginId)}/enable`,
+      {
+        method: 'POST',
+        body: JSON.stringify(options || {}),
+      }
+    );
+  }
+
+  /**
+   * Disable a plugin
+   *
+   * Deactivates a plugin for the specified tenants or globally.
+   * Requires appropriate permissions (typically Admin or Operator role).
+   *
+   * @param pluginId - Unique plugin identifier (name)
+   * @param options - Optional disable configuration (tenant_ids, reason, force)
+   * @returns Disable operation result with any warnings
+   */
+  async disablePlugin(
+    pluginId: string,
+    options?: pluginTypes.DisablePluginRequest
+  ): Promise<pluginTypes.DisablePluginResponse> {
+    logger.info('Disabling plugin', {
+      component: 'ApiClient',
+      operation: 'disablePlugin',
+      pluginId,
+      tenantIds: options?.tenant_ids,
+      force: options?.force,
+    });
+    return this.request<pluginTypes.DisablePluginResponse>(
+      `/v1/plugins/${encodeURIComponent(pluginId)}/disable`,
+      {
+        method: 'POST',
+        body: JSON.stringify(options || {}),
+      }
+    );
+  }
+
+  // ============================================================================
+  // User Management API
+  // ============================================================================
+
+  /**
+   * List all users
+   *
+   * Retrieves all users in the system with pagination support.
+   * Requires Admin role.
+   *
+   * @param params - Optional pagination and filter parameters
+   * @returns List of users with pagination metadata
+   */
+  async listUsers(params?: {
+    page?: number;
+    page_size?: number;
+    role?: authTypes.UserRole;
+    tenant_id?: string;
+  }): Promise<authTypes.ListUsersResponse> {
+    logger.info('Listing users', {
+      component: 'ApiClient',
+      operation: 'listUsers',
+      params,
+    });
+    const queryParams = new URLSearchParams();
+    if (params?.page !== undefined) queryParams.append('page', String(params.page));
+    if (params?.page_size !== undefined) queryParams.append('page_size', String(params.page_size));
+    if (params?.role) queryParams.append('role', params.role);
+    if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<authTypes.ListUsersResponse>(`/v1/admin/users${query}`);
+  }
+
+  /**
+   * Get user by ID
+   *
+   * Retrieves detailed information about a specific user.
+   * Requires Admin role.
+   *
+   * @param userId - User ID
+   * @returns User details
+   */
+  async getUser(userId: string): Promise<authTypes.User> {
+    logger.info('Getting user', {
+      component: 'ApiClient',
+      operation: 'getUser',
+      userId,
+    });
+    return this.request<authTypes.User>(`/v1/admin/users/${encodeURIComponent(userId)}`);
+  }
+
+  /**
+   * Create a new user
+   *
+   * Registers a new user in the system.
+   * Requires Admin role.
+   *
+   * @param data - User registration data
+   * @returns Created user
+   */
+  async createUser(data: authTypes.RegisterUserRequest): Promise<authTypes.User> {
+    logger.info('Creating user', {
+      component: 'ApiClient',
+      operation: 'createUser',
+      email: data.email,
+      role: data.role,
+    });
+    return this.request<authTypes.User>('/v1/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update an existing user
+   *
+   * Updates user details including role assignment.
+   * Requires Admin role.
+   *
+   * @param userId - User ID to update
+   * @param data - User update data
+   * @returns Updated user
+   */
+  async updateUser(userId: string, data: authTypes.UpdateUserRequest): Promise<authTypes.User> {
+    logger.info('Updating user', {
+      component: 'ApiClient',
+      operation: 'updateUser',
+      userId,
+      updates: data,
+    });
+    return this.request<authTypes.User>(`/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Delete a user
+   *
+   * Removes a user from the system.
+   * Requires Admin role.
+   *
+   * @param userId - User ID to delete
+   */
+  async deleteUser(userId: string): Promise<void> {
+    logger.info('Deleting user', {
+      component: 'ApiClient',
+      operation: 'deleteUser',
+      userId,
+    });
+    return this.request<void>(`/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Assign role to a user
+   *
+   * Updates the role of an existing user.
+   * Requires Admin role.
+   *
+   * @param userId - User ID
+   * @param role - New role to assign
+   * @returns Updated user
+   */
+  async assignUserRole(userId: string, role: authTypes.UserRole): Promise<authTypes.User> {
+    logger.info('Assigning user role', {
+      component: 'ApiClient',
+      operation: 'assignUserRole',
+      userId,
+      role,
+    });
+    return this.request<authTypes.User>(`/v1/admin/users/${encodeURIComponent(userId)}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  /**
+   * Reset user password (Admin)
+   *
+   * Sends a password reset email to the user.
+   * Requires Admin role.
+   *
+   * @param userId - User ID
+   */
+  async resetUserPassword(userId: string): Promise<void> {
+    logger.info('Resetting user password', {
+      component: 'ApiClient',
+      operation: 'resetUserPassword',
+      userId,
+    });
+    return this.request<void>(`/v1/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Activate or deactivate a user
+   *
+   * Enables or disables user access to the system.
+   * Requires Admin role.
+   *
+   * @param userId - User ID
+   * @param isActive - Whether the user should be active
+   * @returns Updated user
+   */
+  async setUserActive(userId: string, isActive: boolean): Promise<authTypes.User> {
+    logger.info('Setting user active status', {
+      component: 'ApiClient',
+      operation: 'setUserActive',
+      userId,
+      isActive,
+    });
+    return this.request<authTypes.User>(`/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: isActive }),
+    });
   }
 }
 

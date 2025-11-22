@@ -112,12 +112,13 @@ export const StartTrainingRequestSchema = z.object({
     .describe('Training template to use'),
 
   // Optional: Repository ID
+  // From: adapteros-server-api/src/validation/mod.rs::validate_repo_id()
   repo_id: z.string()
     .regex(
       /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/,
       'Repository ID must be in format: owner/repo'
     )
-    .max(100, 'Repository ID must not exceed 100 characters')
+    .max(256, 'Repository ID must not exceed 256 characters')
     .optional()
     .describe('Source repository'),
 
@@ -164,9 +165,10 @@ export const UploadDatasetRequestSchema = z.object({
     .describe('Dataset name'),
 
   // Optional: Description
+  // From: adapteros-server-api/src/validation/mod.rs::validate_description()
   description: z.string()
     .min(1, 'Description cannot be empty if provided')
-    .max(5000, 'Description must not exceed 5000 characters')
+    .max(10000, 'Description must not exceed 10000 characters')
     .optional()
     .describe('Dataset description'),
 

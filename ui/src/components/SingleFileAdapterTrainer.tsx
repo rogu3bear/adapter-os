@@ -1,6 +1,9 @@
 // Breadcrumbs are now derived statelessly from URL (see useBreadcrumbs hook)
 // 【ui/src/components/BreadcrumbNavigation.tsx§1-61】 - Breadcrumb component
 import React, { useState, useRef, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -23,7 +26,7 @@ import {
   Cpu,
   TrendingUp
 } from 'lucide-react';
-import type { TrainingJob, TrainingConfig, InferRequest, InferResponse } from '@/api/types';
+import type { TrainingJob, TrainingConfigRequest, InferRequest, InferResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { ProgressIndicator, ContextualLoading, loadingStates } from './ui/progress-indicator';
 import { SuccessFeedback, successTemplates } from './ui/success-feedback';
@@ -32,6 +35,43 @@ import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { HelpTooltip } from './ui/help-tooltip';
 import { useRBAC } from '../hooks/useRBAC';
+
+/**
+ * Training configuration form schema for SingleFileAdapterTrainer
+ *
+ * Simplified schema for the single-file trainer - uses simple adapter name
+ * (not full semantic naming format) for ease of use
+ */
+const TrainerConfigSchema = z.object({
+  adapterName: z.string()
+    .min(3, 'Adapter name must be at least 3 characters')
+    .max(100, 'Adapter name must not exceed 100 characters')
+    .regex(
+      /^[a-zA-Z0-9_-]+$/,
+      'Adapter name must contain only letters, numbers, underscores, and hyphens'
+    ),
+  rank: z.number()
+    .int('Rank must be an integer')
+    .min(1, 'Rank must be at least 1')
+    .max(64, 'Rank must not exceed 64'),
+  alpha: z.number()
+    .int('Alpha must be an integer')
+    .min(1, 'Alpha must be at least 1')
+    .max(128, 'Alpha must not exceed 128'),
+  epochs: z.number()
+    .int('Epochs must be an integer')
+    .min(1, 'At least 1 epoch required')
+    .max(20, 'Epochs must not exceed 20'),
+  batchSize: z.number()
+    .int('Batch size must be an integer')
+    .min(1, 'Batch size must be at least 1')
+    .max(32, 'Batch size must not exceed 32'),
+  learningRate: z.number()
+    .positive('Learning rate must be positive')
+    .max(0.1, 'Learning rate must not exceed 0.1'),
+});
+
+type TrainerConfigFormData = z.infer<typeof TrainerConfigSchema>;
 
 type TrainingStep = 'upload' | 'configure' | 'training' | 'complete';
 
@@ -56,16 +96,28 @@ export function SingleFileAdapterTrainer() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileUploadError, setFileUploadError] = useState<Error | null>(null);
 
-  // Configuration state
-  const [adapterName, setAdapterName] = useState('');
-  const [config, setConfig] = useState<TrainingConfig>({
-    rank: 8,
-    alpha: 16,
-    targets: ['q_proj', 'v_proj'],
-    epochs: 3,
-    learning_rate: 0.0003,
-    batch_size: 4
+  // Configuration form with validation
+  const {
+    register,
+    handleSubmit: handleFormSubmit,
+    formState: { errors, isValid },
+    setValue,
+    watch,
+    reset: resetForm,
+  } = useForm<TrainerConfigFormData>({
+    resolver: zodResolver(TrainerConfigSchema),
+    mode: 'onChange',
+    defaultValues: {
+      adapterName: '',
+      rank: 8,
+      alpha: 16,
+      epochs: 3,
+      batchSize: 4,
+      learningRate: 0.0003,
+    },
   });
+
+  const formValues = watch();
 
   // Training state
   const [trainingJob, setTrainingJob] = useState<TrainingJob | null>(null);
@@ -105,15 +157,15 @@ export function SingleFileAdapterTrainer() {
       };
       reader.readAsText(uploadedFile);
 
-      // Auto-generate adapter name from filename
-      const baseName = uploadedFile.name.replace(/\.[^/.]+$/, '');
-      setAdapterName(baseName + '_adapter');
+      // Auto-generate adapter name from filename (sanitize to match schema)
+      const baseName = uploadedFile.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      setValue('adapterName', baseName + '_adapter', { shouldValidate: true });
     }
   };
 
-  const handleStartTraining = async () => {
-    if (!file || !adapterName) {
-      setTrainingError(new Error('Please provide a file and adapter name'));
+  const handleStartTraining = async (data: TrainerConfigFormData) => {
+    if (!file) {
+      setTrainingError(new Error('Please upload a file first'));
       return;
     }
 
@@ -126,12 +178,22 @@ export function SingleFileAdapterTrainer() {
       // 1. Upload the file to a temp location
       // 2. Convert it to the training dataset format
       // 3. Start the training job via API
-      
+
+      // Convert form data to TrainingConfigRequest format
+      const config: TrainingConfigRequest = {
+        rank: data.rank,
+        alpha: data.alpha,
+        epochs: data.epochs,
+        learning_rate: data.learningRate,
+        batch_size: data.batchSize,
+        targets: ['q_proj', 'v_proj'],
+      };
+
       // For now, we'll create a training job with the file content
       // Note: UI-only fields (dataset_path, adapters_root, package) removed
       // In production, file upload would create a dataset_id to pass here
       const response = await apiClient.startTraining({
-        adapter_name: adapterName,
+        adapter_name: data.adapterName,
         config: config,
         // dataset_id: would be set after file upload creates a dataset
       });
@@ -240,6 +302,7 @@ export function SingleFileAdapterTrainer() {
     } catch (error) {
       logger.error('Inference test failed', { component: 'SingleFileAdapterTrainer', operation: 'testInference' }, toError(error));
       setTestResult({
+        schema_version: 'v1',
         id: 'error',
         text: 'Error: ' + (error instanceof Error ? error.message : 'Unknown error'),
         tokens_generated: 0,
@@ -270,7 +333,7 @@ export function SingleFileAdapterTrainer() {
     setStep('upload');
     setFile(null);
     setFileContent('');
-    setAdapterName('');
+    resetForm();
     setTrainingJob(null);
     setTrainingMetrics(null);
     setTrainingError(null);
@@ -427,127 +490,147 @@ export function SingleFileAdapterTrainer() {
               Training Configuration
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="adapter-name">
-                Adapter Name
-                <HelpTooltip helpId="trainer-adapter-name" />
-              </Label>
-              <Input
-                id="adapter-name"
-                value={adapterName}
-                onChange={(e) => setAdapterName(e.target.value)}
-                placeholder="my_code_adapter"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+          <CardContent>
+            <form onSubmit={handleFormSubmit(handleStartTraining)} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="rank">
-                  LoRA Rank
-                  <HelpTooltip helpId="trainer-rank" />
+                <Label htmlFor="adapter-name">
+                  Adapter Name
+                  <HelpTooltip helpId="trainer-adapter-name" />
                 </Label>
                 <Input
-                  id="rank"
-                  type="number"
-                  value={config.rank}
-                  onChange={(e) => setConfig({ ...config, rank: parseInt(e.target.value) })}
-                  min={1}
-                  max={64}
+                  id="adapter-name"
+                  {...register('adapterName')}
+                  placeholder="my_code_adapter"
+                  className={errors.adapterName ? 'border-red-500' : ''}
                 />
+                {errors.adapterName && (
+                  <p className="text-sm text-red-500 mt-1">{errors.adapterName.message}</p>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="alpha">
-                  Alpha
-                  <HelpTooltip helpId="trainer-alpha" />
-                </Label>
-                <Input
-                  id="alpha"
-                  type="number"
-                  value={config.alpha}
-                  onChange={(e) => setConfig({ ...config, alpha: parseInt(e.target.value) })}
-                  min={1}
-                  max={64}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="rank">
+                    LoRA Rank
+                    <HelpTooltip helpId="trainer-rank" />
+                  </Label>
+                  <Input
+                    id="rank"
+                    type="number"
+                    {...register('rank', { valueAsNumber: true })}
+                    min={1}
+                    max={64}
+                    className={errors.rank ? 'border-red-500' : ''}
+                  />
+                  {errors.rank && (
+                    <p className="text-sm text-red-500 mt-1">{errors.rank.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="alpha">
+                    Alpha
+                    <HelpTooltip helpId="trainer-alpha" />
+                  </Label>
+                  <Input
+                    id="alpha"
+                    type="number"
+                    {...register('alpha', { valueAsNumber: true })}
+                    min={1}
+                    max={128}
+                    className={errors.alpha ? 'border-red-500' : ''}
+                  />
+                  {errors.alpha && (
+                    <p className="text-sm text-red-500 mt-1">{errors.alpha.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="epochs">
+                    Epochs
+                    <HelpTooltip helpId="trainer-epochs" />
+                  </Label>
+                  <Input
+                    id="epochs"
+                    type="number"
+                    {...register('epochs', { valueAsNumber: true })}
+                    min={1}
+                    max={20}
+                    className={errors.epochs ? 'border-red-500' : ''}
+                  />
+                  {errors.epochs && (
+                    <p className="text-sm text-red-500 mt-1">{errors.epochs.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="batch-size">
+                    Batch Size
+                    <HelpTooltip helpId="trainer-batch-size" />
+                  </Label>
+                  <Input
+                    id="batch-size"
+                    type="number"
+                    {...register('batchSize', { valueAsNumber: true })}
+                    min={1}
+                    max={32}
+                    className={errors.batchSize ? 'border-red-500' : ''}
+                  />
+                  {errors.batchSize && (
+                    <p className="text-sm text-red-500 mt-1">{errors.batchSize.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="learning-rate">
+                    Learning Rate
+                    <HelpTooltip helpId="trainer-learning-rate" />
+                  </Label>
+                  <Input
+                    id="learning-rate"
+                    type="number"
+                    step="0.0001"
+                    {...register('learningRate', { valueAsNumber: true })}
+                    className={errors.learningRate ? 'border-red-500' : ''}
+                  />
+                  {errors.learningRate && (
+                    <p className="text-sm text-red-500 mt-1">{errors.learningRate.message}</p>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="epochs">
-                  Epochs
-                  <HelpTooltip helpId="trainer-epochs" />
-                </Label>
-                <Input
-                  id="epochs"
-                  type="number"
-                  value={config.epochs}
-                  onChange={(e) => setConfig({ ...config, epochs: parseInt(e.target.value) })}
-                  min={1}
-                  max={20}
+              {trainingError && errorRecoveryTemplates.trainingError(
+                () => {
+                  setTrainingError(null);
+                  setStep('configure');
+                },
+                () => {
+                  setTrainingError(null);
+                  resetTrainer();
+                }
+              )}
+              {uploadError && (
+                <ErrorRecovery
+                  error={uploadError.message}
+                  onRetry={() => { setUploadError(null); handleUploadToServer(); }}
                 />
+              )}
+
+              <div className="flex gap-3">
+                <Button type="button" variant="outline" onClick={() => setStep('upload')}>
+                  Back
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1"
+                  disabled={!can('training:start') || !isValid}
+                  title={!can('training:start') ? 'Requires training:start permission' : (!isValid ? 'Please fix validation errors' : undefined)}
+                >
+                  <Zap className="w-4 h-4 mr-2" />
+                  Start Training
+                </Button>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="batch-size">
-                  Batch Size
-                  <HelpTooltip helpId="trainer-batch-size" />
-                </Label>
-                <Input
-                  id="batch-size"
-                  type="number"
-                  value={config.batch_size}
-                  onChange={(e) => setConfig({ ...config, batch_size: parseInt(e.target.value) })}
-                  min={1}
-                  max={32}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="learning-rate">
-                  Learning Rate
-                  <HelpTooltip helpId="trainer-learning-rate" />
-                </Label>
-                <Input
-                  id="learning-rate"
-                  type="number"
-                  step="0.0001"
-                  value={config.learning_rate}
-                  onChange={(e) => setConfig({ ...config, learning_rate: parseFloat(e.target.value) })}
-                />
-              </div>
-            </div>
-
-            {trainingError && errorRecoveryTemplates.trainingError(
-              () => {
-                setTrainingError(null);
-                setStep('configure');
-              },
-              () => {
-                setTrainingError(null);
-                resetTrainer();
-              }
-            )}
-            {uploadError && (
-              <ErrorRecovery
-                error={uploadError.message}
-                onRetry={() => { setUploadError(null); handleUploadToServer(); }}
-              />
-            )}
-
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setStep('upload')}>
-                Back
-              </Button>
-              <Button
-                onClick={handleStartTraining}
-                className="flex-1"
-                disabled={!can('training:start')}
-                title={!can('training:start') ? 'Requires training:start permission' : undefined}
-              >
-                <Zap className="w-4 h-4 mr-2" />
-                Start Training
-              </Button>
-            </div>
+            </form>
           </CardContent>
         </Card>
       )}
@@ -572,7 +655,7 @@ export function SingleFileAdapterTrainer() {
               <div className="space-y-4">
                 <ProgressIndicator
                   progress={trainingMetrics.progress}
-                  status={`Epoch ${trainingMetrics.epoch}/${config.epochs}`}
+                  status={`Epoch ${trainingMetrics.epoch}/${formValues.epochs}`}
                   eta={trainingMetrics.progress < 50 ? "2-8 minutes" : "1-4 minutes"}
                   confidence={Math.round(trainingMetrics.progress)}
                 />
@@ -585,7 +668,7 @@ export function SingleFileAdapterTrainer() {
                         Current Epoch
                       </div>
                       <div className="text-2xl font-bold">
-                        {trainingMetrics.epoch} / {config.epochs}
+                        {trainingMetrics.epoch} / {formValues.epochs}
                       </div>
                     </CardContent>
                   </Card>
@@ -612,7 +695,7 @@ export function SingleFileAdapterTrainer() {
       {step === 'complete' && (
         <div className="space-y-6">
           {successTemplates.trainingComplete(
-            adapterName,
+            formValues.adapterName,
             () => {
               // Scroll to test section
               const testSection = document.getElementById('test-section');

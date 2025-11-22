@@ -22,38 +22,67 @@ import {
   Building,
   Users,
   Grid3x3,
+  Server,
+  Cpu,
+  MemoryStick,
+  Database,
+  Layers,
+  Plug,
+  CheckCircle,
+  FileCode,
+  GitBranch,
+  PlusCircle,
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
+const TenantDetailPage = lazy(() => import('@/pages/Admin/TenantDetailPage').then(m => ({ default: m.TenantDetailPage })));
 const AdaptersPage = lazy(() => import('@/pages/AdaptersPage'));
 const AdapterDetail = lazy(() => import('@/components/AdapterDetail').then(m => ({ default: m.AdapterDetail })));
+const AdapterRegisterPage = lazy(() => import('@/pages/Adapters/AdapterRegisterPage'));
+const AdapterActivationsPage = lazy(() => import('@/pages/Adapters/AdapterActivations'));
+const AdapterLineagePage = lazy(() => import('@/pages/Adapters/AdapterLineage'));
+const AdapterManifestPage = lazy(() => import('@/pages/Adapters/AdapterManifest'));
 const PoliciesPage = lazy(() => import('@/pages/PoliciesPage'));
 const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
 const TelemetryPage = lazy(() => import('@/pages/TelemetryPage'));
 const ObservabilityPage = lazy(() => import('@/pages/ObservabilityPage'));
 const InferencePage = lazy(() => import('@/pages/InferencePage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
+const CompliancePage = lazy(() => import('@/pages/Security/ComplianceTab').then(m => ({ default: m.ComplianceTab })));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
 const WorkflowPage = lazy(() => import('@/pages/WorkflowPage'));
 const TrainingPage = lazy(() => import('@/pages/TrainingPage'));
+const TrainingJobsPage = lazy(() => import('@/pages/Training/TrainingJobsPage'));
+const TrainingJobDetailPage = lazy(() => import('@/pages/Training/TrainingJobDetail'));
+const TrainingDatasetsPage = lazy(() => import('@/pages/Training/DatasetsTab').then(m => ({ default: m.DatasetsTab })));
+const TrainingTemplatesPage = lazy(() => import('@/pages/Training/TemplatesTab').then(m => ({ default: m.TemplatesTab })));
 const TestingPage = lazy(() => import('@/pages/TestingPage'));
 const GoldenPage = lazy(() => import('@/pages/GoldenPage'));
 const PromotionPage = lazy(() => import('@/pages/PromotionPage'));
 const RoutingPage = lazy(() => import('@/pages/RoutingPage'));
 const ReplayPage = lazy(() => import('@/pages/ReplayPage'));
 const AdminPage = lazy(() => import('@/pages/AdminPage'));
+const AdminStacksPage = lazy(() => import('@/pages/Admin/AdapterStacksTab').then(m => ({ default: m.AdapterStacksTab })));
+const AdminPluginsPage = lazy(() => import('@/pages/Admin/PluginsPage'));
+const AdminSettingsPage = lazy(() => import('@/pages/Admin/SettingsPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const TrainerPage = lazy(() => import('@/pages/TrainerPage'));
 const PersonasPage = lazy(() => import('@/pages/PersonasPage'));
 const ManagementPage = lazy(() => import('@/pages/ManagementPage'));
+const SystemOverviewPage = lazy(() => import('@/pages/System/SystemOverviewPage'));
+const SystemNodesPage = lazy(() => import('@/pages/System/NodesTab'));
+const SystemWorkersPage = lazy(() => import('@/pages/System/WorkersTab'));
+const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
+const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
 
 export interface RouteConfig {
   path: string;
   component: React.LazyExoticComponent<React.ComponentType<unknown>> | React.ComponentType;
   requiresAuth?: boolean;
   requiredRoles?: UserRole[];
+  requiredPermissions?: string[];
   navGroup?: string;
   navTitle?: string;
   navIcon?: LucideIcon;
@@ -61,6 +90,8 @@ export interface RouteConfig {
   disabled?: boolean;
   external?: boolean;
   skeletonVariant?: 'default' | 'dashboard' | 'table' | 'form';
+  breadcrumb?: string;
+  parentPath?: string;
 }
 
 export const routes: RouteConfig[] = [
@@ -73,6 +104,7 @@ export const routes: RouteConfig[] = [
     navIcon: LayoutDashboard,
     navOrder: 1,
     skeletonVariant: 'dashboard',
+    breadcrumb: 'Dashboard',
   },
   {
     path: '/management',
@@ -83,6 +115,7 @@ export const routes: RouteConfig[] = [
     navIcon: Grid3x3,
     navOrder: 2,
     skeletonVariant: 'dashboard',
+    breadcrumb: 'Management',
   },
   {
     path: '/workflow',
@@ -92,6 +125,7 @@ export const routes: RouteConfig[] = [
     navTitle: 'Getting Started',
     navIcon: Compass,
     navOrder: 3,
+    breadcrumb: 'Getting Started',
   },
   {
     path: '/personas',
@@ -102,6 +136,7 @@ export const routes: RouteConfig[] = [
     navIcon: Users,
     navOrder: 4,
     skeletonVariant: 'default',
+    breadcrumb: 'Personas',
   },
   {
     path: '/trainer',
@@ -112,16 +147,50 @@ export const routes: RouteConfig[] = [
     navIcon: Upload,
     navOrder: 1,
     skeletonVariant: 'form',
+    breadcrumb: 'Trainer',
   },
   {
     path: '/training',
     component: TrainingPage,
     requiresAuth: true,
     navGroup: 'ML Pipeline',
-    navTitle: 'Training Jobs',
+    navTitle: 'Training',
     navIcon: Zap,
     navOrder: 2,
     skeletonVariant: 'table',
+    breadcrumb: 'Training',
+  },
+  {
+    path: '/training/jobs',
+    component: TrainingJobsPage,
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Jobs',
+    parentPath: '/training',
+  },
+  {
+    path: '/training/jobs/:jobId',
+    component: TrainingJobDetailPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Job Detail',
+    parentPath: '/training/jobs',
+  },
+  {
+    path: '/training/datasets',
+    component: TrainingDatasetsPage,
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Datasets',
+    parentPath: '/training',
+  },
+  {
+    path: '/training/templates',
+    component: TrainingTemplatesPage,
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Templates',
+    parentPath: '/training',
   },
   {
     path: '/testing',
@@ -132,6 +201,7 @@ export const routes: RouteConfig[] = [
     navIcon: FlaskConical,
     navOrder: 3,
     skeletonVariant: 'default',
+    breadcrumb: 'Testing',
   },
   {
     path: '/golden',
@@ -142,6 +212,7 @@ export const routes: RouteConfig[] = [
     navIcon: GitCompare,
     navOrder: 4,
     skeletonVariant: 'table',
+    breadcrumb: 'Golden Runs',
   },
   {
     path: '/promotion',
@@ -152,6 +223,7 @@ export const routes: RouteConfig[] = [
     navIcon: TrendingUp,
     navOrder: 5,
     skeletonVariant: 'default',
+    breadcrumb: 'Promotion',
   },
   {
     path: '/adapters',
@@ -162,11 +234,48 @@ export const routes: RouteConfig[] = [
     navIcon: Box,
     navOrder: 6,
     skeletonVariant: 'table',
+    breadcrumb: 'Adapters',
+  },
+  {
+    path: '/adapters/new',
+    component: AdapterRegisterPage,
+    requiresAuth: true,
+    requiredPermissions: ['adapter.register'],
+    skeletonVariant: 'form',
+    breadcrumb: 'Register New Adapter',
+    parentPath: '/adapters',
   },
   {
     path: '/adapters/:adapterId',
     component: AdapterDetail,
     requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Adapter Detail',
+    parentPath: '/adapters',
+  },
+  {
+    path: '/adapters/:adapterId/activations',
+    component: AdapterActivationsPage,
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Activations',
+    parentPath: '/adapters/:adapterId',
+  },
+  {
+    path: '/adapters/:adapterId/lineage',
+    component: AdapterLineagePage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Lineage',
+    parentPath: '/adapters/:adapterId',
+  },
+  {
+    path: '/adapters/:adapterId/manifest',
+    component: AdapterManifestPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Manifest',
+    parentPath: '/adapters/:adapterId',
   },
   {
     path: '/metrics',
@@ -177,6 +286,7 @@ export const routes: RouteConfig[] = [
     navIcon: Activity,
     navOrder: 1,
     skeletonVariant: 'dashboard',
+    breadcrumb: 'Metrics',
   },
   {
     path: '/monitoring',
@@ -187,6 +297,7 @@ export const routes: RouteConfig[] = [
     navIcon: Activity,
     navOrder: 2,
     skeletonVariant: 'dashboard',
+    breadcrumb: 'System Health',
   },
   {
     path: '/routing',
@@ -197,6 +308,66 @@ export const routes: RouteConfig[] = [
     navIcon: Route,
     navOrder: 3,
     skeletonVariant: 'default',
+    breadcrumb: 'Routing',
+  },
+  {
+    path: '/system',
+    component: SystemOverviewPage,
+    requiresAuth: true,
+    navGroup: 'System',
+    navTitle: 'System Overview',
+    navIcon: Server,
+    navOrder: 1,
+    skeletonVariant: 'dashboard',
+    breadcrumb: 'System',
+  },
+  {
+    path: '/system/nodes',
+    component: SystemNodesPage,
+    requiresAuth: true,
+    navGroup: 'System',
+    navTitle: 'Nodes',
+    navIcon: Cpu,
+    navOrder: 2,
+    skeletonVariant: 'table',
+    breadcrumb: 'Nodes',
+    parentPath: '/system',
+  },
+  {
+    path: '/system/workers',
+    component: SystemWorkersPage,
+    requiresAuth: true,
+    navGroup: 'System',
+    navTitle: 'Workers',
+    navIcon: Users,
+    navOrder: 3,
+    skeletonVariant: 'table',
+    breadcrumb: 'Workers',
+    parentPath: '/system',
+  },
+  {
+    path: '/system/memory',
+    component: SystemMemoryPage,
+    requiresAuth: true,
+    navGroup: 'System',
+    navTitle: 'Memory',
+    navIcon: MemoryStick,
+    navOrder: 4,
+    skeletonVariant: 'dashboard',
+    breadcrumb: 'Memory',
+    parentPath: '/system',
+  },
+  {
+    path: '/system/metrics',
+    component: SystemMetricsPage,
+    requiresAuth: true,
+    navGroup: 'System',
+    navTitle: 'System Metrics',
+    navIcon: BarChart3,
+    navOrder: 5,
+    skeletonVariant: 'dashboard',
+    breadcrumb: 'Metrics',
+    parentPath: '/system',
   },
   {
     path: '/inference',
@@ -207,6 +378,7 @@ export const routes: RouteConfig[] = [
     navIcon: Play,
     navOrder: 1,
     skeletonVariant: 'form',
+    breadcrumb: 'Inference',
   },
   {
     path: '/telemetry',
@@ -217,6 +389,7 @@ export const routes: RouteConfig[] = [
     navIcon: Eye,
     navOrder: 2,
     skeletonVariant: 'table',
+    breadcrumb: 'Telemetry',
   },
   {
     path: '/replay',
@@ -227,26 +400,57 @@ export const routes: RouteConfig[] = [
     navIcon: RotateCcw,
     navOrder: 3,
     skeletonVariant: 'default',
+    breadcrumb: 'Replay',
+  },
+  {
+    path: '/security/policies',
+    component: PoliciesPage,
+    requiresAuth: true,
+    navGroup: 'Security',
+    navTitle: 'Policies',
+    navIcon: Shield,
+    navOrder: 1,
+    skeletonVariant: 'table',
+    breadcrumb: 'Policies',
+  },
+  {
+    path: '/security/audit',
+    component: AuditPage,
+    requiresAuth: true,
+    requiredPermissions: ['audit.view'],
+    navGroup: 'Security',
+    navTitle: 'Audit Logs',
+    navIcon: FileText,
+    navOrder: 2,
+    skeletonVariant: 'table',
+    breadcrumb: 'Audit',
+  },
+  {
+    path: '/security/compliance',
+    component: CompliancePage,
+    requiresAuth: true,
+    requiredPermissions: ['audit.view'],
+    navGroup: 'Security',
+    navTitle: 'Compliance',
+    navIcon: CheckCircle,
+    navOrder: 3,
+    skeletonVariant: 'table',
+    breadcrumb: 'Compliance',
   },
   {
     path: '/policies',
     component: PoliciesPage,
     requiresAuth: true,
-    navGroup: 'Compliance',
-    navTitle: 'Policies',
-    navIcon: Shield,
-    navOrder: 1,
     skeletonVariant: 'table',
+    breadcrumb: 'Policies',
   },
   {
     path: '/audit',
     component: AuditPage,
     requiresAuth: true,
-    navGroup: 'Compliance',
-    navTitle: 'Audit',
-    navIcon: FileText,
-    navOrder: 2,
+    requiredPermissions: ['audit.view'],
     skeletonVariant: 'table',
+    breadcrumb: 'Audit Logs',
   },
   {
     path: '/admin',
@@ -254,10 +458,72 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     requiredRoles: ['admin'],
     navGroup: 'Administration',
-    navTitle: 'IT Admin',
+    navTitle: 'Admin',
     navIcon: Settings,
     navOrder: 1,
     skeletonVariant: 'form',
+    breadcrumb: 'Admin',
+  },
+  {
+    path: '/admin/tenants',
+    component: TenantsPage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    navGroup: 'Administration',
+    navTitle: 'Tenants',
+    navIcon: Building,
+    navOrder: 2,
+    skeletonVariant: 'table',
+    breadcrumb: 'Tenants',
+    parentPath: '/admin',
+  },
+  {
+    path: '/admin/tenants/:tenantId',
+    component: TenantDetailPage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    skeletonVariant: 'default',
+    breadcrumb: 'Tenant Detail',
+    parentPath: '/admin/tenants',
+  },
+  {
+    path: '/admin/stacks',
+    component: AdminStacksPage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    navGroup: 'Administration',
+    navTitle: 'Adapter Stacks',
+    navIcon: Layers,
+    navOrder: 3,
+    skeletonVariant: 'table',
+    breadcrumb: 'Stacks',
+    parentPath: '/admin',
+  },
+  {
+    path: '/admin/plugins',
+    component: AdminPluginsPage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    navGroup: 'Administration',
+    navTitle: 'Plugins',
+    navIcon: Plug,
+    navOrder: 4,
+    skeletonVariant: 'table',
+    breadcrumb: 'Plugins',
+    parentPath: '/admin',
+  },
+  {
+    path: '/admin/settings',
+    component: AdminSettingsPage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    navGroup: 'Administration',
+    navTitle: 'Settings',
+    navIcon: Settings,
+    navOrder: 5,
+    skeletonVariant: 'form',
+    breadcrumb: 'Settings',
+    parentPath: '/admin',
   },
   {
     path: '/reports',
@@ -266,25 +532,24 @@ export const routes: RouteConfig[] = [
     navGroup: 'Administration',
     navTitle: 'Reports',
     navIcon: BarChart3,
-    navOrder: 2,
+    navOrder: 6,
     skeletonVariant: 'dashboard',
+    breadcrumb: 'Reports',
   },
   {
     path: '/tenants',
     component: TenantsPage,
     requiresAuth: true,
     requiredRoles: ['admin'],
-    navGroup: 'Administration',
-    navTitle: 'Tenants',
-    navIcon: Building,
-    navOrder: 3,
     skeletonVariant: 'table',
+    breadcrumb: 'Tenants',
   },
   {
     path: '/base-models',
     component: BaseModelsPage,
     requiresAuth: true,
     skeletonVariant: 'table',
+    breadcrumb: 'Base Models',
   },
 ];
 
@@ -293,10 +558,80 @@ export function getRouteByPath(path: string): RouteConfig | undefined {
   return routes.find(route => route.path === path);
 }
 
-// Helper to check if user has access to route
-export function canAccessRoute(route: RouteConfig, userRole?: UserRole): boolean {
-  if (!route.requiredRoles || route.requiredRoles.length === 0) {
-    return true;
+// Helper to match route with params (e.g., /adapters/:adapterId matches /adapters/123)
+export function matchRoute(pathname: string): RouteConfig | undefined {
+  return routes.find(route => {
+    const routeParts = route.path.split('/');
+    const pathParts = pathname.split('/');
+
+    if (routeParts.length !== pathParts.length) {
+      return false;
+    }
+
+    return routeParts.every((part, i) => {
+      if (part.startsWith(':')) {
+        return true; // param segment matches any value
+      }
+      return part === pathParts[i];
+    });
+  });
+}
+
+// Helper to get breadcrumb trail for a route
+export function getBreadcrumbs(pathname: string): Array<{ path: string; label: string }> {
+  const breadcrumbs: Array<{ path: string; label: string }> = [];
+  const currentRoute = matchRoute(pathname);
+
+  if (!currentRoute) {
+    return breadcrumbs;
   }
-  return userRole ? route.requiredRoles.includes(userRole) : false;
+
+  // Build breadcrumb chain by following parentPath
+  let route: RouteConfig | undefined = currentRoute;
+  const chain: RouteConfig[] = [];
+
+  while (route) {
+    chain.unshift(route);
+    route = route.parentPath ? getRouteByPath(route.parentPath) : undefined;
+  }
+
+  // Convert to breadcrumb format
+  chain.forEach(r => {
+    if (r.breadcrumb) {
+      breadcrumbs.push({
+        path: r.path,
+        label: r.breadcrumb,
+      });
+    }
+  });
+
+  return breadcrumbs;
+}
+
+// Helper to check if user has access to route
+export function canAccessRoute(route: RouteConfig, userRole?: UserRole, userPermissions?: string[]): boolean {
+  // Check role-based access
+  if (route.requiredRoles && route.requiredRoles.length > 0) {
+    if (!userRole || !route.requiredRoles.includes(userRole)) {
+      return false;
+    }
+  }
+
+  // Check permission-based access
+  if (route.requiredPermissions && route.requiredPermissions.length > 0) {
+    if (!userPermissions || userPermissions.length === 0) {
+      return false;
+    }
+
+    // User must have at least one of the required permissions
+    const hasPermission = route.requiredPermissions.some(perm =>
+      userPermissions.includes(perm)
+    );
+
+    if (!hasPermission) {
+      return false;
+    }
+  }
+
+  return true;
 }

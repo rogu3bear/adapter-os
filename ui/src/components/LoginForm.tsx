@@ -1,32 +1,52 @@
 import React, { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Badge } from './ui/badge';
 import { Lock, Shield, AlertTriangle, XCircle, Zap } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { apiClient } from '../api/client';
+import { LoginFormSchema, type LoginFormData } from '../schemas/common.schema';
 
 interface LoginFormProps {
-  onLogin: (credentials: { email: string; password: string }) => Promise<void>;
+  onLogin: (credentials: { username: string; email: string; password: string }) => Promise<void>;
   onDevBypass?: () => Promise<void>;
   error?: string | null;
 }
 
 export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isDevBypassLoading, setIsDevBypassLoading] = useState(false);
   const isDev = import.meta.env.DEV;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isValid },
+    watch,
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(LoginFormSchema),
+    mode: 'onChange',
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+    },
+  });
+
+  const watchedFields = watch();
+
+  const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
 
     try {
-      await onLogin({ email: email.trim(), password: password.trim() });
+      await onLogin({
+        username: data.username.trim(),
+        email: data.email.trim(),
+        password: data.password.trim(),
+      });
     } catch (err) {
       // Error is handled by parent component
     } finally {
@@ -90,7 +110,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
             <CardTitle>Authentication Required</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               {error && (
                 <Alert variant="destructive">
                   <XCircle className="icon-standard" />
@@ -98,33 +118,51 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                 </Alert>
               )}
               <div className="mb-4">
+                <Label htmlFor="username" className="font-medium text-sm mb-1">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="Enter your username"
+                  {...register('username')}
+                  className={errors.username ? 'border-red-500' : ''}
+                />
+                {errors.username && (
+                  <p className="text-sm text-red-500 mt-1">{errors.username.message}</p>
+                )}
+              </div>
+
+              <div className="mb-4">
                 <Label htmlFor="email" className="font-medium text-sm mb-1">Email</Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
+                  {...register('email')}
+                  className={errors.email ? 'border-red-500' : ''}
                 />
+                {errors.email && (
+                  <p className="text-sm text-red-500 mt-1">{errors.email.message}</p>
+                )}
               </div>
-              
+
               <div className="mb-4">
                 <Label htmlFor="password" className="font-medium text-sm mb-1">Password</Label>
                 <Input
                   id="password"
                   type="password"
                   placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
+                  {...register('password')}
+                  className={errors.password ? 'border-red-500' : ''}
                 />
+                {errors.password && (
+                  <p className="text-sm text-red-500 mt-1">{errors.password.message}</p>
+                )}
               </div>
-              
+
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isLoading || !email.trim() || !password.trim()}
+                disabled={isLoading || !isValid || !watchedFields.username?.trim() || !watchedFields.email?.trim() || !watchedFields.password?.trim()}
               >
                 {isLoading ? 'Authenticating...' : 'Secure Login'}
               </Button>
@@ -158,7 +196,11 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
               <div className="space-y-2 text-xs">
                 <div>
                   <p className="font-medium">Admin User:</p>
-                  <p className="font-mono text-muted-foreground">admin@aos.local / password</p>
+                  <p className="font-mono text-muted-foreground">
+                    Username: admin<br />
+                    Email: admin@aos.local<br />
+                    Password: password
+                  </p>
                 </div>
               </div>
             </div>

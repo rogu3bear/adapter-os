@@ -1,0 +1,235 @@
+import { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useSSE } from '@/hooks/useSSE';
+import { Activity, AlertCircle, CheckCircle, XCircle, Clock, Zap } from 'lucide-react';
+import type { TrainingJob, TrainingMetrics } from '@/api/training-types';
+
+interface TrainingProgressCardProps {
+  jobId: string;
+  initialJob?: TrainingJob;
+}
+
+interface TrainingEvent {
+  event_type: 'training.progress' | 'training.completed' | 'training.failed';
+  job_id: string;
+  payload: {
+    progress_pct?: number;
+    current_loss?: number;
+    current_epoch?: number;
+    total_epochs?: number;
+    tokens_per_second?: number;
+    eta_seconds?: number;
+    learning_rate?: number;
+    status?: string;
+    error_message?: string;
+  };
+}
+
+function formatDuration(seconds?: number): string {
+  if (!seconds || seconds <= 0) return '-';
+
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
+export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCardProps) {
+  const [progress, setProgress] = useState<TrainingMetrics>({
+    progress_pct: initialJob?.progress_pct || 0,
+    loss: initialJob?.current_loss || initialJob?.loss,
+    current_epoch: initialJob?.current_epoch,
+    total_epochs: initialJob?.total_epochs,
+    tokens_per_second: initialJob?.tokens_per_second,
+    eta_seconds: initialJob?.eta_seconds,
+    learning_rate: initialJob?.learning_rate,
+  });
+  const [status, setStatus] = useState<string>(initialJob?.status || 'running');
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(initialJob?.error_message);
+
+  const { data: sseData, error: sseError, connected } = useSSE<TrainingEvent>(
+    '/v1/streams/training',
+    {
+      enabled: status === 'running' || status === 'pending',
+      onMessage: (event) => {
+        if (event.job_id === jobId) {
+          if (event.event_type === 'training.progress') {
+            setProgress({
+              progress_pct: event.payload.progress_pct,
+              loss: event.payload.current_loss,
+              current_epoch: event.payload.current_epoch,
+              total_epochs: event.payload.total_epochs,
+              tokens_per_second: event.payload.tokens_per_second,
+              eta_seconds: event.payload.eta_seconds,
+              learning_rate: event.payload.learning_rate,
+            });
+          } else if (event.event_type === 'training.completed') {
+            setStatus('completed');
+            setProgress((prev) => ({ ...prev, progress_pct: 100 }));
+          } else if (event.event_type === 'training.failed') {
+            setStatus('failed');
+            setErrorMessage(event.payload.error_message);
+          }
+        }
+      },
+    }
+  );
+
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'running':
+        return <Activity className="h-4 w-4 text-blue-500 animate-pulse" />;
+      case 'completed':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'failed':
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      case 'pending':
+        return <Clock className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <Activity className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'running':
+        return 'default';
+      case 'completed':
+        return 'default';
+      case 'failed':
+        return 'destructive';
+      case 'pending':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            {getStatusIcon()}
+            Training Progress
+          </span>
+          <Badge variant={getStatusColor()}>
+            {status}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Connection Status */}
+        {!connected && status === 'running' && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Live updates disconnected. Progress may be delayed.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {sseError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to connect to live updates: {sseError}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {errorMessage && (
+          <Alert variant="destructive">
+            <XCircle className="h-4 w-4" />
+            <AlertDescription>
+              {errorMessage}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Progress Bar */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">Overall Progress</span>
+            <span className="text-muted-foreground">{progress.progress_pct || 0}%</span>
+          </div>
+          <Progress value={progress.progress_pct || 0} className="h-2" />
+        </div>
+
+        {/* Epoch Progress */}
+        {progress.current_epoch !== undefined && progress.total_epochs !== undefined && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Epoch</span>
+            <span className="font-medium">
+              {progress.current_epoch} / {progress.total_epochs}
+            </span>
+          </div>
+        )}
+
+        {/* Loss */}
+        {progress.loss !== undefined && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Current Loss</span>
+            <span className="font-mono font-medium">
+              {progress.loss.toFixed(6)}
+            </span>
+          </div>
+        )}
+
+        {/* Learning Rate */}
+        {progress.learning_rate !== undefined && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Learning Rate</span>
+            <span className="font-mono font-medium">
+              {progress.learning_rate.toExponential(2)}
+            </span>
+          </div>
+        )}
+
+        {/* Tokens per Second */}
+        {progress.tokens_per_second !== undefined && progress.tokens_per_second > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Zap className="h-3 w-3" />
+              Tokens/sec
+            </span>
+            <span className="font-medium">
+              {progress.tokens_per_second.toFixed(0)}
+            </span>
+          </div>
+        )}
+
+        {/* ETA */}
+        {progress.eta_seconds !== undefined && progress.eta_seconds > 0 && status === 'running' && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              Estimated Time Remaining
+            </span>
+            <span className="font-medium">
+              {formatDuration(progress.eta_seconds)}
+            </span>
+          </div>
+        )}
+
+        {/* Live Update Indicator */}
+        {connected && status === 'running' && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t">
+            <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+            <span>Live updates active</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

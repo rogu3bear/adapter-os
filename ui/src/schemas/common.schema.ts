@@ -29,13 +29,13 @@ export type TenantId = z.infer<typeof tenantIdSchema>;
 /**
  * Repository ID schema
  *
- * From: adapteros-server-api/src/validation.rs::validate_repo_id()
+ * From: adapteros-server-api/src/validation/mod.rs::validate_repo_id()
  * - Format: owner/repo
- * - Maximum length: 100 characters
+ * - Maximum length: 256 characters
  */
 export const RepositoryIdSchema = z.string()
   .min(3, 'Repository ID is too short')
-  .max(100, 'Repository ID must not exceed 100 characters')
+  .max(256, 'Repository ID must not exceed 256 characters')
   .regex(
     /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/,
     'Repository ID must be in format: owner/repo'
@@ -79,13 +79,13 @@ export type Blake3Hash = z.infer<typeof blake3HashSchema>;
 /**
  * Description schema (with security validation)
  *
- * From: adapteros-server-api/src/validation.rs::validate_description()
- * - Maximum length: 5000 characters
+ * From: adapteros-server-api/src/validation/mod.rs::validate_description()
+ * - Maximum length: 10000 characters
  * - Checks for suspicious patterns (SQL injection, XSS)
  */
 export const descriptionSchema = z.string()
   .min(1, 'Description is required')
-  .max(5000, 'Description must not exceed 5000 characters')
+  .max(10000, 'Description must not exceed 10000 characters')
   .refine(
     (val) => {
       const upper = val.toUpperCase();
@@ -319,6 +319,19 @@ export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 /**
  * Helper functions for common validation
  */
+/**
+ * Login form schema
+ *
+ * For authentication form validation
+ */
+export const LoginFormSchema = z.object({
+  username: z.string().min(3, 'Username must be at least 3 characters').max(50, 'Username must not exceed 50 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  email: z.string().email('Invalid email address').max(254, 'Email must not exceed 254 characters'),
+});
+
+export type LoginFormData = z.infer<typeof LoginFormSchema>;
+
 export const ValidationUtils = {
   /**
    * Check if string is a valid JSON

@@ -101,10 +101,12 @@ export interface StartTrainingRequestUIExtras {
 }
 
 export interface TrainingResponse {
+  schema_version: string;
   job: TrainingJob;
 }
 
 export interface ListTrainingJobsResponse {
+  schema_version: string;
   jobs: TrainingJob[];
   total: number;
   page: number;
@@ -163,11 +165,13 @@ export interface CreateDatasetRequest {
 }
 
 export interface DatasetResponse {
+  schema_version: string;
   dataset: Dataset;
   upload_url?: string;
 }
 
 export interface ListDatasetsResponse {
+  schema_version: string;
   datasets: Dataset[];
   total: number;
   page: number;
@@ -197,6 +201,7 @@ export interface UploadProgress {
 
 // Training artifact types
 export interface TrainingArtifactsResponse {
+  schema_version: string;
   job_id: string;
   artifacts: TrainingArtifact[];
   signature_valid?: boolean;

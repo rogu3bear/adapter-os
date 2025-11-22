@@ -22,11 +22,13 @@ export function useServiceStatus() {
     {
       operationName: 'useServiceStatus.getStatus',
       showLoadingIndicator: false,
-      onError: (err) => {
-        logger.error('Failed to fetch service status', { hook: 'useServiceStatus' }, toError(err));
-      }
     }
   );
+
+  // Log errors outside of query options (React Query v5 compatibility)
+  if (error) {
+    logger.error('Failed to fetch service status', { hook: 'useServiceStatus' }, toError(error));
+  }
 
   return {
     status,

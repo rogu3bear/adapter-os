@@ -10,7 +10,7 @@
  * - Release quarantine action (admin only)
  */
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -19,7 +19,12 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, CheckCircle2, XCircle, ShieldAlert, Unlock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import type {
+  FederationStatusResponse,
+  QuarantineStatusResponse,
+} from '@/api/federation-types';
 
+/** Federation verification report parsed from latest_verification JSON string */
 interface FederationVerificationReport {
   ok: boolean;
   hosts_verified: number;
@@ -27,39 +32,38 @@ interface FederationVerificationReport {
   verified_at: string;
 }
 
-interface FederationStatusResponse {
-  operational: boolean;
-  quarantined: boolean;
-  quarantine_reason?: string;
+/** Extended status with parsed verification report */
+interface ParsedFederationStatus extends Omit<FederationStatusResponse, 'latest_verification'> {
   latest_verification?: FederationVerificationReport;
-  total_hosts: number;
-  timestamp: string;
-}
-
-interface QuarantineDetails {
-  reason: string;
-  triggered_at: string;
-  violation_type: string;
-  cpid?: string;
-}
-
-interface QuarantineStatusResponse {
-  quarantined: boolean;
-  details?: QuarantineDetails;
 }
 
 const API_BASE = '/api/v1';
 
-async function fetchFederationStatus(): Promise<FederationStatusResponse> {
+async function fetchFederationStatus(): Promise<ParsedFederationStatus> {
   const response = await fetch(`${API_BASE}/federation/status`, {
     credentials: 'include',
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to fetch federation status');
   }
-  
-  return response.json();
+
+  const data: FederationStatusResponse = await response.json();
+
+  // Parse latest_verification JSON string if present
+  let parsedVerification: FederationVerificationReport | undefined;
+  if (data.latest_verification) {
+    try {
+      parsedVerification = JSON.parse(data.latest_verification);
+    } catch {
+      // If parsing fails, leave as undefined
+    }
+  }
+
+  return {
+    ...data,
+    latest_verification: parsedVerification,
+  };
 }
 
 async function fetchQuarantineStatus(): Promise<QuarantineStatusResponse> {

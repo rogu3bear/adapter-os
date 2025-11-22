@@ -61,6 +61,7 @@ export const PERMISSIONS = {
   TRAINING_START: 'training:start',
   TRAINING_CANCEL: 'training:cancel',
   TRAINING_VIEW: 'training:view',
+  TRAINING_VIEW_LOGS: 'training:view-logs',
 
   // Policies
   POLICY_VIEW: 'policy:view',
@@ -79,10 +80,65 @@ export const PERMISSIONS = {
   // Infrastructure
   TENANT_MANAGE: 'tenant:manage',
   NODE_MANAGE: 'node:manage',
+  NODE_VIEW: 'node:view',
   WORKER_MANAGE: 'worker:manage',
+  WORKER_SPAWN: 'worker:spawn',
+  WORKER_VIEW: 'worker:view',
 
   // Inference
   INFERENCE_EXECUTE: 'inference:execute',
+
+  // Activity
+  ACTIVITY_CREATE: 'activity:create',
+  ACTIVITY_VIEW: 'activity:view',
+
+  // Contacts
+  CONTACT_MANAGE: 'contact:manage',
+  CONTACT_VIEW: 'contact:view',
+
+  // Notifications
+  NOTIFICATION_MANAGE: 'notification:manage',
+  NOTIFICATION_VIEW: 'notification:view',
+
+  // Workspaces
+  WORKSPACE_MANAGE: 'workspace:manage',
+  WORKSPACE_MEMBER_MANAGE: 'workspace:member-manage',
+  WORKSPACE_RESOURCE_MANAGE: 'workspace:resource-manage',
+  WORKSPACE_VIEW: 'workspace:view',
+
+  // Datasets
+  DATASET_DELETE: 'dataset:delete',
+  DATASET_UPLOAD: 'dataset:upload',
+  DATASET_VALIDATE: 'dataset:validate',
+  DATASET_VIEW: 'dataset:view',
+
+  // Code Intelligence
+  CODE_SCAN: 'code:scan',
+  CODE_VIEW: 'code:view',
+
+  // Federation
+  FEDERATION_VIEW: 'federation:view',
+
+  // Git
+  GIT_MANAGE: 'git:manage',
+  GIT_VIEW: 'git:view',
+
+  // Monitoring & Metrics
+  MONITORING_MANAGE: 'monitoring:manage',
+  METRICS_VIEW: 'metrics:view',
+
+  // Dashboard
+  DASHBOARD_MANAGE: 'dashboard:manage',
+  DASHBOARD_VIEW: 'dashboard:view',
+
+  // Plans
+  PLAN_VIEW: 'plan:view',
+
+  // Replay
+  REPLAY_MANAGE: 'replay:manage',
+
+  // Telemetry
+  TELEMETRY_VIEW: 'telemetry:view',
 } as const;
 
 /**
@@ -103,6 +159,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.TRAINING_START,
     PERMISSIONS.TRAINING_CANCEL,
     PERMISSIONS.TRAINING_VIEW,
+    PERMISSIONS.TRAINING_VIEW_LOGS,
     PERMISSIONS.POLICY_VIEW,
     PERMISSIONS.POLICY_APPLY,
     PERMISSIONS.POLICY_VALIDATE,
@@ -113,8 +170,37 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.COMPLIANCE_VIEW,
     PERMISSIONS.TENANT_MANAGE,
     PERMISSIONS.NODE_MANAGE,
+    PERMISSIONS.NODE_VIEW,
     PERMISSIONS.WORKER_MANAGE,
+    PERMISSIONS.WORKER_SPAWN,
+    PERMISSIONS.WORKER_VIEW,
     PERMISSIONS.INFERENCE_EXECUTE,
+    PERMISSIONS.ACTIVITY_CREATE,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.CONTACT_MANAGE,
+    PERMISSIONS.CONTACT_VIEW,
+    PERMISSIONS.NOTIFICATION_MANAGE,
+    PERMISSIONS.NOTIFICATION_VIEW,
+    PERMISSIONS.WORKSPACE_MANAGE,
+    PERMISSIONS.WORKSPACE_MEMBER_MANAGE,
+    PERMISSIONS.WORKSPACE_RESOURCE_MANAGE,
+    PERMISSIONS.WORKSPACE_VIEW,
+    PERMISSIONS.DATASET_DELETE,
+    PERMISSIONS.DATASET_UPLOAD,
+    PERMISSIONS.DATASET_VALIDATE,
+    PERMISSIONS.DATASET_VIEW,
+    PERMISSIONS.CODE_SCAN,
+    PERMISSIONS.CODE_VIEW,
+    PERMISSIONS.FEDERATION_VIEW,
+    PERMISSIONS.GIT_MANAGE,
+    PERMISSIONS.GIT_VIEW,
+    PERMISSIONS.MONITORING_MANAGE,
+    PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.DASHBOARD_MANAGE,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_MANAGE,
+    PERMISSIONS.TELEMETRY_VIEW,
   ],
   operator: [
     // Operator can manage adapters and run training/inference
@@ -126,10 +212,29 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.TRAINING_START,
     PERMISSIONS.TRAINING_CANCEL,
     PERMISSIONS.TRAINING_VIEW,
+    PERMISSIONS.TRAINING_VIEW_LOGS,
     PERMISSIONS.POLICY_VIEW,
     PERMISSIONS.PROMOTION_VIEW,
     PERMISSIONS.INFERENCE_EXECUTE,
     PERMISSIONS.WORKER_MANAGE,
+    PERMISSIONS.WORKER_SPAWN,
+    PERMISSIONS.WORKER_VIEW,
+    PERMISSIONS.NODE_VIEW,
+    PERMISSIONS.ACTIVITY_CREATE,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.NOTIFICATION_VIEW,
+    PERMISSIONS.WORKSPACE_VIEW,
+    PERMISSIONS.DATASET_UPLOAD,
+    PERMISSIONS.DATASET_VALIDATE,
+    PERMISSIONS.DATASET_VIEW,
+    PERMISSIONS.CODE_SCAN,
+    PERMISSIONS.CODE_VIEW,
+    PERMISSIONS.GIT_MANAGE,
+    PERMISSIONS.GIT_VIEW,
+    PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.TELEMETRY_VIEW,
   ],
   sre: [
     // SRE can view system information and debug
@@ -138,10 +243,26 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.AUDIT_VIEW,
     PERMISSIONS.COMPLIANCE_VIEW,
     PERMISSIONS.TRAINING_VIEW,
+    PERMISSIONS.TRAINING_VIEW_LOGS,
     PERMISSIONS.PROMOTION_VIEW,
     PERMISSIONS.POLICY_VIEW,
     PERMISSIONS.WORKER_MANAGE,
+    PERMISSIONS.WORKER_VIEW,
     PERMISSIONS.NODE_MANAGE,
+    PERMISSIONS.NODE_VIEW,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.NOTIFICATION_VIEW,
+    PERMISSIONS.WORKSPACE_VIEW,
+    PERMISSIONS.DATASET_VIEW,
+    PERMISSIONS.CODE_VIEW,
+    PERMISSIONS.FEDERATION_VIEW,
+    PERMISSIONS.GIT_VIEW,
+    PERMISSIONS.MONITORING_MANAGE,
+    PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_MANAGE,
+    PERMISSIONS.TELEMETRY_VIEW,
   ],
   compliance: [
     // Compliance can view audit and compliance information
@@ -151,17 +272,38 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.COMPLIANCE_VIEW,
     PERMISSIONS.POLICY_VIEW,
     PERMISSIONS.PROMOTION_VIEW,
+    PERMISSIONS.TRAINING_VIEW,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.NOTIFICATION_VIEW,
+    PERMISSIONS.WORKSPACE_VIEW,
+    PERMISSIONS.DATASET_VIEW,
+    PERMISSIONS.CODE_VIEW,
+    PERMISSIONS.FEDERATION_VIEW,
+    PERMISSIONS.GIT_VIEW,
+    PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.TELEMETRY_VIEW,
   ],
   auditor: [
     // Auditor is read-only for audit information
     PERMISSIONS.ADAPTER_LIST,
     PERMISSIONS.ADAPTER_VIEW,
     PERMISSIONS.AUDIT_VIEW,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.TELEMETRY_VIEW,
+    PERMISSIONS.METRICS_VIEW,
   ],
   viewer: [
     // Viewer is read-only
     PERMISSIONS.ADAPTER_LIST,
     PERMISSIONS.ADAPTER_VIEW,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.NOTIFICATION_VIEW,
+    PERMISSIONS.WORKSPACE_VIEW,
+    PERMISSIONS.DATASET_VIEW,
+    PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.DASHBOARD_VIEW,
   ],
 };
 
@@ -264,6 +406,7 @@ export function getPermissionDescription(permission: string): string {
     'training:start': 'Start training jobs',
     'training:cancel': 'Cancel training jobs',
     'training:view': 'View training jobs',
+    'training:view-logs': 'View training logs',
     'policy:view': 'View policies',
     'policy:apply': 'Apply policies',
     'policy:validate': 'Validate policies',
@@ -274,8 +417,37 @@ export function getPermissionDescription(permission: string): string {
     'compliance:view': 'View compliance information',
     'tenant:manage': 'Manage tenants',
     'node:manage': 'Manage nodes',
+    'node:view': 'View nodes',
     'worker:manage': 'Manage workers',
+    'worker:spawn': 'Spawn workers',
+    'worker:view': 'View workers',
     'inference:execute': 'Execute inference',
+    'activity:create': 'Create activity entries',
+    'activity:view': 'View activity entries',
+    'contact:manage': 'Manage contacts',
+    'contact:view': 'View contacts',
+    'notification:manage': 'Manage notifications',
+    'notification:view': 'View notifications',
+    'workspace:manage': 'Manage workspaces',
+    'workspace:member-manage': 'Manage workspace members',
+    'workspace:resource-manage': 'Manage workspace resources',
+    'workspace:view': 'View workspaces',
+    'dataset:delete': 'Delete datasets',
+    'dataset:upload': 'Upload datasets',
+    'dataset:validate': 'Validate datasets',
+    'dataset:view': 'View datasets',
+    'code:scan': 'Scan code repositories',
+    'code:view': 'View code intelligence',
+    'federation:view': 'View federation status',
+    'git:manage': 'Manage git repositories',
+    'git:view': 'View git repositories',
+    'monitoring:manage': 'Manage monitoring rules',
+    'metrics:view': 'View metrics',
+    'dashboard:manage': 'Manage dashboards',
+    'dashboard:view': 'View dashboards',
+    'plan:view': 'View plans',
+    'replay:manage': 'Manage replay sessions',
+    'telemetry:view': 'View telemetry',
   };
 
   return descriptions[permission] || permission;

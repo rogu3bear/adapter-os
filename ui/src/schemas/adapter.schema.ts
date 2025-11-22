@@ -134,9 +134,10 @@ export const adapterNameSchema = z.string()
  */
 export const registerAdapterRequestSchema = z.object({
   // Adapter ID (unique identifier)
+  // From: adapteros-server-api/src/validation/mod.rs::validate_adapter_id()
   adapter_id: z.string()
     .min(1, 'Adapter ID is required')
-    .max(100, 'Adapter ID must not exceed 100 characters')
+    .max(128, 'Adapter ID must not exceed 128 characters')
     .describe('Unique adapter identifier'),
 
   // Semantic name
@@ -245,9 +246,10 @@ export const createAdapterStackRequestSchema = z.object({
   name: stackNameSchema,
 
   // Description
+  // From: adapteros-server-api/src/validation/mod.rs::validate_description()
   description: z.string()
     .min(1, 'Description is required')
-    .max(5000, 'Description must not exceed 5000 characters')
+    .max(10000, 'Description must not exceed 10000 characters')
     .describe('Stack description'),
 
   // Adapter IDs in the stack

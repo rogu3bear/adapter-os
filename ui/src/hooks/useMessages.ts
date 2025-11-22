@@ -8,9 +8,17 @@
 //! - Workspace-scoped only (no direct tenant-to-tenant messaging)
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { logger, toError } from '../utils/logger';
 import apiClient from '../api/client';
 import { Message, CreateMessageRequest } from '../api/types';
+
+// Query keys for React Query cache management
+const QUERY_KEYS = {
+  messages: (workspaceId: string) => ['messages', workspaceId] as const,
+  messageThread: (workspaceId: string, threadId: string) => ['messages', workspaceId, 'thread', threadId] as const,
+};
 
 export interface UseMessagesOptions {
   workspaceId: string;
@@ -343,3 +351,244 @@ export function useMessages(options: UseMessagesOptions): UseMessagesReturn {
     refresh: fetchMessages,
   };
 }
+
+// ============================================================================
+// React Query-based hooks for mutation operations with toast notifications
+// ============================================================================
+
+/**
+ * React Query hook for fetching messages (alternative to SSE-based useMessages)
+ *
+ * Use this when you prefer React Query's caching and refetching over SSE real-time updates.
+ *
+ * @param workspaceId - The workspace to fetch messages from
+ * @param options - Optional configuration
+ * @returns React Query result with messages data
+ */
+export function useMessagesQuery(
+  workspaceId: string,
+  options?: { limit?: number; offset?: number; enabled?: boolean }
+) {
+  const { limit = 50, offset, enabled = true } = options ?? {};
+
+  return useQuery({
+    queryKey: QUERY_KEYS.messages(workspaceId),
+    queryFn: async () => {
+      const messages = await apiClient.listWorkspaceMessages(workspaceId, { limit, offset });
+      // Sort by created_at (newest first)
+      return messages.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    },
+    enabled: !!workspaceId && enabled,
+    staleTime: 30000,
+  });
+}
+
+/**
+ * React Query hook for fetching a message thread
+ *
+ * @param workspaceId - The workspace containing the thread
+ * @param threadId - The thread ID to fetch
+ * @returns React Query result with thread messages
+ */
+export function useMessageThread(workspaceId: string, threadId: string) {
+  return useQuery({
+    queryKey: QUERY_KEYS.messageThread(workspaceId, threadId),
+    queryFn: () => apiClient.getMessageThread(workspaceId, threadId),
+    enabled: !!workspaceId && !!threadId,
+  });
+}
+
+/**
+ * Mutation hook for sending messages with toast notifications
+ *
+ * @param workspaceId - The workspace to send the message to
+ * @returns Mutation object with mutate/mutateAsync functions
+ *
+ * @example
+ * const { mutate: sendMessage, isPending } = useSendMessage('workspace-123');
+ * sendMessage({ content: 'Hello world!' });
+ */
+export function useSendMessage(workspaceId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateMessageRequest) => {
+      return apiClient.createMessage(workspaceId, data);
+    },
+    onSuccess: (newMessage) => {
+      // Invalidate messages query to refetch
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messages(workspaceId) });
+
+      // If message is in a thread, invalidate thread query too
+      if (newMessage.thread_id) {
+        queryClient.invalidateQueries({
+          queryKey: QUERY_KEYS.messageThread(workspaceId, newMessage.thread_id),
+        });
+      }
+
+      toast.success('Message sent successfully');
+      logger.info('Message sent', {
+        component: 'useSendMessage',
+        operation: 'sendMessage',
+        messageId: newMessage.id,
+        workspaceId,
+        threadId: newMessage.thread_id,
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to send message: ${error.message}`);
+      logger.error('Failed to send message', {
+        component: 'useSendMessage',
+        operation: 'sendMessage',
+        workspaceId,
+      }, error);
+    },
+  });
+}
+
+/**
+ * Mutation hook for editing messages with toast notifications
+ *
+ * @param workspaceId - The workspace containing the message
+ * @returns Mutation object with mutate/mutateAsync functions
+ *
+ * @example
+ * const { mutate: editMessage } = useEditMessage('workspace-123');
+ * editMessage({ messageId: 'msg-456', content: 'Updated content' });
+ */
+export function useEditMessage(workspaceId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ messageId, content }: { messageId: string; content: string }) => {
+      return apiClient.editMessage(workspaceId, messageId, { content });
+    },
+    onSuccess: (updatedMessage, { messageId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messages(workspaceId) });
+
+      if (updatedMessage.thread_id) {
+        queryClient.invalidateQueries({
+          queryKey: QUERY_KEYS.messageThread(workspaceId, updatedMessage.thread_id),
+        });
+      }
+
+      toast.success('Message updated successfully');
+      logger.info('Message edited', {
+        component: 'useEditMessage',
+        operation: 'editMessage',
+        messageId,
+        workspaceId,
+      });
+    },
+    onError: (error: Error, { messageId }) => {
+      toast.error(`Failed to edit message: ${error.message}`);
+      logger.error('Failed to edit message', {
+        component: 'useEditMessage',
+        operation: 'editMessage',
+        messageId,
+        workspaceId,
+      }, error);
+    },
+  });
+}
+
+/**
+ * Mutation hook for marking messages as read with toast notifications
+ *
+ * @param workspaceId - The workspace containing the message
+ * @returns Mutation object with mutate/mutateAsync functions
+ *
+ * @example
+ * const { mutate: markRead } = useMarkMessageRead('workspace-123');
+ * markRead('message-456');
+ */
+export function useMarkMessageRead(workspaceId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      return apiClient.markMessageRead(workspaceId, messageId);
+    },
+    onSuccess: (updatedMessage, messageId) => {
+      // Update cache optimistically
+      queryClient.setQueryData<Message[]>(
+        QUERY_KEYS.messages(workspaceId),
+        (oldMessages) => {
+          if (!oldMessages) return oldMessages;
+          return oldMessages.map((msg) =>
+            msg.id === messageId ? { ...msg, read: true, read_at: new Date().toISOString() } : msg
+          );
+        }
+      );
+
+      logger.info('Message marked as read', {
+        component: 'useMarkMessageRead',
+        operation: 'markRead',
+        messageId,
+        workspaceId,
+      });
+    },
+    onError: (error: Error, messageId) => {
+      toast.error(`Failed to mark message as read: ${error.message}`);
+      logger.error('Failed to mark message as read', {
+        component: 'useMarkMessageRead',
+        operation: 'markRead',
+        messageId,
+        workspaceId,
+      }, error);
+    },
+  });
+}
+
+/**
+ * Mutation hook for deleting messages with toast notifications
+ *
+ * @param workspaceId - The workspace containing the message
+ * @returns Mutation object with mutate/mutateAsync functions
+ *
+ * @example
+ * const { mutate: deleteMessage } = useDeleteMessage('workspace-123');
+ * deleteMessage('message-456');
+ */
+export function useDeleteMessage(workspaceId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      return apiClient.deleteMessage(workspaceId, messageId);
+    },
+    onSuccess: (_, messageId) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.messages(workspaceId) });
+
+      toast.success('Message deleted successfully');
+      logger.info('Message deleted', {
+        component: 'useDeleteMessage',
+        operation: 'deleteMessage',
+        messageId,
+        workspaceId,
+      });
+    },
+    onError: (error: Error, messageId) => {
+      toast.error(`Failed to delete message: ${error.message}`);
+      logger.error('Failed to delete message', {
+        component: 'useDeleteMessage',
+        operation: 'deleteMessage',
+        messageId,
+        workspaceId,
+      }, error);
+    },
+  });
+}
+
+// Export namespace for cleaner imports
+export const MessagesHooks = {
+  useMessages,
+  useMessagesQuery,
+  useMessageThread,
+  useSendMessage,
+  useEditMessage,
+  useMarkMessageRead,
+  useDeleteMessage,
+};

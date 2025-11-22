@@ -47,3 +47,6 @@ export * from './auth-types';
 export * from './adapter-types';
 export * from './training-types';
 export * from './api-types';
+export * from './federation-types';
+export * from './plugin-types';
+export * from './streaming-types';

@@ -64,6 +64,7 @@ export interface PromptAnalysisResult {
 }
 
 export interface ErrorResponse {
+  schema_version: string; // Required by backend API
   error: string;
   code?: string;
   details?: string;
@@ -114,6 +115,7 @@ export interface SystemMetrics {
 }
 
 export interface BaseModelStatus {
+  schema_version: string; // Required for ModelStatusResponse compatibility
   status: 'loading' | 'error' | 'unloaded' | 'ready' | 'loaded' | 'unloading';
   model_name: string;
   model_id: string;
@@ -145,6 +147,7 @@ export interface ReplaySession {
 }
 
 export interface ReplayVerificationResponse {
+  schema_version: string; // Required by backend API
   session_id: string;
   verified_at: string;
   signature_valid: boolean;
@@ -173,6 +176,7 @@ export interface Node {
 }
 
 export interface NodeDetailsResponse {
+  schema_version: string; // Required by backend API
   id: string;
   hostname: string;
   status: string;
@@ -191,6 +195,7 @@ export interface NodeDetailsResponse {
 }
 
 export interface NodePingResponse {
+  schema_version: string; // Required by backend API
   status: 'reachable' | 'unreachable' | 'timeout';
   latency_ms: number;
 }
@@ -261,6 +266,7 @@ export interface SpawnWorkerRequest {
 }
 
 export interface WorkerResponse {
+  schema_version: string; // Required by backend API
   id: string;  // alias
   worker_id: string;
   worker_type: string;
@@ -314,6 +320,7 @@ export interface BuildPlanRequest {
 }
 
 export interface PlanComparisonResponse {
+  schema_version: string; // Required by backend API
   plan_a: Plan;
   plan_b: Plan;
   plan_1?: Plan;  // alias for plan_a
@@ -391,6 +398,7 @@ export interface PromotionGate {
 
 // Golden run promotion types
 export interface PromotionResponse {
+  schema_version: string; // Required by backend API
   request_id: string;
   run_id: string;
   target_stage: string;
@@ -399,6 +407,7 @@ export interface PromotionResponse {
 }
 
 export interface PromotionStatusResponse {
+  schema_version: string; // Required by backend API
   run_id: string;
   current_stage: string;
   stages: PromotionStageStatus[];
@@ -427,6 +436,7 @@ export interface GateStatus {
 }
 
 export interface ApproveResponse {
+  schema_version: string; // Required by backend API
   run_id: string;
   stage_id: string;
   approved: boolean;
@@ -436,6 +446,7 @@ export interface ApproveResponse {
 }
 
 export interface RollbackResponse {
+  schema_version: string; // Required by backend API
   stage: string;
   status: 'initiated' | 'completed' | 'failed';
   message: string;
@@ -471,6 +482,39 @@ export interface RegisterRepositoryRequest {
   path: string;
 }
 
+export interface TriggerScanRequest {
+  repository_id: string;
+}
+
+export interface TriggerScanResponse {
+  schema_version: string; // Required by backend API
+  job_id: string;
+  repository_id: string;
+  status: 'pending' | 'scanning' | 'completed' | 'failed';
+  started_at: string;
+}
+
+export interface CommitDeltaRequest {
+  repository_id: string;
+  commit_sha: string;
+  message?: string;
+  files?: Array<{
+    path: string;
+    additions: number;
+    deletions: number;
+  }>;
+}
+
+export interface CommitDeltaResponse {
+  schema_version: string; // Required by backend API
+  delta_id: string;
+  repository_id: string;
+  commit_sha: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  created_at: string;
+  processed_at?: string;
+}
+
 // Inference types
 export interface InferRequest {
   prompt: string;
@@ -487,6 +531,7 @@ export interface InferRequest {
 }
 
 export interface InferResponse {
+  schema_version: string; // Required by backend API
   id: string;
   text: string;
   tokens_generated: number;
@@ -518,6 +563,7 @@ export interface BatchInferRequest {
 }
 
 export interface BatchInferResponse {
+  schema_version: string; // Required by backend API
   results: InferResponse[];
   responses: InferResponse[];  // alias for results
   total_tokens: number;
@@ -568,6 +614,7 @@ export interface TelemetryQuery {
 
 // Health & System types
 export interface HealthResponse {
+  schema_version: string; // Required by backend API
   status: 'healthy' | 'degraded' | 'unhealthy';
   version: string;
   uptime_seconds: number;
@@ -582,6 +629,7 @@ export interface ComponentHealth {
 }
 
 export interface MetaResponse {
+  schema_version: string; // Required by backend API
   version: string;
   build_date: string;
   git_commit: string;
@@ -598,6 +646,7 @@ export interface JourneyState {
 }
 
 export interface JourneyResponse {
+  schema_version: string; // Required by backend API
   journey_id: string;
   steps: JourneyStep[];
   current_step: number;
@@ -646,6 +695,7 @@ export interface Alert {
 }
 
 export interface ModelStatusResponse {
+  schema_version: string; // Required by backend API
   model_id: string;
   status: 'loading' | 'ready' | 'error' | 'unloaded' | 'loaded' | 'unloading';
   memory_usage_mb?: number;
@@ -665,6 +715,7 @@ export interface UpdateAuthConfigRequest {
 
 // Policy pack types
 export interface PolicyPackResponse {
+  schema_version: string; // Required by backend API
   pack_id: string;
   name: string;
   version: string;
@@ -674,6 +725,7 @@ export interface PolicyPackResponse {
 }
 
 export interface SignPolicyResponse {
+  schema_version: string; // Required by backend API
   policy_id: string;
   signature: string;
   signed_at: string;
@@ -682,20 +734,14 @@ export interface SignPolicyResponse {
 }
 
 export interface PolicyComparisonResponse {
-  policy_a: Policy;
-  policy_b: Policy;
-  differences: Array<{
-    path: string;
-    type: 'added' | 'removed' | 'modified';
-    value_a?: unknown;
-    value_b?: unknown;
-  }>;
-  removed_keys?: string[];
-  metallib_hash_changed?: boolean;
-  added_keys?: string[];
+  cpid_1: string;
+  cpid_2: string;
+  differences: string[];
+  identical: boolean;
 }
 
 export interface ExportPolicyResponse {
+  schema_version: string; // Required by backend API
   policy_id: string;
   format: 'json' | 'yaml';
   content: string;
@@ -716,6 +762,7 @@ export interface ImportModelRequest {
 }
 
 export interface ImportModelResponse {
+  schema_version: string; // Required by backend API
   import_id: string;
   model_id: string;
   status: 'pending' | 'downloading' | 'converting' | 'completed' | 'failed';
@@ -724,6 +771,7 @@ export interface ImportModelResponse {
 }
 
 export interface ModelValidationResponse {
+  schema_version: string; // Required by backend API
   model_id: string;
   valid: boolean;
   issues: Array<{ type: string; message: string }>;
@@ -740,6 +788,7 @@ export interface ModelDownloadArtifact {
 }
 
 export interface ModelDownloadResponse {
+  schema_version: string; // Required by backend API
   model_id: string;
   download_url: string;
   expires_at: string;
@@ -748,6 +797,7 @@ export interface ModelDownloadResponse {
 }
 
 export interface AllModelsStatusResponse {
+  schema_version: string; // Required by backend API
   models: ModelStatusResponse[];
   total_memory_mb: number;
   available_memory_mb?: number;
@@ -762,6 +812,7 @@ export interface RoutingDebugRequest {
 }
 
 export interface RoutingDebugResponse {
+  schema_version: string; // Required by backend API
   selected_adapters: string[];
   all_scores: Record<string, number>;
   gate_values: number[];
@@ -770,6 +821,7 @@ export interface RoutingDebugResponse {
 
 // Scan types
 export interface ScanStatusResponse {
+  schema_version: string; // Required by backend API
   scan_id: string;
   status: 'pending' | 'scanning' | 'completed' | 'failed';
   progress?: number;
@@ -808,6 +860,7 @@ export interface QualityMetrics {
 
 // Tenant response types
 export interface TenantResponse {
+  schema_version: string; // Required by backend API
   id: string;
   name: string;
   uid: number;
@@ -819,6 +872,7 @@ export interface TenantResponse {
 }
 
 export interface TenantUsageResponse {
+  schema_version: string; // Required by backend API
   tenant_id: string;
   period: string;
   inference_count: number;
@@ -834,12 +888,14 @@ export interface TenantUsageResponse {
 }
 
 export interface AssignPoliciesResponse {
+  schema_version: string; // Required by backend API
   tenant_id: string;
   assigned_policies: string[];
   updated_at: string;
 }
 
 export interface AssignAdaptersResponse {
+  schema_version: string; // Required by backend API
   tenant_id: string;
   assigned_adapters: string[];
   updated_at: string;
@@ -847,6 +903,7 @@ export interface AssignAdaptersResponse {
 
 // Promotion response types
 export interface DryRunPromotionResponse {
+  schema_version: string; // Required by backend API
   would_succeed: boolean;
   gates_status: PromotionGate[];
   warnings: string[];
@@ -865,6 +922,7 @@ export interface PromotionHistoryEntry {
 
 // Telemetry response types
 export interface ExportTelemetryBundleResponse {
+  schema_version: string; // Required by backend API
   bundle_id: string;
   download_url: string;
   expires_at: string;
@@ -874,6 +932,7 @@ export interface ExportTelemetryBundleResponse {
 }
 
 export interface VerifyBundleSignatureResponse {
+  schema_version: string; // Required by backend API
   bundle_id: string;
   valid: boolean;
   signer?: string;
@@ -885,6 +944,7 @@ export interface VerifyBundleSignatureResponse {
 }
 
 export interface PurgeOldBundlesResponse {
+  schema_version: string; // Required by backend API
   deleted_count: number;
   freed_bytes: number;
   oldest_remaining?: string;
@@ -892,6 +952,7 @@ export interface PurgeOldBundlesResponse {
 
 // Repository response types
 export interface RepositoryReportResponse {
+  schema_version: string; // Required by backend API
   repository_id: string;
   commit_count: number;
   branch_count: number;
@@ -904,6 +965,7 @@ export interface RepositoryReportResponse {
 }
 
 export interface RegisterGitRepositoryResponse {
+  schema_version: string; // Required by backend API
   repository_id: string;
   name: string;
   url: string;
@@ -986,6 +1048,7 @@ export interface Tutorial {
 }
 
 export interface UpdateDashboardConfigResponse {
+  schema_version: string; // Required by backend API
   success: boolean;
   config_id: string;
   updated_at: string;
@@ -1029,6 +1092,7 @@ export interface ProcessCrashDump {
 }
 
 export interface MetricsSnapshotResponse {
+  schema_version: string; // Required by backend API
   timestamp: string;
   metrics: Record<string, number>;
   labels?: Record<string, string>;
@@ -1038,6 +1102,7 @@ export interface MetricsSnapshotResponse {
 }
 
 export interface MetricsSeriesResponse {
+  schema_version: string; // Required by backend API
   metric_name: string;
   data_points: Array<{ timestamp: string; value: number }>;
   aggregation?: string;
@@ -1071,12 +1136,14 @@ export interface DashboardConfig {
 }
 
 export interface ResetDashboardConfigResponse {
+  schema_version: string; // Required by backend API
   success: boolean;
   config_id: string;
   reset_at: string;
 }
 
 export interface ComplianceAuditResponse {
+  schema_version: string; // Required by backend API
   audit_id: string;
   status: 'passed' | 'failed' | 'warning';
   findings: Array<{ rule: string; status: string; message: string }>;
@@ -1436,4 +1503,40 @@ export interface OrchestrationMetrics {
   routing_decisions_by_strategy: Record<string, number>;
   errors_by_type: Record<string, number>;
   last_updated: string;
+}
+
+// System Health Response (all components)
+export interface SystemHealthResponse {
+  schema_version: string; // Required by backend API
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  version: string;
+  uptime_seconds: number;
+  timestamp: string;
+  components: Record<string, ComponentHealth>;
+}
+
+// Anomaly Response
+export interface Anomaly {
+  id: string;
+  type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  status: 'open' | 'acknowledged' | 'resolved' | 'investigating';
+  message: string;
+  detected_at: string;
+  resolved_at?: string;
+  component?: string;
+  metric_name?: string;
+  metric_value?: number;
+  threshold?: number;
+  anomaly_score?: number;
+  evidence?: string;
+  tags?: string[];
+}
+
+// Update Anomaly Status Request
+export interface UpdateAnomalyStatusRequest {
+  status: 'open' | 'acknowledged' | 'resolved' | 'investigating';
+  notes?: string;
+  assigned_to?: string;
+  tags?: string[];
 }

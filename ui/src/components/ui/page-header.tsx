@@ -20,7 +20,7 @@ export interface PageHeaderAction {
 
 export interface PageHeaderBadge {
   label: string;
-  variant?: 'default' | 'secondary' | 'destructive' | 'outline';
+  variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'error' | 'info' | 'neutral';
 }
 
 export interface PageHeaderBreadcrumb {

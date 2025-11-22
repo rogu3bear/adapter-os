@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { apiClient } from '../api/client';
-import type { User, LoginRequest } from '../api/types';
+import type { User } from '../api/types';
+import type { LoginRequest } from '../api/auth-types';
 import { logger, toError } from '../utils/logger';
 
 // Auth Context
@@ -116,7 +117,18 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (credentials: LoginRequest) => {
     try {
-      await apiClient.login(credentials);
+      logger.info('Initiating login', {
+        component: 'AuthProvider',
+        operation: 'login',
+        username: credentials.username,
+      });
+      const response = await apiClient.login(credentials);
+      logger.info('Login successful', {
+        component: 'AuthProvider',
+        operation: 'login',
+        user_id: response.user_id,
+        tenant_id: response.tenant_id,
+      });
       await refreshUser();
     } catch (error) {
       logger.error('Login failed', { component: 'AuthProvider' }, toError(error));

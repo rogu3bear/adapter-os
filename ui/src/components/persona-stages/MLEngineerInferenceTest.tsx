@@ -218,6 +218,7 @@ export default function MLEngineerInferenceTest() {
 
         setResults(batchResults);
         setBatchResponse({
+          schema_version: "v1",
           results: allRuns[0],
           responses: allRuns[0],
           total_tokens: allRuns[0].reduce((sum, r) => sum + (r?.tokens_generated || 0), 0),

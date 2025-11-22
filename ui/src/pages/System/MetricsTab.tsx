@@ -1,0 +1,337 @@
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useSystemMetrics, useComputedMetrics } from '@/hooks/useSystemMetrics';
+
+interface MetricDataPoint {
+  timestamp: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
+  gpuUsage: number;
+  tokensPerSecond: number;
+  latencyP95Ms: number;
+}
+
+export default function MetricsTab() {
+  const { metrics, isLoading, error, lastUpdated } = useSystemMetrics('fast');
+  const computed = useComputedMetrics(metrics);
+  const [historicalData, setHistoricalData] = useState<MetricDataPoint[]>([]);
+
+  // Collect metrics over time for charts
+  useEffect(() => {
+    if (!computed) return;
+
+    const dataPoint: MetricDataPoint = {
+      timestamp: new Date().toLocaleTimeString(),
+      cpuUsage: computed.cpuUsage,
+      memoryUsage: computed.memoryUsage,
+      diskUsage: computed.diskUsage,
+      gpuUsage: computed.gpuUsage,
+      tokensPerSecond: computed.tokensPerSecond,
+      latencyP95Ms: computed.latencyP95Ms,
+    };
+
+    setHistoricalData((prev) => {
+      // Keep last 20 data points
+      const updated = [...prev, dataPoint];
+      return updated.slice(-20);
+    });
+  }, [computed]);
+
+  if (error) {
+    return (
+      <Card className="border-destructive bg-destructive/10">
+        <CardContent className="pt-6">
+          <p className="text-destructive">Failed to load metrics: {error.message}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading && !computed) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {lastUpdated && (
+        <div className="flex justify-end">
+          <Badge variant="secondary">
+            Last updated: {lastUpdated.toLocaleTimeString()}
+          </Badge>
+        </div>
+      )}
+
+      {/* System Resource Usage Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>System Resource Usage</CardTitle>
+          <CardDescription>Real-time CPU, Memory, Disk, and GPU utilization</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historicalData.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-muted-foreground">
+              Collecting data...
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={historicalData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="timestamp" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="cpuUsage"
+                  stroke="#8884d8"
+                  name="CPU %"
+                  strokeWidth={2}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="memoryUsage"
+                  stroke="#82ca9d"
+                  name="Memory %"
+                  strokeWidth={2}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="diskUsage"
+                  stroke="#ffc658"
+                  name="Disk %"
+                  strokeWidth={2}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="gpuUsage"
+                  stroke="#ff7c7c"
+                  name="GPU %"
+                  strokeWidth={2}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Performance Metrics Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Performance Metrics</CardTitle>
+          <CardDescription>Throughput and latency over time</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historicalData.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-muted-foreground">
+              Collecting data...
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={historicalData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="timestamp" />
+                <YAxis yAxisId="left" />
+                <YAxis yAxisId="right" orientation="right" />
+                <Tooltip />
+                <Legend />
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="tokensPerSecond"
+                  stroke="#8884d8"
+                  fill="#8884d8"
+                  fillOpacity={0.6}
+                  name="Tokens/sec"
+                />
+                <Area
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="latencyP95Ms"
+                  stroke="#82ca9d"
+                  fill="#82ca9d"
+                  fillOpacity={0.6}
+                  name="Latency (ms)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Current Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>CPU Usage</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.cpuUsage.toFixed(1) ?? '--'}%</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Memory Usage</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.memoryUsage.toFixed(1) ?? '--'}%</div>
+            <div className="text-xs text-muted-foreground">
+              {computed?.memoryUsedGb.toFixed(2) ?? '--'} / {computed?.memoryTotalGb.toFixed(2) ?? '--'} GB
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>GPU Usage</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.gpuUsage.toFixed(1) ?? '--'}%</div>
+            <div className="text-xs text-muted-foreground">
+              {computed?.gpuMemoryUsedMb.toFixed(0) ?? '--'} / {computed?.gpuMemoryTotalMb.toFixed(0) ?? '--'} MB
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Disk Usage</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.diskUsage.toFixed(1) ?? '--'}%</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Network RX</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {computed ? (computed.networkRx / 1024 / 1024).toFixed(2) : '--'}
+            </div>
+            <div className="text-xs text-muted-foreground">MB received</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Network TX</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {computed ? (computed.networkTx / 1024 / 1024).toFixed(2) : '--'}
+            </div>
+            <div className="text-xs text-muted-foreground">MB transmitted</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Tokens/sec</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.tokensPerSecond.toFixed(1) ?? '--'}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Latency (P95)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.latencyP95Ms.toFixed(0) ?? '--'}</div>
+            <div className="text-xs text-muted-foreground">milliseconds</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>CPU Temperature</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.cpuTemp.toFixed(1) ?? '--'}°C</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>GPU Temperature</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.gpuTemp.toFixed(1) ?? '--'}°C</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>GPU Power</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.gpuPower.toFixed(1) ?? '--'}</div>
+            <div className="text-xs text-muted-foreground">watts</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Cache Hit Rate</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {computed ? (computed.cacheHitRate * 100).toFixed(1) : '--'}%
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Error Rate</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {computed ? (computed.errorRate * 100).toFixed(2) : '--'}%
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Active Adapters</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.adapterCount ?? '--'}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Active Sessions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.activeSessions ?? '--'}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Disk Read</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{computed?.diskReadMbps.toFixed(2) ?? '--'}</div>
+            <div className="text-xs text-muted-foreground">MB/s</div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

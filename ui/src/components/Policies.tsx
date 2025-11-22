@@ -612,33 +612,21 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             {compareResult && (
               <div className="mt-4 space-y-3 border-t pt-4">
                 <div className="mb-4">
-                  <p className="font-medium text-sm mb-1">Differences ({compareResult.differences.length})</p>
-                  <ul className="list-disc list-inside text-sm text-muted-foreground mt-2">
-                    {compareResult.differences.map((diff, idx) => (
-                      <li key={idx} className="font-mono text-xs">{diff.path}: {diff.type}</li>
-                    ))}
-                  </ul>
+                  <p className="font-medium text-sm mb-1">
+                    {compareResult.identical ? (
+                      <span className="text-green-600">Policies are identical</span>
+                    ) : (
+                      <span>Differences ({compareResult.differences.length})</span>
+                    )}
+                  </p>
+                  {compareResult.differences && compareResult.differences.length > 0 && (
+                    <ul className="list-disc list-inside text-sm text-muted-foreground mt-2 space-y-1">
+                      {compareResult.differences.map((diff, idx) => (
+                        <li key={idx} className="font-mono text-xs">{diff}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                {compareResult.added_keys.length > 0 && (
-                  <div className="mb-4">
-                    <p className="font-medium text-sm mb-1 text-green-600">Added Keys</p>
-                    <ul className="list-disc list-inside text-sm text-muted-foreground">
-                      {compareResult.added_keys.map((key, idx) => (
-                        <li key={idx} className="font-mono text-xs">{key}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {compareResult.removed_keys.length > 0 && (
-                  <div className="mb-4">
-                    <p className="font-medium text-sm mb-1 text-red-600">Removed Keys</p>
-                    <ul className="list-disc list-inside text-sm text-muted-foreground">
-                      {compareResult.removed_keys.map((key, idx) => (
-                        <li key={idx} className="font-mono text-xs">{key}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             )}
           </div>
