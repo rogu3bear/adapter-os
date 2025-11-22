@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2025-11-22T21:00:08Z",
+  "signed_at": "2025-11-22T22:31:04Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQWdVYUxaL3ZQSE8zdXkxaWVoNUU2Uld5dEtMMWZ5cVlPYXEyQllCamJtOEU9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "q+KagnRL8AVwXsV8wP+bcomgRPOxaM6mQi3O29lI9ArD8Uyx3txgbtibyL64qwy2hsCofY1uhMJsUPDyjwGvCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -85,6 +85,6 @@
     "0080_add_tenant_to_adapter_stacks.sql": {"hash": "70147ed5fc20c26f55230f0e2e639e7d2a1229afb436b19747c995fab32f93e0", "signature": "p4Yp3VUFmgKLzB6cBHDtBC4dj/z5CMtBqW0MsLWBTaufdQKsxr9LG/dvy44va7EMDDWjb3f7/e7uYzAh6BQ2AQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0081_query_performance_indexes.sql": {"hash": "4c873f9349e8ad2d6ca6df5e5eb56e417d6f403d5785cbd68e46d6898fa07c3e", "signature": "ry+F9HjgIzJvsHiRr+Xl1BjgiuMjx2r/JS5F8tV9nTC/bRJn00NljphLh2QAgWeOu1G6azTzNsohOVWfi/O3DA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0082_create_adapter_activations_table.sql": {"hash": "067883f7e1d2bf21294d27285e4599cf5bd9341763b82e9815e001e64a0c5c56", "signature": "GQQWhcVLYY+mTkrYu4325ibkxAIWnHjtRpKkGwH8xcR7z25LN5dRPbBofN2FHCq8sVsQOKQ9dQiPD5rKoaw3CA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0083_add_aos_file_columns.sql": {"hash": "5af22de628c14a5076ff3e22dc39e43b04d920200d5bab2e0136ff9757256965", "signature": "bZC9FIv7+VD7vRM4J6hMPTjegLs4v2khgbi4ET4/buC7iYsSuLB6yrYyiyOVGsB+Bwci4YKLS67aDB8Y4ZPiDw==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "0083_add_aos_file_columns.sql": {"hash": "f58f04d9b3884c02b57d71a8dba21c665a11893ae9c103d469fef27bd2f17b0d", "signature": "L7Tv1+rXNJd51G2RsU9q8n1zYNGudWldAYnVH2RK9NtvYoR+m7QnGXzomJVk1coQJKwvnXg8dOEzLn0BJ5FJDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

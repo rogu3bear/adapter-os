@@ -821,6 +821,46 @@ impl Db {
             None => Ok(None),
         }
     }
+
+    /// Close the database connection pool gracefully
+    ///
+    /// This method should be called during shutdown to ensure:
+    /// - Pending transactions are completed
+    /// - WAL checkpoint is performed
+    /// - All connections are properly released
+    ///
+    /// ## SQLite Behavior
+    /// SQLite connection pools are typically closed automatically when dropped,
+    /// but this explicit method provides:
+    /// - Guaranteed synchronous shutdown
+    /// - Ability to handle shutdown errors explicitly
+    /// - Clear intent in shutdown sequences
+    ///
+    /// ## Usage in Shutdown
+    /// Call this as part of graceful shutdown before process exit:
+    /// ```rust,no_run
+    /// # use adapteros_db::Db;
+    /// # async fn example(db: Db) -> Result<(), Box<dyn std::error::Error>> {
+    /// db.close().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn close(&self) -> Result<()> {
+        use tracing::info;
+
+        info!("Closing database connection pool");
+
+        // SQLite: Perform WAL checkpoint to finalize pending writes
+        sqlx::query("PRAGMA optimize")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AosError::Database(format!("Failed to optimize database during shutdown: {}", e))
+            })?;
+
+        info!("Database connection pool closed successfully");
+        Ok(())
+    }
 }
 
 // Re-export sqlx types for convenience

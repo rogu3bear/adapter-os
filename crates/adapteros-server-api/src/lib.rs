@@ -5,6 +5,7 @@ pub mod errors;
 pub mod handlers;
 pub mod health;
 pub mod ip_extraction;
+pub mod lifecycle;
 pub mod middleware;
 pub mod middleware_security;
 pub mod operation_tracker;
@@ -23,6 +24,10 @@ pub mod validation;
 
 pub use plugin_registry::PluginRegistry;
 
+pub use lifecycle::{
+    ShutdownCoordinator, ShutdownConfig, ShutdownError, ShutdownStatus, ShutdownProgress,
+    LifecycleHook, LifecycleHookRegistry, LifecyclePhase, LifecycleContext,
+};
 pub use state::{AppState, CryptoState};
 pub use telemetry::{
     spawn_telemetry_workers, SpanStatus, TelemetryWorkerConfig, TraceBuffer, TraceEvent,

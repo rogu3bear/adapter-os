@@ -601,3 +601,415 @@ fn test_q15_weight_ordering_preserved() {
         "Fourth should be 0.1"
     );
 }
+
+// ========================================================================
+// End-to-End Router → MLX Backend Integration Tests
+// ========================================================================
+// These tests verify the complete pipeline from router decision through
+// MLX backend execution, including determinism guarantees.
+
+#[cfg(feature = "multi-backend")]
+mod e2e_mlx_tests {
+    use super::*;
+    use adapteros_core::B3Hash;
+    use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
+    use adapteros_lora_mlx_ffi::{
+        backend::MLXFFIBackend,
+        lora::{LoRAAdapter, LoRAConfig},
+        mock::{create_mock_adapter, create_mock_config},
+        MLXFFIModel,
+    };
+    use adapteros_lora_worker::router_bridge::decision_to_router_ring;
+
+    /// Create a test MLX backend with deterministic seeding
+    fn create_test_backend_with_hash(manifest_hash: B3Hash) -> MLXFFIBackend {
+        let config = create_mock_config();
+        let model = MLXFFIModel::new_null(config);
+        MLXFFIBackend::with_manifest_hash(model, manifest_hash)
+            .expect("Failed to create backend with manifest hash")
+    }
+
+    /// Create a test MLX backend without deterministic seeding (for comparison)
+    fn create_test_backend() -> MLXFFIBackend {
+        let config = create_mock_config();
+        let model = MLXFFIModel::new_null(config);
+        MLXFFIBackend::new(model)
+    }
+
+    #[test]
+    fn test_e2e_router_to_mlx_single_adapter() {
+        // Test the complete flow: Decision → RouterRing → MLX execution
+        let mut backend = create_test_backend();
+
+        // Register a single adapter
+        let adapter = create_mock_adapter("e2e-adapter-0", 4);
+        backend.register_adapter(0, adapter).unwrap();
+
+        // Create a router decision selecting this adapter
+        let decision = make_decision(&[0], &[32767], 0.0); // Full weight on adapter 0
+
+        // Convert to RouterRing using explicit bridge
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        // Prepare IO buffers
+        let mut io = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000], // Standard vocab size
+            position: 0,
+        };
+
+        // Execute inference
+        let result = backend.run_step(&ring, &mut io);
+        assert!(result.is_ok(), "Inference should succeed: {:?}", result);
+
+        // Verify output was produced
+        assert!(
+            io.output_logits.iter().any(|&x| x != 0.0),
+            "Output logits should be non-zero after inference"
+        );
+        assert_eq!(io.position, 1, "Position should be incremented");
+    }
+
+    #[test]
+    fn test_e2e_router_to_mlx_multi_adapter() {
+        // Test multi-adapter routing through MLX
+        let mut backend = create_test_backend();
+
+        // Register multiple adapters
+        for i in 0..4 {
+            let adapter = create_mock_adapter(&format!("e2e-adapter-{}", i), 4);
+            backend.register_adapter(i as u16, adapter).unwrap();
+        }
+
+        // Create a router decision selecting 3 adapters with different weights
+        let decision = make_decision(
+            &[0, 1, 2],
+            &[16384, 8192, 8191], // ~0.5, ~0.25, ~0.25
+            0.5,
+        );
+
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        let mut io = IoBuffers {
+            input_ids: vec![42, 100, 200],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+
+        let result = backend.run_step(&ring, &mut io);
+        assert!(result.is_ok(), "Multi-adapter inference should succeed");
+        assert!(io.output_logits.iter().any(|&x| x != 0.0));
+    }
+
+    #[test]
+    fn test_e2e_determinism_with_manifest_hash() {
+        // Test that same manifest hash produces identical results
+        let manifest_hash = B3Hash::hash(b"test-manifest-for-determinism");
+
+        // Create two backends with same manifest hash
+        let mut backend1 = create_test_backend_with_hash(manifest_hash);
+        let mut backend2 = create_test_backend_with_hash(manifest_hash);
+
+        // Register identical adapters
+        let adapter1 = create_mock_adapter("determinism-test", 4);
+        let adapter2 = create_mock_adapter("determinism-test", 4);
+        backend1.register_adapter(0, adapter1).unwrap();
+        backend2.register_adapter(0, adapter2).unwrap();
+
+        // Same router decision
+        let decision = make_decision(&[0], &[32767], 0.0);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        // Same input
+        let mut io1 = IoBuffers {
+            input_ids: vec![1, 2, 3, 4, 5],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+        let mut io2 = IoBuffers {
+            input_ids: vec![1, 2, 3, 4, 5],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+
+        // Run inference on both
+        backend1.run_step(&ring, &mut io1).unwrap();
+        backend2.run_step(&ring, &mut io2).unwrap();
+
+        // Results should be identical (determinism guarantee)
+        for i in 0..io1.output_logits.len() {
+            assert!(
+                (io1.output_logits[i] - io2.output_logits[i]).abs() < 1e-6,
+                "Logit {} differs: {} vs {} (with same manifest hash)",
+                i,
+                io1.output_logits[i],
+                io2.output_logits[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_e2e_determinism_attestation() {
+        let manifest_hash = B3Hash::hash(b"attestation-test-manifest");
+        let backend = create_test_backend_with_hash(manifest_hash);
+
+        // Get determinism attestation
+        let report = backend.attest_determinism().unwrap();
+
+        // With manifest hash, backend should attest as deterministic
+        assert!(
+            report.deterministic,
+            "Backend with manifest hash should be deterministic"
+        );
+        assert!(
+            report.metallib_hash.is_some(),
+            "Should have manifest hash in attestation"
+        );
+
+        // Compare: backend without manifest hash
+        let backend_unseeded = create_test_backend();
+        let report_unseeded = backend_unseeded.attest_determinism().unwrap();
+
+        assert!(
+            !report_unseeded.deterministic,
+            "Backend without manifest hash should NOT be deterministic"
+        );
+    }
+
+    #[test]
+    fn test_e2e_router_zero_adapters() {
+        // Test that K=0 (no adapters selected) works correctly
+        let mut backend = create_test_backend();
+
+        // Register adapters but don't select any
+        let adapter = create_mock_adapter("unused-adapter", 4);
+        backend.register_adapter(0, adapter).unwrap();
+
+        // Empty decision (K=0)
+        let decision = make_decision(&[], &[], 0.0);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        assert_eq!(ring.k, 0);
+
+        let mut io = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+
+        // Should succeed with base model output only
+        let result = backend.run_step(&ring, &mut io);
+        assert!(result.is_ok(), "K=0 should use base model: {:?}", result);
+    }
+
+    #[test]
+    fn test_e2e_router_missing_adapter() {
+        // Test graceful handling when router references non-existent adapter
+        let mut backend = create_test_backend();
+
+        // Register only adapter 0
+        let adapter = create_mock_adapter("only-adapter", 4);
+        backend.register_adapter(0, adapter).unwrap();
+
+        // Decision references adapter 5 which doesn't exist
+        let decision = make_decision(&[0, 5], &[16384, 16383], 0.5);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        let mut io = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+
+        // Should succeed but only use adapter 0
+        let result = backend.run_step(&ring, &mut io);
+        assert!(
+            result.is_ok(),
+            "Should handle missing adapter gracefully: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_e2e_router_batch_inference() {
+        // Test batch of router decisions through MLX
+        let mut backend = create_test_backend();
+
+        // Register adapters
+        for i in 0..4 {
+            let adapter = create_mock_adapter(&format!("batch-adapter-{}", i), 4);
+            backend.register_adapter(i as u16, adapter).unwrap();
+        }
+
+        // Create batch of decisions
+        let decisions = vec![
+            make_decision(&[0], &[32767], 0.3),
+            make_decision(&[1, 2], &[16384, 16383], 0.5),
+            make_decision(&[0, 1, 2, 3], &[8192, 8192, 8191, 8192], 0.8),
+        ];
+
+        // Convert all decisions
+        let rings = batch_decision_to_router_ring(&decisions, 10).unwrap();
+
+        // Run inference for each
+        let mut results = Vec::new();
+        for ring in &rings {
+            let mut io = IoBuffers {
+                input_ids: vec![42],
+                output_logits: vec![0.0; 32000],
+                position: 0,
+            };
+            backend.run_step(ring, &mut io).unwrap();
+            results.push(io.output_logits[0]); // Just track first logit
+        }
+
+        assert_eq!(results.len(), 3);
+        // Results should differ based on different adapter selections
+        // (In stub mode they might be similar, but structure is tested)
+    }
+
+    #[test]
+    fn test_e2e_adapter_hotswap_during_inference() {
+        // Test hot-swapping adapters between inference calls
+        let mut backend = create_test_backend();
+
+        // Initial adapter
+        let adapter_v1 = create_mock_adapter("hotswap-adapter-v1", 4);
+        backend.register_adapter(0, adapter_v1).unwrap();
+
+        let decision = make_decision(&[0], &[32767], 0.0);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        // First inference
+        let mut io1 = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+        backend.run_step(&ring, &mut io1).unwrap();
+        let first_result = io1.output_logits[0];
+
+        // Hot-swap to new adapter
+        backend.unload_adapter_runtime(0).unwrap();
+        let adapter_v2 = create_mock_adapter("hotswap-adapter-v2", 8); // Different rank
+        backend.load_adapter_runtime(0, adapter_v2).unwrap();
+
+        // Second inference (same ring, different adapter)
+        let mut io2 = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+        backend.run_step(&ring, &mut io2).unwrap();
+        let second_result = io2.output_logits[0];
+
+        // Results should still be valid (hotswap worked)
+        assert!(first_result.is_finite());
+        assert!(second_result.is_finite());
+    }
+
+    #[test]
+    fn test_e2e_q15_gate_propagation_to_backend() {
+        // Verify Q15 gates are correctly propagated through the pipeline
+        let mut backend = create_test_backend();
+
+        // Register adapters
+        for i in 0..3 {
+            let adapter = create_mock_adapter(&format!("q15-test-{}", i), 4);
+            backend.register_adapter(i as u16, adapter).unwrap();
+        }
+
+        // Create decision with specific Q15 gates
+        let gates_q15: [i16; 3] = [
+            encode_q15(0.6),  // ~19660
+            encode_q15(0.3),  // ~9830
+            encode_q15(0.1),  // ~3277
+        ];
+        let decision = make_decision(&[0, 1, 2], &gates_q15, 0.5);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        // Verify ring contains correct Q15 values
+        assert_eq!(ring.k, 3);
+        assert_eq!(ring.active_indices(), &[0, 1, 2]);
+
+        // Gates should match (within Q15 encoding precision)
+        for i in 0..3 {
+            let expected = gates_q15[i];
+            let actual = ring.gates_q15[i];
+            assert_eq!(
+                expected, actual,
+                "Gate {} mismatch: expected {}, got {}",
+                i, expected, actual
+            );
+        }
+
+        // Run inference - should complete without error
+        let mut io = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+        backend.run_step(&ring, &mut io).unwrap();
+    }
+
+    #[test]
+    fn test_e2e_negative_gates_skipped() {
+        // Verify negative Q15 gates are skipped in backend processing
+        let mut backend = create_test_backend();
+
+        // Register adapters
+        for i in 0..3 {
+            let adapter = create_mock_adapter(&format!("neg-gate-{}", i), 4);
+            backend.register_adapter(i as u16, adapter).unwrap();
+        }
+
+        // Create decision with one negative gate (should be skipped)
+        let decision = make_decision(&[0, 1, 2], &[16384, -16384, 16383], 0.5);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        assert_eq!(ring.k, 3); // All 3 in ring
+        assert_eq!(ring.gates_q15[1], -16384); // Negative gate preserved
+
+        let mut io = IoBuffers {
+            input_ids: vec![1, 2, 3],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+
+        // Should succeed - negative gate adapter is skipped internally
+        let result = backend.run_step(&ring, &mut io);
+        assert!(
+            result.is_ok(),
+            "Negative gates should be handled: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_e2e_sequential_inference_position_tracking() {
+        // Test that position is correctly tracked across multiple inference steps
+        let mut backend = create_test_backend();
+
+        let adapter = create_mock_adapter("seq-adapter", 4);
+        backend.register_adapter(0, adapter).unwrap();
+
+        let decision = make_decision(&[0], &[32767], 0.0);
+        let ring = decision_to_router_ring(&decision, 10).unwrap();
+
+        let mut io = IoBuffers {
+            input_ids: vec![1],
+            output_logits: vec![0.0; 32000],
+            position: 0,
+        };
+
+        // Run 5 sequential inference steps
+        for expected_pos in 1..=5 {
+            backend.run_step(&ring, &mut io).unwrap();
+            assert_eq!(
+                io.position, expected_pos,
+                "Position should be {} after step {}",
+                expected_pos, expected_pos
+            );
+        }
+    }
+}

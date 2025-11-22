@@ -25,6 +25,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::generation::Generator;
+use crate::router_bridge::decision_to_router_ring;
 use crate::tokenizer::QwenTokenizer;
 
 /// Configuration for inference pipeline
@@ -165,9 +166,14 @@ pub struct InferencePipeline {
     quarantine_manager: Arc<Mutex<QuarantineManager>>,
     /// Circuit breaker for inference stability
     circuit_breaker: Arc<StandardCircuitBreaker>,
+    /// Maximum adapter count for router bridge bounds checking
+    max_adapter_count: u16,
 }
 
 impl InferencePipeline {
+    /// Default maximum adapter count for bounds checking
+    const DEFAULT_MAX_ADAPTER_COUNT: u16 = 256;
+
     /// Create new inference pipeline
     pub fn new(
         tokenizer_path: &Path,
@@ -177,6 +183,29 @@ impl InferencePipeline {
         telemetry: TelemetryWriter,
         config: InferencePipelineConfig,
         circuit_breaker: Arc<StandardCircuitBreaker>,
+    ) -> Result<Self> {
+        Self::with_adapter_count(
+            tokenizer_path,
+            router,
+            kernels,
+            policy,
+            telemetry,
+            config,
+            circuit_breaker,
+            Self::DEFAULT_MAX_ADAPTER_COUNT,
+        )
+    }
+
+    /// Create new inference pipeline with explicit adapter count
+    pub fn with_adapter_count(
+        tokenizer_path: &Path,
+        router: Router,
+        kernels: Box<dyn FusedKernels>,
+        policy: PolicyEngine,
+        telemetry: TelemetryWriter,
+        config: InferencePipelineConfig,
+        circuit_breaker: Arc<StandardCircuitBreaker>,
+        max_adapter_count: u16,
     ) -> Result<Self> {
         // Validate backend determinism before constructing pipeline
         let report = kernels.attest_determinism()?;
@@ -213,6 +242,7 @@ impl InferencePipeline {
             config,
             quarantine_manager,
             circuit_breaker,
+            max_adapter_count,
         })
     }
 
@@ -261,6 +291,7 @@ impl InferencePipeline {
             config,
             quarantine_manager,
             circuit_breaker,
+            max_adapter_count: Self::DEFAULT_MAX_ADAPTER_COUNT,
         })
     }
 
@@ -389,7 +420,9 @@ impl InferencePipeline {
                 position: current_tokens.len() - 1,
             };
 
-            let mut router_ring = RouterRing::from(&decision);
+            // Convert router decision to RouterRing using explicit bridge (PRD-02)
+            // This provides bounds checking and preserves decision order
+            let mut router_ring = decision_to_router_ring(&decision, self.max_adapter_count)?;
             router_ring.position = step;
 
             let kernel_start = Instant::now();

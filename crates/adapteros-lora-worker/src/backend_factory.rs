@@ -4,7 +4,7 @@
 //! (Metal, CoreML, MLX) and capability detection.
 
 use adapteros_config::{BackendPreference, ModelConfig};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use std::path::Path;
 use tracing::{debug, info, warn};
@@ -322,45 +322,100 @@ pub fn create_backend_with_model(
                 ))
             }
         }
-        BackendChoice::Mlx => {
-            #[cfg(feature = "multi-backend")]
-            {
-                use adapteros_lora_mlx_ffi::{
-                    mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
-                };
-
-                let model_path_str = model_path.to_string_lossy();
-                info!(model_path = %model_path_str, "Creating MLX FFI kernel backend");
-
-                // Ensure MLX runtime is initialized
-                if !mlx_runtime_is_initialized() {
-                    mlx_runtime_init().map_err(|e| {
-                        AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
-                    })?;
-                }
-
-                // Load the model
-                let model = MLXFFIModel::load(&model_path_str).map_err(|e| {
-                    AosError::Config(format!(
-                        "Failed to load MLX model from '{}': {}",
-                        model_path_str, e
-                    ))
-                })?;
-
-                let backend = MLXFFIBackend::new(model);
-                Ok(Box::new(backend))
-            }
-            #[cfg(not(feature = "multi-backend"))]
-            {
-                let _ = model_path;
-                Err(AosError::Config(
-                    "MLX backend requires 'multi-backend' feature to be enabled. \
-                     Build with: cargo build --features multi-backend"
-                        .to_string(),
-                ))
-            }
-        }
+        BackendChoice::Mlx => create_mlx_backend(model_path, None),
     }
+}
+
+/// Create a kernel backend with an explicit model path and manifest hash for determinism
+///
+/// Use this function when you need deterministic execution with HKDF-seeded RNG.
+/// The manifest hash is used to derive the MLX RNG seed for reproducible results.
+///
+/// # Arguments
+/// * `choice` - The backend choice
+/// * `model_path` - Path to the model directory
+/// * `manifest_hash` - Optional manifest hash for deterministic seeding
+///
+/// # Example
+/// ```rust,ignore
+/// use std::path::Path;
+/// use adapteros_core::B3Hash;
+/// use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend_with_model_and_hash};
+///
+/// let hash = B3Hash::hash(b"model-manifest");
+/// let backend = create_backend_with_model_and_hash(
+///     BackendChoice::Mlx,
+///     Path::new("./models/qwen2.5-7b"),
+///     Some(&hash)
+/// )?;
+/// ```
+pub fn create_backend_with_model_and_hash(
+    choice: BackendChoice,
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+) -> Result<Box<dyn FusedKernels>> {
+    match choice {
+        BackendChoice::Mlx => create_mlx_backend(model_path, manifest_hash),
+        // For non-MLX backends, manifest hash doesn't apply (they have their own determinism guarantees)
+        _ => create_backend_with_model(choice, model_path),
+    }
+}
+
+/// Internal helper to create MLX backend with optional manifest hash
+#[cfg(feature = "multi-backend")]
+fn create_mlx_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+) -> Result<Box<dyn FusedKernels>> {
+    use adapteros_lora_mlx_ffi::{
+        mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
+    };
+
+    let model_path_str = model_path.to_string_lossy();
+    info!(
+        model_path = %model_path_str,
+        has_manifest_hash = manifest_hash.is_some(),
+        "Creating MLX FFI kernel backend"
+    );
+
+    // Ensure MLX runtime is initialized
+    if !mlx_runtime_is_initialized() {
+        mlx_runtime_init().map_err(|e| {
+            AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
+        })?;
+    }
+
+    // Load the model
+    let model = MLXFFIModel::load(&model_path_str).map_err(|e| {
+        AosError::Config(format!(
+            "Failed to load MLX model from '{}': {}",
+            model_path_str, e
+        ))
+    })?;
+
+    // Create backend with or without manifest hash for deterministic seeding
+    let backend: Box<dyn FusedKernels> = if let Some(hash) = manifest_hash {
+        info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
+        Box::new(MLXFFIBackend::with_manifest_hash(model, hash.clone()).map_err(|e| {
+            AosError::Config(format!("Failed to create MLX backend with manifest hash: {}", e))
+        })?)
+    } else {
+        Box::new(MLXFFIBackend::new(model))
+    };
+
+    Ok(backend)
+}
+
+#[cfg(not(feature = "multi-backend"))]
+fn create_mlx_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+) -> Result<Box<dyn FusedKernels>> {
+    Err(AosError::Config(
+        "MLX backend requires 'multi-backend' feature to be enabled. \
+         Build with: cargo build --features multi-backend"
+            .to_string(),
+    ))
 }
 
 /// Create a kernel backend based on the choice (backward-compatible)

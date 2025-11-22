@@ -1,7 +1,7 @@
 use crate::handlers;
 use crate::handlers::auth;
 use crate::handlers::domain_adapters;
-use crate::middleware::{auth_middleware, dual_auth_middleware};
+use crate::middleware::{auth_middleware, client_ip_middleware, dual_auth_middleware};
 use crate::middleware_security::{
     cors_layer, rate_limiting_middleware, request_size_limit_middleware,
     security_headers_middleware,
@@ -1137,6 +1137,7 @@ pub fn build(state: AppState) -> Router {
             rate_limiting_middleware,
         )) // Rate limiting
         .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
-        .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers (outermost)
+        .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers
+        .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP (outermost)
         .with_state(state)
 }

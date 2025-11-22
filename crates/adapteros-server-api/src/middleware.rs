@@ -16,6 +16,18 @@ use chrono::{Duration, Utc};
 use std::str::FromStr;
 use uuid::Uuid;
 
+/// Extract client IP address from request headers (applies to all routes)
+pub async fn client_ip_middleware(
+    mut req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    // Extract and inject client IP into request extensions
+    if let Some(ip) = extract_client_ip(req.headers()) {
+        req.extensions_mut().insert(ClientIp(ip));
+    }
+    next.run(req).await
+}
+
 /// Extract and validate JWT from Authorization header
 pub async fn auth_middleware(
     State(state): State<AppState>,

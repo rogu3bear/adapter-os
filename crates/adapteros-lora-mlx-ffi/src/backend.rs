@@ -863,6 +863,18 @@ impl MLXFFIBackend {
             }
         }
 
+        // Emit router decision telemetry (structured event for monitoring)
+        tracing::info!(
+            target: "mlx.router.decision",
+            position = io.position,
+            ring_k = ring.k,
+            active_indices = ?&ring.indices[..ring.k],
+            gates_q15 = ?&ring.gates_q15[..ring.k],
+            inference_time_ms = inference_time,
+            deterministic = self.manifest_hash.is_some(),
+            "Router decision executed"
+        );
+
         tracing::debug!(
             position = io.position,
             active_adapters = ring.k,
@@ -989,6 +1001,17 @@ impl MLXFFIBackend {
             let mut health = self.health_status.write();
             health.active_adapters = active_adapters.len();
         }
+
+        // Emit multi-adapter routing telemetry
+        tracing::info!(
+            target: "mlx.router.lora_applied",
+            active_adapters = active_adapters.len(),
+            modules_applied = modules_applied,
+            total_gate_weight = %format!("{:.4}", total_gate_weight),
+            gates_q15 = ?&gates[..gates.len().min(8)],
+            adapter_ids = ?active_adapters.iter().map(|a| a.id()).collect::<Vec<_>>(),
+            "Multi-adapter LoRA routing applied"
+        );
 
         tracing::debug!(
             active_adapters = active_adapters.len(),
