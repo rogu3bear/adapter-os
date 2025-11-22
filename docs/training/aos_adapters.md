@@ -33,13 +33,13 @@ The `.aos` format uses a unified 64-byte header with cache-aligned layout for op
 
 | Offset | Size | Field | Purpose |
 | ------ | ---- | ----- | ------- |
-| 0-7 | 8 bytes | Magic: `AOS3\x00\x00\x00\x00` | Format identifier |
-| 8-23 | 16 bytes | Reserved | Future extensibility |
-| 24-31 | 8 bytes | Weights offset | Position of weight data (u64 LE) |
-| 32-39 | 8 bytes | Weights size | Size of weight data (u64 LE) |
-| 40-47 | 8 bytes | Manifest offset | Position of manifest JSON (u64 LE) |
-| 48-55 | 8 bytes | Manifest size | Size of manifest JSON (u64 LE) |
-| 56-63 | 8 bytes | Reserved | Padding/future use |
+| 0-3 | 4 bytes | Magic: `AOS\x00` | Format identifier |
+| 4-7 | 4 bytes | Flags | Reserved (u32 LE) |
+| 8-15 | 8 bytes | Weights offset | Position of weight data (u64 LE) |
+| 16-23 | 8 bytes | Weights size | Size of weight data (u64 LE) |
+| 24-31 | 8 bytes | Manifest offset | Position of manifest JSON (u64 LE) |
+| 32-39 | 8 bytes | Manifest size | Size of manifest JSON (u64 LE) |
+| 40-63 | 24 bytes | Reserved | Padding/future use |
 
 ## Benefits
 
@@ -84,7 +84,7 @@ cargo xtask train-base-adapter \
 ```rust
 use std::io::Write;
 
-const AOS_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
+const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 const HEADER_SIZE: u64 = 64;
 
 fn create_aos_file(
@@ -100,13 +100,13 @@ fn create_aos_file(
     let manifest_size = manifest_json.len() as u64;
 
     // Write 64-byte header (cache-aligned)
-    file.write_all(AOS_MAGIC)?;                            // 0-7: magic
-    file.write_all(&[0u8; 16])?;                           // 8-23: reserved
-    file.write_all(&weights_offset.to_le_bytes())?;        // 24-31: weights_offset
-    file.write_all(&weights_size.to_le_bytes())?;          // 32-39: weights_size
-    file.write_all(&manifest_offset.to_le_bytes())?;       // 40-47: manifest_offset
-    file.write_all(&manifest_size.to_le_bytes())?;         // 48-55: manifest_size
-    file.write_all(&[0u8; 8])?;                            // 56-63: reserved
+    file.write_all(&AOS_MAGIC)?;                           // 0-3: magic
+    file.write_all(&0u32.to_le_bytes())?;                  // 4-7: flags
+    file.write_all(&weights_offset.to_le_bytes())?;        // 8-15: weights_offset
+    file.write_all(&weights_size.to_le_bytes())?;          // 16-23: weights_size
+    file.write_all(&manifest_offset.to_le_bytes())?;       // 24-31: manifest_offset
+    file.write_all(&manifest_size.to_le_bytes())?;         // 32-39: manifest_size
+    file.write_all(&[0u8; 24])?;                           // 40-63: reserved
 
     // Write weights and manifest
     file.write_all(weights_data)?;
@@ -118,7 +118,7 @@ fn create_aos_file(
 
 ## Loading .aos Files
 
-Loaders auto-detect the format version by checking magic bytes.
+The loader validates `.aos` files by checking magic bytes and reading the 64-byte header.
 
 ### Command Line
 
@@ -183,34 +183,20 @@ match AosLoader::load("adapter.aos").await {
 
 ## Format Detection
 
-The loader detects format version by checking magic bytes:
+The loader validates the `.aos` format by checking magic bytes at file start:
 
 ```rust
-fn detect_aos_format(data: &[u8]) -> Option<u32> {
-    if data.len() < 12 {
-        return None;
+fn is_valid_aos_file(data: &[u8]) -> bool {
+    if data.len() < 64 {
+        return false;
     }
 
-    // AOS 3.0: "AOS3" magic (current)
-    if &data[0..4] == b"AOS3" {
-        return Some(3);
-    }
-
-    // AOS 2.0: "AOS2" magic (legacy)
-    if &data[0..4] == b"AOS2" {
-        return Some(2);
-    }
-
-    // Simple format (legacy): check for valid manifest offset/len
-    let offset = u32::from_le_bytes(data[0..4].try_into().ok()?);
-    let len = u32::from_le_bytes(data[4..8].try_into().ok()?);
-    if offset >= 8 && len > 0 && len < 1024 * 1024 {
-        return Some(1);
-    }
-
-    None
+    // Check magic bytes "AOS\x00"
+    &data[0..4] == b"AOS\x00"
 }
 ```
+
+The header provides all metadata needed for zero-copy loading via memory mapping.
 
 ## Extracting Components
 
@@ -229,54 +215,23 @@ aosctl adapter extract \
 
 ## File Structure
 
-### Format v3 (64-byte header - Current)
+### Binary Layout (64-byte cache-aligned header)
 
 ```
-adapter.aos (AOS 3.0 binary)
+adapter.aos
 +--------+--------+------------------------------------------+
 | Offset | Size   | Field                                    |
 +--------+--------+------------------------------------------+
-| 0      | 8      | Magic bytes: "AOS3\x00\x00\x00\x00"      |
-| 8      | 4      | Format version (u32 LE) = 3              |
-| 12     | 4      | Flags (u32 LE, reserved)                 |
-| 16     | 8      | Total file size (u64 LE)                 |
-| 24     | 8      | Weights offset (u64 LE)                  |
-| 32     | 8      | Weights size (u64 LE)                    |
-| 40     | 8      | Manifest offset (u64 LE)                 |
-| 48     | 8      | Manifest size (u64 LE)                   |
-| 56     | 8      | Reserved (padding)                       |
+| 0-3    | 4      | Magic bytes: "AOS\x00"                   |
+| 4-7    | 4      | Flags (u32 LE, reserved)                 |
+| 8-15   | 8      | Weights offset (u64 LE)                  |
+| 16-23  | 8      | Weights size (u64 LE)                    |
+| 24-31  | 8      | Manifest offset (u64 LE)                 |
+| 32-39  | 8      | Manifest size (u64 LE)                   |
+| 40-63  | 24     | Reserved (padding)                       |
 +--------+--------+------------------------------------------+
-| 64     | N      | Weights (SafeTensors or Q15)             |
-| 64+N   | M      | Manifest (JSON metadata)                 |
-+--------+--------+------------------------------------------+
-```
-
-### Format v2 (268-byte header - Legacy)
-
-```
-adapter.aos (AOS 2.0 binary)
-+--------+--------+------------------------------------------+
-| 0-7    | 8      | Magic bytes: "AOS2\x00\x00\x00\x00"      |
-| 8-11   | 4      | Format version                           |
-| 12-19  | 8      | Total file size                          |
-| 20-27  | 8      | Weights offset                           |
-| 28-35  | 8      | Weights size                             |
-| 36-43  | 8      | Metadata offset                          |
-| 44-51  | 8      | Metadata size                            |
-| 52-267 | 216    | Extended fields / reserved               |
-+--------+--------+------------------------------------------+
-```
-
-### Format v1 (8-byte header - Legacy)
-
-```
-adapter.aos (Simple binary)
-+--------+--------+------------------------------------------+
-| 0-3    | 4      | Manifest offset (u32 LE)                 |
-| 4-7    | 4      | Manifest length (u32 LE)                 |
-+--------+--------+------------------------------------------+
-| 8      | N      | Weights data                             |
-| offset | M      | Manifest (JSON)                          |
+| 64+    | N      | Weights (SafeTensors or Q15)             |
+| offset | M      | Manifest (JSON metadata)                 |
 +--------+--------+------------------------------------------+
 ```
 
@@ -284,7 +239,6 @@ adapter.aos (Simple binary)
 
 ```json
 {
-  "format_version": 3,
   "adapter_id": "tenant-a/engineering/code-review/r001",
   "name": "Code Review Assistant",
   "version": "1.0.0",
@@ -324,24 +278,6 @@ adapter.aos (Simple binary)
 
 ## Best Practices
 
-### Versioning
-
-Use semantic versioning for adapter versions:
-- **Major version**: Breaking changes to adapter behavior
-- **Minor version**: New training data or capabilities
-- **Patch version**: Bug fixes or minor improvements
-
-```bash
-# Version 1.0.0 - Initial release
-aosctl adapter package --version 1.0.0 ...
-
-# Version 1.1.0 - Added new training examples
-aosctl adapter package --version 1.1.0 ...
-
-# Version 2.0.0 - Changed base model
-aosctl adapter package --version 2.0.0 ...
-```
-
 ### Signing
 
 Always sign production adapters:
@@ -354,11 +290,14 @@ aosctl adapter package \
   -o prod_adapter.aos
 ```
 
-### Format Selection
+### Adapter Versioning
 
-- Use **v3** for all new adapters (current format with 64-byte header)
-- Legacy v1/v2 formats are supported for backwards compatibility only
-- New tooling should always produce v3 format
+Use semantic versioning in the manifest:
+- **Major version**: Breaking changes to adapter behavior
+- **Minor version**: New training data or capabilities
+- **Patch version**: Bug fixes or minor improvements
+
+Keep the adapter ID stable while incrementing the version field in the manifest.
 
 ### Storage
 
@@ -444,20 +383,6 @@ lifecycle.demote_adapter(0).await?;
 2. Ensure adequate disk space for extraction
 3. Consider using SSD for adapter storage
 4. Monitor memory usage during loading
-
-## Migration from Legacy Formats
-
-### From v1/v2 to v3
-
-```bash
-# Convert legacy adapter to v3 format
-aosctl adapter migrate --input legacy.aos --output modern.aos
-```
-
-Or programmatically:
-1. Load the legacy adapter using the auto-detecting loader
-2. Extract weights and manifest
-3. Repackage using the v3 writer
 
 ## References
 

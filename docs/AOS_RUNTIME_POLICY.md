@@ -35,24 +35,24 @@
   - Generate deterministic manifests, lineage, and weight groups.
   - Store outputs locally; never publish directories.
 - **Packaging Stage**
-  - Run `SingleFileAdapterValidator` and signature routines.
-  - Emit `.aos` to CAS with BLAKE3-named files.
-  - Record metadata (hash, format version, key ID).
+  - Validate adapter manifest and weights data.
+  - Emit `.aos` to CAS using `AosWriter` with signed metadata.
+  - Record metadata (hash, signer key ID, timestamp).
 - **Runtime Consumers**
   - Fetch `.aos`, optionally via CDN or distributed cache.
-  - Load through `SingleFileAdapterLoader` or `MmapAdapterLoader`.
+  - Load through `AosLoader` or `MmapAdapterLoader`.
   - Reject any non-`.aos` payloads.
 
 ## Implementation Directives
-- Control plane import (`/v1/adapters/import`) shall refuse non-`.aos` uploads after packaging transition.
-- Lifecycle loader must prefer `.aos`, perform signature verification, and map weight groups without materializing raw directories.
+- Control plane import (`/v1/adapters/import`) shall refuse non-`.aos` uploads.
+- Lifecycle loader must prefer `.aos`, perform signature verification, and load weights without materializing raw directories.
 - UI flows (Service Panel, Trainer) should only surface `.aos` for download or upload.
-- CLI commands (`aos create`, `aos load`, `aos verify`) must align with the structured weight-group API emitted by format v2.
+- CLI commands (`aos create`, `aos load`, `aos verify`) must use the unified AOS format via `AosWriter` and `AosLoader`.
 - Tests must construct adapters via helper builders that mirror the packaging stage, preventing regressions in serialization.
 
 ## Operations & Observability
-- Telemetry should capture `.aos` hash, format version, and signature status upon load.
-- Health checks must alert when unsigned or mismatched format versions appear.
+- Telemetry should capture `.aos` hash and signature status upon load.
+- Health checks must alert when unsigned archives or invalid signatures appear.
 - CAS retention policies should key off `.aos` hashes; directory artifacts are disposable.
 
 ## Change Control
@@ -64,16 +64,16 @@
 - Prior to new format adoption, provide dual-read shims that maintain `.aos` output for all existing integrations.
 
 ## Validation Checklist
-- [ ] `SingleFileAdapterPackager` invoked on every produced adapter.
-- [ ] `SingleFileAdapterLoader::load` succeeds against stored artifact.
+- [ ] `AosWriter` invoked on every produced adapter.
+- [ ] `AosLoader::load` succeeds against stored artifact.
 - [ ] Signature verified and recorded.
-- [ ] Format version matches `AOS_FORMAT_VERSION`.
+- [ ] 64-byte header format is valid (magic bytes, offsets, sizes).
 - [ ] Observability pipeline logs hash and signature key ID.
 
-## Forward Compatibility (AOS 2.0 Considerations)
-- Prototype memory-mappable containers in a separate crate while exporting a `.aos` façade.
-- When ready, embed experimental payloads inside `.aos` (e.g., additional section) without breaking existing readers.
-- Introduce capability negotiation via manifest metadata before flipping defaults.
+## Forward Compatibility
+- The unified `.aos` format uses a fixed 64-byte header; future enhancements may extend manifest metadata.
+- Backward compatibility is guaranteed: new loaders must accept archives produced by older versions.
+- Capability negotiation should occur via manifest metadata without changing the binary header format.
 
 ## Migration Playbook
 1. Audit current storage to ensure every adapter has a `.aos` equivalent.
