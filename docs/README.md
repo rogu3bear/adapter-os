@@ -96,7 +96,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 **Detailed Guides:**
 - [Architecture](code-intelligence/code-intelligence-ARCHITECTURE.md) - System design and components
 - [Tiers](code-intelligence/code-intelligence-tiers.md) - Feature tiers and capabilities
-- [API Reference](code-intelligence/code-api-registry.md) - REST API documentation
+- [API Reference](code-intelligence/CODE-API-REGISTRY.md) - REST API documentation
 - [CLI Commands](code-intelligence/code-cli-commands.md) - Command-line interface
 - [Policies](code-intelligence/CODE-POLICIES.md) - Policy configuration
 - [Router Features](code-intelligence/CODE-ROUTER-FEATURES.md) - Routing integration
@@ -162,7 +162,7 @@ Start here if you're evaluating AdapterOS for compliance:
 ### REST API
 - Control Plane API: See [control-plane.md](CONTROL-PLANE.md)
 - Authentication API: See [AUTHENTICATION.md](AUTHENTICATION.md)
-- Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/code-api-registry.md)
+- Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/CODE-API-REGISTRY.md)
 - OpenAPI Specification: See [api.md](API.md) (auto-generated)
 
 ### Rust API
