@@ -103,7 +103,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 - [Evaluation](code-intelligence/code-evaluation.md) - Metrics and testing
 
 #### UI Component Hierarchy
-- **[UI Component Hierarchy](ui-component-hierarchy.md)** - React component structure and relationships
+- **[UI Component Hierarchy](UI-COMPONENT-HIERARCHY.md)** - React component structure and relationships
 
 #### Policy Engine Outline
 - **[Policy Engine Outline](policy-engine-outline.md)** - High-level policy enforcement architecture
