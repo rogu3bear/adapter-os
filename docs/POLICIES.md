@@ -1,17 +1,17 @@
 # AdapterOS Policy Packs
 
-This document is auto-generated from the policy registry metadata. It describes the 22 canonical policy packs that enforce compliance, security, and quality in AdapterOS.
+This document is auto-generated from the policy registry metadata. It describes the 23 canonical policy packs that enforce compliance, security, and quality in AdapterOS.
 
 ## Policy Registry Overview
 
-The policy registry (`adapteros-policy`) contains exactly 22 policy packs, each with:
+The policy registry (`adapteros-policy`) contains exactly 23 policy packs, each with:
 - **ID**: Unique identifier
 - **Name**: Human-readable name
 - **Description**: Purpose and scope
 - **Severity**: Enforcement level (Critical, High, Medium, Low)
 - **Implementation Status**: Whether the policy is implemented
 
-## The 22 Canonical Policy Packs
+## The 23 Canonical Policy Packs
 
 ### 1. Egress
 **ID**: `Egress`  

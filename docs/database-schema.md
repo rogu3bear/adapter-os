@@ -1746,6 +1746,18 @@ Regularly test recovery procedures:
 
 ---
 
+## See Also
+
+- [CLAUDE.md](../CLAUDE.md) - Developer quick reference (source of truth)
+- [DATABASE_REFERENCE.md](DATABASE_REFERENCE.md) - Core tables quick reference with simplified ERD
+- [database-schema/README.md](database-schema/README.md) - Extended schema documentation
+- [LIFECYCLE.md](LIFECYCLE.md) - Adapter lifecycle states (Unloaded, Cold, Warm, Hot, Resident)
+- [PINNING_TTL.md](PINNING_TTL.md) - Pinning and TTL enforcement details
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Training dataset and job workflows
+- [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Full architecture overview
+
+---
+
 **Last Updated:** 2025-11-19
 **Schema Version:** 0071 (71 migrations applied)
 **Maintained by:** AdapterOS Engineering Team

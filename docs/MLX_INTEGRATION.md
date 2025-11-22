@@ -2,7 +2,7 @@
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 **Last Updated:** 2025-11-20
-**Status:** Production Ready with Enterprise Resilience
+**Status:** Stub Implementation (compiles but not fully functional)
 
 ---
 
@@ -345,3 +345,40 @@ export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
 - The wrapper currently retains stub logic under real mode as a placeholder; actual MLX C++ calls can be introduced behind `#ifdef MLX_HAVE_REAL_API` with no changes to the Rust ABI
 - MLX backend is production-ready and can be used alongside Metal backend
 - Feature flag `mlx-ffi-backend` is independent and does not require `experimental-backends`
+
+---
+
+## Backend Selection Status Flowchart
+
+The following diagram shows the current backend selection logic and implementation status:
+
+```mermaid
+flowchart TD
+    A[create_backend] --> B{Backend Choice}
+    B -->|CoreML| C[CoreML Backend]
+    B -->|MLX| D[MLX Backend]
+    B -->|Metal| E[Metal Backend]
+    C -->|Status: Placeholder| F[ANE Production]
+    D -->|Status: Stub| G[Research/Training]
+    E -->|Status: Building| H[Legacy Fallback]
+
+    style C fill:#fff3cd
+    style D fill:#fff3cd
+    style E fill:#d4edda
+```
+
+**Status Key:**
+- **CoreML (Yellow):** Placeholder implementation - adapter loading not implemented
+- **MLX (Yellow):** Stub implementation - compiles but not fully functional
+- **Metal (Green):** Building successfully - production ready
+
+---
+
+## See Also
+
+Related backend documentation:
+
+- [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
+- [docs/COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML backend guide, ANE optimization, Swift bridge
+- [docs/ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
+- [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns

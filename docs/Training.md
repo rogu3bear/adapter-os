@@ -2,6 +2,40 @@
 
 This guide covers local CLI training, orchestrated training via the control plane, packaging/signing, verification, registration, and troubleshooting.
 
+## Pipeline Overview
+
+The AdapterOS training pipeline consists of 5 canonical steps:
+
+```mermaid
+flowchart LR
+    A[1. Ingest] --> B[2. Generate]
+    B --> C[3. Dataset]
+    C --> D[4. Train]
+    D --> E[5. Package]
+
+    A -->|DocumentIngestor| A1[PDF/Text Input]
+    B -->|generate_training_data| B1[Training Examples]
+    C -->|TrainingDatasetManager| C1[Validated Dataset]
+    D -->|MicroLoRATrainer| D1[Adapter Weights]
+    E -->|AdapterPackager| E1[.aos Archive]
+```
+
+**Pipeline Steps:**
+
+1. **Ingest** - `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
+2. **Generate** - `generate_training_data(&doc, &tokenizer, &config)?`
+3. **Dataset** - `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
+4. **Train** - `MicroLoRATrainer::new(cfg)?.train(examples, adapter_id).await?`
+5. **Package** - `AdapterPackager::new().package(weights, manifest)?` then `registry.register_adapter(...)?`
+
+**Training Strategies:** Identity (unsupervised), QuestionAnswer, MaskedLM
+
+**Templates:**
+- `general-code`: rank=16, alpha=32 (multi-language)
+- `framework-specific`: rank=12, alpha=24
+
+**Job Tracking States:** Pending -> Running -> Completed/Failed/Cancelled (progress %, loss, tokens/sec)
+
 ## Dataset Schema
 
 The CLI training command supports two data formats: **text-based** (auto-detected) and **pre-tokenized** (backward compatible).
@@ -172,3 +206,11 @@ curl -H 'Authorization: Bearer adapteros-local' \
 - Missing artifacts: ensure `AOS_ADAPTERS_ROOT` is set and that the packaged directory exists.
 - Registration inconsistencies: recompute BLAKE3 over `weights.safetensors` and compare with `manifest.json.weights_hash`.
 - UI shows "Not Ready": check signature validity and hash matching.
+
+## See Also
+
+- [USER_GUIDE_DATASETS.md](USER_GUIDE_DATASETS.md) - Dataset upload and management guide
+- [DATASET_TRAINING_INTEGRATION.md](DATASET_TRAINING_INTEGRATION.md) - Dataset-to-training pipeline integration
+- [AOS_FORMAT.md](AOS_FORMAT.md) - .aos archive format specification
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Detailed training pipeline architecture
+- [CLAUDE.md](../CLAUDE.md) - Training section in developer guide

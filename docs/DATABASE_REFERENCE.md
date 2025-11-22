@@ -142,7 +142,7 @@ Immutable audit trail
 
 **Canonical Location:** `/migrations/` (root)
 
-**Migration Count:** 65 migrations (0001-0065, with some gaps)
+**Migration Count:** 80 migrations (0001-0080, complete sequence)
 
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 
@@ -159,6 +159,21 @@ Immutable audit trail
 | **0063** | Dashboard configuration | `dashboard_configs` (new table) |
 | **0064** | Adapter stacks | `adapter_stacks` (new table) |
 | **0065** | Heartbeat mechanism | `adapters`, `training_jobs` (add `last_heartbeat`), views |
+| **0066** | Stack versioning (telemetry correlation) | `adapter_stacks` |
+| **0067** | Multi-tenancy for adapter stacks | `adapter_stacks` |
+| **0068** | Metadata normalization | `adapters` (version, lifecycle_state) |
+| **0069** | Plugin tenant enables | `plugin_tenant_enables` |
+| **0070** | Routing decisions telemetry | `routing_decisions` |
+| **0071** | Lifecycle version history | `lifecycle_version_history` (adapter/stack audit trail) |
+| **0072** | Tenant snapshots | `tenant_snapshots` |
+| **0073** | Index hash tracking | `index_hashes` |
+| **0074** | Legacy index migration | Index cleanup |
+| **0075** | Lifecycle state transition triggers | Triggers |
+| **0076** | Golden run promotions | `golden_run_promotions` |
+| **0077** | Adapter performance tracking | `adapter_performance` |
+| **0078** | Federation consensus ledger | `federation_consensus` |
+| **0079** | Stack versioning extensions | `adapter_stacks` |
+| **0080** | Tenant adapter stack isolation | Multi-tenant stack isolation |
 
 ### Creating New Migrations
 
@@ -308,8 +323,81 @@ ORDER BY pinned_at DESC;
 
 ---
 
+## Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    tenants ||--o{ adapters : "owns"
+    tenants ||--o{ adapter_stacks : "owns"
+    tenants ||--o{ pinned_adapters : "manages"
+    tenants ||--o{ audit_logs : "tracked by"
+
+    adapters ||--o{ pinned_adapters : "can be pinned"
+    adapters }o--o{ adapter_stacks : "belongs to"
+
+    training_datasets ||--o{ training_jobs : "used by"
+
+    adapters {
+        text adapter_id PK
+        text tenant_id FK
+        text hash
+        text tier
+        text current_state
+        text expires_at
+    }
+
+    tenants {
+        text tenant_id PK
+        integer uid
+        integer gid
+        text isolation_metadata
+    }
+
+    adapter_stacks {
+        integer id PK
+        text name
+        text adapter_ids_json
+        text workflow_type
+        text tenant_id FK
+    }
+
+    training_datasets {
+        integer id PK
+        text dataset_id
+        text hash_b3
+        text validation_status
+    }
+
+    training_jobs {
+        integer id PK
+        text job_id
+        integer dataset_id FK
+        text status
+        real progress_pct
+    }
+
+    pinned_adapters {
+        text tenant_id PK
+        text adapter_id PK
+        text pinned_until
+        text reason
+    }
+
+    audit_logs {
+        integer id PK
+        text user_id
+        text action
+        text resource
+        text status
+    }
+```
+
+---
+
 ## See Also
 
-- [CLAUDE.md](../CLAUDE.md) - Developer quick reference
+- [CLAUDE.md](../CLAUDE.md) - Developer quick reference (source of truth)
+- [database-schema/README.md](database-schema/README.md) - Extended schema documentation
+- [LIFECYCLE.md](LIFECYCLE.md) - Adapter lifecycle states (Unloaded, Cold, Warm, Hot, Resident)
 - [PINNING_TTL.md](PINNING_TTL.md) - Pinning and TTL enforcement details
 - [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Full architecture overview

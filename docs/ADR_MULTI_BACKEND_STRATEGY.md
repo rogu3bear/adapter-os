@@ -13,17 +13,17 @@ AdapterOS requires GPU acceleration for efficient LoRA adapter inference on macO
 
 ## Decision
 
-We adopt a **Metal-first, CoreML-active, MLX-future** multi-backend architecture with a unified `FusedKernels` trait interface.
+We adopt a **CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)** multi-backend architecture with a unified `FusedKernels` trait interface.
 
 ### Backend Priority Matrix
 
 | Backend | Status | Determinism | Primary Use Case | Implementation Language |
 |---------|--------|-------------|------------------|------------------------|
-| **Metal** | **Production** | **Guaranteed** | M1/M2/M3/M4 GPU acceleration | Objective-C++ (Metal shaders) |
-| **CoreML** | **Active Development** | **Conditional*** | ANE acceleration (M1+) | Objective-C++ (CoreML API) |
-| **MLX** | **Future Research** | **Experimental** | Research & prototyping | PyO3 (Python FFI) |
+| **CoreML** | **Placeholder*** | **Guaranteed (ANE)** | ANE acceleration, production | Objective-C++ (CoreML API) |
+| **MLX** | **Stub*** | **HKDF-seeded** | Research, training (active) | C++ FFI |
+| **Metal** | **Building successfully** | **Guaranteed** | Fallback for non-ANE systems | Objective-C++ (Metal shaders) |
 
-\* *CoreML determinism depends on ANE availability; falls back to GPU when ANE unavailable*
+\* *CoreML adapter loading not implemented. MLX compiles but not fully functional. See CLAUDE.md for current status.*
 
 ---
 
@@ -482,6 +482,41 @@ if config.server.production_mode {
     }
 }
 ```
+
+---
+
+## Backend Selection Status Flowchart
+
+The following diagram shows the current backend selection logic and implementation status:
+
+```mermaid
+flowchart TD
+    A[create_backend] --> B{Backend Choice}
+    B -->|CoreML| C[CoreML Backend]
+    B -->|MLX| D[MLX Backend]
+    B -->|Metal| E[Metal Backend]
+    C -->|Status: Placeholder| F[ANE Production]
+    D -->|Status: Stub| G[Research/Training]
+    E -->|Status: Building| H[Legacy Fallback]
+
+    style C fill:#fff3cd
+    style D fill:#fff3cd
+    style E fill:#d4edda
+```
+
+**Status Key:**
+- **CoreML (Yellow):** Placeholder implementation - adapter loading not implemented
+- **MLX (Yellow):** Stub implementation - compiles but not fully functional
+- **Metal (Green):** Building successfully - production ready
+
+---
+
+## See Also
+
+Related backend documentation:
+
+- [docs/COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML backend guide, ANE optimization, Swift bridge
+- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, research/training path
 
 ---
 

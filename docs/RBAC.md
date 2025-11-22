@@ -20,6 +20,31 @@ AdapterOS implements a 5-role RBAC system with 40+ granular permissions. Each ro
 | **Compliance** | Policy & audit oversight | Regulatory, compliance officers |
 | **Viewer** | Read-only access | Stakeholders, observers |
 
+### Role Hierarchy Diagram
+
+```mermaid
+graph TD
+    subgraph "RBAC Role Hierarchy"
+        Admin["Admin (full)"]
+        Operator["Operator (runtime ops)"]
+        SRE["SRE (infra debug)"]
+        Compliance["Compliance (audit-only)"]
+        Viewer["Viewer (read-only)"]
+    end
+
+    Admin --> Operator
+    Admin --> SRE
+    Admin --> Compliance
+    Operator --> Viewer
+    SRE --> Viewer
+    Compliance --> Viewer
+```
+
+**Inheritance Notes:**
+- Admin has all permissions from all roles
+- Operator, SRE, and Compliance inherit from Viewer (read-only base)
+- No lateral inheritance between Operator, SRE, and Compliance
+
 ---
 
 ## Permission Summary (40 Permissions)
@@ -194,6 +219,14 @@ GET /v1/audit/logs?action=adapter.register&status=success&limit=50
 - [docs/DATABASE_REFERENCE.md](DATABASE_REFERENCE.md) - Audit log schema
 - `crates/adapteros-server-api/src/permissions.rs` - Permission implementation
 - `crates/adapteros-server-api/src/audit_helper.rs` - Audit logging helpers
+
+---
+
+## See Also
+
+- [AUTHENTICATION.md](AUTHENTICATION.md) - JWT authentication, Ed25519 signing, token management
+- [SECURITY.md](SECURITY.md) - Defense-in-depth security architecture, IP access control, rate limiting
+- [CLAUDE.md (RBAC section)](../CLAUDE.md#rbac-5-roles-40-permissions) - Quick reference for RBAC implementation
 
 ---
 

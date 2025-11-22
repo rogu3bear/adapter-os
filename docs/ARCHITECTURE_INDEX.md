@@ -92,10 +92,7 @@ Complete index of all architecture documentation with quick navigation.
 2. **[Precision Diagrams § 1](architecture/precision-diagrams.md#1-system-architecture)** - Isolation model
    
 
-3. **[Policy Rulesets](../CLAUDE.md)** - 22 policy packs
-
-3. **[Policy Rulesets](../CLAUDE.md)** - 20 policy packs
->
+3. **[Policy Rulesets](../CLAUDE.md)** - 23 policy packs
 
 **Time**: 2-3 hours  
 **Outcome**: Security and compliance understanding
@@ -139,6 +136,39 @@ Located in `runtime-diagrams.md` - Archived (not maintained)
 
 Located in `runtime-diagrams.md` - ⚠️ May be outdated
 >
+
+### Multi-Backend Architecture
+
+```mermaid
+graph TD
+    subgraph "Multi-Backend Architecture"
+        A[Backend Factory<br/>backend_factory.rs] --> B[CoreML Backend]
+        A --> C[MLX Backend]
+        A --> D[Metal Backend]
+        B -->|"Placeholder"| E[ANE Acceleration<br/>Production]
+        C -->|"Stub"| F[Research/Training<br/>HKDF-seeded]
+        D -->|"Building"| G[GPU Fallback<br/>Deterministic]
+    end
+
+    subgraph "Crates"
+        B -.-> B1[adapteros-lora-kernel-coreml]
+        C -.-> C1[adapteros-lora-mlx-ffi]
+        D -.-> D1[adapteros-lora-kernel-mtl]
+    end
+
+    style B fill:#f9f,stroke:#333
+    style C fill:#bbf,stroke:#333
+    style D fill:#bfb,stroke:#333
+```
+
+**Backend Status:**
+| Backend | Status | Determinism | Use Case |
+|---------|--------|-------------|----------|
+| **CoreML** | Placeholder | Guaranteed (ANE) | Production, ANE acceleration |
+| **MLX** | Stub | HKDF-seeded | Research, training |
+| **Metal** | Building | Guaranteed | Legacy, non-ANE systems |
+
+**Selection Strategy:** CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)
 
 ---
 
@@ -632,10 +662,35 @@ docs/
 
 ---
 
-**Last Updated**: 2025-01-14  
-**Maintained By**: AdapterOS Team  
+**Last Updated**: 2025-01-14
+**Maintained By**: AdapterOS Team
 **License**: MIT OR Apache-2.0
 
+---
 
+## See Also
 
->
+### Core Documentation
+- [CLAUDE.md](../CLAUDE.md) - Developer guide and quick reference
+- [architecture.md](./architecture.md) - System overview and data flow
+- [ARCHITECTURE_PATTERNS.md](./ARCHITECTURE_PATTERNS.md) - Detailed architecture patterns
+
+### Backend Documentation
+- [ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
+- [COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML setup and ANE optimization
+- [ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for new backends
+- [OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - Rust/Swift/ObjC++ FFI patterns
+
+### Execution and Lifecycle
+- [DETERMINISTIC_EXECUTION.md](./DETERMINISTIC_EXECUTION.md) - HKDF, tick ledger, multi-agent coordination
+- [LIFECYCLE.md](./LIFECYCLE.md) - Adapter state machine details
+- [PINNING_TTL.md](./PINNING_TTL.md) - Adapter pinning and TTL enforcement
+
+### Training and Data
+- [TRAINING_PIPELINE.md](./TRAINING_PIPELINE.md) - Training flow documentation
+- [DATABASE_REFERENCE.md](./DATABASE_REFERENCE.md) - Schema reference
+
+### API and Security
+- [RBAC.md](./RBAC.md) - Role-based access control
+- [UI_INTEGRATION.md](./UI_INTEGRATION.md) - Web UI integration
+- [TELEMETRY_EVENTS.md](./TELEMETRY_EVENTS.md) - Event catalog and metadata patterns
