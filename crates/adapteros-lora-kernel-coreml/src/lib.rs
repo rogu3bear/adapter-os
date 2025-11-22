@@ -783,6 +783,33 @@ pub struct AneStatus {
     pub deterministic: bool,
 }
 
+/// Memory baseline statistics for anomaly detection (Welford's algorithm)
+#[derive(Debug, Clone, Default)]
+struct MemoryBaseline {
+    mean: f64,
+    m2: f64,
+    count: usize,
+}
+
+impl MemoryBaseline {
+    fn update(&mut self, value: f64) {
+        self.count += 1;
+        let delta = value - self.mean;
+        self.mean += delta / self.count as f64;
+        let delta2 = value - self.mean;
+        self.m2 += delta * delta2;
+    }
+
+    fn stddev(&self) -> f64 {
+        if self.count < 2 { 0.0 } else { (self.m2 / (self.count - 1) as f64).sqrt() }
+    }
+
+    fn z_score(&self, value: f64) -> f64 {
+        let std = self.stddev();
+        if std == 0.0 { 0.0 } else { (value - self.mean) / std }
+    }
+}
+
 /// CoreML backend for Neural Engine acceleration
 ///
 /// This backend automatically detects and uses MLTensor operations when available
@@ -797,6 +824,8 @@ pub struct CoreMLBackend {
     metrics: BackendMetrics,
     adapter_cache: HashMap<u16, Vec<f32>>,
     gpu_fingerprints: HashMap<u32, GpuBufferFingerprint>,
+    /// Memory baselines per adapter for anomaly detection
+    memory_baselines: RwLock<HashMap<u16, MemoryBaseline>>,
     /// Whether production mode is enabled (requires ANE-only)
     production_mode: bool,
     /// Whether MLTensor API is available (macOS 15+)
@@ -906,6 +935,7 @@ impl CoreMLBackend {
                 metrics: BackendMetrics::default(),
                 adapter_cache: HashMap::new(),
                 gpu_fingerprints: HashMap::new(),
+                memory_baselines: RwLock::new(HashMap::new()),
                 production_mode,
                 use_mltensor,
                 tensor_bridge,
@@ -1084,6 +1114,202 @@ impl CoreMLBackend {
     pub async fn predict_async(&self, _input_ids: &[u32]) -> Result<Vec<f32>> {
         Err(AosError::Kernel("CoreML not available".to_string()))
     }
+
+    /// MLTensor inference path (macOS 15+)
+    ///
+    /// Uses MLTensor operations for adapter fusion, providing better performance
+    /// through CoreML's optimized tensor operations. On macOS 26+ (Tahoe), uses
+    /// enhanced APIs with compute unit preference for ANE acceleration.
+    #[cfg(target_os = "macos")]
+    fn run_step_mltensor(
+        &self,
+        io: &mut IoBuffers,
+        indices: &[u16],
+        gates: &[i16],
+    ) -> Result<i32> {
+        // Step 1: Run base model inference to get initial logits
+        let base_result = unsafe {
+            ffi::coreml_run_inference(
+                self.model_handle,
+                io.input_ids.as_ptr(),
+                io.input_ids.len(),
+                io.output_logits.as_mut_ptr(),
+                io.output_logits.len(),
+                std::ptr::null(), // No adapter indices for base pass
+                std::ptr::null(), // No gates for base pass
+                0,
+            )
+        };
+
+        if base_result != 0 {
+            return Ok(base_result);
+        }
+
+        // Step 2: Apply adapter fusion using MLTensor operations
+        // Check for macOS 26+ enhanced APIs (Tahoe)
+        let use_enhanced_api = has_enhanced_api();
+
+        // Select compute units based on production mode
+        // In production mode, prefer ANE for determinism; otherwise use all available units
+        let compute_units = if self.production_mode {
+            ComputeUnitPreference::CpuAndNeuralEngine
+        } else {
+            ComputeUnitPreference::All
+        };
+
+        // Create tensor from base logits using appropriate API
+        let logits_shape = &[1, io.output_logits.len()];
+        let mut base_logits = if use_enhanced_api {
+            // macOS 26+: Use v2 API with explicit compute unit preference
+            MLTensor::from_floats_with_compute_units(
+                &io.output_logits,
+                logits_shape,
+                compute_units,
+            )?
+        } else {
+            // macOS 15-25: Standard MLTensor creation
+            MLTensor::from_floats(&io.output_logits, logits_shape)?
+        };
+
+        // Step 3: Apply adapter fusion
+        // For each active adapter, compute: output = base + gate * adapter_delta
+        for (i, &adapter_idx) in indices.iter().enumerate() {
+            let gate = gates[i];
+            if gate == 0 {
+                continue;
+            }
+
+            // Get adapter weights from cache
+            if let Some(adapter_weights) = self.adapter_cache.get(&adapter_idx) {
+                // Adapter weights might be larger than logits if they include
+                // intermediate layer weights. We only use the output projection.
+                if adapter_weights.len() >= io.output_logits.len() {
+                    // Take the last `output_logits.len()` elements as output projection
+                    let output_projection =
+                        &adapter_weights[adapter_weights.len() - io.output_logits.len()..];
+
+                    // Create adapter delta tensor using appropriate API
+                    let adapter_tensor = if use_enhanced_api {
+                        MLTensor::from_floats_with_compute_units(
+                            output_projection,
+                            logits_shape,
+                            compute_units,
+                        )?
+                    } else {
+                        MLTensor::from_floats(output_projection, logits_shape)?
+                    };
+
+                    // Convert Q15 gate to float: gate / 32768.0
+                    let gate_float = (gate as f32) / 32768.0;
+
+                    // Scale adapter delta by gate value
+                    let scaled_adapter = adapter_tensor.scale(gate_float)?;
+
+                    // Add scaled adapter to base logits
+                    // On macOS 26+, tensor operations automatically use ANE when possible
+                    base_logits = base_logits.add(&scaled_adapter)?;
+                } else {
+                    tracing::warn!(
+                        adapter_idx = adapter_idx,
+                        adapter_len = adapter_weights.len(),
+                        output_len = io.output_logits.len(),
+                        "Adapter weights smaller than output size, skipping"
+                    );
+                }
+            } else {
+                tracing::debug!(adapter_idx = adapter_idx, "Adapter not in cache, skipping");
+            }
+        }
+
+        // Step 4: Materialize result back to output buffer
+        // On macOS 26+, use async materialization for better pipeline integration
+        let result_vec = if use_enhanced_api {
+            base_logits.to_vec_async(true)?
+        } else {
+            base_logits.to_vec()?
+        };
+
+        // Copy results to output buffer
+        let copy_len = result_vec.len().min(io.output_logits.len());
+        io.output_logits[..copy_len].copy_from_slice(&result_vec[..copy_len]);
+
+        tracing::trace!(
+            num_adapters = indices.len(),
+            use_mltensor = true,
+            use_enhanced_api = use_enhanced_api,
+            compute_units = ?compute_units,
+            "Completed MLTensor inference step"
+        );
+
+        Ok(0)
+    }
+
+    /// Legacy FFI path with LoRA adapters
+    #[cfg(target_os = "macos")]
+    fn run_step_ffi_with_lora(
+        &self,
+        io: &mut IoBuffers,
+        indices: &[u16],
+        gates: &[i16],
+        ring_len: usize,
+    ) -> Result<i32> {
+        // Pre-compute LoRA deltas from adapter_cache for each selected adapter
+        let mut lora_delta_ptrs: Vec<*const f32> = Vec::with_capacity(indices.len());
+        let mut delta_lens: Vec<usize> = Vec::with_capacity(indices.len());
+
+        for &idx in indices.iter() {
+            if let Some(weights) = self.adapter_cache.get(&idx) {
+                lora_delta_ptrs.push(weights.as_ptr());
+                delta_lens.push(weights.len());
+            } else {
+                // Adapter not in cache - use null pointer with zero length
+                lora_delta_ptrs.push(std::ptr::null());
+                delta_lens.push(0);
+            }
+        }
+
+        let result = unsafe {
+            ffi::coreml_run_inference_with_lora(
+                self.model_handle,
+                io.input_ids.as_ptr(),
+                io.input_ids.len(),
+                io.output_logits.as_mut_ptr(),
+                io.output_logits.len(),
+                indices.as_ptr(),
+                gates.as_ptr(),
+                ring_len,
+                lora_delta_ptrs.as_ptr(),
+                delta_lens.as_ptr(),
+            )
+        };
+
+        Ok(result)
+    }
+
+    /// Legacy FFI path for standard inference (no adapters)
+    #[cfg(target_os = "macos")]
+    fn run_step_ffi_standard(
+        &self,
+        io: &mut IoBuffers,
+        indices: &[u16],
+        gates: &[i16],
+        ring_len: usize,
+    ) -> Result<i32> {
+        let result = unsafe {
+            ffi::coreml_run_inference(
+                self.model_handle,
+                io.input_ids.as_ptr(),
+                io.input_ids.len(),
+                io.output_logits.as_mut_ptr(),
+                io.output_logits.len(),
+                indices.as_ptr(),
+                gates.as_ptr(),
+                ring_len,
+            )
+        };
+
+        Ok(result)
+    }
 }
 
 impl FusedKernels for CoreMLBackend {
@@ -1108,50 +1334,16 @@ impl FusedKernels for CoreMLBackend {
             // Check if there are any adapters with non-zero gates
             let has_active_adapters = gates.iter().any(|&g| g != 0);
 
-            let result = if has_active_adapters {
-                // Pre-compute LoRA deltas from adapter_cache for each selected adapter
-                let mut lora_delta_ptrs: Vec<*const f32> = Vec::with_capacity(indices.len());
-                let mut delta_lens: Vec<usize> = Vec::with_capacity(indices.len());
-
-                for &idx in indices.iter() {
-                    if let Some(weights) = self.adapter_cache.get(&idx) {
-                        lora_delta_ptrs.push(weights.as_ptr());
-                        delta_lens.push(weights.len());
-                    } else {
-                        // Adapter not in cache - use null pointer with zero length
-                        lora_delta_ptrs.push(std::ptr::null());
-                        delta_lens.push(0);
-                    }
-                }
-
-                unsafe {
-                    ffi::coreml_run_inference_with_lora(
-                        self.model_handle,
-                        io.input_ids.as_ptr(),
-                        io.input_ids.len(),
-                        io.output_logits.as_mut_ptr(),
-                        io.output_logits.len(),
-                        indices.as_ptr(),
-                        gates.as_ptr(),
-                        ring.len(),
-                        lora_delta_ptrs.as_ptr(),
-                        delta_lens.as_ptr(),
-                    )
-                }
+            // Decide between MLTensor path (macOS 15+) and legacy FFI path
+            let result = if self.use_mltensor && has_active_adapters {
+                // MLTensor path: Use high-level tensor operations for adapter fusion
+                self.run_step_mltensor(io, indices, gates)?
+            } else if has_active_adapters {
+                // Legacy FFI path with LoRA adapters
+                self.run_step_ffi_with_lora(io, indices, gates, ring.len())?
             } else {
-                // No adapters active - use standard inference
-                unsafe {
-                    ffi::coreml_run_inference(
-                        self.model_handle,
-                        io.input_ids.as_ptr(),
-                        io.input_ids.len(),
-                        io.output_logits.as_mut_ptr(),
-                        io.output_logits.len(),
-                        indices.as_ptr(),
-                        gates.as_ptr(),
-                        ring.len(),
-                    )
-                }
+                // No adapters active - use standard inference (FFI)
+                self.run_step_ffi_standard(io, indices, gates, ring.len())?
             };
 
             if result != 0 {
@@ -1169,7 +1361,10 @@ impl FusedKernels for CoreMLBackend {
         }
 
         #[cfg(not(target_os = "macos"))]
-        Err(AosError::Kernel("CoreML not available".to_string()))
+        {
+            let _ = (ring, io);
+            Err(AosError::Kernel("CoreML not available".to_string()))
+        }
     }
 
     fn device_name(&self) -> &str {
