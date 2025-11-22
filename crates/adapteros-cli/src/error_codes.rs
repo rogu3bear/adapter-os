@@ -618,6 +618,7 @@ pub enum ExitCode {
     Mtl = 95,
     CoreML = 96,
     Mlx = 97,
+    Routing = 98,
 
     // Domain errors (100-119)
     Telemetry = 100,
@@ -735,6 +736,7 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::Anomaly(_) => ExitCode::Anomaly,
             AosError::System(_) => ExitCode::System,
             AosError::DeterministicExecutor(_) => ExitCode::DeterministicExecutor,
+            AosError::Routing(_) => ExitCode::Routing,
         }
     }
 }

@@ -649,3 +649,140 @@ pub async fn revoke_session_handler(
         message: "Session revoked successfully".to_string(),
     }))
 }
+
+/// Development bypass handler - creates admin user session
+/// Only available in debug builds
+#[utoipa::path(
+    post,
+    path = "/v1/auth/dev-bypass",
+    responses(
+        (status = 200, description = "Dev bypass successful", body = LoginResponse),
+        (status = 403, description = "Not in development mode")
+    ),
+    tag = "auth"
+)]
+pub async fn dev_bypass_handler(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Extension(client_ip): Extension<ClientIp>,
+) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY: Only allow in debug builds
+    #[cfg(not(debug_assertions))]
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("dev bypass not available")
+                    .with_code("DEV_BYPASS_DISABLED")
+                    .with_string_details("this endpoint is only available in development mode"),
+            ),
+        ));
+    }
+
+    // Extract user agent from headers for session tracking
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Create dev admin user details
+    let user_id = "dev-admin-user".to_string();
+    let email = "dev-admin@adapteros.local".to_string();
+    let role = "admin".to_string();
+    let tenant_id = "system".to_string();
+
+    // Generate JWT token (same as login handler)
+    let token = if state.use_ed25519 {
+        generate_token_ed25519(
+            &user_id,
+            &email,
+            &role,
+            &tenant_id,
+            &state.ed25519_keypair,
+        )
+        .map_err(|e| {
+            warn!(error = %e, "Failed to generate dev bypass token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    } else {
+        crate::auth::generate_token(
+            &user_id,
+            &email,
+            &role,
+            &tenant_id,
+            &state.jwt_secret,
+        )
+        .map_err(|e| {
+            warn!(error = %e, "Failed to generate dev bypass token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+            )
+        })?
+    };
+
+    // Decode to get jti and exp for session creation
+    let claims = if state.use_ed25519 {
+        crate::auth::validate_token_ed25519(&token, &state.ed25519_public_key)
+    } else {
+        crate::auth::validate_token(&token, &state.jwt_secret)
+    }
+    .map_err(|e| {
+        warn!(error = %e, "Token validation failed after generation");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    // Create session with user agent for audit tracking
+    let expires_at = Utc::now() + Duration::hours(8);
+    create_session(
+        &state.db,
+        &claims.jti,
+        &user_id,
+        &tenant_id,
+        &expires_at.to_rfc3339(),
+        Some(&client_ip.0),
+        user_agent.as_deref(),
+    )
+    .await
+    .ok();
+
+    // Log audit
+    state
+        .db
+        .log_audit(
+            &user_id,
+            &role,
+            &tenant_id,
+            "auth.dev_bypass",
+            "session",
+            Some(&claims.jti),
+            "success",
+            None,
+            Some(&client_ip.0),
+            None,
+        )
+        .await
+        .ok();
+
+    info!(
+        user_id = %user_id,
+        email = %email,
+        ip = %client_ip.0,
+        "Dev bypass login successful"
+    );
+
+    Ok(Json(LoginResponse {
+        schema_version: "v1".to_string(),
+        token,
+        user_id,
+        tenant_id,
+        role,
+        expires_in: claims.exp as u64,
+    }))
+}

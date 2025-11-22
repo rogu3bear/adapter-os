@@ -1,6 +1,7 @@
 //! Token generation loop with sampling strategies
 
 use adapteros_core::{AosError, Result};
+use adapteros_lora_router::AdapterInfo;
 use rand::Rng;
 use rand::SeedableRng;
 
@@ -104,7 +105,16 @@ impl Generator {
             let num_adapters = 8; // Default adapter count for dummy routing
             let features = vec![0.0f32; 16]; // Dummy features
             let priors = vec![1.0f32 / num_adapters as f32; num_adapters]; // Uniform priors
-            let decision = router.route(&features, &priors);
+            // Create dummy adapter info for route_with_adapter_info
+            let adapter_info: Vec<AdapterInfo> = (0..num_adapters)
+                .map(|i| AdapterInfo {
+                    id: format!("adapter_{}", i),
+                    framework: None,
+                    languages: vec![0], // Default language
+                    tier: "persistent".to_string(),
+                })
+                .collect();
+            let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
 
             // Run inference step
             // Convert Decision to RouterRing

@@ -16,7 +16,7 @@
 
 use adapteros_lora_kernel_api::RouterRing;
 use adapteros_lora_router::Decision;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// Convert router Decision to canonical RouterRing format
 ///
@@ -38,10 +38,10 @@ use tracing::{debug, error};
 ///
 /// # Examples
 /// ```
-/// use adapteros_lora_router::Decision;
-/// use adapteros_lora_worker::router_bridge::decision_to_router_ring;
-/// use smallvec::SmallVec;
-///
+/// # use adapteros_lora_router::Decision;
+/// # use adapteros_lora_worker::router_bridge::decision_to_router_ring;
+/// # use smallvec::SmallVec;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let decision = Decision {
 ///     indices: SmallVec::from_slice(&[0, 1, 2]),
 ///     gates_q15: SmallVec::from_slice(&[16383, 8191, 4095]),
@@ -49,12 +49,14 @@ use tracing::{debug, error};
 ///     candidates: vec![],
 /// };
 ///
-/// let ring = decision_to_router_ring(&decision, 100);
+/// let ring = decision_to_router_ring(&decision, 100)?;
 /// assert_eq!(ring.k, 3);
 /// assert_eq!(ring.active_indices(), &[0, 1, 2]);
 /// assert_eq!(ring.active_gates(), &[16383, 8191, 4095]);
+/// # Ok(())
+/// # }
 /// ```
-pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> RouterRing {
+pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> Result<RouterRing, adapteros_core::AosError> {
     let k = decision.indices.len();
 
     debug!(
@@ -65,22 +67,10 @@ pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> R
     );
 
     // Pre-condition: K ≤ 8 (SmallVec enforces capacity, but check explicitly)
-    #[cfg(debug_assertions)]
-    {
-        if k > 8 {
-            panic!(
-                "router_bridge: Decision K > 8 (got {}), violates SmallVec<[_; 8]> invariant",
-                k
-            );
-        }
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        if k > 8 {
-            error!(k = %k, "router_bridge: Decision K > 8, clamping to 8");
-            // RouterRing::new will clamp to 8, but log for audit
-        }
+    if k > 8 {
+        return Err(adapteros_core::AosError::Routing(
+            format!("Decision K > 8 (got {}), violates SmallVec<[_; 8]> invariant", k)
+        ));
     }
 
     // Create RouterRing with K active entries
@@ -107,7 +97,7 @@ pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> R
         k, ring.k
     );
 
-    ring
+    Ok(ring)
 }
 
 /// Convert Decision to RouterRing without adapter count validation
@@ -118,7 +108,8 @@ pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> R
 ///
 /// For normal use, prefer `decision_to_router_ring()` with explicit max_adapter_count.
 pub fn decision_to_router_ring_unchecked(decision: &Decision) -> RouterRing {
-    decision_to_router_ring(decision, u16::MAX)
+    warn!("Using unchecked router bridge conversion - bounds checking disabled");
+    decision_to_router_ring(decision, u16::MAX).expect("Unchecked conversion should not fail")
 }
 
 /// Batch convert multiple Decisions to RouterRings
@@ -132,7 +123,7 @@ pub fn decision_to_router_ring_unchecked(decision: &Decision) -> RouterRing {
 pub fn batch_decision_to_router_ring(
     decisions: &[Decision],
     max_adapter_count: u16,
-) -> Vec<RouterRing> {
+) -> Result<Vec<RouterRing>, adapteros_core::AosError> {
     debug!(
         batch_size = %decisions.len(),
         max_adapters = %max_adapter_count,
@@ -142,7 +133,7 @@ pub fn batch_decision_to_router_ring(
     decisions
         .iter()
         .map(|d| decision_to_router_ring(d, max_adapter_count))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()
 }
 
 #[cfg(test)]
@@ -165,7 +156,7 @@ mod tests {
     #[test]
     fn test_decision_to_router_ring_basic() {
         let decision = make_decision(&[0, 1, 2], &[16383, 8191, 4095], 0.5);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.k, 3);
         assert_eq!(ring.active_indices(), &[0, 1, 2]);
@@ -183,7 +174,7 @@ mod tests {
         let indices = [0, 1, 2, 3, 4, 5, 6, 7];
         let gates = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
         let decision = make_decision(&indices, &gates, 0.8);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.k, 8);
         assert_eq!(ring.active_indices(), indices);
@@ -194,7 +185,7 @@ mod tests {
     fn test_decision_to_router_ring_empty() {
         // K=0 (no adapters selected)
         let decision = make_decision(&[], &[], 0.0);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.k, 0);
         assert_eq!(ring.active_indices(), &[] as &[u16]);
@@ -207,7 +198,7 @@ mod tests {
     fn test_decision_to_router_ring_preserves_order() {
         // Verify that Decision order is preserved exactly
         let decision = make_decision(&[7, 3, 1, 5], &[-1000, 500, 2000, -500], 0.3);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.active_indices(), &[7, 3, 1, 5]);
         assert_eq!(ring.active_gates(), &[-1000, 500, 2000, -500]);
@@ -217,7 +208,7 @@ mod tests {
     fn test_decision_to_router_ring_negative_gates() {
         // Test signed Q15 gates (negative values)
         let decision = make_decision(&[0, 1], &[-32767, -16383], 0.1);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.active_gates(), &[-32767, -16383]);
     }
@@ -228,7 +219,7 @@ mod tests {
     fn test_decision_to_router_ring_out_of_bounds_debug() {
         // Debug builds should panic on out-of-bounds indices
         let decision = make_decision(&[0, 200], &[1000, 2000], 0.5);
-        decision_to_router_ring(&decision, 100); // max_adapter=100, index 200 is invalid
+        let _ = decision_to_router_ring(&decision, 100); // max_adapter=100, index 200 is invalid
     }
 
     #[test]
@@ -236,7 +227,7 @@ mod tests {
     fn test_decision_to_router_ring_out_of_bounds_release() {
         // Release builds should log error and zero-fill
         let decision = make_decision(&[0, 200], &[1000, 2000], 0.5);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         // Verify zero-fill fallback
         assert_eq!(ring.k, 0);
@@ -252,7 +243,7 @@ mod tests {
             make_decision(&[5], &[6000], 0.3),
         ];
 
-        let rings = batch_decision_to_router_ring(&decisions, 100);
+        let rings = batch_decision_to_router_ring(&decisions, 100).unwrap();
 
         assert_eq!(rings.len(), 3);
         assert_eq!(rings[0].k, 2);
@@ -277,7 +268,7 @@ mod tests {
     fn test_q15_range() {
         // Test full Q15 signed range: -32767 to +32767
         let decision = make_decision(&[0, 1, 2, 3], &[-32767, -16383, 16383, 32767], 0.5);
-        let ring = decision_to_router_ring(&decision, 100);
+        let ring = decision_to_router_ring(&decision, 100).unwrap();
 
         assert_eq!(ring.active_gates(), &[-32767, -16383, 16383, 32767]);
     }

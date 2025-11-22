@@ -1,4 +1,5 @@
 use crate::handlers;
+use crate::handlers::auth;
 use crate::handlers::domain_adapters;
 use crate::middleware::{auth_middleware, dual_auth_middleware};
 use crate::middleware_security::{
@@ -22,9 +23,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::ready,
         crate::health::check_all_health,
         crate::health::check_component_health,
-        handlers::auth_login,
-        handlers::auth_logout,
-        handlers::auth_me,
+        handlers::auth::auth_login,
+        handlers::auth::auth_logout,
+        handlers::auth::auth_me,
         handlers::propose_patch,
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
@@ -397,6 +398,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/bootstrap",
             post(handlers::auth_enhanced::bootstrap_admin_handler),
         )
+        .route(
+            "/v1/auth/dev-bypass",
+            post(handlers::auth_enhanced::dev_bypass_handler),
+        )
         .route("/v1/meta", get(handlers::meta));
 
     // Metrics endpoint (custom auth, not JWT)
@@ -406,8 +411,8 @@ pub fn build(state: AppState) -> Router {
 
     // Protected routes (require auth)
     let protected_routes = Router::new()
-        .route("/v1/auth/logout", post(handlers::auth_logout))
-        .route("/v1/auth/me", get(handlers::auth_me))
+        .route("/v1/auth/logout", post(auth::auth_logout))
+        .route("/v1/auth/me", get(auth::auth_me))
         .route(
             "/v1/auth/refresh",
             post(handlers::auth_enhanced::refresh_token_handler),

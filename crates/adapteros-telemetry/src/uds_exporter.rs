@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 use tracing::{debug, error, info, warn};
 
 /// Metric value types
@@ -78,6 +78,31 @@ impl UdsMetricsExporter {
         self
     }
 
+    /// Gracefully shutdown the UDS metrics exporter
+    ///
+    /// Closes the listener socket and cleans up resources.
+    /// Existing connections will complete naturally.
+    pub async fn shutdown(&mut self) -> Result<()> {
+        info!("Shutting down UDS metrics exporter");
+
+        if let Some(listener) = self.listener.take() {
+            // Drop the listener to stop accepting new connections
+            drop(listener);
+        }
+
+        // Clean up the socket file
+        if self.socket_path.exists() {
+            if let Err(e) = std::fs::remove_file(&self.socket_path) {
+                warn!("Failed to remove UDS socket file during shutdown: {}", e);
+            } else {
+                info!("UDS socket file cleaned up");
+            }
+        }
+
+        info!("UDS metrics exporter shutdown complete");
+        Ok(())
+    }
+
     /// Bind to the Unix domain socket
     pub async fn bind(&mut self) -> Result<()> {
         // Remove existing socket if present
@@ -104,14 +129,57 @@ impl UdsMetricsExporter {
         Ok(())
     }
 
-    /// Serve metrics over UDS
-    pub async fn serve(&self) -> Result<()> {
+    /// Serve metrics over UDS with graceful shutdown support
+    ///
+    /// The server will run until a shutdown signal is received via the broadcast receiver.
+    pub async fn serve(&self, mut shutdown_rx: broadcast::Receiver<()>) -> Result<()> {
         let listener = self
             .listener
             .as_ref()
             .ok_or_else(|| AosError::Telemetry("Listener not bound".to_string()))?;
 
         info!("Starting UDS metrics exporter...");
+
+        loop {
+            tokio::select! {
+                accept_result = listener.accept() => {
+                    match accept_result {
+                        Ok((stream, _addr)) => {
+                            let registry = self.metrics_registry.clone();
+                            let prometheus_compat = self.prometheus_compat;
+
+                            tokio::spawn(async move {
+                                if let Err(e) =
+                                    Self::handle_connection(stream, registry, prometheus_compat).await
+                                {
+                                    error!("Failed to handle UDS metrics request: {}", e);
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            error!("Failed to accept UDS connection: {}", e);
+                        }
+                    }
+                }
+                _ = shutdown_rx.recv() => {
+                    info!("UDS metrics exporter received shutdown signal");
+                    break;
+                }
+            }
+        }
+
+        info!("UDS metrics exporter stopped accepting connections");
+        Ok(())
+    }
+
+    /// Legacy serve method without shutdown support (for backward compatibility)
+    pub async fn serve_legacy(&self) -> Result<()> {
+        let listener = self
+            .listener
+            .as_ref()
+            .ok_or_else(|| AosError::Telemetry("Listener not bound".to_string()))?;
+
+        info!("Starting UDS metrics exporter (legacy mode)...");
 
         loop {
             match listener.accept().await {

@@ -1,6 +1,6 @@
 #![allow(unused_variables)]
 
-use crate::auth::{generate_token, verify_password, Claims};
+use crate::auth::Claims;
 use crate::middleware::{require_any_role, require_role};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -10,7 +10,6 @@ use crate::validation::*;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::AosError;
 use adapteros_lora_lifecycle::GpuIntegrityReport;
-use adapteros_policy::packs::memory::MemoryPressureLevel;
 // System metrics integration
 use adapteros_system_metrics;
 use adapteros_system_metrics::monitoring_types::{
@@ -4361,15 +4360,15 @@ pub async fn list_adapters(
             tier: adapter.tier.clone(),
             languages,
             framework: adapter.framework.clone(),
-            category: adapter.category.clone(),
-            scope: adapter.scope.clone(),
+            category: Some(adapter.category.clone()),
+            scope: Some(adapter.scope.clone()),
             framework_id: adapter.framework_id.clone(),
             framework_version: adapter.framework_version.clone(),
             repo_id: adapter.repo_id.clone(),
             commit_sha: adapter.commit_sha.clone(),
             intent: adapter.intent.clone(),
             created_at: adapter.created_at.clone(),
-            updated_at: adapter.updated_at.clone(),
+            updated_at: Some(adapter.updated_at.clone()),
             stats: Some(AdapterStats {
                 total_activations: total,
                 selected_count: selected,
@@ -4457,15 +4456,15 @@ pub async fn get_adapter(
         tier: adapter.tier.clone(),
         languages,
         framework: adapter.framework.clone(),
-        category: adapter.category.clone(),
-        scope: adapter.scope.clone(),
+        category: Some(adapter.category.clone()),
+        scope: Some(adapter.scope.clone()),
         framework_id: adapter.framework_id.clone(),
         framework_version: adapter.framework_version.clone(),
         repo_id: adapter.repo_id.clone(),
         commit_sha: adapter.commit_sha.clone(),
         intent: adapter.intent.clone(),
         created_at: adapter.created_at.clone(),
-        updated_at: adapter.updated_at.clone(),
+        updated_at: Some(adapter.updated_at.clone()),
         stats: Some(AdapterStats {
             total_activations: total,
             selected_count: selected,
@@ -4563,8 +4562,8 @@ pub async fn register_adapter(
         .tier(&req.tier)
         .languages_json(Some(languages_json.clone()))
         .framework(req.framework.clone())
-        .category(Some(req.category.clone()))
-        .scope(req.scope.clone())
+        .category(req.category.clone())
+        .scope(req.scope.clone().unwrap_or_else(|| "global".to_string()))
         .expires_at(req.expires_at.clone())
         .build()
         .map_err(|e| {
@@ -4890,15 +4889,15 @@ pub async fn load_adapter(
         languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
             .unwrap_or_default(),
         framework: adapter.framework,
-        category: adapter.category,
-        scope: adapter.scope,
+        category: Some(adapter.category),
+        scope: Some(adapter.scope),
         framework_id: adapter.framework_id,
         framework_version: adapter.framework_version,
         repo_id: adapter.repo_id,
         commit_sha: adapter.commit_sha,
         intent: adapter.intent,
         created_at: adapter.created_at,
-        updated_at: adapter.updated_at,
+        updated_at: Some(adapter.updated_at),
         stats: Some(AdapterStats {
             total_activations: total,
             selected_count: selected,
@@ -5349,7 +5348,7 @@ pub async fn download_adapter_manifest(
         name: adapter.name,
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
-        tier: tier_str_to_int(&adapter.tier),
+        tier: adapter.tier.clone(),
         framework: adapter.framework,
         languages_json: adapter.languages_json,
         category: Some(adapter.category),
@@ -6451,7 +6450,6 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
 
 // ===== SSE Stream Endpoints =====
 
-use adapteros_lora_worker::signal::Signal;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::{self, Stream};
 use std::convert::Infallible;

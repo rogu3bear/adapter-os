@@ -62,12 +62,12 @@ pub async fn start_service(
     Path(service_id): Path<String>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require NodeManage permission for service control operations
-    require_permission(&claims, Permission::NodeManage).map_err(|e| {
-        (
+    if let Err(_) = require_permission(&claims, Permission::NodeManage) {
+        return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
-        )
-    })?;
+            Json(ErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+        ));
+    }
 
     info!(service_id = %service_id, user = %claims.sub, "Starting service");
 
@@ -116,12 +116,12 @@ pub async fn stop_service(
     Path(service_id): Path<String>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require NodeManage permission for service control operations
-    require_permission(&claims, Permission::NodeManage).map_err(|e| {
-        (
+    if let Err(_) = require_permission(&claims, Permission::NodeManage) {
+        return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
-        )
-    })?;
+            Json(ErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+        ));
+    }
 
     info!(service_id = %service_id, user = %claims.sub, "Stopping service");
 
@@ -170,12 +170,12 @@ pub async fn restart_service(
     Path(service_id): Path<String>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require NodeManage permission for service control operations
-    require_permission(&claims, Permission::NodeManage).map_err(|e| {
-        (
+    if let Err(_) = require_permission(&claims, Permission::NodeManage) {
+        return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
-        )
-    })?;
+            Json(ErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+        ));
+    }
 
     info!(service_id = %service_id, user = %claims.sub, "Restarting service");
 
@@ -219,12 +219,12 @@ pub async fn start_essential_services(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require NodeManage permission for service control operations
-    require_permission(&claims, Permission::NodeManage).map_err(|e| {
-        (
+    if let Err(_) = require_permission(&claims, Permission::NodeManage) {
+        return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
-        )
-    })?;
+            Json(ErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+        ));
+    }
 
     info!(user = %claims.sub, "Starting all essential services");
 
@@ -264,12 +264,12 @@ pub async fn stop_essential_services(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ServiceControlResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require NodeManage permission for service control operations
-    require_permission(&claims, Permission::NodeManage).map_err(|e| {
-        (
+    if let Err(_) = require_permission(&claims, Permission::NodeManage) {
+        return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
-        )
-    })?;
+            Json(ErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+        ));
+    }
 
     info!(user = %claims.sub, "Stopping all essential services");
 
@@ -316,12 +316,12 @@ pub async fn get_service_logs(
     Query(params): Query<LogsQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
     // Require NodeManage permission for service control operations
-    require_permission(&claims, Permission::NodeManage).map_err(|e| {
-        (
+    if let Err(_) = require_permission(&claims, Permission::NodeManage) {
+        return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new(e.to_string()).with_code("FORBIDDEN")),
-        )
-    })?;
+            Json(ErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+        ));
+    }
 
     info!(service_id = %service_id, lines = params.lines, user = %claims.sub, "Fetching service logs");
 

@@ -14,6 +14,9 @@ mod lora_adapter_tests {
             alpha: 16.0,
             target_modules: vec!["q_proj".to_string()],
             dropout: 0.1,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         let adapter = LoRAAdapter::new("test_adapter".to_string(), config);
@@ -93,6 +96,9 @@ mod lora_adapter_tests {
                 "v_proj".to_string(),
             ],
             dropout: 0.1,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         let mut adapter = LoRAAdapter::new("test".to_string(), config);
@@ -134,6 +140,9 @@ mod lora_config_tests {
             alpha: 32.0,
             target_modules: vec!["q_proj".to_string(), "v_proj".to_string()],
             dropout: 0.05,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         assert_eq!(config.rank, 8);
@@ -168,6 +177,9 @@ mod lora_routing_tests {
             alpha: 16.0,
             target_modules: vec!["q_proj".to_string()],
             dropout: 0.1,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         let mut adapter = LoRAAdapter::new(id.to_string(), config);
@@ -320,6 +332,9 @@ mod lora_transform_tests {
             alpha: 16.0,
             target_modules: vec!["q_proj".to_string()],
             dropout: 0.0,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         let mut adapter = LoRAAdapter::new("test".to_string(), config);
@@ -350,6 +365,9 @@ mod lora_transform_tests {
             alpha: 1.0,
             target_modules: vec!["q_proj".to_string()],
             dropout: 0.0,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         let config_high_alpha = LoRAConfig {
@@ -357,6 +375,9 @@ mod lora_transform_tests {
             alpha: 32.0,
             target_modules: vec!["q_proj".to_string()],
             dropout: 0.0,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         };
 
         let mut adapter_low = LoRAAdapter::new("low".to_string(), config_low_alpha);

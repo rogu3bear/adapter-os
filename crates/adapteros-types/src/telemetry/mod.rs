@@ -85,83 +85,135 @@ pub enum LogLevel {
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     // System events
+    /// System startup event
     SystemStart,
+    /// System shutdown event
     SystemStop,
+    /// System error event
     SystemError,
+    /// System warning event
     SystemWarning,
 
     // Adapter events
+    /// Adapter successfully loaded into memory
     AdapterLoaded,
+    /// Adapter unloaded from memory
     AdapterUnloaded,
+    /// Adapter evicted due to memory pressure
     AdapterEvicted,
+    /// Adapter pinned to prevent eviction
     AdapterPinned,
+    /// Adapter unpinned and can be evicted
     AdapterUnpinned,
+    /// Adapter activated for inference
     AdapterActivated,
+    /// Adapter deactivated
     AdapterDeactivated,
+    /// Adapter expired and removed
     AdapterExpired,
+    /// Adapter deletion blocked due to dependencies
     AdapterDeleteBlocked,
 
     // Inference events
+    /// Inference request started
     InferenceStart,
+    /// Inference request completed successfully
     InferenceComplete,
+    /// Inference request failed with error
     InferenceError,
+    /// Inference request timed out
     InferenceTimeout,
 
     // Policy events
+    /// Policy violation detected
     PolicyViolation,
+    /// Policy enforcement action taken
     PolicyEnforcement,
+    /// Policy compliance check performed
     PolicyCheck,
+    /// Policy configuration updated
     PolicyUpdate,
 
     // Memory events
+    /// Memory pressure detected
     MemoryPressure,
+    /// Memory eviction performed
     MemoryEviction,
+    /// Memory allocation event
     MemoryAllocation,
+    /// Memory deallocation event
     MemoryDeallocation,
 
     // Training events
+    /// Training job started
     TrainingStart,
+    /// Training job completed successfully
     TrainingComplete,
+    /// Training job failed with error
     TrainingError,
+    /// Training progress update
     TrainingProgress,
 
     // User events
+    /// User login event
     UserLogin,
+    /// User logout event
     UserLogout,
+    /// User action performed
     UserAction,
+    /// User error occurred
     UserError,
 
     // Router events
+    /// Router decision made for adapter selection
     RouterDecision,
+    /// Router calibration performed
     RouterCalibration,
+    /// Router error occurred
     RouterError,
 
     // Telemetry events
+    /// Telemetry bundle created
     TelemetryBundleCreated,
+    /// Telemetry bundle signed
     TelemetryBundleSigned,
+    /// Telemetry bundle rotated
     TelemetryBundleRotated,
 
     // Database events
+    /// Database query executed
     DatabaseQuery,
+    /// Database error occurred
     DatabaseError,
+    /// Database migration applied
     DatabaseMigration,
 
     // Network events
+    /// Network request sent
     NetworkRequest,
+    /// Network response received
     NetworkResponse,
+    /// Network error occurred
     NetworkError,
 
     // Security events
+    /// Security violation detected
     SecurityViolation,
+    /// Security check performed
     SecurityCheck,
+    /// Security alert generated
     SecurityAlert,
 
     // Performance events
+    /// Performance metric recorded
     PerformanceMetric,
+    /// Performance alert triggered
     PerformanceAlert,
+    /// Performance degradation detected
     PerformanceDegradation,
 
     // Custom events
+    /// Custom event with string identifier
     Custom(String),
 }
 
@@ -258,6 +310,7 @@ pub struct TelemetryBundle {
 
     /// Event sequence range
     pub start_seq: Option<i64>,
+    /// End sequence number (inclusive)
     pub end_seq: Option<i64>,
 }
 

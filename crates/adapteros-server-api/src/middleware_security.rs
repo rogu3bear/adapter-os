@@ -16,7 +16,7 @@ use axum::{
 };
 use std::collections::HashSet;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, warn};
+use tracing::warn;
 
 use crate::security::rate_limiting::check_rate_limit;
 use crate::state::AppState;

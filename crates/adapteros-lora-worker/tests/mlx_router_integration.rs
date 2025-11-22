@@ -42,7 +42,7 @@ fn make_decision_with_candidates(
 fn test_router_to_kernel_ring_basic_conversion() {
     // Test basic conversion from router Decision to RouterRing
     let decision = make_decision(&[0, 1, 2], &[16383, 8191, 4095], 0.5);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring.k, 3, "K should match number of selected adapters");
     assert_eq!(ring.active_indices(), &[0, 1, 2]);
@@ -53,7 +53,7 @@ fn test_router_to_kernel_ring_basic_conversion() {
 fn test_router_decision_order_preservation() {
     // Critical: router order must be preserved for deterministic execution
     let decision = make_decision(&[7, 3, 1, 5], &[-1000, 500, 2000, -500], 0.3);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     // Verify exact order preservation (not sorted)
     assert_eq!(
@@ -78,7 +78,7 @@ fn test_router_batch_processing() {
         make_decision(&[0, 2, 4, 6], &[100, 200, 300, 400], 0.7),
     ];
 
-    let rings = batch_decision_to_router_ring(&decisions, 100);
+    let rings = batch_decision_to_router_ring(&decisions, 100).unwrap();
 
     assert_eq!(rings.len(), 4, "Should have one ring per decision");
     assert_eq!(rings[0].k, 2);
@@ -91,7 +91,7 @@ fn test_router_batch_processing() {
 fn test_router_empty_decision() {
     // Edge case: no adapters selected (e.g., confidence too low)
     let decision = make_decision(&[], &[], 0.0);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring.k, 0, "Empty decision should have K=0");
     assert!(ring.active_indices().is_empty());
@@ -104,7 +104,7 @@ fn test_router_max_k_adapters() {
     let indices = [0, 1, 2, 3, 4, 5, 6, 7];
     let gates = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
     let decision = make_decision(&indices, &gates, 0.9);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring.k, 8, "Should support K=8");
     assert_eq!(ring.active_indices(), &indices);
@@ -115,7 +115,7 @@ fn test_router_max_k_adapters() {
 fn test_router_q15_signed_range() {
     // Test full Q15 signed range: -32767 to +32767
     let decision = make_decision(&[0, 1, 2, 3], &[-32767, -1, 0, 32767], 0.5);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring.active_gates(), &[-32767, -1, 0, 32767]);
 }
@@ -134,7 +134,7 @@ fn test_router_unchecked_conversion() {
 fn test_router_position_tracking() {
     // RouterRing position should be initialized to 0
     let decision = make_decision(&[0, 1], &[1000, 2000], 0.5);
-    let mut ring = decision_to_router_ring(&decision, 100);
+    let mut ring = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring.position, 0, "Initial position should be 0");
 
@@ -147,7 +147,7 @@ fn test_router_position_tracking() {
 fn test_router_ring_zero_fill() {
     // Verify unused entries are zero-filled
     let decision = make_decision(&[0, 1, 2], &[1000, 2000, 3000], 0.5);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     // Entries beyond K should be zero
     assert_eq!(ring.indices[3..], [0; 5]);
@@ -178,7 +178,7 @@ fn test_router_with_candidate_metadata() {
     assert_eq!(decision.candidates[0].raw_score, 0.8);
 
     // Ring only has indices and gates
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
     assert_eq!(ring.k, 2);
 }
 
@@ -187,8 +187,8 @@ fn test_router_deterministic_conversion() {
     // Same Decision should produce identical RouterRing
     let decision = make_decision(&[3, 1, 4], &[1000, 2000, 3000], 0.5);
 
-    let ring1 = decision_to_router_ring(&decision, 100);
-    let ring2 = decision_to_router_ring(&decision, 100);
+    let ring1 = decision_to_router_ring(&decision, 100).unwrap();
+    let ring2 = decision_to_router_ring(&decision, 100).unwrap();
 
     assert_eq!(ring1.k, ring2.k);
     assert_eq!(ring1.indices, ring2.indices);
@@ -199,7 +199,7 @@ fn test_router_deterministic_conversion() {
 fn test_router_adapter_count_boundary() {
     // Test with max_adapter_count at boundary
     let decision = make_decision(&[98, 99], &[1000, 2000], 0.5);
-    let ring = decision_to_router_ring(&decision, 100);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     // Indices 98 and 99 are valid for max_adapter=100 (0-99)
     assert_eq!(ring.k, 2);
@@ -209,7 +209,7 @@ fn test_router_adapter_count_boundary() {
 #[test]
 fn test_router_batch_empty() {
     // Test batch conversion with empty input
-    let rings = batch_decision_to_router_ring(&[], 100);
+    let rings = batch_decision_to_router_ring(&[], 100).unwrap();
     assert!(rings.is_empty());
 }
 
@@ -217,9 +217,387 @@ fn test_router_batch_empty() {
 fn test_router_batch_single() {
     // Test batch conversion with single decision
     let decisions = vec![make_decision(&[5], &[5000], 0.8)];
-    let rings = batch_decision_to_router_ring(&decisions, 100);
+    let rings = batch_decision_to_router_ring(&decisions, 100).unwrap();
 
     assert_eq!(rings.len(), 1);
     assert_eq!(rings[0].k, 1);
     assert_eq!(rings[0].active_indices(), &[5]);
+}
+
+// ========================================================================
+// Q15 Gate Weighting Validation Integration Tests
+// ========================================================================
+// Q15 format: 16-bit signed integer representing fixed-point [-1.0, 1.0)
+// Max positive: 32767 = ~0.99997
+// Encoding: (float * 32767.0).round() as i16
+// Decoding: i16 as f32 / 32767.0
+
+/// Helper to encode f32 to Q15 (signed i16)
+fn encode_q15(value: f32) -> i16 {
+    (value * 32767.0).round() as i16
+}
+
+/// Helper to decode Q15 (signed i16) to f32
+fn decode_q15(q15: i16) -> f32 {
+    q15 as f32 / 32767.0
+}
+
+#[test]
+fn test_q15_single_adapter_full_weight() {
+    // Single adapter with max gate should get ~100% weight
+    let decision = make_decision(&[0], &[32767], 0.0);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    assert_eq!(ring.k, 1);
+    let weight = decode_q15(ring.gates_q15[0]);
+    assert!(
+        weight > 0.999,
+        "Single adapter with max gate should have weight > 0.999, got {}",
+        weight
+    );
+}
+
+#[test]
+fn test_q15_multi_adapter_proportional_blend() {
+    // Three adapters with gates 0.5, 0.3, 0.2
+    let gates = [
+        encode_q15(0.5),  // 16384
+        encode_q15(0.3),  // 9830
+        encode_q15(0.2),  // 6553
+    ];
+
+    let decision = make_decision(&[0, 1, 2], &gates, 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    assert_eq!(ring.k, 3);
+
+    // Verify proportions
+    let total: f32 = ring.active_gates().iter().map(|&g| g as f32).sum();
+    let proportions: Vec<f32> = ring
+        .active_gates()
+        .iter()
+        .map(|&g| g as f32 / total)
+        .collect();
+
+    assert!(
+        (proportions[0] - 0.5).abs() < 0.01,
+        "First adapter proportion should be ~0.5, got {}",
+        proportions[0]
+    );
+    assert!(
+        (proportions[1] - 0.3).abs() < 0.01,
+        "Second adapter proportion should be ~0.3, got {}",
+        proportions[1]
+    );
+    assert!(
+        (proportions[2] - 0.2).abs() < 0.01,
+        "Third adapter proportion should be ~0.2, got {}",
+        proportions[2]
+    );
+}
+
+#[test]
+fn test_q15_zero_gate_identification() {
+    // Adapter with gate=0 should be identifiable for skipping
+    let decision = make_decision(&[0, 1, 2], &[32767, 0, 16384], 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    // Only indices 0 and 2 should be active (gates > 0)
+    let active_count = ring
+        .active_gates()
+        .iter()
+        .filter(|&&g| g > 0)
+        .count();
+    assert_eq!(
+        active_count, 2,
+        "Should have 2 active adapters (gates > 0), got {}",
+        active_count
+    );
+
+    // Verify gate values
+    assert_eq!(ring.gates_q15[0], 32767, "First gate should be max");
+    assert_eq!(ring.gates_q15[1], 0, "Second gate should be zero");
+    assert_eq!(ring.gates_q15[2], 16384, "Third gate should be ~0.5");
+}
+
+#[test]
+fn test_q15_negative_gate_handling() {
+    // Negative gates should be preserved but typically skipped in processing
+    // (per backend.rs: if gate_q15 <= 0 { continue; })
+    let decision = make_decision(&[0, 1], &[32767, -16384], 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    assert_eq!(ring.k, 2);
+
+    // Negative gate at index 1 should be preserved
+    assert_eq!(ring.gates_q15[0], 32767, "First gate should be max positive");
+    assert_eq!(
+        ring.gates_q15[1], -16384,
+        "Second gate should be negative"
+    );
+
+    // Count positive gates (what would be used in inference)
+    let positive_count = ring
+        .active_gates()
+        .iter()
+        .filter(|&&g| g > 0)
+        .count();
+    assert_eq!(positive_count, 1, "Only 1 positive gate should be active");
+}
+
+#[test]
+fn test_q15_encode_decode_precision_integration() {
+    // Test encoding precision in integration context
+    let values: [f32; 5] = [0.0, 0.5, 1.0, -1.0, 0.123456];
+    for v in values {
+        let clamped = v.clamp(-1.0, 1.0);
+        let encoded = encode_q15(clamped);
+        let decoded = decode_q15(encoded);
+        assert!(
+            (clamped - decoded).abs() < 1e-4,
+            "Precision loss for {}: encoded={}, decoded={}",
+            v,
+            encoded,
+            decoded
+        );
+    }
+}
+
+#[test]
+fn test_q15_boundary_values_integration() {
+    // Max positive (0.99997 * 32767.0 rounds to 32766 due to floating point precision)
+    assert_eq!(encode_q15(0.99997), 32766);
+    // Max negative
+    assert_eq!(encode_q15(-1.0), -32767);
+    // Zero
+    assert_eq!(encode_q15(0.0), 0);
+
+    // Test in ring context
+    let decision = make_decision(&[0, 1, 2], &[32767, -32767, 0], 0.0);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    assert_eq!(ring.gates_q15[0], 32767, "Max positive in ring");
+    assert_eq!(ring.gates_q15[1], -32767, "Max negative in ring");
+    assert_eq!(ring.gates_q15[2], 0, "Zero in ring");
+}
+
+#[test]
+fn test_q15_gate_normalization_integration() {
+    // Gates should sum to ~1.0 after dequantization
+    let gates_q15: Vec<i16> = vec![16384, 8192, 8191]; // ~0.5, ~0.25, ~0.25
+    let decision = make_decision(&[0, 1, 2], &gates_q15, 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    let sum: f32 = ring.active_gates().iter().map(|&g| decode_q15(g)).sum();
+    assert!(
+        (sum - 1.0).abs() < 0.01,
+        "Gate sum should be ~1.0, got {}",
+        sum
+    );
+}
+
+#[test]
+fn test_q15_very_small_gates_integration() {
+    // Very small but non-zero gates
+    let decision = make_decision(&[0, 1], &[1, -1], 0.0);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    let small_positive = decode_q15(ring.gates_q15[0]);
+    let small_negative = decode_q15(ring.gates_q15[1]);
+
+    assert!(small_positive > 0.0, "Small positive should be > 0");
+    assert!(
+        small_positive < 0.0001,
+        "Small positive should be < 0.0001, got {}",
+        small_positive
+    );
+
+    assert!(small_negative < 0.0, "Small negative should be < 0");
+    assert!(
+        small_negative > -0.0001,
+        "Small negative should be > -0.0001, got {}",
+        small_negative
+    );
+}
+
+#[test]
+fn test_q15_alternating_sign_gates_integration() {
+    // Mix of positive and negative (only positive used)
+    let gates: [i16; 5] = [16384, -8192, 8192, -4096, 4096];
+    let decision = make_decision(&[0, 1, 2, 3, 4], &gates, 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    let positive_sum: f32 = ring
+        .active_gates()
+        .iter()
+        .filter(|&&g| g > 0)
+        .map(|&g| decode_q15(g))
+        .sum();
+
+    // Sum of positive gates: 0.5 + 0.25 + 0.125 = 0.875
+    assert!(
+        (positive_sum - 0.875).abs() < 0.01,
+        "Positive gate sum should be ~0.875, got {}",
+        positive_sum
+    );
+}
+
+#[test]
+fn test_q15_equal_weight_distribution() {
+    // K adapters with equal weights should each get 1/K weight
+    let k = 4;
+    let equal_gate = encode_q15(1.0 / k as f32); // Each gets 0.25
+    let gates: Vec<i16> = vec![equal_gate; k];
+    let indices: Vec<u16> = (0..k as u16).collect();
+
+    let decision = make_decision(&indices, &gates, 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    // Verify all gates are approximately equal
+    for (i, &gate) in ring.active_gates().iter().enumerate() {
+        let weight = decode_q15(gate);
+        assert!(
+            (weight - 0.25).abs() < 0.01,
+            "Adapter {} weight should be ~0.25, got {}",
+            i,
+            weight
+        );
+    }
+}
+
+#[test]
+fn test_q15_dominant_adapter_weight() {
+    // One dominant adapter with 80% weight
+    let gates = [
+        encode_q15(0.8),   // Dominant
+        encode_q15(0.15),  // Secondary
+        encode_q15(0.05),  // Minor
+    ];
+
+    let decision = make_decision(&[0, 1, 2], &gates, 0.3);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    let weights: Vec<f32> = ring.active_gates().iter().map(|&g| decode_q15(g)).collect();
+
+    assert!(
+        (weights[0] - 0.8).abs() < 0.01,
+        "Dominant adapter should have ~0.8 weight, got {}",
+        weights[0]
+    );
+    assert!(
+        (weights[1] - 0.15).abs() < 0.01,
+        "Secondary adapter should have ~0.15 weight, got {}",
+        weights[1]
+    );
+    assert!(
+        (weights[2] - 0.05).abs() < 0.01,
+        "Minor adapter should have ~0.05 weight, got {}",
+        weights[2]
+    );
+}
+
+#[test]
+fn test_q15_batch_gate_consistency() {
+    // Batch of decisions should maintain consistent Q15 encoding
+    let decisions = vec![
+        make_decision(&[0], &[encode_q15(0.5)], 0.5),
+        make_decision(&[1], &[encode_q15(0.75)], 0.4),
+        make_decision(&[2], &[encode_q15(0.25)], 0.6),
+    ];
+
+    let rings = batch_decision_to_router_ring(&decisions, 100).unwrap();
+
+    // Verify each ring maintains correct gate encoding
+    assert!(
+        (decode_q15(rings[0].gates_q15[0]) - 0.5).abs() < 0.01,
+        "First ring gate should be ~0.5"
+    );
+    assert!(
+        (decode_q15(rings[1].gates_q15[0]) - 0.75).abs() < 0.01,
+        "Second ring gate should be ~0.75"
+    );
+    assert!(
+        (decode_q15(rings[2].gates_q15[0]) - 0.25).abs() < 0.01,
+        "Third ring gate should be ~0.25"
+    );
+}
+
+#[test]
+fn test_q15_max_k_with_varied_weights() {
+    // Test K=8 with varied weights
+    let gates: [i16; 8] = [
+        encode_q15(0.25),
+        encode_q15(0.2),
+        encode_q15(0.15),
+        encode_q15(0.12),
+        encode_q15(0.1),
+        encode_q15(0.08),
+        encode_q15(0.06),
+        encode_q15(0.04),
+    ];
+
+    let decision = make_decision(&[0, 1, 2, 3, 4, 5, 6, 7], &gates, 0.8);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    assert_eq!(ring.k, 8);
+
+    // Sum should be ~1.0
+    let sum: f32 = ring.active_gates().iter().map(|&g| decode_q15(g)).sum();
+    assert!(
+        (sum - 1.0).abs() < 0.02,
+        "K=8 gate sum should be ~1.0, got {}",
+        sum
+    );
+}
+
+#[test]
+fn test_q15_deterministic_ring_creation() {
+    // Same decision should produce identical ring every time
+    let gates = [encode_q15(0.5), encode_q15(0.3), encode_q15(0.2)];
+    let decision = make_decision(&[3, 1, 4], &gates, 0.5);
+
+    let ring1 = decision_to_router_ring(&decision, 100).unwrap();
+    let ring2 = decision_to_router_ring(&decision, 100).unwrap();
+    let ring3 = decision_to_router_ring(&decision, 100).unwrap();
+
+    assert_eq!(ring1.k, ring2.k);
+    assert_eq!(ring2.k, ring3.k);
+    assert_eq!(ring1.indices, ring2.indices);
+    assert_eq!(ring2.indices, ring3.indices);
+    assert_eq!(ring1.gates_q15, ring2.gates_q15);
+    assert_eq!(ring2.gates_q15, ring3.gates_q15);
+}
+
+#[test]
+fn test_q15_weight_ordering_preserved() {
+    // Weight ordering should be preserved (not sorted)
+    let gates = [
+        encode_q15(0.1),  // Smallest
+        encode_q15(0.5),  // Largest
+        encode_q15(0.3),  // Medium
+        encode_q15(0.1),  // Smallest (tied)
+    ];
+
+    let decision = make_decision(&[0, 1, 2, 3], &gates, 0.5);
+    let ring = decision_to_router_ring(&decision, 100).unwrap();
+
+    // Verify order matches input (not sorted by weight)
+    let weights: Vec<f32> = ring.active_gates().iter().map(|&g| decode_q15(g)).collect();
+
+    assert!(
+        (weights[0] - 0.1).abs() < 0.01,
+        "First should be 0.1"
+    );
+    assert!(
+        (weights[1] - 0.5).abs() < 0.01,
+        "Second should be 0.5"
+    );
+    assert!(
+        (weights[2] - 0.3).abs() < 0.01,
+        "Third should be 0.3"
+    );
+    assert!(
+        (weights[3] - 0.1).abs() < 0.01,
+        "Fourth should be 0.1"
+    );
 }

@@ -283,6 +283,9 @@ pub enum AosError {
         source: anyhow::Error,
     },
 
+    #[error("Routing error: {0}")]
+    Routing(String),
+
     #[error("{0}")]
     Other(String),
 

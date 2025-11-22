@@ -32,6 +32,7 @@ pub struct OperationProgressEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     /// Event creation timestamp (RFC3339)
+    #[schema(value_type = String)]
     pub created_at: DateTime<Utc>,
 }
 

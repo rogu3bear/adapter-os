@@ -9,6 +9,7 @@ use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
 use adapteros_server::config::Config;
 use adapteros_server::security::PfGuard;
+use adapteros_server::shutdown::ShutdownCoordinator;
 use adapteros_server::status_writer;
 use adapteros_server_api::{routes, AppState};
 use anyhow::Result;
@@ -156,6 +157,9 @@ async fn main() -> Result<()> {
     // Load configuration early (needed for production mode check)
     info!("Loading configuration from {}", cli.config);
     let server_config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+
+    // Initialize shutdown coordinator for graceful lifecycle management
+    let mut shutdown_coordinator = ShutdownCoordinator::new();
 
     // Initialize deterministic executor with manifest-derived seed
     info!("Initializing deterministic executor");
@@ -451,7 +455,7 @@ async fn main() -> Result<()> {
         let config_clone = Arc::clone(&server_config);
         let api_config_clone = Arc::clone(&api_config);
         let config_path = cli.config.clone();
-        let _ = spawn_deterministic("SIGHUP handler".to_string(), async move {
+        let sighup_handle = spawn_deterministic("SIGHUP handler".to_string(), async move {
             use tokio::signal::unix::{signal, SignalKind};
             let mut sig = signal(SignalKind::hangup()).expect("Failed to setup SIGHUP handler");
             loop {
@@ -488,7 +492,8 @@ async fn main() -> Result<()> {
                     Err(e) => error!("Failed to reload config: {}", e),
                 }
             }
-        });
+        }).expect("Failed to spawn SIGHUP handler");
+        shutdown_coordinator.register_task(sighup_handle);
     }
 
     // Initialize status writer uptime tracking early
@@ -501,7 +506,8 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.alerting.enabled {
             info!("Starting alert watcher");
-            alerting::spawn_alert_watcher(db.clone(), cfg.alerting.clone())?;
+            let alert_handle = alerting::spawn_alert_watcher(db.clone(), cfg.alerting.clone())?;
+            shutdown_coordinator.set_alert_handle(alert_handle);
         }
     }
 
@@ -540,9 +546,10 @@ async fn main() -> Result<()> {
 
         // Start background watcher (60 second interval)
         let policy_hashes = Arc::new(RwLock::new(std::collections::HashMap::new()));
-        let _watcher_handle = policy_watcher
+        let watcher_handle = policy_watcher
             .clone()
             .start_background_watcher(Duration::from_secs(60), policy_hashes.clone());
+        shutdown_coordinator.set_policy_watcher_handle(watcher_handle);
 
         info!("Policy hash watcher started (60s interval)");
 
@@ -572,7 +579,9 @@ async fn main() -> Result<()> {
                 federation_config,
             ));
 
-            let _federation_handle = federation_daemon.start();
+            let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+            let federation_handle = federation_daemon.start(federation_shutdown_rx);
+            shutdown_coordinator.set_federation_handle(federation_handle);
             info!("Federation daemon started (300s interval)");
         }
     }
@@ -627,11 +636,14 @@ async fn main() -> Result<()> {
         uds_exporter.bind().await?;
 
         let exporter_socket_path = socket_path.clone();
-        tokio::spawn(async move {
-            if let Err(e) = uds_exporter.serve().await {
+        let shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+        let uds_handle = tokio::spawn(async move {
+            if let Err(e) = uds_exporter.serve(shutdown_rx).await {
                 error!("UDS metrics exporter error: {}", e);
             }
         });
+
+        shutdown_coordinator.set_uds_metrics_handle(uds_handle);
 
         info!(
             "UDS metrics exporter started on {}",
@@ -728,7 +740,7 @@ async fn main() -> Result<()> {
     // Spawn status writer background task
     {
         let state_clone = state.clone();
-        let _ = spawn_deterministic("Status writer".to_string(), async move {
+        let status_writer_handle = spawn_deterministic("Status writer".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
@@ -736,14 +748,15 @@ async fn main() -> Result<()> {
                     warn!("Failed to write status: {}", e);
                 }
             }
-        });
+        }).expect("Failed to spawn status writer");
+        shutdown_coordinator.register_task(status_writer_handle);
         info!("Status writer started (5s interval)");
     }
 
     // Spawn TTL cleanup background task
     {
         let db_clone = db.clone();
-        let _ = spawn_deterministic("TTL cleanup".to_string(), async move {
+        let ttl_cleanup_handle = spawn_deterministic("TTL cleanup".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
             loop {
                 interval.tick().await;
@@ -793,14 +806,15 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-        });
+        }).expect("Failed to spawn TTL cleanup");
+        shutdown_coordinator.register_task(ttl_cleanup_handle);
         info!("TTL cleanup task started (5 minute interval)");
     }
 
     // Spawn heartbeat recovery background task
     {
         let db_clone = db.clone();
-        let _ = spawn_deterministic("Heartbeat recovery".to_string(), async move {
+        let heartbeat_recovery_handle = spawn_deterministic("Heartbeat recovery".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
             loop {
                 interval.tick().await;
@@ -823,7 +837,8 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-        });
+        }).expect("Failed to spawn heartbeat recovery");
+        shutdown_coordinator.register_task(heartbeat_recovery_handle);
         info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
     }
 
@@ -865,6 +880,37 @@ async fn main() -> Result<()> {
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal())
             .await?;
+
+        // Server has shut down, now perform coordinated shutdown
+        info!("Server shutdown complete, performing coordinated component shutdown");
+        match shutdown_coordinator.shutdown().await {
+            Ok(()) => {
+                info!("All components shut down successfully");
+            }
+            Err(e) => {
+                match e {
+                    adapteros_server::shutdown::ShutdownError::CriticalFailure { component } => {
+                        error!("Critical shutdown failure in {} - system integrity compromised", component);
+                        std::process::exit(1);
+                    }
+                    adapteros_server::shutdown::ShutdownError::PartialFailure { failed_count } => {
+                        warn!("Partial shutdown failure - {} components failed but system integrity maintained", failed_count);
+                        // Don't exit - partial failures are acceptable
+                    }
+                    _ => {
+                        error!("Shutdown error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+
+        // Final MLX cleanup after all other components
+        #[cfg(feature = "multi-backend")]
+        {
+            adapteros_lora_mlx_ffi::mlx_runtime_shutdown();
+            tracing::info!("MLX runtime shut down");
+        }
     } else {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         info!("Starting control plane on {}", addr);
@@ -876,6 +922,37 @@ async fn main() -> Result<()> {
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal())
             .await?;
+
+        // Server has shut down, now perform coordinated shutdown
+        info!("Server shutdown complete, performing coordinated component shutdown");
+        match shutdown_coordinator.shutdown().await {
+            Ok(()) => {
+                info!("All components shut down successfully");
+            }
+            Err(e) => {
+                match e {
+                    adapteros_server::shutdown::ShutdownError::CriticalFailure { component } => {
+                        error!("Critical shutdown failure in {} - system integrity compromised", component);
+                        std::process::exit(1);
+                    }
+                    adapteros_server::shutdown::ShutdownError::PartialFailure { failed_count } => {
+                        warn!("Partial shutdown failure - {} components failed but system integrity maintained", failed_count);
+                        // Don't exit - partial failures are acceptable
+                    }
+                    _ => {
+                        error!("Shutdown error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+
+        // Final MLX cleanup after all other components
+        #[cfg(feature = "multi-backend")]
+        {
+            adapteros_lora_mlx_ffi::mlx_runtime_shutdown();
+            tracing::info!("MLX runtime shut down");
+        }
     }
 
     Ok(())
@@ -904,11 +981,4 @@ async fn shutdown_signal() {
     let _ = select_2(ctrl_c, terminate).await;
 
     info!("Shutdown signal received");
-
-    // Graceful MLX runtime shutdown (idempotent)
-    #[cfg(feature = "multi-backend")]
-    {
-        adapteros_lora_mlx_ffi::mlx_runtime_shutdown();
-        tracing::info!("MLX runtime shut down");
-    }
 }

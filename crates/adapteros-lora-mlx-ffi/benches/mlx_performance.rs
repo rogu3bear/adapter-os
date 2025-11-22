@@ -141,6 +141,9 @@ fn bench_lora_transform(c: &mut Criterion) {
                         alpha: 16.0,
                         target_modules: vec!["q_proj".to_string()],
                         dropout: 0.0,
+                        language_affinities: Vec::new(),
+                        framework: None,
+                        tier: None,
                     };
                     let mut adapter = LoRAAdapter::new("bench-adapter".to_string(), config);
 

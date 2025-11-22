@@ -7,6 +7,7 @@ use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_db::users::Role;
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -96,7 +97,7 @@ pub async fn load_model(
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, info, warn};
 
-    require_any_role(&claims, &["admin", "operator"])
+    require_any_role(&claims, &[Role::Admin, Role::Operator])
         .map_err(|_| {
             (
                 StatusCode::FORBIDDEN,
@@ -282,7 +283,7 @@ pub async fn unload_model(
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, info, warn};
 
-    require_any_role(&claims, &["admin", "operator"])
+    require_any_role(&claims, &[Role::Admin, Role::Operator])
         .map_err(|_| {
             (
                 StatusCode::FORBIDDEN,

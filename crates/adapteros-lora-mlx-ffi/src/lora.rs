@@ -15,6 +15,15 @@ pub struct LoRAConfig {
     pub target_modules: Vec<String>,
     /// Dropout rate
     pub dropout: f32,
+    /// Language affinity indices (0=Rust, 1=Python, 2=TypeScript, 3=Go, 4=Java, 5=C++, 6=JavaScript, 7=Other)
+    #[serde(default)]
+    pub language_affinities: Vec<usize>,
+    /// Framework specialization (e.g., "django", "fastapi", "react", "axum")
+    #[serde(default)]
+    pub framework: Option<String>,
+    /// Adapter tier for scoring (e.g., "persistent", "ephemeral", "experimental")
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 impl Default for LoRAConfig {
@@ -29,6 +38,9 @@ impl Default for LoRAConfig {
                 "o_proj".to_string(),
             ],
             dropout: 0.1,
+            language_affinities: Vec::new(),
+            framework: None,
+            tier: None,
         }
     }
 }

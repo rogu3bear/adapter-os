@@ -42,6 +42,7 @@ test-utils = ["rand"]
 schemars-support = ["schemars"]
 sqlx = ["dep:sqlx"]
 utoipa = ["dep:utoipa"]
+async = []
 
 [dependencies.utoipa]
 version = "5.4"

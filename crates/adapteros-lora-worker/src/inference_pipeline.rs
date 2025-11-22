@@ -14,7 +14,7 @@ use adapteros_core::{
     derive_seed, AosError, B3Hash, CircuitBreaker, Result, StandardCircuitBreaker,
 };
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
-use adapteros_lora_router::Router;
+use adapteros_lora_router::{Router, AdapterInfo};
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::events::{RouterCandidate, RouterDecisionEvent};
 use adapteros_telemetry::TelemetryWriter;
@@ -340,7 +340,16 @@ impl InferencePipeline {
             // Create feature vector from token embeddings (simplified for now)
             let features = self.create_feature_vector(&current_tokens);
             let priors = vec![1.0; 8]; // Uniform priors for all adapters
-            let decision = self.router.route(&features, &priors);
+            // Create dummy adapter info for route_with_adapter_info
+            let adapter_info: Vec<AdapterInfo> = (0..8)
+                .map(|i| AdapterInfo {
+                    id: format!("adapter_{}", i),
+                    framework: None,
+                    languages: vec![0], // Default language
+                    tier: "persistent".to_string(),
+                })
+                .collect();
+            let decision = self.router.route_with_adapter_info(&features, &priors, &adapter_info);
 
             // Emit router decision telemetry
             let router_event = RouterDecisionEvent {

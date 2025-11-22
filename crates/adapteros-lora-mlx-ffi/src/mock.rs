@@ -67,6 +67,9 @@ pub fn create_mock_adapter(id: &str, rank: usize) -> LoRAAdapter {
             "o_proj".to_string(),
         ],
         dropout: 0.1,
+        language_affinities: Vec::new(),
+        framework: None,
+        tier: None,
     };
 
     let mut adapter = LoRAAdapter::new(id.to_string(), config);

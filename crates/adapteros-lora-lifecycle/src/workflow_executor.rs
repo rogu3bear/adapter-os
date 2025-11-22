@@ -462,7 +462,7 @@ impl RealBackendAdapterBackend {
             "Initializing RealBackendAdapterBackend with Metal backend"
         );
 
-        let mut kernels = MetalKernels::new().map_err(|e| {
+        let kernels = MetalKernels::new().map_err(|e| {
             error!(error = %e, "Failed to initialize Metal kernels");
             AosError::Kernel(format!("Metal initialization failed: {}", e))
         })?;

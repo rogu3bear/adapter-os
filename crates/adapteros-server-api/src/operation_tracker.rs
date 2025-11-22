@@ -245,14 +245,13 @@ impl OperationTracker {
 
             let _ = tx.send(OperationProgressEvent {
                 operation_id: format!("{}:{}", resource_id, tenant_id),
-                adapter_id: resource_id.to_string(),
-                tenant_id: tenant_id.to_string(),
-                operation_type: operation_type_str.to_string(),
-                progress_pct: 0.0,
-                status: "running".to_string(),
-                message: Some(format!("{} operation started", resource_type)),
-                started_at: Utc::now().to_rfc3339(),
-                elapsed_secs: 0.0,
+                model_id: resource_id.to_string(),
+                operation: operation_type_str.to_string(),
+                status: "started".to_string(),
+                progress_percent: Some(0),
+                duration_ms: None,
+                error_message: None,
+                created_at: Utc::now(),
             });
         }
 
@@ -336,14 +335,13 @@ impl OperationTracker {
 
                 let _ = tx.send(OperationProgressEvent {
                     operation_id: format!("{}:{}", resource_id, tenant_id),
-                    adapter_id: resource_id.to_string(),
-                    tenant_id: tenant_id.to_string(),
-                    operation_type: operation_type_str.to_string(),
-                    progress_pct: op.progress_pct,
-                    status: "running".to_string(),
-                    message,
-                    started_at: Utc::now().to_rfc3339(),
-                    elapsed_secs: elapsed,
+                    model_id: resource_id.to_string(),
+                    operation: operation_type_str.to_string(),
+                    status: "in_progress".to_string(),
+                    progress_percent: Some(op.progress_pct as u8),
+                    duration_ms: Some(elapsed as u64 * 1000),
+                    error_message: None,
+                    created_at: Utc::now(),
                 });
             }
         }
@@ -415,22 +413,17 @@ impl OperationTracker {
 
                 let _ = tx.send(OperationProgressEvent {
                     operation_id: format!("{}:{}", resource_id, tenant_id),
-                    adapter_id: resource_id.to_string(),
-                    tenant_id: tenant_id.to_string(),
-                    operation_type: operation_type_str.to_string(),
-                    progress_pct: 100.0,
+                    model_id: resource_id.to_string(),
+                    operation: operation_type_str.to_string(),
                     status: if success {
                         "completed".to_string()
                     } else {
                         "failed".to_string()
                     },
-                    message: Some(if success {
-                        format!("{} operation completed successfully", resource_type)
-                    } else {
-                        format!("{} operation failed", resource_type)
-                    }),
-                    started_at: Utc::now().to_rfc3339(),
-                    elapsed_secs: elapsed,
+                    progress_percent: Some(100),
+                    duration_ms: Some(elapsed as u64 * 1000),
+                    error_message: if success { None } else { Some(format!("{} operation failed", resource_type)) },
+                    created_at: Utc::now(),
                 });
             }
 
@@ -518,19 +511,18 @@ impl OperationTracker {
                 let elapsed = op.started_at.elapsed().as_secs_f64();
                 let _ = tx.send(OperationProgressEvent {
                     operation_id: format!("{}:{}", resource_id, tenant_id),
-                    adapter_id: resource_id.to_string(),
-                    tenant_id: tenant_id.to_string(),
-                    operation_type: match op.operation_type {
+                    model_id: resource_id.to_string(),
+                    operation: match op.operation_type {
                         OperationType::Model(ModelOperationType::Load) => "load",
                         OperationType::Model(ModelOperationType::Unload) => "unload",
                         OperationType::Adapter(_) => "adapter_operation", // Generic fallback
                     }
                     .to_string(),
-                    progress_pct: op.progress_pct,
                     status: "cancelled".to_string(),
-                    message: Some("Operation cancelled by user".to_string()),
-                    started_at: Utc::now().to_rfc3339(),
-                    elapsed_secs: elapsed,
+                    progress_percent: Some(op.progress_pct as u8),
+                    duration_ms: Some(elapsed as u64 * 1000),
+                    error_message: Some("Operation cancelled by user".to_string()),
+                    created_at: Utc::now(),
                 });
             }
 
@@ -716,14 +708,13 @@ impl OperationTracker {
 
             OperationProgressEvent {
                 operation_id: format!("{}:{}", resource_id, tenant_id),
-                adapter_id: resource_id.to_string(),
-                tenant_id: tenant_id.to_string(),
-                operation_type: operation_type_str.to_string(),
-                progress_pct: op.progress_pct,
-                status: "running".to_string(),
-                message: None, // Could be enhanced to store last message
-                started_at: Utc::now().to_rfc3339(), // This should be stored in the operation
-                elapsed_secs: elapsed,
+                model_id: resource_id.to_string(),
+                operation: operation_type_str.to_string(),
+                status: "in_progress".to_string(),
+                progress_percent: Some(op.progress_pct as u8),
+                duration_ms: Some(elapsed as u64 * 1000),
+                error_message: None,
+                created_at: Utc::now(),
             }
         })
     }

@@ -12,7 +12,6 @@ use crate::{
     mlx_mean, mlx_multiply, mlx_sqrt, mlx_sum,
 };
 use adapteros_core::{AosError, Result};
-use std::f32::consts::PI;
 
 use crate::MLXFFITensor;
 
@@ -137,7 +136,7 @@ pub fn mlx_rope(
     tensor: &MLXFFITensor,
     position: usize,
     rope_freq: &RoPEFrequencies,
-    device: &str,
+    _device: &str,
 ) -> Result<MLXFFITensor> {
     let shape = tensor.shape().to_vec();
 
@@ -423,7 +422,7 @@ pub fn mlx_multihead_attention(
     )?;
 
     // Reshape back to [batch, seq_len, hidden_size]
-    let mut final_shape = q_shape.to_vec();
+    let final_shape = q_shape.to_vec();
     output.reshape(final_shape)
 }
 

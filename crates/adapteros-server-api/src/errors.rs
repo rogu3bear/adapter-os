@@ -8,7 +8,7 @@
 //! - Error response enhancement: Extends existing ErrorResponse pattern【2†adapteros-server-api/src/handlers.rs】
 //! - Retry logic: Implements exponential backoff for transient errors【3†demo_ux_improvements.rs:6-10】
 
-use adapteros_api_types::ErrorResponse;
+use adapteros_api_types::{ErrorResponse, API_SCHEMA_VERSION};
 use adapteros_core::AosError;
 use axum::http::StatusCode;
 use axum::Json;
@@ -159,6 +159,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
         details.insert("user_friendly".to_string(), Value::Bool(true));
 
         adapteros_api_types::ErrorResponse {
+            schema_version: API_SCHEMA_VERSION.to_string(),
             error: user_friendly_message,
             code: error_code.to_string(),
             details: Some(Value::Object(details)),
@@ -187,6 +188,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
         }
 
         adapteros_api_types::ErrorResponse {
+            schema_version: API_SCHEMA_VERSION.to_string(),
             error: user_message,
             code: error_code,
             details: Some(Value::Object(details)),
@@ -209,6 +211,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
         }
 
         adapteros_api_types::ErrorResponse {
+            schema_version: API_SCHEMA_VERSION.to_string(),
             error: user_message.into(),
             code: error_code.to_string(),
             details: if details.is_empty() {

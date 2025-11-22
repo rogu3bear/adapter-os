@@ -373,7 +373,7 @@ impl DatasetCleanupManager {
 
         let mut total_used_bytes = 0u64;
         let mut dataset_count = 0u32;
-        let mut tenant_usage: HashMap<String, (u64, u32)> = HashMap::new();
+        let tenant_usage: HashMap<String, (u64, u32)> = HashMap::new();
 
         for dataset in datasets {
             total_used_bytes += dataset.total_size_bytes as u64;

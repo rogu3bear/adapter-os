@@ -1,6 +1,6 @@
 //! Telemetry with canonical JSON and BLAKE3 hashing
 
-use ::tracing::{error, warn};
+use ::tracing::{error, info, warn};
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{generate_signing_key, load_signing_key, sign_bundle, Keypair};
@@ -164,6 +164,34 @@ impl TelemetryWriter {
             .build()
             .map_err(|e| AosError::Config(format!("Failed to build telemetry event: {}", e)))?;
         self.log_event(event)
+    }
+
+    /// Gracefully shutdown the telemetry writer
+    ///
+    /// Flushes all pending events and waits for the writer thread to complete.
+    /// This ensures no telemetry data is lost during shutdown.
+    pub fn shutdown(self) -> Result<()> {
+        info!("Initiating telemetry writer shutdown");
+
+        // Send a shutdown signal by dropping the sender
+        // This will cause the receiver to return None, signaling shutdown
+        drop(self.sender);
+
+        // Wait for the writer thread to complete
+        // Clone the Arc to get access to the JoinHandle
+        let handle = Arc::try_unwrap(self._handle)
+            .map_err(|_| AosError::Internal("Telemetry writer thread still has references".to_string()))?;
+
+        match handle.join() {
+            Ok(_) => {
+                info!("Telemetry writer thread shutdown complete");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Telemetry writer thread panicked during shutdown: {:?}", e);
+                Err(AosError::Internal("Telemetry writer thread panicked".to_string()))
+            }
+        }
     }
 
     /// Legacy log method - uses system identity

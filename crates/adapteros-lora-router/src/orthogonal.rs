@@ -122,7 +122,7 @@ impl OrthogonalConstraints {
         let penalty = self.compute_penalty(adapter_indices, gates);
 
         if penalty > 0.5 {
-            return Err(adapteros_core::AosError::Policy(format!(
+            return Err(adapteros_core::AosError::Routing(format!(
                 "Orthogonal constraint violation: penalty {} exceeds threshold 0.5",
                 penalty
             )));

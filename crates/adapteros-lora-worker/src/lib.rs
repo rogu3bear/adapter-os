@@ -33,7 +33,7 @@
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
-use adapteros_lora_router::Router;
+use adapteros_lora_router::{Router, AdapterInfo};
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
@@ -696,7 +696,16 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             // Create dummy features from token embeddings (simplified for now)
             let features = vec![1.0; 32]; // Simplified feature vector
             let priors = vec![1.0; self.manifest.adapters.len()];
-            let decision = self.router.route(&features, &priors);
+            // Create dummy adapter info for route_with_adapter_info
+            let adapter_info: Vec<AdapterInfo> = self.manifest.adapters.iter().enumerate()
+                .map(|(i, adapter)| AdapterInfo {
+                    id: adapter.id.clone(),
+                    framework: None, // Manifest adapters don't have framework info
+                    languages: vec![0], // Default language
+                    tier: format!("{:?}", adapter.tier).to_lowercase(),
+                })
+                .collect();
+            let decision = self.router.route_with_adapter_info(&features, &priors, &adapter_info);
 
             // Record routing decision in profiler
             self.profiler.record_routing_decision(&decision.indices);

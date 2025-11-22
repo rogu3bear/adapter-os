@@ -10,12 +10,12 @@
 
 -- Add aos_file_path column if it doesn't exist
 -- This tracks the location of the .aos file for the adapter
-ALTER TABLE adapters ADD COLUMN IF NOT EXISTS aos_file_path TEXT;
+ALTER TABLE adapters ADD COLUMN aos_file_path TEXT;
 
 -- Add aos_file_hash column if it doesn't exist
 -- This stores the BLAKE3 hash of the .aos file for integrity verification
-ALTER TABLE adapters ADD COLUMN IF NOT EXISTS aos_file_hash TEXT;
+ALTER TABLE adapters ADD COLUMN aos_file_hash TEXT;
 
--- Create index for .aos file hash lookups if not exists
-CREATE INDEX IF NOT EXISTS idx_adapters_aos_file_hash
+-- Create index for .aos file hash lookups
+CREATE INDEX idx_adapters_aos_file_hash
     ON adapters(aos_file_hash);

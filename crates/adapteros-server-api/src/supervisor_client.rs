@@ -120,7 +120,7 @@ impl SupervisorClient {
         }
 
         let services_response: ServicesResponse = response.json().await.map_err(|e| {
-            AosError::Serialization(format!("Failed to parse services response: {}", e))
+            AosError::Network(format!("Failed to parse services response: {}", e))
         })?;
 
         Ok(services_response.services)
@@ -140,7 +140,7 @@ impl SupervisorClient {
 
         match response.status() {
             StatusCode::OK => response.json().await.map_err(|e| {
-                AosError::Serialization(format!("Failed to parse service response: {}", e))
+                AosError::Network(format!("Failed to parse service response: {}", e))
             }),
             StatusCode::NOT_FOUND => Err(AosError::NotFound(format!(
                 "Service '{}' not found",
@@ -303,7 +303,7 @@ impl SupervisorClient {
                 }
 
                 let logs_response: LogsResponse = response.json().await.map_err(|e| {
-                    AosError::Serialization(format!("Failed to parse logs response: {}", e))
+                    AosError::Network(format!("Failed to parse logs response: {}", e))
                 })?;
 
                 Ok(logs_response.logs)
@@ -391,7 +391,7 @@ impl SupervisorClient {
         match response.status() {
             StatusCode::OK => {
                 let op_response: ServiceOperationResponse = response.json().await.map_err(|e| {
-                    AosError::Serialization(format!("Failed to parse response: {}", e))
+                    AosError::Network(format!("Failed to parse response: {}", e))
                 })?;
 
                 if op_response.success {

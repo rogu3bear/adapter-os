@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -91,42 +92,56 @@ impl FederationDaemon {
         }
     }
 
-    /// Run the daemon (spawns background task)
-    pub fn start(self: Arc<Self>) -> JoinHandle<()> {
+    /// Run the daemon with graceful shutdown support
+    pub fn start(self: Arc<Self>, shutdown_rx: broadcast::Receiver<()>) -> JoinHandle<()> {
         info!(
             interval_secs = self.config.interval_secs,
             "Starting federation daemon"
         );
 
         tokio::spawn(async move {
-            self.run_loop().await;
+            self.run_loop(shutdown_rx).await;
         })
     }
 
-    /// Main daemon loop
-    async fn run_loop(&self) {
+    /// Legacy start method without shutdown support (for backward compatibility)
+    pub fn start_legacy(self: Arc<Self>) -> JoinHandle<()> {
+        let (_, shutdown_rx) = broadcast::channel(1); // Create a dummy receiver that never receives
+        self.start(shutdown_rx)
+    }
+
+    /// Main daemon loop with graceful shutdown support
+    async fn run_loop(&self, mut shutdown_rx: broadcast::Receiver<()>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.interval_secs));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = interval.tick() => {
+                    debug!("Starting federation verification sweep");
 
-            debug!("Starting federation verification sweep");
+                    match self.verify_all_hosts().await {
+                        Ok(report) => {
+                            self.handle_verification_report(report).await;
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Federation verification sweep failed");
 
-            match self.verify_all_hosts().await {
-                Ok(report) => {
-                    self.handle_verification_report(report).await;
-                }
-                Err(e) => {
-                    error!(error = %e, "Federation verification sweep failed");
-
-                    // Log telemetry event
-                    if let Err(te) = self.log_verification_error(&e) {
-                        error!(error = %te, "Failed to log verification error");
+                            // Log telemetry event
+                            if let Err(te) = self.log_verification_error(&e) {
+                                error!(error = %te, "Failed to log verification error");
+                            }
+                        }
                     }
+                }
+                _ = shutdown_rx.recv() => {
+                    info!("Federation daemon received shutdown signal");
+                    break;
                 }
             }
         }
+
+        info!("Federation daemon stopped verification sweeps");
     }
 
     /// Verify all federation hosts

@@ -314,7 +314,7 @@ impl Router {
     /// Create a new router with default weights (for backward compatibility)
     pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Result<Self> {
         if k > MAX_K {
-            return Err(adapteros_core::AosError::Config(
+            return Err(adapteros_core::AosError::Routing(
                 "K cannot exceed MAX_K=8".to_string(),
             ));
         }
