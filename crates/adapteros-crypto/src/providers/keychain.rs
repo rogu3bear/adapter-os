@@ -30,9 +30,9 @@
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
-use adapteros_core::{AosError, Result};
 #[cfg(feature = "password-fallback")]
-use adapteros_core::{B3Hash, derive_seed};
+use adapteros_core::{derive_seed, B3Hash};
+use adapteros_core::{AosError, Result};
 use base64::Engine;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::collections::HashMap;

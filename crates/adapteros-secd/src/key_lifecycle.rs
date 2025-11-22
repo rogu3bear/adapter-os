@@ -1,7 +1,7 @@
 //! Key lifecycle tracking and age monitoring
 
 use adapteros_db::Db;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "secure-enclave"))]
 use security_framework::item::{ItemClass, ItemSearchOptions, SearchResult};
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,41 +77,49 @@ impl KeyLifecycleManager {
 
     /// Try to get key creation date from macOS keychain
     #[cfg(target_os = "macos")]
-    fn get_keychain_creation_date(&self, key_label: &str) -> Option<i64> {
-        // Query Security.framework for key metadata including creation date
-        let mut search = ItemSearchOptions::new();
-        search.class(ItemClass::key());
-        search.label(key_label);
-        search.load_attributes(true);
+    fn get_keychain_creation_date(&self, _key_label: &str) -> Option<i64> {
+        #[cfg(all(target_os = "macos", feature = "secure-enclave"))]
+        {
+            // Query Security.framework for key metadata including creation date
+            let mut search = ItemSearchOptions::new();
+            search.class(ItemClass::key());
+            search.label(_key_label);
+            search.load_attributes(true);
 
-        match search.search() {
-            Ok(results) => {
-                // Check if we got any results - indicates key exists
-                if !results.is_empty() {
-                    // The security-framework crate's SearchResult::Dict variant provides
-                    // access to keychain item attributes. However, extracting the creation
-                    // date requires low-level CFDictionary operations that are platform-specific.
-                    // For now, we log that we found the key but couldn't extract the date.
-                    //
-                    // Full implementation would require:
-                    // 1. Using kSecAttrCreationDate constant from Security.framework
-                    // 2. Converting CFDate to Unix timestamp (CFAbsoluteTime + 978307200)
-                    tracing::debug!(
-                        key_label,
-                        result_count = results.len(),
-                        "Key found in keychain - creation date extraction not yet implemented"
-                    );
+            match search.search() {
+                Ok(results) => {
+                    // Check if we got any results - indicates key exists
+                    let results_vec: Vec<SearchResult> = results.into_iter().collect();
+                    if !results_vec.is_empty() {
+                        // The security-framework crate's SearchResult::Dict variant provides
+                        // access to keychain item attributes. However, extracting the creation
+                        // date requires low-level CFDictionary operations that are platform-specific.
+                        // For now, we log that we found the key but couldn't extract the date.
+                        //
+                        // Full implementation would require:
+                        // 1. Using kSecAttrCreationDate constant from Security.framework
+                        // 2. Converting CFDate to Unix timestamp (CFAbsoluteTime + 978307200)
+                        tracing::debug!(
+                            key_label,
+                            result_count = results.len(),
+                            "Key found in keychain - creation date extraction not yet implemented"
+                        );
+                    }
+                    None
                 }
-                None
+                Err(e) => {
+                    tracing::debug!(
+                        key_label = _key_label,
+                        error = %e,
+                        "Failed to query keychain for key metadata"
+                    );
+                    None
+                }
             }
-            Err(e) => {
-                tracing::debug!(
-                    key_label,
-                    error = %e,
-                    "Failed to query keychain for key metadata"
-                );
-                None
-            }
+        }
+        #[cfg(not(all(target_os = "macos", feature = "secure-enclave")))]
+        {
+            None
         }
     }
 

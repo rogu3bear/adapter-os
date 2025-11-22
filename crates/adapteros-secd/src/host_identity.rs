@@ -51,9 +51,7 @@ fn detect_hardware_model() -> String {
     }
 
     // Fallback: use sysctl for hw.model
-    let sysctl_output = Command::new("sysctl")
-        .args(["-n", "hw.model"])
-        .output();
+    let sysctl_output = Command::new("sysctl").args(["-n", "hw.model"]).output();
 
     match sysctl_output {
         Ok(output) if output.status.success() => {
@@ -125,7 +123,9 @@ fn detect_secure_enclave_version() -> String {
         .output();
 
     if let Ok(output) = t2_output {
-        if output.status.success() && String::from_utf8_lossy(&output.stdout).contains("AppleT2Controller") {
+        if output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("AppleT2Controller")
+        {
             return "SEP-T2".to_string();
         }
     }
