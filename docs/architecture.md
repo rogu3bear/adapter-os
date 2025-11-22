@@ -29,7 +29,7 @@ Request → API → Worker → Router → Kernels → Response
 
 ### 2. Policy Engine
 
-Enforces 22 policy packs covering:
+Enforces 23 policy packs covering:
 - Network egress
 - Determinism
 - Evidence requirements
@@ -167,9 +167,9 @@ Each flow document includes:
 | Garbage collection | ✅ Implemented | Automatic cleanup |
 | UDS metrics export | ✅ Implemented | Prometheus-compatible |
 | **Database & Registry** | ✅ Implemented | - |
-| 65 signed migrations | ✅ Implemented | Ed25519 signatures |
+| 80 signed migrations | ✅ Implemented | Ed25519 signatures |
 | Adapter pinning with TTL | ✅ Implemented | Delete protection, auto-expiry |
-| RBAC (5 roles, 20+ permissions) | ✅ Implemented | Admin, Operator, SRE, Compliance, Viewer |
+| RBAC (5 roles, 40 permissions) | ✅ Implemented | Admin, Operator, SRE, Compliance, Viewer |
 | Audit logging | ✅ Implemented | Immutable trail |
 | **Policy Engine** | ✅ Implemented | - |
 | 23 canonical policies | ✅ Implemented | Egress, determinism, router, evidence, etc. |

@@ -13,17 +13,17 @@ AdapterOS requires GPU acceleration for efficient LoRA adapter inference on macO
 
 ## Decision
 
-We adopt a **Metal-first, CoreML-active, MLX-future** multi-backend architecture with a unified `FusedKernels` trait interface.
+We adopt a **CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)** multi-backend architecture with a unified `FusedKernels` trait interface.
 
 ### Backend Priority Matrix
 
 | Backend | Status | Determinism | Primary Use Case | Implementation Language |
 |---------|--------|-------------|------------------|------------------------|
-| **Metal** | **Production** | **Guaranteed** | M1/M2/M3/M4 GPU acceleration | Objective-C++ (Metal shaders) |
-| **CoreML** | **Active Development** | **Conditional*** | ANE acceleration (M1+) | Objective-C++ (CoreML API) |
-| **MLX** | **Future Research** | **Experimental** | Research & prototyping | PyO3 (Python FFI) |
+| **CoreML** | **Placeholder*** | **Guaranteed (ANE)** | ANE acceleration, production | Objective-C++ (CoreML API) |
+| **MLX** | **Stub*** | **HKDF-seeded** | Research, training (active) | C++ FFI |
+| **Metal** | **Building successfully** | **Guaranteed** | Fallback for non-ANE systems | Objective-C++ (Metal shaders) |
 
-\* *CoreML determinism depends on ANE availability; falls back to GPU when ANE unavailable*
+\* *CoreML adapter loading not implemented. MLX compiles but not fully functional. See CLAUDE.md for current status.*
 
 ---
 

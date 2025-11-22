@@ -4,6 +4,8 @@
 **Last Updated:** 2025-11-21
 **Purpose:** Complete guide to CoreML backend integration for ANE acceleration
 
+> **⚠️ Implementation Status:** CoreML backend is currently a **placeholder implementation** - adapter loading is not implemented. See [CLAUDE.md](../CLAUDE.md) for current backend status.
+
 ---
 
 ## Table of Contents

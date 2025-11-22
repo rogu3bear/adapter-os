@@ -1,8 +1,10 @@
 # Route Flow: K-Sparse Adapter Selection
 
-**Status**: ✅ Implemented
+**Status**: ✅ Implemented (with known limitation)
 **Primary Crate**: `adapteros-lora-router`
 **Entry Point**: `LoraRouter::select_adapters()`
+
+> **⚠️ Known Limitation:** Multi-adapter routing is currently broken - only the first adapter in a stack is used. See [CLAUDE.md](../../CLAUDE.md) for current status.
 
 ## Overview
 

@@ -2,6 +2,8 @@
 
 Documentation for AdapterOS router decision tracking, telemetry, and K-sparse adapter selection.
 
+> **⚠️ Known Limitation:** Multi-adapter routing is currently broken - only the first adapter in a stack is used. See [CLAUDE.md](../CLAUDE.md) for current status.
+
 ---
 
 ## 📚 Documents

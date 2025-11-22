@@ -92,10 +92,7 @@ Complete index of all architecture documentation with quick navigation.
 2. **[Precision Diagrams § 1](architecture/precision-diagrams.md#1-system-architecture)** - Isolation model
    
 
-3. **[Policy Rulesets](../CLAUDE.md)** - 22 policy packs
-
-3. **[Policy Rulesets](../CLAUDE.md)** - 20 policy packs
->
+3. **[Policy Rulesets](../CLAUDE.md)** - 23 policy packs
 
 **Time**: 2-3 hours  
 **Outcome**: Security and compliance understanding

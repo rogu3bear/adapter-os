@@ -142,7 +142,7 @@ Immutable audit trail
 
 **Canonical Location:** `/migrations/` (root)
 
-**Migration Count:** 65 migrations (0001-0065, with some gaps)
+**Migration Count:** 80 migrations (0001-0080, complete sequence)
 
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 
@@ -159,6 +159,21 @@ Immutable audit trail
 | **0063** | Dashboard configuration | `dashboard_configs` (new table) |
 | **0064** | Adapter stacks | `adapter_stacks` (new table) |
 | **0065** | Heartbeat mechanism | `adapters`, `training_jobs` (add `last_heartbeat`), views |
+| **0066** | Stack versioning (telemetry correlation) | `adapter_stacks` |
+| **0067** | Multi-tenancy for adapter stacks | `adapter_stacks` |
+| **0068** | Metadata normalization | `adapters` (version, lifecycle_state) |
+| **0069** | Plugin tenant enables | `plugin_tenant_enables` |
+| **0070** | Routing decisions telemetry | `routing_decisions` |
+| **0071** | Lifecycle version history | `lifecycle_version_history` (adapter/stack audit trail) |
+| **0072** | Tenant snapshots | `tenant_snapshots` |
+| **0073** | Index hash tracking | `index_hashes` |
+| **0074** | Legacy index migration | Index cleanup |
+| **0075** | Lifecycle state transition triggers | Triggers |
+| **0076** | Golden run promotions | `golden_run_promotions` |
+| **0077** | Adapter performance tracking | `adapter_performance` |
+| **0078** | Federation consensus ledger | `federation_consensus` |
+| **0079** | Stack versioning extensions | `adapter_stacks` |
+| **0080** | Tenant adapter stack isolation | Multi-tenant stack isolation |
 
 ### Creating New Migrations
 
