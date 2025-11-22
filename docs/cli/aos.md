@@ -165,9 +165,9 @@ aos start
 
 ## Related Commands
 
-- [`aos-launch`](./aos-launch.md) - Full orchestration with pre-flight checks
-- [`aosctl`](./aosctl.md) - System administration and database operations
-- [`cargo xtask`](./xtask.md) - Developer automation
+- [`aos-launch`](./AOS-LAUNCH.md) - Full orchestration with pre-flight checks
+- [`aosctl`](./AOSCTL.md) - System administration and database operations
+- [`cargo xtask`](./XTASK.md) - Developer automation
 
 ## Source
 

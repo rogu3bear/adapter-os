@@ -99,12 +99,12 @@ sequenceDiagram
 
 ## Related Workflows
 
-- [Monitoring Flow](monitoring-flow.md) - Incident detection
-- [Promotion Pipeline](promotion-pipeline.md) - Rollback procedures
+- [Monitoring Flow](MONITORING-FLOW.md) - Incident detection
+- [Promotion Pipeline](PROMOTION-PIPELINE.md) - Rollback procedures
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms and incident procedures
 
 ---

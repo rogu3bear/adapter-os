@@ -8,23 +8,23 @@ Comprehensive documentation of the AdapterOS database schema with static diagram
 
 ### For Developers
 Start here if you're building on AdapterOS or contributing to the codebase:
-1. [Schema Diagram](schema-diagram.md) - Complete ER diagram with all tables and relationships
-2. [Adapter Lifecycle](workflows/adapter-lifecycle.md) - Adapter management workflows
-3. [Promotion Pipeline](workflows/promotion-pipeline.md) - Deployment processes
-4. [Code Intelligence Flow](workflows/code-intelligence.md) - Repository integration workflows
+1. [Schema Diagram](SCHEMA-DIAGRAM.md) - Complete ER diagram with all tables and relationships
+2. [Adapter Lifecycle](WORKFLOWS/ADAPTER-LIFECYCLE.MD) - Adapter management workflows
+3. [Promotion Pipeline](WORKFLOWS/PROMOTION-PIPELINE.MD) - Deployment processes
+4. [Code Intelligence Flow](WORKFLOWS/CODE-INTELLIGENCE.MD) - Repository integration workflows
 
 ### For Operators
 Start here if you're deploying and managing AdapterOS:
-1. [Monitoring Flow](workflows/monitoring-flow.md) - Real-time monitoring and metrics
-2. [Incident Response](workflows/incident-response.md) - Troubleshooting and resolution
-3. [Performance Dashboard](workflows/performance-dashboard.md) - Performance visualization
-4. [Replication & Distribution](workflows/replication-distribution.md) - Cross-node synchronization
+1. [Monitoring Flow](WORKFLOWS/MONITORING-FLOW.MD) - Real-time monitoring and metrics
+2. [Incident Response](WORKFLOWS/INCIDENT-RESPONSE.MD) - Troubleshooting and resolution
+3. [Performance Dashboard](WORKFLOWS/PERFORMANCE-DASHBOARD.MD) - Performance visualization
+4. [Replication & Distribution](WORKFLOWS/REPLICATION-DISTRIBUTION.MD) - Cross-node synchronization
 
 ### For Security Auditors
 Start here if you're evaluating AdapterOS for compliance:
-1. [Security & Compliance](workflows/security-compliance.md) - Compliance workflows and verification
-2. [Schema Diagram](schema-diagram.md) - Data relationships, constraints, and isolation
-3. [Promotion Pipeline](workflows/promotion-pipeline.md) - Change control and approvals
+1. [Security & Compliance](WORKFLOWS/SECURITY-COMPLIANCE.MD) - Compliance workflows and verification
+2. [Schema Diagram](SCHEMA-DIAGRAM.md) - Data relationships, constraints, and isolation
+3. [Promotion Pipeline](WORKFLOWS/PROMOTION-PIPELINE.MD) - Change control and approvals
 
 ## Schema Overview
 
@@ -91,14 +91,14 @@ Start here if you're evaluating AdapterOS for compliance:
 
 ### High Priority (Essential Operations)
 
-#### [Adapter Lifecycle Flow](workflows/adapter-lifecycle.md)
+#### [Adapter Lifecycle Flow](WORKFLOWS/ADAPTER-LIFECYCLE.MD)
 Shows the complete adapter journey from creation to deployment, including all state transitions:
 - Adapter registration and categorization
 - State transitions: unloaded → cold → warm → hot
 - Plan references and worker deployment
 - Activation tracking and memory management
 
-#### [Promotion Pipeline Flow](workflows/promotion-pipeline.md)
+#### [Promotion Pipeline Flow](WORKFLOWS/PROMOTION-PIPELINE.MD)
 Critical deployment process from manifest to production:
 - Manifest creation and plan compilation
 - Dry run promotion and quality checks
@@ -106,7 +106,7 @@ Critical deployment process from manifest to production:
 - Worker deployment and performance monitoring
 - Rollback procedures and safety mechanisms
 
-#### [Real-time Monitoring Flow](workflows/monitoring-flow.md)
+#### [Real-time Monitoring Flow](WORKFLOWS/MONITORING-FLOW.MD)
 Operational visibility for system health and performance:
 - Metrics collection and processing
 - Telemetry bundle creation
@@ -115,14 +115,14 @@ Operational visibility for system health and performance:
 
 ### Medium Priority (Advanced Operations)
 
-#### [Security & Compliance Flow](workflows/security-compliance.md)
+#### [Security & Compliance Flow](WORKFLOWS/SECURITY-COMPLIANCE.MD)
 Compliance verification and audit trail management:
 - Artifact signature generation and verification
 - Secure enclave operations
 - Policy compliance checks
 - ITAR restriction enforcement
 
-#### [Replication & Distribution Flow](workflows/replication-distribution.md)
+#### [Replication & Distribution Flow](WORKFLOWS/REPLICATION-DISTRIBUTION.MD)
 Infrastructure understanding for scaling:
 - Cross-node artifact synchronization
 - Replication journal management
@@ -131,21 +131,21 @@ Infrastructure understanding for scaling:
 
 ### Advanced Features (Optional)
 
-#### [Code Intelligence Flow](workflows/code-intelligence.md)
+#### [Code Intelligence Flow](WORKFLOWS/CODE-INTELLIGENCE.MD)
 Repository integration and ephemeral adapter generation:
 - Repository analysis and commit tracking
 - Symbol detection and framework identification
 - Ephemeral adapter creation
 - Patch proposal validation and deployment
 
-#### [Performance Monitoring Dashboard](workflows/performance-dashboard.md)
+#### [Performance Monitoring Dashboard](WORKFLOWS/PERFORMANCE-DASHBOARD.MD)
 Comprehensive performance visualization:
 - CPU, memory, GPU, and network metrics
 - Health check status indicators
 - Performance trend analysis
 - Real-time dashboard display
 
-#### [Incident Response Flow](workflows/incident-response.md)
+#### [Incident Response Flow](WORKFLOWS/INCIDENT-RESPONSE.MD)
 Troubleshooting guide for operational issues:
 - Incident detection and classification
 - Alert generation and acknowledgment
@@ -155,19 +155,19 @@ Troubleshooting guide for operational issues:
 ## Usage Examples
 
 ### Getting Started
-1. **Understand the Schema**: Start with [schema-diagram.md](schema-diagram.md) to see all tables and relationships
-2. **Learn Core Workflows**: Review [adapter-lifecycle.md](workflows/adapter-lifecycle.md) and [promotion-pipeline.md](workflows/promotion-pipeline.md)
-3. **Explore Operations**: Study [monitoring-flow.md](workflows/monitoring-flow.md) for real-time observability
+1. **Understand the Schema**: Start with [schema-diagram.md](SCHEMA-DIAGRAM.md) to see all tables and relationships
+2. **Learn Core Workflows**: Review [adapter-lifecycle.md](WORKFLOWS/ADAPTER-LIFECYCLE.MD) and [promotion-pipeline.md](WORKFLOWS/PROMOTION-PIPELINE.MD)
+3. **Explore Operations**: Study [monitoring-flow.md](WORKFLOWS/MONITORING-FLOW.MD) for real-time observability
 
 ### For Troubleshooting
-1. **Check Incidents**: Use [incident-response.md](workflows/incident-response.md) for error resolution patterns
-2. **Monitor Performance**: Reference [monitoring-flow.md](workflows/monitoring-flow.md) for metrics analysis
-3. **Verify Compliance**: Review [security-compliance.md](workflows/security-compliance.md) for audit trails
+1. **Check Incidents**: Use [incident-response.md](WORKFLOWS/INCIDENT-RESPONSE.MD) for error resolution patterns
+2. **Monitor Performance**: Reference [monitoring-flow.md](WORKFLOWS/MONITORING-FLOW.MD) for metrics analysis
+3. **Verify Compliance**: Review [security-compliance.md](WORKFLOWS/SECURITY-COMPLIANCE.MD) for audit trails
 
 ### For Development
-1. **Code Integration**: Study [code-intelligence.md](workflows/code-intelligence.md) for repository workflows
-2. **Replication**: Review [replication-distribution.md](workflows/replication-distribution.md) for scaling patterns
-3. **Performance**: Use [performance-dashboard.md](workflows/performance-dashboard.md) for optimization
+1. **Code Integration**: Study [code-intelligence.md](WORKFLOWS/CODE-INTELLIGENCE.MD) for repository workflows
+2. **Replication**: Review [replication-distribution.md](WORKFLOWS/REPLICATION-DISTRIBUTION.MD) for scaling patterns
+3. **Performance**: Use [performance-dashboard.md](WORKFLOWS/PERFORMANCE-DASHBOARD.MD) for optimization
 
 ## Design Principles
 

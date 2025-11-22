@@ -171,4 +171,4 @@ describe('Bulk Operations', () => {
 
 - [UI Components](../ui/README.md) - General UI component documentation
 - [State Management](../../architecture.md#state-management) - Application state patterns
-- [Error Handling](../../core/error-handling.md) - Error handling patterns
+- [Error Handling](../../core/ERROR-HANDLING.md) - Error handling patterns

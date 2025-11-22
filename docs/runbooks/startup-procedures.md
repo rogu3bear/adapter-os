@@ -67,7 +67,7 @@ sqlite3 var/aos-cp.sqlite3 "SELECT version, description FROM _sqlx_migrations OR
 **Troubleshooting:**
 - If migrations fail, check `/Users/star/Dev/aos/migrations/` for signature files
 - All migrations must have `.sql.sig` Ed25519 signatures
-- See [Database Failures](./database-failures.md) for migration errors
+- See [Database Failures](./DATABASE-FAILURES.md) for migration errors
 
 **Related files:**
 - `/Users/star/Dev/aos/crates/adapteros-db/src/lib.rs:78-132` - Migration logic
@@ -221,7 +221,7 @@ ls -la migrations/*.sig
 
 **Cause:** Another service using port 8080
 
-**See:** [Port Binding Conflicts](./port-binding-conflicts.md)
+**See:** [Port Binding Conflicts](./PORT-BINDING-CONFLICTS.md)
 
 ## Next Steps
 
@@ -234,7 +234,7 @@ After successful startup:
 
 ## Related Runbooks
 
-- [Startup Failures](./startup-failures.md)
-- [Database Failures](./database-failures.md)
-- [Port Binding Conflicts](./port-binding-conflicts.md)
-- [Health Check Failures](./health-check-failures.md)
+- [Startup Failures](./STARTUP-FAILURES.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Port Binding Conflicts](./PORT-BINDING-CONFLICTS.md)
+- [Health Check Failures](./HEALTH-CHECK-FAILURES.md)

@@ -541,9 +541,9 @@ sqlite3 var/aos-cp.sqlite3 "VACUUM;"
 
 ## Related Runbooks
 
-- [Database Failures](./database-failures.md)
-- [Cleanup Procedures](./cleanup-procedures.md)
-- [Metrics Review](./metrics-review.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Cleanup Procedures](./CLEANUP-PROCEDURES.md)
+- [Metrics Review](./METRICS-REVIEW.md)
 
 ## Related Documentation
 
@@ -557,4 +557,4 @@ Escalate if:
 - Integrity check reports corruption
 - Performance degrades despite optimization
 - WAL file cannot be checkpointed
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

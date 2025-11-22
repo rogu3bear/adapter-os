@@ -343,13 +343,13 @@ ORDER BY a.created_at DESC;
 
 ## Related Workflows
 
-- [Promotion Pipeline](promotion-pipeline.md) - Deployment with quality gates
-- [Adapter Lifecycle](adapter-lifecycle.md) - Adapter provenance tracking
-- [Monitoring Flow](monitoring-flow.md) - Security event monitoring
+- [Promotion Pipeline](PROMOTION-PIPELINE.md) - Deployment with quality gates
+- [Adapter Lifecycle](ADAPTER-LIFECYCLE.md) - Adapter provenance tracking
+- [Monitoring Flow](MONITORING-FLOW.md) - Security event monitoring
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms
 - [Code Policies](../../code-intelligence/CODE-POLICIES.md) - Policy configuration
 

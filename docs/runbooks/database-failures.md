@@ -241,7 +241,7 @@ sqlite3 var/aos-cp.sqlite3 "PRAGMA optimize;"
 ```
 
 **Prevention:**
-- Run periodic checkpoints (see [Database Optimization](./database-optimization.md))
+- Run periodic checkpoints (see [Database Optimization](./DATABASE-OPTIMIZATION.md))
 - Monitor WAL file size
 - Avoid long-running read transactions
 - Use `PRAGMA optimize` during maintenance windows
@@ -342,9 +342,9 @@ aosctl doctor
 
 ## Related Runbooks
 
-- [Database Optimization](./database-optimization.md)
-- [Startup Failures](./startup-failures.md)
-- [Cleanup Procedures](./cleanup-procedures.md)
+- [Database Optimization](./DATABASE-OPTIMIZATION.md)
+- [Startup Failures](./STARTUP-FAILURES.md)
+- [Cleanup Procedures](./CLEANUP-PROCEDURES.md)
 
 ## Escalation Criteria
 
@@ -353,4 +353,4 @@ Escalate to engineering if:
 - Multiple migration failures
 - Data loss suspected
 - Schema inconsistency across nodes
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

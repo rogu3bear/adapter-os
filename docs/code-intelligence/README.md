@@ -21,7 +21,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Memory budgeting
 - Success criteria
 
-### [code-intelligence-tiers.md](code-intelligence-tiers.md)
+### [code-intelligence-tiers.md](CODE-INTELLIGENCE-TIERS.md)
 **Tier system design**
 - Detailed tier definitions (Base, Code, Framework, Codebase, Ephemeral)
 - Training data per tier
@@ -44,7 +44,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Deterministic serialization
 - CAS storage integration
 
-### [code-indices.md](code-indices.md)
+### [code-indices.md](CODE-INDICES.md)
 **Index formats and querying**
 - Symbol index (SQLite FTS5)
 - Vector index (HNSW)
@@ -53,7 +53,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Performance targets
 - Per-tenant isolation
 
-### [code-ingestion-pipeline.md](code-ingestion-pipeline.md)
+### [code-ingestion-pipeline.md](CODE-INGESTION-PIPELINE.md)
 **Data ingestion flow**
 - 7-stage pipeline (scan → parse → graph → indices → package)
 - Language-specific parsing
@@ -75,7 +75,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Three complete manifest examples
 - Migration from V3
 
-### [code-registry-schema.md](code-registry-schema.md)
+### [code-registry-schema.md](CODE-REGISTRY-SCHEMA.MD)
 **Database schema extensions**
 - New tables (repositories, code_graphs, symbol_indices, vector_indices, test_maps, commit_delta_packs, ephemeral_sessions)
 - Extended adapters table
@@ -88,7 +88,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## Routing & Features
 
-### [code-router-features.md](code-router-features.md)
+### [code-router-features.md](CODE-ROUTER-FEATURES.MD)
 **Code-specific router features**
 - Feature vector definition (9 features)
 - Extraction algorithms (lang_one_hot, framework_prior, symbol_hits, path_tokens, attn_entropy, commit_hint, prompt_verb, retrieval_quality)
@@ -102,7 +102,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## API Specifications
 
-### [code-api-registry.md](code-api-registry.md)
+### [code-api-registry.md](CODE-API-REGISTRY.MD)
 **Registry & scanning APIs**
 - `POST /v1/code/register-repo`
 - `POST /v1/code/scan`
@@ -113,7 +113,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Error codes
 - Rate limiting
 
-### [code-api-ephemeral.md](code-api-ephemeral.md)
+### [code-api-ephemeral.md](CODE-API-EPHEMERAL.MD)
 **Ephemeral & patch APIs**
 - `POST /v1/code/commit-delta` (CDP creation)
 - `POST /v1/code/ephemeral/create`
@@ -123,7 +123,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Refusal responses
 - Audit logging
 
-### [code-api-security.md](code-api-security.md)
+### [code-api-security.md](CODE-API-SECURITY.MD)
 **Security & policy APIs**
 - Path permission management
 - Policy configuration
@@ -137,7 +137,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## Implementation
 
-### [code-crates.md](code-crates.md)
+### [code-crates.md](CODE-CRATES.MD)
 **Crate structure**
 - Four new crates:
   - `aos-codegraph`: Parsing, graph building, symbol extraction
@@ -149,7 +149,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Build & test procedures
 - Size estimates
 
-### [code-dependencies.md](code-dependencies.md)
+### [code-dependencies.md](CODE-DEPENDENCIES.MD)
 **Dependency specification**
 - Tree-sitter + language grammars
 - SQLite FTS5, HNSW
@@ -161,7 +161,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - Security considerations
 - Performance targets
 
-### [code-implementation-roadmap.md](code-implementation-roadmap.md)
+### [code-implementation-roadmap.md](CODE-IMPLEMENTATION-ROADMAP.MD)
 **Phased implementation plan**
 - 9 sequences (S-1 through S-9)
 - Gate requirements per sequence
@@ -176,7 +176,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## Policy & Safety
 
-### [code-policies.md](code-policies.md)
+### [code-policies.md](CODE-POLICIES.md)
 **Code-specific policy packs**
 - Evidence requirements (min spans)
 - Patch safety (path restrictions)
@@ -194,7 +194,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## Evaluation & Quality
 
-### [code-evaluation.md](code-evaluation.md)
+### [code-evaluation.md](CODE-EVALUATION.MD)
 **Evaluation framework**
 - 13 metrics:
   - Functional: CSR, Test Pass@k, SAD
@@ -212,7 +212,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## User Interfaces
 
-### [code-ui-screens.md](code-ui-screens.md)
+### [code-ui-screens.md](CODE-UI-SCREENS.MD)
 **UI specifications**
 - 7 screens (all Rust/WASM):
   1. Repository Setup
@@ -226,7 +226,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 - API integration via `aos-cp-client`
 - Styling conventions
 
-### [code-cli-commands.md](code-cli-commands.md)
+### [code-cli-commands.md](CODE-CLI-COMMANDS.MD)
 **CLI extensions**
 - Repository: `code-init`, `code-update`, `code-list`
 - Training: `adapter-train`
@@ -259,27 +259,27 @@ See [database-schema documentation](../database-schema/README.md) for complete d
 
 ### For Architects
 1. Start: [code-intelligence-architecture.md](code-intelligence-ARCHITECTURE.md)
-2. Then: [code-intelligence-tiers.md](code-intelligence-tiers.md)
+2. Then: [code-intelligence-tiers.md](CODE-INTELLIGENCE-TIERS.md)
 3. Then: [codegraph-spec.md](../CODEGRAPH-SPEC.md)
 
 ### For Backend Developers
-1. Start: [code-crates.md](code-crates.md)
-2. Then: [code-api-registry.md](code-api-registry.md), [code-api-ephemeral.md](code-api-ephemeral.md)
-3. Then: [code-implementation-roadmap.md](code-implementation-roadmap.md)
+1. Start: [code-crates.md](CODE-CRATES.MD)
+2. Then: [code-api-registry.md](CODE-API-REGISTRY.MD), [code-api-ephemeral.md](CODE-API-EPHEMERAL.MD)
+3. Then: [code-implementation-roadmap.md](CODE-IMPLEMENTATION-ROADMAP.MD)
 
 ### For DevOps/Operations
-1. Start: [code-cli-commands.md](code-cli-commands.md)
-2. Then: [code-policies.md](code-policies.md)
-3. Then: [code-evaluation.md](code-evaluation.md)
+1. Start: [code-cli-commands.md](CODE-CLI-COMMANDS.MD)
+2. Then: [code-policies.md](CODE-POLICIES.md)
+3. Then: [code-evaluation.md](CODE-EVALUATION.MD)
 
 ### For Frontend Developers
-1. Start: [code-ui-screens.md](code-ui-screens.md)
-2. Then: [code-api-registry.md](code-api-registry.md)
+1. Start: [code-ui-screens.md](CODE-UI-SCREENS.MD)
+2. Then: [code-api-registry.md](CODE-API-REGISTRY.MD)
 
 ### For Security/Compliance
-1. Start: [code-policies.md](code-policies.md)
-2. Then: [code-api-security.md](code-api-security.md)
-3. Then: [code-evaluation.md](code-evaluation.md) (safety metrics)
+1. Start: [code-policies.md](CODE-POLICIES.md)
+2. Then: [code-api-security.md](CODE-API-SECURITY.MD)
+3. Then: [code-evaluation.md](CODE-EVALUATION.MD) (safety metrics)
 
 ---
 
@@ -326,7 +326,7 @@ This documentation provides the complete blueprint. Implementation proceeds in p
 9. **(Optional) S-8**: API & CLI
 10. **(Optional) S-9**: UI screens
 
-Each phase has clear gate requirements and acceptance criteria documented in [code-implementation-roadmap.md](code-implementation-roadmap.md).
+Each phase has clear gate requirements and acceptance criteria documented in [code-implementation-roadmap.md](CODE-IMPLEMENTATION-ROADMAP.MD).
 
 ---
 

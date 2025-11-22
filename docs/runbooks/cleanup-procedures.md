@@ -535,9 +535,9 @@ grep -E "GC|TTL cleanup|Deleted adapter" var/aos-cp.log | tail -5
 
 ## Related Runbooks
 
-- [Memory Pressure](./memory-pressure.md)
-- [Database Optimization](./database-optimization.md)
-- [Database Failures](./database-failures.md)
+- [Memory Pressure](./MEMORY-PRESSURE.md)
+- [Database Optimization](./DATABASE-OPTIMIZATION.md)
+- [Database Failures](./DATABASE-FAILURES.md)
 
 ## Escalation Criteria
 
@@ -546,4 +546,4 @@ Escalate if:
 - Disk space cannot be recovered
 - Orphaned adapters cannot be cleaned
 - Database cleanup causes corruption
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

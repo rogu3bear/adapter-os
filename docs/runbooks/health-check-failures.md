@@ -424,7 +424,7 @@ curl http://localhost:8080/healthz/system-metrics | jq '.details.headroom_pct'
 
 **Fix Procedure:**
 
-**See [Memory Pressure Runbook](./memory-pressure.md) for detailed procedures**
+**See [Memory Pressure Runbook](./MEMORY-PRESSURE.md) for detailed procedures**
 
 **Quick fix:**
 ```bash
@@ -517,10 +517,10 @@ aosctl doctor --component db
 
 ## Related Runbooks
 
-- [Memory Pressure](./memory-pressure.md)
-- [Database Failures](./database-failures.md)
-- [Log Analysis](./log-analysis.md)
-- [Metrics Review](./metrics-review.md)
+- [Memory Pressure](./MEMORY-PRESSURE.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Log Analysis](./LOG-ANALYSIS.md)
+- [Metrics Review](./METRICS-REVIEW.md)
 
 ## Escalation Criteria
 
@@ -529,4 +529,4 @@ Escalate if:
 - Component stuck in unhealthy state > 10 minutes
 - Health checks timing out
 - Repeated degraded→healthy→degraded cycling
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

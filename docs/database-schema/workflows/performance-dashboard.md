@@ -71,12 +71,12 @@ graph TB
 
 ## Related Workflows
 
-- [Monitoring Flow](monitoring-flow.md) - Detailed monitoring process
-- [Incident Response](incident-response.md) - Handling performance issues
+- [Monitoring Flow](MONITORING-FLOW.md) - Detailed monitoring process
+- [Incident Response](INCIDENT-RESPONSE.md) - Handling performance issues
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [System Metrics](../../SYSTEM-METRICS.md) - Metrics collection
 
 ---

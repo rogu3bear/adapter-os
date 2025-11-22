@@ -428,13 +428,13 @@ GROUP BY DATE_TRUNC('hour', timestamp);
 
 ## Related Workflows
 
-- [Incident Response](incident-response.md) - Handling detected incidents
-- [Performance Dashboard](performance-dashboard.md) - Visualizing metrics
-- [Promotion Pipeline](promotion-pipeline.md) - Post-deployment monitoring
+- [Incident Response](INCIDENT-RESPONSE.md) - Handling detected incidents
+- [Performance Dashboard](PERFORMANCE-DASHBOARD.md) - Visualizing metrics
+- [Promotion Pipeline](PROMOTION-PIPELINE.md) - Post-deployment monitoring
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [System Architecture](../../ARCHITECTURE.md) - Overall system design
 - [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms
 

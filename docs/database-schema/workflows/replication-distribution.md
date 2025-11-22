@@ -109,12 +109,12 @@ WHERE session_id = 'session-001';
 
 ## Related Workflows
 
-- [Adapter Lifecycle](adapter-lifecycle.md) - Adapter deployment
-- [Security & Compliance](security-compliance.md) - Signature verification
+- [Adapter Lifecycle](ADAPTER-LIFECYCLE.md) - Adapter deployment
+- [Security & Compliance](SECURITY-COMPLIANCE.md) - Signature verification
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [System Architecture](../../ARCHITECTURE.md) - Overall system design
 
 ---

@@ -191,7 +191,7 @@ flowchart TD
 - **Scripts:** `scripts/` - Internal tooling
 - **Menu bar app:** `menu-bar-app/` - Swift menu bar application
 
-See [.cursor/rules/workspace.md](.cursor/rules/workspace.md) for detailed workspace orientation.
+See [.cursor/rules/workspace.md](.cursor/rules/WORKSPACE.md) for detailed workspace orientation.
 
 ### Shared Code Locations
 

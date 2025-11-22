@@ -8,13 +8,13 @@ Documentation for AdapterOS router decision tracking, telemetry, and K-sparse ad
 
 ### Core Documentation
 
-- **[Telemetry V1 Skeleton Status](./telemetry-v1-skeleton-status.md)**
+- **[Telemetry V1 Skeleton Status](./TELEMETRY-V1-SKELETON-STATUS.md)**
   - Complete infrastructure inventory for router decision telemetry
   - Component locations and APIs
   - Testing status and deployment checklist
   - Database schema and query examples
 
-- **[Telemetry Integration Guide](./telemetry-integration-guide.md)**
+- **[Telemetry Integration Guide](./TELEMETRY-INTEGRATION-GUIDE.md)**
   - Step-by-step integration examples
   - Router-level vs. Worker-level approaches
   - Background persistence setup
@@ -52,7 +52,7 @@ Router telemetry captures every routing decision during inference:
 ⏳ **Pending (5%)**
 - Router emission integration (30 min effort)
 
-See [Telemetry V1 Skeleton Status](./telemetry-v1-skeleton-status.md) for full details.
+See [Telemetry V1 Skeleton Status](./TELEMETRY-V1-SKELETON-STATUS.md) for full details.
 
 ---
 
@@ -71,7 +71,7 @@ if let Some(ref telemetry_writer) = self.telemetry_writer {
 }
 ```
 
-Full examples in [Telemetry Integration Guide](./telemetry-integration-guide.md).
+Full examples in [Telemetry Integration Guide](./TELEMETRY-INTEGRATION-GUIDE.md).
 
 ---
 

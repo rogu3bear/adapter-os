@@ -25,7 +25,7 @@ Organized documentation by functional area for easy navigation.
 Router telemetry, decision tracking, and K-sparse adapter selection.
 
 - [README](./routing/README.md) - Overview and quick start
-- [Telemetry V1 Skeleton Status](./routing/telemetry-v1-skeleton-status.md) - Complete infrastructure inventory
+- [Telemetry V1 Skeleton Status](./routing/TELEMETRY-V1-SKELETON-STATUS.md) - Complete infrastructure inventory
 - [Telemetry Integration Guide](./routing/TELEMETRY-INTEGRATION-GUIDE.md) - Step-by-step integration examples
 
 **Related Files:**
@@ -172,7 +172,7 @@ Deployment guides, configuration, and production readiness.
 
 **Related Files:**
 - [Config Precedence](./CONFIG_PRECEDENCE.md)
-- [Server Config Phase 6 Implementation](./server-config-phase6-implementation.md)
+- [Server Config Phase 6 Implementation](./SERVER-CONFIG-PHASE6-IMPLEMENTATION.md)
 
 ---
 

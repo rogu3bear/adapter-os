@@ -480,10 +480,10 @@ ADDITIONAL CONTEXT:
 
 ## Related Runbooks
 
-- [Startup Failures](./startup-failures.md)
-- [Database Failures](./database-failures.md)
-- [Memory Pressure](./memory-pressure.md)
-- [Health Check Failures](./health-check-failures.md)
+- [Startup Failures](./STARTUP-FAILURES.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Memory Pressure](./MEMORY-PRESSURE.md)
+- [Health Check Failures](./HEALTH-CHECK-FAILURES.md)
 - All other runbooks
 
 ## Feedback

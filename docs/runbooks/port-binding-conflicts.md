@@ -394,9 +394,9 @@ lsof -i :8080 | wc -l
 
 ## Related Runbooks
 
-- [Startup Failures](./startup-failures.md)
-- [Startup Procedures](./startup-procedures.md)
-- [Cleanup Procedures](./cleanup-procedures.md)
+- [Startup Failures](./STARTUP-FAILURES.md)
+- [Startup Procedures](./STARTUP-PROCEDURES.md)
+- [Cleanup Procedures](./CLEANUP-PROCEDURES.md)
 
 ## Escalation Criteria
 
@@ -405,4 +405,4 @@ Escalate if:
 - Permission issues cannot be resolved
 - Multiple mysterious instances appearing
 - System-level port binding failures
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

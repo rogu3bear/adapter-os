@@ -434,7 +434,7 @@ for bundle in bundles {
 | Retention policies | ✅ Implemented | Days/count/disk-based |
 | Garbage collection | ✅ Implemented | Automatic cleanup |
 | UDS metrics export | ✅ Implemented | Prometheus-compatible |
-| Replay from bundles | 🔧 Planned | See [replay.md](replay.md) |
+| Replay from bundles | 🔧 Planned | See [replay.md](REPLAY.MD) |
 | Cross-bundle chain verification | 🔧 Planned | Bundle-to-bundle Merkle linking |
 
 ---

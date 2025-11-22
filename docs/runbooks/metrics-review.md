@@ -441,10 +441,10 @@ aosctl telemetry-list --event-type router.decision --limit 1000 | \
 
 ## Related Runbooks
 
-- [Health Check Failures](./health-check-failures.md)
-- [Memory Pressure](./memory-pressure.md)
-- [Database Failures](./database-failures.md)
-- [Log Analysis](./log-analysis.md)
+- [Health Check Failures](./HEALTH-CHECK-FAILURES.md)
+- [Memory Pressure](./MEMORY-PRESSURE.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Log Analysis](./LOG-ANALYSIS.md)
 
 ## Escalation Criteria
 
@@ -452,4 +452,4 @@ Escalate if:
 - Multiple critical thresholds exceeded
 - Metrics show degradation trend
 - Unusual metric patterns
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

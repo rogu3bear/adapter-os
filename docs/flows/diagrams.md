@@ -529,10 +529,10 @@ graph LR
 ---
 
 **References**:
-- [Load Flow](load.md)
-- [Route Flow](route.md)
-- [Run Flow](run.md)
-- [Record Flow](record.md)
-- [Replay Flow](replay.md)
+- [Load Flow](LOAD.MD)
+- [Route Flow](ROUTE.MD)
+- [Run Flow](RUN.MD)
+- [Record Flow](RECORD.MD)
+- [Replay Flow](REPLAY.MD)
 - [CLAUDE.md](../../CLAUDE.md)
 - [Architecture Index](../ARCHITECTURE_INDEX.md)

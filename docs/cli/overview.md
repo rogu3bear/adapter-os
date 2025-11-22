@@ -32,7 +32,7 @@ aosctl verify determinism-loop
 aosctl maintenance gc-bundles
 ```
 
-See: [aosctl.md](./aosctl.md) for complete reference.
+See: [aosctl.md](./AOSCTL.md) for complete reference.
 
 ---
 
@@ -56,7 +56,7 @@ AOS_MLX_FFI_MODEL=/path/to/model ./aos-launch mlx
 ./aos-launch backend
 ```
 
-See: [aos-launch.md](./aos-launch.md) for complete reference.
+See: [aos-launch.md](./AOS-LAUNCH.md) for complete reference.
 
 ---
 
@@ -82,7 +82,7 @@ aos logs backend
 aos restart
 ```
 
-See: [aos.md](./aos.md) for complete reference.
+See: [aos.md](./AOS.md) for complete reference.
 
 ---
 
@@ -108,7 +108,7 @@ cargo xtask verify-adapters --static-only
 cargo xtask code2db-dataset --source-dir ./src --output dataset.jsonl
 ```
 
-See: [xtask.md](./xtask.md) for complete reference.
+See: [xtask.md](./XTASK.md) for complete reference.
 
 ---
 
@@ -150,9 +150,9 @@ See [DEPRECATIONS.md](../../DEPRECATIONS.md) for the complete list.
 
 ## Related Documentation
 
-- [aosctl.md](./aosctl.md) - Complete aosctl command reference
-- [aos.md](./aos.md) - aos service control reference
-- [aos-launch.md](./aos-launch.md) - aos-launch orchestration reference
-- [xtask.md](./xtask.md) - cargo xtask developer tasks reference
+- [aosctl.md](./AOSCTL.md) - Complete aosctl command reference
+- [aos.md](./AOS.md) - aos service control reference
+- [aos-launch.md](./AOS-LAUNCH.md) - aos-launch orchestration reference
+- [xtask.md](./XTASK.md) - cargo xtask developer tasks reference
 - [CONTRIBUTING.md](../../CONTRIBUTING.md) - Contribution guidelines
 - [CLAUDE.md](../../CLAUDE.md) - Developer guide and architecture

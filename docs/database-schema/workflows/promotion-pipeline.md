@@ -308,13 +308,13 @@ flowchart TD
 
 ## Related Workflows
 
-- [Adapter Lifecycle](adapter-lifecycle.md) - How adapters are deployed with plans
-- [Monitoring Flow](monitoring-flow.md) - Post-deployment performance monitoring
-- [Incident Response](incident-response.md) - Handling promotion failures
+- [Adapter Lifecycle](ADAPTER-LIFECYCLE.md) - How adapters are deployed with plans
+- [Monitoring Flow](MONITORING-FLOW.md) - Post-deployment performance monitoring
+- [Incident Response](INCIDENT-RESPONSE.md) - Handling promotion failures
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [Control Plane](../../CONTROL-PLANE.md) - Control plane architecture
 - [Runaway Prevention](../../RUNAWAY-PREVENTION.md) - Safety mechanisms
 - [Deployment Guide](../../DEPLOYMENT.md) - Deployment procedures

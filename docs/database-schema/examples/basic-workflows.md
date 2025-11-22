@@ -7,10 +7,10 @@ Practical examples and tutorials for using the database schema animations and do
 ## For New Users
 
 ### Getting Started Journey
-1. **Understand the Schema**: Start with [Schema Diagram](../schema-diagram.md) to see all tables and relationships
-2. **Learn Core Concepts**: Review [Adapter Lifecycle](../workflows/adapter-lifecycle.md) for fundamental concepts
-3. **Deployment Process**: Study [Promotion Pipeline](../workflows/promotion-pipeline.md) for deployment workflows
-4. **Monitoring**: Familiarize with [Monitoring Flow](../workflows/monitoring-flow.md) for operational visibility
+1. **Understand the Schema**: Start with [Schema Diagram](../SCHEMA-DIAGRAM.md) to see all tables and relationships
+2. **Learn Core Concepts**: Review [Adapter Lifecycle](../workflows/ADAPTER-LIFECYCLE.md) for fundamental concepts
+3. **Deployment Process**: Study [Promotion Pipeline](../workflows/PROMOTION-PIPELINE.md) for deployment workflows
+4. **Monitoring**: Familiarize with [Monitoring Flow](../workflows/MONITORING-FLOW.md) for operational visibility
 
 ### First Week Learning Path
 - **Day 1-2**: Schema diagram and adapter lifecycle
@@ -20,34 +20,34 @@ Practical examples and tutorials for using the database schema animations and do
 ## For Troubleshooting
 
 ### Performance Issues
-1. Check [Incident Response](../workflows/incident-response.md) for error resolution patterns
-2. Use [Monitoring Flow](../workflows/monitoring-flow.md) for metrics analysis
-3. Review [Performance Dashboard](../workflows/performance-dashboard.md) for trends
+1. Check [Incident Response](../workflows/INCIDENT-RESPONSE.md) for error resolution patterns
+2. Use [Monitoring Flow](../workflows/MONITORING-FLOW.md) for metrics analysis
+3. Review [Performance Dashboard](../workflows/PERFORMANCE-DASHBOARD.md) for trends
 
 ### Deployment Failures
-1. Review [Promotion Pipeline](../workflows/promotion-pipeline.md) for rollback procedures
+1. Review [Promotion Pipeline](../workflows/PROMOTION-PIPELINE.md) for rollback procedures
 2. Check quality gates and audit logs
 3. Verify adapter references and dependencies
 
 ### Security Concerns
-1. Use [Security & Compliance](../workflows/security-compliance.md) for audit trails
+1. Use [Security & Compliance](../workflows/SECURITY-COMPLIANCE.md) for audit trails
 2. Verify all signatures and SBOM completeness
 3. Check ITAR compliance for restricted tenants
 
 ## For Development
 
 ### Building Code Intelligence Features
-1. Study [Code Intelligence](../workflows/code-intelligence.md) for repository workflows
+1. Study [Code Intelligence](../workflows/CODE-INTELLIGENCE.md) for repository workflows
 2. Review ephemeral adapter creation process
 3. Understand commit tracking and patch proposals
 
 ### Implementing Replication
-1. Review [Replication & Distribution](../workflows/replication-distribution.md) for scaling patterns
+1. Review [Replication & Distribution](../workflows/REPLICATION-DISTRIBUTION.md) for scaling patterns
 2. Understand artifact verification process
 3. Study cross-node synchronization
 
 ### Performance Optimization
-1. Use [Performance Dashboard](../workflows/performance-dashboard.md) for optimization insights
+1. Use [Performance Dashboard](../workflows/PERFORMANCE-DASHBOARD.md) for optimization insights
 2. Analyze metrics aggregations
 3. Implement caching strategies based on access patterns
 
@@ -165,7 +165,7 @@ VALUES ('cp-001', 'cp-pointer-001', 'user-001', '{"arr": 0.97}', CURRENT_TIMESTA
 
 ## Additional Resources
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [Validation Framework](../VALIDATION.md) - Validation procedures
 - [Maintenance Guide](../MAINTENANCE.md) - Ongoing maintenance
 - [System Architecture](../../ARCHITECTURE.md) - Overall system design

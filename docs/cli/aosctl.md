@@ -234,9 +234,9 @@ See [DEPRECATIONS.md](../../DEPRECATIONS.md) for the complete list.
 
 ## Related Commands
 
-- [`aos`](./aos.md) - Local service control
-- [`aos-launch`](./aos-launch.md) - Development orchestration
-- [`cargo xtask`](./xtask.md) - Developer automation
+- [`aos`](./AOS.md) - Local service control
+- [`aos-launch`](./AOS-LAUNCH.md) - Development orchestration
+- [`cargo xtask`](./XTASK.md) - Developer automation
 
 ## Source
 

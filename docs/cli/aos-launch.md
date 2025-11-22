@@ -200,9 +200,9 @@ systemctl start adapteros-server
 
 ## Related Commands
 
-- [`aos`](./aos.md) - Simple service control (start/stop/restart/status)
-- [`aosctl`](./aosctl.md) - System administration and operations
-- [`cargo xtask`](./xtask.md) - Developer automation tasks
+- [`aos`](./AOS.md) - Simple service control (start/stop/restart/status)
+- [`aosctl`](./AOSCTL.md) - System administration and operations
+- [`cargo xtask`](./XTASK.md) - Developer automation tasks
 
 ## Implementation Details
 

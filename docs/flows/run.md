@@ -290,7 +290,7 @@ pub async fn verify_cross_host_consistency(
 | Sampling determinism | ✅ Implemented | ChaCha20Rng |
 | Cross-host consistency check | ✅ Implemented | Hash comparison, divergence detection |
 | Federation signing | 🔧 Planned | Ed25519 bundle signatures (reserved columns) |
-| Replay from logs | 🔧 Planned | See [replay.md](replay.md) |
+| Replay from logs | 🔧 Planned | See [replay.md](REPLAY.MD) |
 
 ---
 

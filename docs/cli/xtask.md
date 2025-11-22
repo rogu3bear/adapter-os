@@ -304,9 +304,9 @@ pub fn run() -> Result<()> {
 
 ## Related Commands
 
-- [`aosctl`](./aosctl.md) - Production system administration
-- [`aos`](./aos.md) - Local service control
-- [`aos-launch`](./aos-launch.md) - Development orchestration
+- [`aosctl`](./AOSCTL.md) - Production system administration
+- [`aos`](./AOS.md) - Local service control
+- [`aos-launch`](./AOS-LAUNCH.md) - Development orchestration
 
 ## Source
 

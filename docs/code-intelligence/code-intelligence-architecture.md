@@ -306,9 +306,9 @@ A code CP promotes only if:
 ## Next Steps
 
 See individual specification documents for detailed design:
-- [Tier System Design](code-intelligence-tiers.md)
+- [Tier System Design](CODE-INTELLIGENCE-TIERS.md)
 - [CodeGraph Specification](../CODEGRAPH-SPEC.md)
 - [Manifest V4 Extensions](code-manifest-v4.md)
-- [Router Features](code-router-features.md)
-- [API Specifications](code-api-registry.md)
-- [Implementation Roadmap](code-implementation-roadmap.md)
+- [Router Features](CODE-ROUTER-FEATURES.MD)
+- [API Specifications](CODE-API-REGISTRY.MD)
+- [Implementation Roadmap](CODE-IMPLEMENTATION-ROADMAP.MD)

@@ -15,11 +15,11 @@ These documents provide step-by-step technical references for debugging and unde
 
 | Flow | Description | Status |
 |------|-------------|--------|
-| **[Load](load.md)** | Adapter loading and state initialization | ✅ Implemented |
-| **[Route](route.md)** | K-sparse adapter selection via Q15 gates | ✅ Implemented |
-| **[Run](run.md)** | Deterministic execution and inference | ✅ Implemented |
-| **[Record](record.md)** | Telemetry event capture and bundle signing | ✅ Implemented |
-| **[Replay](replay.md)** | Event log replay and divergence detection | 🔧 Planned |
+| **[Load](LOAD.MD)** | Adapter loading and state initialization | ✅ Implemented |
+| **[Route](ROUTE.MD)** | K-sparse adapter selection via Q15 gates | ✅ Implemented |
+| **[Run](RUN.MD)** | Deterministic execution and inference | ✅ Implemented |
+| **[Record](RECORD.MD)** | Telemetry event capture and bundle signing | ✅ Implemented |
+| **[Replay](REPLAY.MD)** | Event log replay and divergence detection | 🔧 Planned |
 
 ## Quick Navigation
 
@@ -39,11 +39,11 @@ Request Arrives
 
 ## Reading Guide
 
-1. **Start with [Load](load.md)** - Understand how adapters enter the system
-2. **Then [Route](route.md)** - See how adapters are selected for each request
-3. **Follow [Run](run.md)** - Trace execution through the deterministic executor
-4. **Review [Record](record.md)** - Learn how telemetry captures everything
-5. **Check [Replay](replay.md)** - Understand verification capabilities (future)
+1. **Start with [Load](LOAD.MD)** - Understand how adapters enter the system
+2. **Then [Route](ROUTE.MD)** - See how adapters are selected for each request
+3. **Follow [Run](RUN.MD)** - Trace execution through the deterministic executor
+4. **Review [Record](RECORD.MD)** - Learn how telemetry captures everything
+5. **Check [Replay](REPLAY.MD)** - Understand verification capabilities (future)
 
 ## Related Documentation
 

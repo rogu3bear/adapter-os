@@ -433,4 +433,4 @@ aosctl replay diff \
 - [ReplayBundle Type](../../crates/adapteros-telemetry/src/replay.rs:30-50)
 - [Deterministic Executor](../../crates/adapteros-deterministic-exec/src/lib.rs)
 - [CLAUDE.md § Determinism Guarantees](../../CLAUDE.md#determinism-guarantees)
-- [Record Flow](record.md) - Telemetry bundle creation
+- [Record Flow](RECORD.MD) - Telemetry bundle creation

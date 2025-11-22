@@ -415,9 +415,9 @@ vm_stat | head -15
 
 ## Related Runbooks
 
-- [Health Check Failures](./health-check-failures.md)
-- [Cleanup Procedures](./cleanup-procedures.md)
-- [Metrics Review](./metrics-review.md)
+- [Health Check Failures](./HEALTH-CHECK-FAILURES.md)
+- [Cleanup Procedures](./CLEANUP-PROCEDURES.md)
+- [Metrics Review](./METRICS-REVIEW.md)
 
 ## Escalation Criteria
 
@@ -426,4 +426,4 @@ Escalate if:
 - Critical pressure persists after cleanup
 - GPU memory exhaustion on appropriate hardware
 - Adapter eviction causing service degradation
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

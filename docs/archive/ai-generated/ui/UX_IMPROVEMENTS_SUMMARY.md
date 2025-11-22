@@ -95,7 +95,7 @@
 ### Phase 6: Documentation (COMPLETE)
 **Goal**: Comprehensive design token reference
 
-#### Design Tokens Reference (ui/docs/design-tokens.md)
+#### Design Tokens Reference (ui/docs/DESIGN-TOKENS.md)
 - ✅ 580 lines of comprehensive documentation
 - ✅ All token categories: Colors, Typography, Spacing, Radii, Shadows, Animation
 - ✅ Component token reference

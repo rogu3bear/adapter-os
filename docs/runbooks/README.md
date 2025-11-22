@@ -15,25 +15,25 @@ These runbooks provide step-by-step procedures for diagnosing and resolving comm
 ## Quick Index
 
 ### Startup & Configuration
-- [Startup Procedures](./startup-procedures.md) - Initial setup and first run
-- [Startup Failures](./startup-failures.md) - Server won't start, missing config
-- [Port Binding Conflicts](./port-binding-conflicts.md) - Port 8080 in use, PID lock issues
+- [Startup Procedures](./STARTUP-PROCEDURES.md) - Initial setup and first run
+- [Startup Failures](./STARTUP-FAILURES.md) - Server won't start, missing config
+- [Port Binding Conflicts](./PORT-BINDING-CONFLICTS.md) - Port 8080 in use, PID lock issues
 
 ### Database Operations
-- [Database Failures](./database-failures.md) - Migration errors, connection issues, WAL problems
-- [Database Optimization](./database-optimization.md) - PRAGMA optimization, WAL checkpoints
+- [Database Failures](./DATABASE-FAILURES.md) - Migration errors, connection issues, WAL problems
+- [Database Optimization](./DATABASE-OPTIMIZATION.md) - PRAGMA optimization, WAL checkpoints
 
 ### Resource Management
-- [Memory Pressure](./memory-pressure.md) - High memory usage, adapter eviction
-- [Cleanup Procedures](./cleanup-procedures.md) - TTL cleanup, orphaned adapters
+- [Memory Pressure](./MEMORY-PRESSURE.md) - High memory usage, adapter eviction
+- [Cleanup Procedures](./CLEANUP-PROCEDURES.md) - TTL cleanup, orphaned adapters
 
 ### Monitoring & Diagnostics
-- [Health Check Failures](./health-check-failures.md) - Component degraded/unhealthy status
-- [Log Analysis](./log-analysis.md) - What to look for in logs
-- [Metrics Review](./metrics-review.md) - Key operational metrics
+- [Health Check Failures](./HEALTH-CHECK-FAILURES.md) - Component degraded/unhealthy status
+- [Log Analysis](./LOG-ANALYSIS.md) - What to look for in logs
+- [Metrics Review](./METRICS-REVIEW.md) - Key operational metrics
 
 ### Escalation
-- [Escalation Guide](./escalation.md) - When to escalate, severity levels
+- [Escalation Guide](./ESCALATION.md) - When to escalate, severity levels
 
 ## Common Commands
 
@@ -80,7 +80,7 @@ ps aux | grep aos
    - Document resolution
 
 4. **Escalate if Needed**
-   - See [Escalation Guide](./escalation.md)
+   - See [Escalation Guide](./ESCALATION.md)
    - Prepare diagnostic bundle
    - Follow severity protocols
 
@@ -106,7 +106,7 @@ ps aux | grep aos
 
 - [Production Operations Guide](../PRODUCTION_OPERATIONS.md)
 - [Database Schema](../DATABASE-SCHEMA.md)
-- [Health Check API](../api/health.md)
+- [Health Check API](../API/HEALTH.md)
 - [Verification Checklist](../VERIFICATION_CHECKLIST.md)
 
 ## Maintenance

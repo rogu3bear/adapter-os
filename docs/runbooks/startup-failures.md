@@ -141,7 +141,7 @@ cargo run --bin aos-cp -- --skip-pf-check
 ```
 
 **Root Cause:**
-- See [Database Failures](./database-failures.md)
+- See [Database Failures](./DATABASE-FAILURES.md)
 
 **Quick Fix:**
 ```bash
@@ -162,7 +162,7 @@ aosctl db migrate
 ```
 
 **Root Cause:**
-- See [Port Binding Conflicts](./port-binding-conflicts.md)
+- See [Port Binding Conflicts](./PORT-BINDING-CONFLICTS.md)
 
 **Quick Fix:**
 ```bash
@@ -335,10 +335,10 @@ fi
 
 ## Related Runbooks
 
-- [Startup Procedures](./startup-procedures.md)
-- [Database Failures](./database-failures.md)
-- [Port Binding Conflicts](./port-binding-conflicts.md)
-- [Log Analysis](./log-analysis.md)
+- [Startup Procedures](./STARTUP-PROCEDURES.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Port Binding Conflicts](./PORT-BINDING-CONFLICTS.md)
+- [Log Analysis](./LOG-ANALYSIS.md)
 
 ## Escalation Criteria
 
@@ -346,4 +346,4 @@ Escalate if:
 - Server crashes repeatedly
 - Unknown startup errors
 - Configuration issues persist
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)

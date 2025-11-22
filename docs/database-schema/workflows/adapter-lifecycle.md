@@ -213,13 +213,13 @@ flowchart TD
 
 ## Related Workflows
 
-- [Promotion Pipeline](promotion-pipeline.md) - How plans are deployed with adapters
-- [Monitoring Flow](monitoring-flow.md) - Real-time adapter performance tracking
-- [Replication & Distribution](replication-distribution.md) - Cross-node adapter synchronization
+- [Promotion Pipeline](PROMOTION-PIPELINE.md) - How plans are deployed with adapters
+- [Monitoring Flow](MONITORING-FLOW.md) - Real-time adapter performance tracking
+- [Replication & Distribution](REPLICATION-DISTRIBUTION.md) - Cross-node adapter synchronization
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [System Architecture](../../ARCHITECTURE.md) - Overall system design
 - [Router](../../architecture.md#router) - Adapter selection algorithm
 - [Memory Management](../../architecture.md#memory-management) - Memory budgeting and eviction

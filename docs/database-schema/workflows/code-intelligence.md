@@ -68,12 +68,12 @@ flowchart LR
 
 ## Related Workflows
 
-- [Adapter Lifecycle](adapter-lifecycle.md) - Ephemeral adapter deployment
-- [Promotion Pipeline](promotion-pipeline.md) - Quality checks
+- [Adapter Lifecycle](ADAPTER-LIFECYCLE.md) - Ephemeral adapter deployment
+- [Promotion Pipeline](PROMOTION-PIPELINE.md) - Quality checks
 
 ## Related Documentation
 
-- [Schema Diagram](../schema-diagram.md) - Complete database structure
+- [Schema Diagram](../SCHEMA-DIAGRAM.md) - Complete database structure
 - [Code Intelligence](../../code-intelligence/README.md) - Complete code analysis stack
 
 ---

@@ -429,9 +429,9 @@ pub async fn register_git_repository(
 
 ## References
 
-- [Git Integration Citations](git-integration-citations.md)
+- [Git Integration Citations](GIT-INTEGRATION-CITATIONS.md)
 - [Code Intelligence Architecture](code-intelligence-ARCHITECTURE.md)
-- [Code Policies](code-policies.md)
+- [Code Policies](CODE-POLICIES.md)
 - [LLM Interface Specification](../LLM-INTERFACE-SPECIFICATION.md)
 - [Patch Proposal System](../PATCH-PROPOSAL-SYSTEM.md)
 - [Database Schema Workflows](../database-schema/workflows/CODE-INTELLIGENCE.md)

@@ -8,7 +8,7 @@ Comprehensive architecture documentation for AdapterOS.
 
 New to AdapterOS architecture? Start here:
 
-1. **[Precision Diagrams](precision-diagrams.md)** - Visual architecture guide (⭐ recommended)
+1. **[Precision Diagrams](PRECISION-DIAGRAMS.md)** - Visual architecture guide (⭐ recommended)
 2. **[MasterPlan](MasterPlan.md)** - Complete system design
 3. **[Main Architecture Doc](../ARCHITECTURE.md)** - High-level overview
 
@@ -18,7 +18,7 @@ New to AdapterOS architecture? Start here:
 
 ### **Visual Guides** (Start Here)
 
-#### **[Precision Diagrams](precision-diagrams.md)** ⭐
+#### **[Precision Diagrams](PRECISION-DIAGRAMS.md)** ⭐
 Code-verified Mermaid diagrams with exact component names, file paths, and line numbers.
 
 **Contents**:

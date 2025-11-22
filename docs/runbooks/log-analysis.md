@@ -199,7 +199,7 @@ export RUST_LOG="info,aos_cp=debug,adapteros_db=debug"
 ```
 
 **Actions:**
-- See [Health Check Failures](./health-check-failures.md) for component-specific procedures
+- See [Health Check Failures](./HEALTH-CHECK-FAILURES.md) for component-specific procedures
 
 ### 8. Security Events
 
@@ -436,10 +436,10 @@ RUST_LOG=trace cargo run --bin aos-cp
 
 ## Related Runbooks
 
-- [Health Check Failures](./health-check-failures.md)
-- [Database Failures](./database-failures.md)
-- [Memory Pressure](./memory-pressure.md)
-- [Metrics Review](./metrics-review.md)
+- [Health Check Failures](./HEALTH-CHECK-FAILURES.md)
+- [Database Failures](./DATABASE-FAILURES.md)
+- [Memory Pressure](./MEMORY-PRESSURE.md)
+- [Metrics Review](./METRICS-REVIEW.md)
 
 ## Escalation Criteria
 
@@ -447,4 +447,4 @@ Escalate if:
 - Unknown error patterns
 - Repeated failures without resolution
 - Security-related errors
-- See [Escalation Guide](./escalation.md)
+- See [Escalation Guide](./ESCALATION.md)
