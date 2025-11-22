@@ -118,7 +118,7 @@ pub async fn import_model(
 ) -> Result<Json<ImportModelResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require admin role for model import
     // Citation: CONTRIBUTING.md L132 - Security-sensitive code requires review
-    let _ = require_any_role(&claims, &["admin"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin"])?;
 
     let tenant_id = &claims.tenant_id;
     let import_id = Uuid::new_v4().to_string();
@@ -350,7 +350,7 @@ pub async fn load_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin", "operator"])?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -588,7 +588,7 @@ pub async fn unload_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin", "operator"])?;
 
     let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
@@ -732,7 +732,7 @@ pub async fn cancel_model_operation(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin", "operator"])?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -865,7 +865,7 @@ pub async fn get_model_status(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin", "operator"])?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -929,7 +929,7 @@ pub async fn download_model(
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
 ) -> Result<Json<ModelDownloadResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_role(&claims, "admin").map_err(|e| e)?;
+    require_role(&claims, "admin")?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -1243,7 +1243,7 @@ pub async fn download_model_artifact(
     Extension(claims): Extension<Claims>,
     Path(token): Path<String>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_any_role(&claims, &["admin"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin"])?;
 
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_nbf = false;
@@ -1701,7 +1701,7 @@ pub async fn model_runtime_health(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ModelRuntimeHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let _ = require_any_role(&claims, &["admin", "operator"]).map_err(|e| e)?;
+    require_any_role(&claims, &["admin", "operator"])?;
 
     let Some(rt) = &state.model_runtime else {
         return Ok(Json(ModelRuntimeHealthResponse {

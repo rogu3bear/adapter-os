@@ -493,7 +493,7 @@ async fn test_authentication_workflow() -> Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/healthz")
+                .uri("/healthz")
                 .body(Body::empty())
                 .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
@@ -624,7 +624,7 @@ async fn test_error_handling() -> Result<()> {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/api/healthz")
+                .uri("/healthz")
                 .body(Body::empty())
                 .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )
@@ -690,7 +690,7 @@ async fn test_api_consistency() -> Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/healthz")
+                .uri("/healthz")
                 .body(Body::empty())
                 .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?,
         )

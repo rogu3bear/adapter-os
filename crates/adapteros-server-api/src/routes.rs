@@ -31,6 +31,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::unload_adapter,
         handlers::verify_gpu_integrity,
         handlers::get_adapter_activations,
+        handlers::promote_adapter_state,
         handlers::list_repositories,
         handlers::get_quality_metrics,
         handlers::get_adapter_metrics,
@@ -257,12 +258,12 @@ pub fn build(state: AppState) -> Router {
         .route("/healthz/all", get(crate::health::check_all_health))
         .route("/healthz/:component", get(crate::health::check_component_health))
         .route("/readyz", get(handlers::ready))
-        .route("/v1/auth/login", post(handlers::auth_login))
+        .route("/v1/auth/login", post(handlers::auth_enhanced::login_handler))
         .route("/v1/meta", get(handlers::meta));
 
     // Metrics endpoint (custom auth, not JWT)
     let metrics_route = Router::new()
-        .route("/metrics", get(handlers::metrics_handler))
+        .route("/v1/metrics", get(handlers::metrics_handler))
         .with_state(state.clone());
 
     // Protected routes (require auth)
@@ -491,6 +492,18 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/:adapter_id/health",
             get(handlers::get_adapter_health),
         )
+        // Adapter pinning routes
+        .route(
+            "/v1/adapters/:adapter_id/pin",
+            get(handlers::get_pin_status)
+                .post(handlers::pin_adapter)
+                .delete(handlers::unpin_adapter),
+        )
+        // Tier-based state promotion (distinct from lifecycle promotion)
+        .route(
+            "/v1/adapters/:adapter_id/state/promote",
+            post(handlers::promote_adapter_state),
+        )
         // Semantic name validation routes
         .route(
             "/v1/adapters/validate-name",
@@ -629,11 +642,11 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
         .route("/v1/traces/:trace_id", get(handlers::telemetry::get_trace))
         // Logs routes
-        .route("/api/logs/query", get(handlers::telemetry::query_logs))
-        .route("/api/logs/stream", get(handlers::telemetry::stream_logs))
+        .route("/v1/logs/query", get(handlers::telemetry::query_logs))
+        .route("/v1/logs/stream", get(handlers::telemetry::stream_logs))
         // Metrics snapshot/series routes
-        .route("/api/metrics/snapshot", get(handlers::telemetry::get_metrics_snapshot))
-        .route("/api/metrics/series", get(handlers::telemetry::get_metrics_series))
+        .route("/v1/metrics/snapshot", get(handlers::telemetry::get_metrics_snapshot))
+        .route("/v1/metrics/series", get(handlers::telemetry::get_metrics_series))
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route("/v1/training/jobs/:job_id", get(handlers::get_training_job))
@@ -653,6 +666,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/jobs/:job_id/metrics",
             get(handlers::get_training_metrics),
+        )
+        .route(
+            "/v1/training/jobs/:job_id/artifacts",
+            get(handlers::get_training_artifacts),
         )
         .route(
             "/v1/training/templates",

@@ -356,8 +356,6 @@ impl SupervisorClient {
                     return Ok(response);
                 }
                 Err(e) => {
-                    last_error = Some(e);
-
                     if attempt < self.max_retries {
                         let backoff = Duration::from_millis(100 * 2u64.pow(attempt));
                         warn!(
@@ -365,10 +363,11 @@ impl SupervisorClient {
                             attempt + 1,
                             self.max_retries + 1,
                             backoff,
-                            last_error.as_ref().expect("Error should be set after failed attempt")
+                            &e
                         );
                         tokio::time::sleep(backoff).await;
                     }
+                    last_error = Some(e);
                 }
             }
         }
@@ -376,7 +375,9 @@ impl SupervisorClient {
         Err(AosError::Network(format!(
             "Request failed after {} attempts: {}",
             self.max_retries + 1,
-            last_error.expect("Error should be set after all retry attempts")
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
         )))
     }
 

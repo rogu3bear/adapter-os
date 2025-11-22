@@ -46,30 +46,30 @@ pub async fn security_headers_middleware(
     headers.insert(
         "Content-Security-Policy",
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; media-src 'none'; object-src 'none'; child-src 'none'; worker-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
-            .parse().unwrap(),
+            .parse().expect("valid CSP header value"),
     );
 
     // Prevent clickjacking
-    headers.insert("X-Frame-Options", "DENY".parse().unwrap());
+    headers.insert("X-Frame-Options", "DENY".parse().expect("valid X-Frame-Options header value"));
 
     // Prevent MIME type sniffing
-    headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+    headers.insert("X-Content-Type-Options", "nosniff".parse().expect("valid X-Content-Type-Options header value"));
 
     // Control referrer information
-    headers.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().unwrap());
+    headers.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().expect("valid Referrer-Policy header value"));
 
     // Feature policy - disable potentially dangerous features
     headers.insert(
         "Permissions-Policy",
         "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=(), gyroscope=(), ambient-light-sensor=(), autoplay=(), encrypted-media=(), fullscreen=(self), picture-in-picture=()"
-            .parse().unwrap(),
+            .parse().expect("valid Permissions-Policy header value"),
     );
 
     // Prevent caching of sensitive responses
     if should_add_cache_headers {
-        headers.insert("Cache-Control", "no-cache, no-store, must-revalidate".parse().unwrap());
-        headers.insert("Pragma", "no-cache".parse().unwrap());
-        headers.insert("Expires", "0".parse().unwrap());
+        headers.insert("Cache-Control", "no-cache, no-store, must-revalidate".parse().expect("valid Cache-Control header value"));
+        headers.insert("Pragma", "no-cache".parse().expect("valid Pragma header value"));
+        headers.insert("Expires", "0".parse().expect("valid Expires header value"));
     }
 
     response
@@ -108,9 +108,9 @@ pub async fn rate_limiting_middleware(
             let remaining = result.limit - result.current_count;
 
             let headers = response.headers_mut();
-            headers.insert("X-RateLimit-Remaining", remaining.to_string().parse().unwrap());
-            headers.insert("X-RateLimit-Reset", result.reset_at.to_string().parse().unwrap());
-            headers.insert("X-RateLimit-Limit", result.limit.to_string().parse().unwrap());
+            headers.insert("X-RateLimit-Remaining", remaining.to_string().parse().expect("numeric string is valid header value"));
+            headers.insert("X-RateLimit-Reset", result.reset_at.to_string().parse().expect("numeric string is valid header value"));
+            headers.insert("X-RateLimit-Limit", result.limit.to_string().parse().expect("numeric string is valid header value"));
 
             response
         }
@@ -128,11 +128,11 @@ pub async fn rate_limiting_middleware(
             let mut response = Response::builder()
                 .status(StatusCode::TOO_MANY_REQUESTS)
                 .body(axum::body::Body::empty())
-                .unwrap();
+                .expect("empty body response builder cannot fail");
 
             let headers = response.headers_mut();
-            headers.insert("Retry-After", retry_after.to_string().parse().unwrap());
-            headers.insert("X-RateLimit-Reset", retry_after.to_string().parse().unwrap());
+            headers.insert("Retry-After", retry_after.to_string().parse().expect("numeric string is valid header value"));
+            headers.insert("X-RateLimit-Reset", retry_after.to_string().parse().expect("numeric string is valid header value"));
 
             response
         }
@@ -174,7 +174,7 @@ pub async fn request_size_limit_middleware(
                 return Ok(Response::builder()
                     .status(StatusCode::PAYLOAD_TOO_LARGE)
                     .body(axum::body::Body::empty())
-                    .unwrap());
+                    .expect("empty body response builder cannot fail"));
             }
         }
     }

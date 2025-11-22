@@ -25,6 +25,7 @@ use sqlx::Row;
 pub mod adapter_stacks;
 pub mod adapters;
 pub mod auth;
+pub mod auth_enhanced;
 pub mod batch;
 pub mod chunked_upload;
 pub mod code;
@@ -3817,21 +3818,16 @@ pub async fn create_process_monitoring_rule(
     )
 )]
 pub async fn list_process_alerts(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(_params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessAlertResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: list_process_alerts - returning placeholder data until system-metrics crate is restored");
-
-    let tenant_filter = params.get("tenant_id");
-    let worker_filter = params.get("worker_id");
-    let status_filter = params.get("status");
-    let severity_filter = params.get("severity");
-
-    // TODO: Implement database query for alerts
-    Ok(Json(vec![]))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// Acknowledge process alert
@@ -3848,38 +3844,17 @@ pub async fn list_process_alerts(
     )
 )]
 pub async fn acknowledge_process_alert(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path(alert_id): Path<String>,
-    Json(req): Json<AcknowledgeProcessAlertRequest>,
+    Path(_alert_id): Path<String>,
+    Json(_req): Json<AcknowledgeProcessAlertRequest>,
 ) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: acknowledge_process_alert - returning placeholder data until system-metrics crate is restored");
-
-    // TODO: Implement alert acknowledgment
-    Ok(Json(ProcessAlertResponse {
-        id: alert_id.clone(),
-        rule_id: "rule-123".to_string(),
-        worker_id: "worker-123".to_string(),
-        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
-        alert_type: "threshold".to_string(),
-        severity: "warning".to_string(),
-        title: "High CPU Usage".to_string(),
-        message: "CPU usage exceeded threshold".to_string(),
-        metric_value: Some(85.0),
-        threshold_value: Some(80.0),
-        status: "acknowledged".to_string(),
-        acknowledged_by: Some(claims.sub.clone()),
-        acknowledged_at: Some(chrono::Utc::now().to_rfc3339()),
-        resolved_at: None,
-        suppression_reason: None,
-        suppression_until: None,
-        escalation_level: 0,
-        notification_sent: true,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// List process anomalies
@@ -3898,21 +3873,16 @@ pub async fn acknowledge_process_alert(
     )
 )]
 pub async fn list_process_anomalies(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(_params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessAnomalyResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: list_process_anomalies - returning placeholder data until system-metrics crate is restored");
-
-    let tenant_filter = params.get("tenant_id");
-    let worker_filter = params.get("worker_id");
-    let status_filter = params.get("status");
-    let severity_filter = params.get("severity");
-
-    // TODO: Implement database query for anomalies
-    Ok(Json(vec![]))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// Update process anomaly status
@@ -3929,40 +3899,17 @@ pub async fn list_process_anomalies(
     )
 )]
 pub async fn update_process_anomaly_status(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path(anomaly_id): Path<String>,
-    Json(req): Json<UpdateProcessAnomalyStatusRequest>,
+    Path(_anomaly_id): Path<String>,
+    Json(_req): Json<UpdateProcessAnomalyStatusRequest>,
 ) -> Result<Json<ProcessAnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: update_process_anomaly_status - returning placeholder data until system-metrics crate is restored");
-
-    // TODO: Implement anomaly status update
-    Ok(Json(ProcessAnomalyResponse {
-        id: anomaly_id.clone(),
-        worker_id: "worker-123".to_string(),
-        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
-        anomaly_type: "spike".to_string(),
-        metric_name: "cpu_usage".to_string(),
-        detected_value: 95.0,
-        expected_range_min: Some(20.0),
-        expected_range_max: Some(80.0),
-        confidence_score: 0.95,
-        severity: "critical".to_string(),
-        description: Some("CPU usage spike detected".to_string()),
-        detection_method: "statistical".to_string(),
-        model_version: Some("v1.0".to_string()),
-        status: req.status.clone(),
-        investigated_by: Some(claims.sub.clone()),
-        investigation_notes: req.investigation_notes,
-        resolved_at: if req.status == "resolved" {
-            Some(chrono::Utc::now().to_rfc3339())
-        } else {
-            None
-        },
-        created_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// List process monitoring dashboards
@@ -3979,19 +3926,16 @@ pub async fn update_process_anomaly_status(
     )
 )]
 pub async fn list_process_monitoring_dashboards(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(_params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringDashboardResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: list_process_monitoring_dashboards - returning placeholder data until system-metrics crate is restored");
-
-    let tenant_filter = params.get("tenant_id");
-    let is_shared_filter = params.get("is_shared").and_then(|s| s.parse::<bool>().ok());
-
-    // TODO: Implement database query for dashboards
-    Ok(Json(vec![]))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// Create process monitoring dashboard
@@ -4005,26 +3949,16 @@ pub async fn list_process_monitoring_dashboards(
     )
 )]
 pub async fn create_process_monitoring_dashboard(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(req): Json<CreateProcessMonitoringDashboardRequest>,
+    Json(_req): Json<CreateProcessMonitoringDashboardRequest>,
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: create_process_monitoring_dashboard - returning placeholder data until system-metrics crate is restored");
-
-    // TODO: Implement dashboard creation
-    Ok(Json(ProcessMonitoringDashboardResponse {
-        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
-        name: req.name,
-        description: req.description,
-        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
-        dashboard_config: req.dashboard_config,
-        is_shared: req.is_shared.unwrap_or(false),
-        created_by: Some(claims.sub.clone()),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// List process health metrics
@@ -4114,19 +4048,16 @@ pub async fn list_process_health_metrics(
     )
 )]
 pub async fn list_process_monitoring_reports(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(_params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessMonitoringReportResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: list_process_monitoring_reports - returning placeholder data until system-metrics crate is restored");
-
-    let tenant_filter = params.get("tenant_id");
-    let report_type_filter = params.get("report_type");
-
-    // TODO: Implement database query for reports
-    Ok(Json(vec![]))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 
 /// Create process monitoring report
@@ -4140,28 +4071,16 @@ pub async fn list_process_monitoring_reports(
     )
 )]
 pub async fn create_process_monitoring_report(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(req): Json<CreateProcessMonitoringReportRequest>,
+    Json(_req): Json<CreateProcessMonitoringReportRequest>,
 ) -> Result<Json<ProcessMonitoringReportResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    tracing::warn!("STUB ENDPOINT: create_process_monitoring_report - returning placeholder data until system-metrics crate is restored");
-
-    // TODO: Implement report generation
-    Ok(Json(ProcessMonitoringReportResponse {
-        id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
-        name: req.name,
-        description: req.description,
-        tenant_id: "default".to_string(), // Placeholder - would extract from claims.sub
-        report_type: req.report_type,
-        report_config: req.report_config,
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        report_data: None,
-        file_path: None,
-        file_size_bytes: None,
-        created_by: Some(claims.sub.clone()),
-    }))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
+    ))
 }
 // ===== Adapter Management Endpoints =====
 
@@ -5037,13 +4956,29 @@ pub async fn get_adapter_activations(
     Ok(Json(responses))
 }
 
-/// Promote adapter state (cold->warm, warm->hot)
+/// Promote adapter tier (persistent -> warm -> ephemeral)
+///
+/// Promotes an adapter to the next tier level. Returns 400 if already at maximum tier.
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/state/promote",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter tier promoted successfully", body = AdapterStateResponse),
+        (status = 400, description = "Already at maximum tier", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
 pub async fn promote_adapter_state(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterStateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Get current adapter state
     let adapter = state
@@ -5067,15 +5002,34 @@ pub async fn promote_adapter_state(
             )
         })?;
 
-    // Determine next state based on current tier
+    // Determine next tier based on current tier
     // Tiers: "persistent" → "warm" → "ephemeral"
-    let (new_tier, new_state) = match adapter.tier.as_str() {
-        "persistent" => ("warm".to_string(), "warm"),
-        "warm" => ("ephemeral".to_string(), "ephemeral"),
-        _ => (adapter.tier.clone(), "ephemeral"), // Already at highest or unknown tier
+    let new_tier = match adapter.tier.as_str() {
+        "persistent" => "warm".to_string(),
+        "warm" => "ephemeral".to_string(),
+        "ephemeral" => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("adapter already at maximum tier (ephemeral)")
+                        .with_code("ALREADY_AT_MAX_TIER"),
+                ),
+            ));
+        }
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(&format!("unknown tier: {}", other))
+                        .with_code("UNKNOWN_TIER"),
+                ),
+            ));
+        }
     };
 
-    // Update adapter state in database
+    let old_tier = adapter.tier.clone();
+
+    // Update adapter tier in database
     let timestamp = chrono::Utc::now().to_rfc3339();
     sqlx::query!(
         "UPDATE adapters SET tier = ?, updated_at = ? WHERE adapter_id = ?",
@@ -5089,8 +5043,8 @@ pub async fn promote_adapter_state(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
-                ErrorResponse::new("failed to update adapter state")
-                    .with_code("INTERNAL_SERVER_ERROR")
+                ErrorResponse::new("failed to update adapter tier")
+                    .with_code("DATABASE_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
@@ -5099,8 +5053,8 @@ pub async fn promote_adapter_state(
     Ok(Json(AdapterStateResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         adapter_id,
-        old_state: adapter.tier.clone(),
-        new_state: new_state.to_string(),
+        old_state: old_tier,
+        new_state: new_tier,
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -6980,6 +6934,131 @@ pub async fn get_training_template(
         })?;
 
     Ok(Json(template.into()))
+}
+
+/// Training artifacts response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrainingArtifactsResponse {
+    /// Whether artifacts are ready for download
+    pub ready: bool,
+    /// Training job ID
+    pub job_id: String,
+    /// List of generated artifacts
+    pub artifacts: Vec<TrainingArtifact>,
+    /// Total size in bytes
+    pub total_size_bytes: u64,
+}
+
+/// Individual training artifact
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TrainingArtifact {
+    /// Artifact name
+    pub name: String,
+    /// Artifact type (weights, metrics, logs, etc.)
+    pub artifact_type: String,
+    /// Size in bytes
+    pub size_bytes: u64,
+    /// BLAKE3 hash
+    pub hash_b3: Option<String>,
+    /// Download path
+    pub path: String,
+    /// Created timestamp
+    pub created_at: String,
+}
+
+/// Get training job artifacts
+///
+/// Returns a list of artifacts generated by a completed training job,
+/// including weights, metrics files, and logs.
+///
+/// **Permissions:** Requires `Operator`, `Admin`, or `Viewer` role.
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/jobs/{job_id}/artifacts",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "Training artifacts retrieved successfully", body = TrainingArtifactsResponse),
+        (status = 404, description = "Job not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_training_artifacts(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<TrainingArtifactsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("insufficient permissions").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    // Get the training job
+    let job = state.training_service.get_job(&job_id).await.map_err(|e| {
+        let error_str = e.to_string();
+        if error_str.contains("not found") || error_str.contains("NotFound") {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new(&format!("Training job not found: {}", job_id)).with_code("NOT_FOUND")),
+            )
+        } else {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&format!("Failed to get job: {}", e)).with_code("DATABASE_ERROR")),
+            )
+        }
+    })?;
+
+    // Check if job is completed
+    let ready = job.status.to_string().to_lowercase() == "completed";
+
+    // Build artifacts list based on job output
+    let mut artifacts = Vec::new();
+    let mut total_size_bytes = 0u64;
+
+    if ready {
+        // Add weights artifact if job has adapter_id (populated on completion)
+        if let Some(ref adapter_id) = job.adapter_id {
+            artifacts.push(TrainingArtifact {
+                name: format!("{}.safetensors", adapter_id),
+                artifact_type: "weights".to_string(),
+                size_bytes: 0, // Size would come from actual file
+                hash_b3: None,
+                path: format!("/v1/adapters/{}/download", adapter_id),
+                created_at: job.created_at.clone(),
+            });
+        }
+
+        // Add metrics artifact
+        artifacts.push(TrainingArtifact {
+            name: "training_metrics.json".to_string(),
+            artifact_type: "metrics".to_string(),
+            size_bytes: 0,
+            hash_b3: None,
+            path: format!("/v1/training/jobs/{}/metrics", job_id),
+            created_at: job.created_at.clone(),
+        });
+
+        // Add logs artifact
+        artifacts.push(TrainingArtifact {
+            name: "training.log".to_string(),
+            artifact_type: "logs".to_string(),
+            size_bytes: 0,
+            hash_b3: None,
+            path: format!("/v1/training/jobs/{}/logs", job_id),
+            created_at: job.created_at.clone(),
+        });
+    }
+
+    Ok(Json(TrainingArtifactsResponse {
+        ready,
+        job_id,
+        artifacts,
+        total_size_bytes,
+    }))
 }
 
 // Git integration handlers

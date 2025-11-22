@@ -19,12 +19,12 @@ mod common;
 
 fn telemetry_router(state: AppState) -> Router {
     Router::new()
-        .route("/api/metrics/snapshot", get(get_metrics_snapshot))
-        .route("/api/metrics/series", get(get_metrics_series))
-        .route("/api/logs/query", get(query_logs))
-        .route("/api/logs/stream", get(stream_logs))
-        .route("/api/traces/search", get(search_traces))
-        .route("/api/traces/:trace_id", get(get_trace))
+        .route("/v1/metrics/snapshot", get(get_metrics_snapshot))
+        .route("/v1/metrics/series", get(get_metrics_series))
+        .route("/v1/logs/query", get(query_logs))
+        .route("/v1/logs/stream", get(stream_logs))
+        .route("/v1/traces/search", get(search_traces))
+        .route("/v1/traces/:trace_id", get(get_trace))
         .with_state(state)
 }
 
@@ -54,7 +54,7 @@ async fn snapshot_endpoint_returns_live_metrics() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/metrics/snapshot")
+                .uri("/v1/metrics/snapshot")
                 .body(Body::empty())?,
         )
         .await?;
@@ -94,7 +94,7 @@ async fn series_endpoint_filters_by_name_and_window() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/metrics/series?series_name=tokens_per_second")
+                .uri("/v1/metrics/series?series_name=tokens_per_second")
                 .body(Body::empty())?,
         )
         .await?;
@@ -130,7 +130,7 @@ async fn series_endpoint_filters_by_name_and_window() -> anyhow::Result<()> {
             Request::builder()
                 .method("GET")
                 .uri(&format!(
-                    "/api/metrics/series?series_name=tokens_per_second&start_ms={}",
+                    "/v1/metrics/series?series_name=tokens_per_second&start_ms={}",
                     max_ts - 1
                 ))
                 .body(Body::empty())?,
@@ -150,7 +150,7 @@ async fn series_endpoint_filters_by_name_and_window() -> anyhow::Result<()> {
 
     // Invalid window returns 400
     let bad_url = format!(
-        "/api/metrics/series?start_ms={}&end_ms={}",
+        "/v1/metrics/series?start_ms={}&end_ms={}",
         max_ts + 1,
         max_ts
     );
@@ -201,7 +201,7 @@ async fn logs_query_returns_filtered_events() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/query?limit=10")
+                .uri("/v1/logs/query?limit=10")
                 .body(Body::empty())?,
         )
         .await?;
@@ -216,7 +216,7 @@ async fn logs_query_returns_filtered_events() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/query?level=warn")
+                .uri("/v1/logs/query?level=warn")
                 .body(Body::empty())?,
         )
         .await?;
@@ -232,7 +232,7 @@ async fn logs_query_returns_filtered_events() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/query?tenant_id=tenant-a&component=control-plane")
+                .uri("/v1/logs/query?tenant_id=tenant-a&component=control-plane")
                 .body(Body::empty())?,
         )
         .await?;
@@ -246,7 +246,7 @@ async fn logs_query_returns_filtered_events() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/query?level=verbose")
+                .uri("/v1/logs/query?level=verbose")
                 .body(Body::empty())?,
         )
         .await?;
@@ -266,7 +266,7 @@ async fn series_endpoint_returns_404_for_nonexistent_series() -> anyhow::Result<
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/metrics/series?series_name=nonexistent_series")
+                .uri("/v1/metrics/series?series_name=nonexistent_series")
                 .body(Body::empty())?,
         )
         .await?;
@@ -298,7 +298,7 @@ async fn series_endpoint_returns_all_series_when_no_name_specified() -> anyhow::
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/metrics/series")
+                .uri("/v1/metrics/series")
                 .body(Body::empty())?,
         )
         .await?;
@@ -499,7 +499,7 @@ async fn stream_logs_returns_sse_stream() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/stream")
+                .uri("/v1/logs/stream")
                 .body(Body::empty())?,
         )
         .await?;
@@ -556,7 +556,7 @@ async fn stream_logs_filters_events_by_tenant() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/stream?tenant_id=tenant-1")
+                .uri("/v1/logs/stream?tenant_id=tenant-1")
                 .body(Body::empty())?,
         )
         .await?;
@@ -575,7 +575,7 @@ async fn stream_logs_filters_events_by_tenant() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/stream?tenant_id=tenant-2")
+                .uri("/v1/logs/stream?tenant_id=tenant-2")
                 .body(Body::empty())?,
         )
         .await?;
@@ -625,7 +625,7 @@ async fn stream_logs_filters_events_by_level() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/stream?level=warn")
+                .uri("/v1/logs/stream?level=warn")
                 .body(Body::empty())?,
         )
         .await?;
@@ -644,7 +644,7 @@ async fn stream_logs_filters_events_by_level() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/logs/stream?level=info")
+                .uri("/v1/logs/stream?level=info")
                 .body(Body::empty())?,
         )
         .await?;
@@ -807,7 +807,7 @@ async fn search_traces_returns_filtered_results() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/traces/search")
+                .uri("/v1/traces/search")
                 .body(Body::empty())?,
         )
         .await?;
@@ -824,7 +824,7 @@ async fn search_traces_returns_filtered_results() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/traces/search?span_name=test-span")
+                .uri("/v1/traces/search?span_name=test-span")
                 .body(Body::empty())?,
         )
         .await?;
@@ -840,7 +840,7 @@ async fn search_traces_returns_filtered_results() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/traces/search?span_name=nonexistent")
+                .uri("/v1/traces/search?span_name=nonexistent")
                 .body(Body::empty())?,
         )
         .await?;
@@ -891,7 +891,7 @@ async fn get_trace_returns_specific_trace() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/traces/{}", trace_id))
+                .uri(&format!("/v1/traces/{}", trace_id))
                 .body(Body::empty())?,
         )
         .await?;
@@ -907,7 +907,7 @@ async fn get_trace_returns_specific_trace() -> anyhow::Result<()> {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/traces/nonexistent-trace-id")
+                .uri("/v1/traces/nonexistent-trace-id")
                 .body(Body::empty())?,
         )
         .await?;

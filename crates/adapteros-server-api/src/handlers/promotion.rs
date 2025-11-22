@@ -922,13 +922,65 @@ async fn validate_hash_gate(
 /// Validate policy gate
 async fn validate_policy_gate(
     _state: &AppState,
-    _run_id: &str,
+    run_id: &str,
 ) -> AosResult<serde_json::Value> {
-    // TODO: Integrate with adapteros-policy
-    // For now, return success
+    use adapteros_policy::policy_packs::PolicyPackId;
+
+    // Get all defined policy packs
+    let all_policies = PolicyPackId::all();
+    let total_policies = all_policies.len();
+
+    // Load golden run to validate against
+    let golden_dir = std::path::Path::new("golden_runs")
+        .join("baselines")
+        .join(run_id);
+
+    if !golden_dir.exists() {
+        return Err(AosError::Validation(format!(
+            "Golden run directory not found: {}. Cannot validate policies.",
+            golden_dir.display()
+        )));
+    }
+
+    // Track validation results
+    let mut passed = 0;
+    let mut failed_policies = Vec::new();
+
+    for policy_id in &all_policies {
+        // Each policy pack has specific validation requirements
+        // For now, we validate what we can and report honestly
+        let policy_name = policy_id.name();
+
+        match policy_id {
+            PolicyPackId::Determinism => {
+                // Determinism is checked separately in validate_determinism_gate
+                passed += 1;
+            }
+            PolicyPackId::Artifacts => {
+                // Check if golden run has valid artifacts
+                let archive_path = golden_dir.join("archive.json");
+                if archive_path.exists() {
+                    passed += 1;
+                } else {
+                    failed_policies.push(format!("{}: archive.json missing", policy_name));
+                }
+            }
+            _ => {
+                // For policies without specific validation logic yet,
+                // mark as unchecked rather than fake-passing
+                failed_policies.push(format!("{}: validation not implemented", policy_name));
+            }
+        }
+    }
+
+    // Return honest results
+    let policies_checked = passed + failed_policies.len();
     Ok(serde_json::json!({
-        "policies_checked": 23,
-        "policies_passed": 23,
+        "policies_checked": policies_checked,
+        "policies_passed": passed,
+        "policies_failed": failed_policies.len(),
+        "failed_details": failed_policies,
+        "note": "Some policies lack validation logic - see failed_details"
     }))
 }
 
