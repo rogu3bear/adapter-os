@@ -351,7 +351,7 @@ ORDER BY a.created_at DESC;
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
 - [Runaway Prevention](../../runaway-prevention.md) - Safety mechanisms
-- [Code Policies](../../code-intelligence/code-policies.md) - Policy configuration
+- [Code Policies](../../code-intelligence/CODE-POLICIES.md) - Policy configuration
 
 ## Implementation References
 

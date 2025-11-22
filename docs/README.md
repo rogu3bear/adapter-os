@@ -98,8 +98,8 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 - [Tiers](code-intelligence/code-intelligence-tiers.md) - Feature tiers and capabilities
 - [API Reference](code-intelligence/code-api-registry.md) - REST API documentation
 - [CLI Commands](code-intelligence/code-cli-commands.md) - Command-line interface
-- [Policies](code-intelligence/code-policies.md) - Policy configuration
-- [Router Features](code-intelligence/code-router-features.md) - Routing integration
+- [Policies](code-intelligence/CODE-POLICIES.md) - Policy configuration
+- [Router Features](code-intelligence/CODE-ROUTER-FEATURES.md) - Routing integration
 - [Evaluation](code-intelligence/code-evaluation.md) - Metrics and testing
 
 #### UI Component Hierarchy
@@ -154,7 +154,7 @@ Start here if you're experimenting with models and adapters:
 Start here if you're evaluating AdapterOS for compliance:
 1. [Runaway Prevention](runaway-prevention.md)
 2. [Code Graph Specification](CODEGRAPH-SPEC.md)
-3. [Code Intelligence Policies](code-intelligence/code-policies.md)
+3. [Code Intelligence Policies](code-intelligence/CODE-POLICIES.md)
 4. See policy rulesets in project workspace rules
 
 ## API Documentation
