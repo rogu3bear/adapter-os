@@ -35,10 +35,9 @@ const STATUS_OPTIONS: { value: AdapterState; label: string }[] = [
 ];
 
 const TIER_OPTIONS = [
-  { value: 1, label: 'Tier 1' },
-  { value: 2, label: 'Tier 2' },
-  { value: 3, label: 'Tier 3' },
-  { value: 4, label: 'Tier 4' },
+  { value: 'persistent', label: 'Persistent' },
+  { value: 'warm', label: 'Warm' },
+  { value: 'ephemeral', label: 'Ephemeral' },
 ];
 
 const CATEGORY_OPTIONS: { value: AdapterCategory; label: string }[] = [
@@ -74,7 +73,7 @@ export function AdapterFilters({
     updateFilter('status', newStatuses.length > 0 ? newStatuses : undefined);
   };
 
-  const toggleTierFilter = (tier: number) => {
+  const toggleTierFilter = (tier: string) => {
     const currentTiers = filters.tier || [];
     const newTiers = currentTiers.includes(tier)
       ? currentTiers.filter(t => t !== tier)
@@ -247,7 +246,7 @@ export function AdapterFilters({
 
           {filters.tier?.map(tier => (
             <Badge key={tier} variant="secondary" className="gap-1">
-              Tier {tier}
+              {tier.charAt(0).toUpperCase() + tier.slice(1)}
               <button
                 onClick={() => toggleTierFilter(tier)}
                 className="ml-1 hover:text-destructive"

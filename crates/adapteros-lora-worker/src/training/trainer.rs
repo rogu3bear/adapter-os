@@ -126,8 +126,17 @@ impl TrainingConfig {
 pub struct TrainingResult {
     pub adapter_id: String,
     pub final_loss: f32,
-    pub training_time_ms: u64,
+    /// Training time in microseconds for high precision measurement.
+    /// Use `.training_time_ms()` method for millisecond conversion.
+    pub training_time_us: u64,
     pub weights: LoRAWeights,
+}
+
+impl TrainingResult {
+    /// Get training time in milliseconds (for backward compatibility and display)
+    pub fn training_time_ms(&self) -> u64 {
+        self.training_time_us / 1000
+    }
 }
 
 /// LoRA weight matrices
@@ -455,6 +464,15 @@ impl MicroLoRATrainer {
         )
     }
 
+    /// Get the training seed used for deterministic RNG
+    ///
+    /// Returns the 64-bit seed derived from HKDF during trainer construction.
+    /// Two trainers with identical configuration will have the same seed,
+    /// ensuring deterministic training results.
+    pub fn training_seed(&self) -> u64 {
+        self.training_seed
+    }
+
     /// Train LoRA adapter on examples with GPU acceleration (if available)
     ///
     /// This method provides backward compatibility with automatic progress callback.
@@ -549,19 +567,20 @@ impl MicroLoRATrainer {
             }
         }
 
-        let training_time_ms = start.elapsed().as_millis() as u64;
+        let training_time_us = start.elapsed().as_micros() as u64;
+        let training_time_ms = training_time_us / 1000;
 
         // Calculate throughput metrics
-        let examples_per_second = if training_time_ms > 0 {
-            (examples.len() as f32) / ((training_time_ms as f32) / 1000.0)
+        let examples_per_second = if training_time_us > 0 {
+            (examples.len() as f32) / ((training_time_us as f32) / 1_000_000.0)
         } else {
             0.0
         };
 
         let backend_name = self.backend_info().unwrap_or("CPU");
         info!(
-            "Training complete: loss={:.4}, time={}ms, backend={}, throughput={:.0} ex/s, seed={}",
-            final_loss, training_time_ms, backend_name, examples_per_second, self.training_seed
+            "Training complete: loss={:.4}, time={}us ({}ms), backend={}, throughput={:.0} ex/s, seed={}",
+            final_loss, training_time_us, training_time_ms, backend_name, examples_per_second, self.training_seed
         );
 
         // Log training completion with performance metrics
@@ -570,6 +589,7 @@ impl MicroLoRATrainer {
             serde_json::json!({
                 "adapter_id": adapter_id,
                 "final_loss": final_loss,
+                "training_time_us": training_time_us,
                 "training_time_ms": training_time_ms,
                 "seed": self.training_seed,
                 "backend": backend_name,
@@ -587,7 +607,7 @@ impl MicroLoRATrainer {
         Ok(TrainingResult {
             adapter_id,
             final_loss,
-            training_time_ms,
+            training_time_us,
             weights,
         })
     }
@@ -960,9 +980,9 @@ mod tests {
         let result = trainer.train(&examples).await.unwrap();
         assert!(result.final_loss >= 0.0);
         assert!(
-            result.training_time_ms >= 0,
-            "Training time should be non-negative, got: {}",
-            result.training_time_ms
+            result.training_time_us > 0,
+            "Training time should be positive (actual work done), got: {}us",
+            result.training_time_us
         );
         assert_eq!(result.weights.lora_a.len(), 2);
     }

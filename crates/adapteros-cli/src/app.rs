@@ -368,7 +368,7 @@ pub enum Commands {
   # Explicit paths with dry run
   aosctl registry-migrate --from-db deprecated/registry.db --to-db var/registry.db --dry-run
 "#)]
-    RegistryMigrate(commands::registry_migrate::RegistryMigrateArgs),
+    RegistryMigrate(commands::registry::RegistryMigrateArgs),
 
     // ============================================================
     // Plan Management
@@ -1444,7 +1444,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             cas_root,
             registry,
         } => {
-            sync_registry::sync_registry(dir, cas_root, registry, output).await?;
+            commands::registry::sync_registry(dir, cas_root, registry, output).await?;
         }
 
         // Database Management
@@ -1452,7 +1452,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::db::handle_db_command(cmd.clone(), output).await?;
         }
         Commands::RegistryMigrate(args) => {
-            commands::registry_migrate::run(args.clone(), output).await?;
+            commands::registry::run_migrate(args.clone(), output).await?;
         }
 
         // Plan Management

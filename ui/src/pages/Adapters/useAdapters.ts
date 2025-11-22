@@ -17,7 +17,7 @@ export const ADAPTER_QUERY_KEYS = {
 
 export interface AdapterFilters {
   status?: AdapterState[];
-  tier?: number[];
+  tier?: string[];
   tenant?: string;
   category?: AdapterCategory[];
   search?: string;

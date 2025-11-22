@@ -3,7 +3,7 @@
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-22 (AOS format with 64-byte header documented)
+**Last Updated:** 2025-11-22 (UI clarity improvements: tooltips, terminology, labels. See [UI_IMPROVEMENTS_CHANGELOG.md](UI_IMPROVEMENTS_CHANGELOG.md) and [DEMO_GUIDE.md](DEMO_GUIDE.md))
 **Maintained by:** James KC Auchterlonie
 
 ---

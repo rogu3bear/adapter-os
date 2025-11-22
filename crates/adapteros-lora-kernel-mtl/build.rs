@@ -18,6 +18,9 @@ fn main() {
 
     // Continue with Metal shader compilation
     compile_metal_shaders();
+
+    // Generate and sign manifest with test keys
+    generate_signed_manifest();
 }
 
 #[cfg(feature = "coreml-backend")]
@@ -182,4 +185,131 @@ fn get_sdk_version() -> String {
         Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         Err(_) => "unknown".to_string(),
     }
+}
+
+/// Generate and sign the kernel manifest with deterministic test keys.
+///
+/// This function:
+/// 1. Reads the compiled metallib and computes its BLAKE3 hash
+/// 2. Creates a manifest JSON with build metadata
+/// 3. Signs the manifest with the deterministic test signing key
+/// 4. Writes the manifest and signature files to the manifests directory
+fn generate_signed_manifest() {
+    use base64::Engine;
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde::{Deserialize, Serialize};
+
+    // Fixed seed for deterministic test key generation (same as in keys.rs)
+    const TEST_KEY_SEED: [u8; 32] = [
+        0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xd0, 0xe1,
+        0xf2, 0x03, 0x14, 0x25, 0x36, 0x47, 0x58, 0x69,
+        0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xd0, 0xe1,
+        0xf2, 0x03, 0x14, 0x25, 0x36, 0x47, 0x58, 0x69,
+    ];
+
+    #[derive(Serialize, Deserialize)]
+    struct ToolchainMetadata {
+        xcode_version: String,
+        sdk_version: String,
+        rust_version: String,
+        metal_version: String,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct KernelManifest {
+        kernel_hash: String,
+        xcrun_version: String,
+        sdk_version: String,
+        rust_version: String,
+        build_timestamp: String,
+        toolchain_metadata: ToolchainMetadata,
+    }
+
+    #[derive(Serialize)]
+    struct ManifestSignature {
+        signature: String,
+        public_key: String,
+        algorithm: String,
+        canonical_json: String,
+    }
+
+    // Read the metallib and compute its hash
+    let shaders_dir = Path::new("shaders");
+    let metallib_path = shaders_dir.join("aos_kernels.metallib");
+
+    // Check if metallib exists (might be a fresh build)
+    if !metallib_path.exists() {
+        println!("cargo:warning=Metallib not found, skipping manifest signing");
+        return;
+    }
+
+    let metallib_bytes = match std::fs::read(&metallib_path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            println!("cargo:warning=Failed to read metallib: {}", e);
+            return;
+        }
+    };
+
+    let kernel_hash = blake3::hash(&metallib_bytes);
+    let kernel_hash_hex = kernel_hash.to_hex();
+
+    // Get build metadata
+    let xcrun_version = get_xcrun_version();
+    let sdk_version = get_sdk_version();
+    let rust_version = std::env::var("CARGO_PKG_RUST_VERSION").unwrap_or_else(|_| "unknown".to_string());
+    let build_timestamp = chrono::Utc::now().to_rfc3339();
+
+    // Create manifest
+    // NOTE: kernel_hash is stored as raw hex without prefix for compatibility with B3Hash::from_hex()
+    let manifest = KernelManifest {
+        kernel_hash: kernel_hash_hex.to_string(),
+        xcrun_version: xcrun_version.clone(),
+        sdk_version: sdk_version.clone(),
+        rust_version: rust_version.clone(),
+        build_timestamp: build_timestamp.clone(),
+        toolchain_metadata: ToolchainMetadata {
+            xcode_version: xcrun_version,
+            sdk_version,
+            rust_version,
+            metal_version: "3.1".to_string(),
+        },
+    };
+
+    // Create canonical JSON (sorted keys for deterministic signing)
+    let canonical_json = serde_json::to_string(&manifest).expect("Failed to serialize manifest");
+
+    // Generate signing key from fixed seed
+    let signing_key = SigningKey::from_bytes(&TEST_KEY_SEED);
+    let public_key = signing_key.verifying_key();
+
+    // Sign the canonical JSON
+    let signature = signing_key.sign(canonical_json.as_bytes());
+
+    // Create signature metadata
+    let signature_metadata = ManifestSignature {
+        signature: base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+        public_key: base64::engine::general_purpose::STANDARD.encode(public_key.to_bytes()),
+        algorithm: "Ed25519".to_string(),
+        canonical_json: canonical_json.clone(),
+    };
+
+    // Ensure manifests directory exists
+    let manifests_dir = Path::new("manifests");
+    std::fs::create_dir_all(manifests_dir).expect("Failed to create manifests directory");
+
+    // Write manifest file
+    let manifest_pretty = serde_json::to_string_pretty(&manifest).expect("Failed to serialize manifest");
+    std::fs::write(manifests_dir.join("metallib_manifest.json"), manifest_pretty)
+        .expect("Failed to write manifest");
+
+    // Write signature file
+    let signature_json = serde_json::to_string_pretty(&signature_metadata)
+        .expect("Failed to serialize signature");
+    std::fs::write(manifests_dir.join("metallib_manifest.json.sig"), signature_json)
+        .expect("Failed to write signature");
+
+    println!("cargo:warning=Generated signed manifest with hash: {}", kernel_hash_hex);
+    println!("cargo:rerun-if-changed=manifests/metallib_manifest.json");
+    println!("cargo:rerun-if-changed=manifests/metallib_manifest.json.sig");
 }

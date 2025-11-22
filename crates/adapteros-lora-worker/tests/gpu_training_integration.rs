@@ -57,10 +57,11 @@ async fn test_gpu_training_with_optional_backend() {
 
     let result = result.unwrap();
     assert!(result.final_loss >= 0.0, "Loss should be non-negative");
-    // Training time may be 0ms for very fast mock training
+    // Use microsecond precision to verify training actually ran
     assert!(
-        result.training_time_ms >= 0,
-        "Training time should be non-negative"
+        result.training_time_us > 0,
+        "Training time should be positive (actual work done), got: {}us",
+        result.training_time_us
     );
     assert_eq!(
         result.weights.lora_a.len(),
@@ -103,7 +104,7 @@ fn test_backend_info_before_training() {
 #[tokio::test]
 async fn test_gpu_training_with_custom_backend() {
     // Test that custom backend preference is respected
-    use adapteros_lora_worker::training::trainer::TrainingBackend;
+    use adapteros_lora_worker::training::TrainingBackend;
 
     let config = adapteros_lora_worker::training::TrainingConfig {
         rank: 2,
@@ -132,7 +133,7 @@ async fn test_gpu_training_with_custom_backend() {
 #[test]
 fn test_training_config_builder_pattern() {
     // Test fluent builder pattern for configuration
-    use adapteros_lora_worker::training::trainer::TrainingBackend;
+    use adapteros_lora_worker::training::TrainingBackend;
 
     let config = adapteros_lora_worker::training::TrainingConfig::default()
         .with_backend(TrainingBackend::Metal)
@@ -159,25 +160,33 @@ fn test_available_backends_always_includes_cpu() {
 }
 
 #[test]
-#[ignore = "TrainingBackend is not exported from training module - requires adding to mod.rs exports"]
 fn test_backend_enum_properties() {
-    // NOTE: This test requires TrainingBackend to be exported from the training module.
-    // To fix, add TrainingBackend to the pub use statement in training/mod.rs:
-    // pub use trainer::{..., TrainingBackend};
+    // Test TrainingBackend enum properties
+    use adapteros_lora_worker::training::TrainingBackend;
 
-    // use adapteros_lora_worker::training::TrainingBackend;
     // Test GPU requirement flags
-    // assert!(TrainingBackend::CoreML.requires_gpu());
-    // ...
+    assert!(TrainingBackend::CoreML.requires_gpu());
+    assert!(TrainingBackend::Metal.requires_gpu());
+    assert!(TrainingBackend::Mlx.requires_gpu());
+    assert!(!TrainingBackend::Cpu.requires_gpu());
+
+    // Test names
+    assert_eq!(TrainingBackend::CoreML.name(), "CoreML (ANE)");
+    assert_eq!(TrainingBackend::Metal.name(), "Metal");
+    assert_eq!(TrainingBackend::Mlx.name(), "MLX");
+    assert_eq!(TrainingBackend::Cpu.name(), "CPU");
 }
 
 #[test]
-#[ignore = "describe_available_backends may not be exported - requires verification"]
 fn test_describe_available_backends_includes_all() {
-    // NOTE: This test requires describe_available_backends to be a public method.
-    // let desc = adapteros_lora_worker::training::MicroLoRATrainer::describe_available_backends();
-    // assert!(desc.contains("Available training backends:"));
-    // assert!(desc.contains("CPU"));
+    // Test describe_available_backends returns expected format
+    let desc =
+        adapteros_lora_worker::training::MicroLoRATrainer::describe_available_backends();
+    assert!(
+        desc.contains("Available training backends:"),
+        "Description should include header"
+    );
+    assert!(desc.contains("CPU"), "CPU backend should always be listed");
 }
 
 #[tokio::test]
@@ -204,8 +213,12 @@ async fn test_training_completes_with_telemetry() {
     // Verify results contain expected fields
     assert!(!result.adapter_id.is_empty());
     assert!(result.final_loss >= 0.0);
-    // Training time may be 0ms for very fast mock training
-    assert!(result.training_time_ms >= 0);
+    // Use microsecond precision to verify training actually ran
+    assert!(
+        result.training_time_us > 0,
+        "Training time should be positive, got: {}us",
+        result.training_time_us
+    );
     assert!(!result.weights.lora_a.is_empty());
     assert!(!result.weights.lora_b.is_empty());
 }
@@ -262,25 +275,28 @@ fn test_kernel_initialization_fallback_on_cpu() {
 }
 
 #[test]
-#[ignore = "training_seed is a private field - requires refactoring to expose or test differently"]
 fn test_training_seed_determinism() {
     // Test that training seed is correctly derived for deterministic behavior
-    // NOTE: This test requires access to private field training_seed.
-    // The field is intentionally private for encapsulation.
-    // Determinism can be verified by comparing training outputs instead.
-    let _config1 = adapteros_lora_worker::training::TrainingConfig {
+    // Two trainers with the same config should have the same seed
+    let config1 = adapteros_lora_worker::training::TrainingConfig {
         rank: 2,
         hidden_dim: 32,
         ..Default::default()
     };
 
-    let _config2 = adapteros_lora_worker::training::TrainingConfig {
+    let config2 = adapteros_lora_worker::training::TrainingConfig {
         rank: 2,
         hidden_dim: 32,
         ..Default::default()
     };
 
-    // let trainer1 = adapteros_lora_worker::training::MicroLoRATrainer::new(config1).unwrap();
-    // let trainer2 = adapteros_lora_worker::training::MicroLoRATrainer::new(config2).unwrap();
-    // assert_eq!(trainer1.training_seed, trainer2.training_seed);
+    let trainer1 = adapteros_lora_worker::training::MicroLoRATrainer::new(config1).unwrap();
+    let trainer2 = adapteros_lora_worker::training::MicroLoRATrainer::new(config2).unwrap();
+
+    // Seeds should be deterministic - same HKDF derivation produces same seed
+    assert_eq!(
+        trainer1.training_seed(),
+        trainer2.training_seed(),
+        "Trainers with same config should have deterministic seeds"
+    );
 }

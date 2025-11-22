@@ -994,6 +994,9 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <Target className="h-4 w-4 text-muted-foreground" />
                 <span>{metrics.totalTokens} tokens</span>
               </div>
+              <span className="text-xs text-muted-foreground ml-auto">
+                Metrics calculated from last inference run
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -1053,7 +1056,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="adapter" className="flex items-center gap-1">
-                    Adapter {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None - base model only)</span>}
+                    Adapter (Optional) {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None available)</span>}
                     <HelpTooltip helpId="inference-adapter-stack">
                       <span className="cursor-help text-muted-foreground hover:text-foreground">
                         <HelpCircle className="h-3 w-3" />
@@ -1062,27 +1065,43 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   </Label>
                   <Select value={selectedAdapterId} onValueChange={setSelectedAdapterId} disabled={adapters.length === 0}>
                     <SelectTrigger id="adapter">
-                      <SelectValue placeholder={adapters.length === 0 ? "No adapters available" : "Select adapter or use default..."} />
+                      <SelectValue placeholder={adapters.length === 0 ? "No adapters available" : "Select adapter... (or use base model only)"} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Default (No adapter)</SelectItem>
-                      {adapters.filter(adapter => adapter.id && adapter.id !== '').map((adapter) => (
-                        <SelectItem key={adapter.id} value={adapter.id}>
-                          <div className="flex items-center gap-2">
-                            <Code className="h-4 w-4" aria-hidden="true" />
-                            <span>{adapter.name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              ({adapter.current_state})
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
+                      {adapters.filter(adapter => adapter.id && adapter.id !== '').map((adapter) => {
+                        // State indicator: color-coded dot based on lifecycle state
+                        const stateIndicator = {
+                          'resident': { color: 'bg-green-500', label: 'Resident' },
+                          'hot': { color: 'bg-emerald-400', label: 'Hot' },
+                          'warm': { color: 'bg-yellow-400', label: 'Warm' },
+                          'cold': { color: 'bg-blue-400', label: 'Cold' },
+                          'unloaded': { color: 'bg-gray-400', label: 'Unloaded' },
+                        }[adapter.current_state] || { color: 'bg-gray-300', label: adapter.current_state || 'Unknown' };
+
+                        return (
+                          <SelectItem key={adapter.id} value={adapter.id}>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`h-2 w-2 rounded-full ${stateIndicator.color}`}
+                                title={stateIndicator.label}
+                                aria-label={`State: ${stateIndicator.label}`}
+                              />
+                              <Code className="h-4 w-4" aria-hidden="true" />
+                              <span>{adapter.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                ({stateIndicator.label})
+                              </span>
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {adapters.length === 0
                       ? 'No adapters available. Inference will use base model only.'
-                      : 'Select a trained adapter to use for inference. Leave empty to use base model.'}
+                      : 'Adapters are trained LoRA modules that specialize the model for specific tasks. Select one to enhance inference quality. Base model runs without any adapter.'}
                   </p>
                 </div>
 

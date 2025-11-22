@@ -64,16 +64,22 @@ impl BackendCoordinator {
     /// * `model_size_bytes` - Optional model size for capacity checks
     ///
     /// # Examples
-    /// ```ignore
+    /// ```no_run
     /// use adapteros_lora_worker::backend_coordinator::BackendCoordinator;
     /// use adapteros_lora_worker::backend_factory::BackendStrategy;
     ///
-    /// // Async context required for await
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let rt = tokio::runtime::Runtime::new()?;
+    /// # rt.block_on(async {
     /// let coordinator = BackendCoordinator::new(
     ///     BackendStrategy::MetalWithCoreMLFallback,
     ///     true,
     ///     Some(8_000_000_000)
     /// ).await?;
+    /// # Ok::<(), adapteros_core::AosError>(())
+    /// # })?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn new(
         strategy: BackendStrategy,
@@ -386,16 +392,16 @@ impl BackendCoordinator {
 mod tests {
     use super::*;
 
-    /// Set up test environment with manifest verification disabled
-    fn setup_test_env() {
-        // Skip manifest verification for tests (placeholder signing keys)
-        std::env::set_var("AOS_SKIP_MANIFEST_VERIFY", "1");
-    }
+    // NOTE: No setup_test_env() function needed anymore!
+    // The manifest verification now uses deterministic test keys that are:
+    // 1. Generated at build time in adapteros-lora-kernel-mtl/build.rs
+    // 2. Verified at runtime using the same deterministic seed in keys.rs
+    // This eliminates the need for AOS_SKIP_MANIFEST_VERIFY environment variable hack.
 
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_creation() {
-        setup_test_env();
+        // Manifest verification uses deterministic test keys - no setup needed
         let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None).await;
 
         assert!(
@@ -408,7 +414,7 @@ mod tests {
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_metrics() {
-        setup_test_env();
+        // Manifest verification uses deterministic test keys - no setup needed
         let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None)
             .await
             .expect("Failed to create coordinator");

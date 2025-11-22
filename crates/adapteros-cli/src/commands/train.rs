@@ -109,8 +109,8 @@ impl TrainArgs {
         self.save_adapter(&result)?;
 
         info!(
-            "Training completed successfully: adapter_id={}, final_loss={:.4}, time={}ms",
-            result.adapter_id, result.final_loss, result.training_time_ms
+            "Training completed successfully: adapter_id={}, final_loss={:.4}, time={}ms ({}us)",
+            result.adapter_id, result.final_loss, result.training_time_ms(), result.training_time_us
         );
 
         Ok(())
@@ -187,7 +187,8 @@ impl TrainArgs {
         let metadata = serde_json::json!({
             "adapter_id": result.adapter_id,
             "final_loss": result.final_loss,
-            "training_time_ms": result.training_time_ms,
+            "training_time_ms": result.training_time_ms(),
+            "training_time_us": result.training_time_us,
             "config": {
                 "rank": result.weights.lora_a.len(),
                 "hidden_dim": result.weights.lora_a[0].len(),

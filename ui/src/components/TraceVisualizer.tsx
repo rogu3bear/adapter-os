@@ -2,12 +2,16 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Alert, AlertDescription } from './ui/alert';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import {
   Activity,
   Target,
   FileText,
   Zap,
-  Clock
+  Clock,
+  Info,
+  HelpCircle,
 } from 'lucide-react';
 import { InferenceTrace } from '../api/types';
 
@@ -25,6 +29,14 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/* Trace Intro Section */}
+        <Alert className="mb-4">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            Trace shows the internal reasoning: which adapters were selected (Router), what documents supported the answer (Evidence), and performance metrics.
+          </AlertDescription>
+        </Alert>
+
         <Tabs defaultValue="router" className="space-y-4">
           <TabsList>
             <TabsTrigger value="router">
@@ -60,10 +72,20 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                               : ''}
                           </span>
                           {decision.entropy !== undefined && (
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
                               Entropy: {decision.entropy.toFixed(3)}, Tau:{' '}
                               {decision.tau?.toFixed(3) || 'N/A'}, Floor:{' '}
                               {decision.entropy_floor?.toFixed(3) || 'N/A'}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  <p><strong>Entropy:</strong> Uncertainty in token prediction. Higher values trigger more adapter routing.</p>
+                                  <p className="mt-1"><strong>Tau:</strong> Temperature scaling factor for routing decisions.</p>
+                                  <p className="mt-1"><strong>Floor:</strong> Minimum entropy threshold before routing activates.</p>
+                                </TooltipContent>
+                              </Tooltip>
                             </span>
                           )}
                         </div>
@@ -124,8 +146,16 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
           <TabsContent value="evidence" className="space-y-3">
             {trace.evidence_spans && trace.evidence_spans.length > 0 ? (
               <>
-                <div className="text-sm text-muted-foreground">
+                <div className="text-sm text-muted-foreground flex items-center gap-1">
                   {trace.evidence_spans.length} evidence spans
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      <p>Evidence spans are retrieved documents from RAG (Retrieval-Augmented Generation) that support the model's response. Each span shows the source document and relevant text passage used during inference.</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {trace.evidence_spans.map((span, idx) => (

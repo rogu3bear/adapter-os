@@ -430,9 +430,9 @@ class ApiClient {
   }
 
   // Adapters
-  async listAdapters(params?: { tier?: number; framework?: string }): Promise<types.Adapter[]> {
+  async listAdapters(params?: { tier?: string; framework?: string }): Promise<types.Adapter[]> {
     const qs = new URLSearchParams();
-    if (params?.tier !== undefined) qs.append('tier', String(params.tier));
+    if (params?.tier !== undefined) qs.append('tier', params.tier);
     if (params?.framework) qs.append('framework', params.framework);
     const query = qs.toString() ? `?${qs.toString()}` : '';
     return this.request<types.Adapter[]>(`/v1/adapters${query}`);

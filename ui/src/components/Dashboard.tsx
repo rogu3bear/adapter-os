@@ -493,7 +493,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           {/* Header */}
           <div className="flex-between section-header">
             <div>
-              <h1 className="section-title">System Dashboard</h1>
+              <h1 className="section-title">System Dashboard — Monitor health, adapters, and performance</h1>
               <p className="section-description">
                 Welcome back, {effectiveUser.display_name}. System status: Operational
               </p>
@@ -517,7 +517,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
                 <HelpTooltip helpId="compute-nodes">
-                  <CardTitle className="text-sm font-medium cursor-help">Compute Nodes</CardTitle>
+                  <CardTitle className="text-sm font-medium cursor-help">Inference Nodes</CardTitle>
                 </HelpTooltip>
                 <Server className="icon-standard text-muted-foreground" />
               </CardHeader>
@@ -547,7 +547,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
                 <HelpTooltip helpId="adapter-count">
-                  <CardTitle className="text-sm font-medium cursor-help">Code Adapters</CardTitle>
+                  <CardTitle className="text-sm font-medium cursor-help">LoRA Adapters</CardTitle>
                 </HelpTooltip>
                 <Code className="icon-standard text-muted-foreground" />
               </CardHeader>

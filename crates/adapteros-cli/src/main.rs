@@ -191,7 +191,7 @@ Examples:
     // Registry Management
     // ============================================================
     /// Registry management commands (sync, migrate)
-    #[command(subcommand, alias = "sync-registry", alias = "registry-sync", alias = "registry-migrate")]
+    #[command(subcommand)]
     Registry(registry::RegistryCommand),
 
     // ============================================================
@@ -264,11 +264,11 @@ Examples:
     // Telemetry & Verification
     // ============================================================
     /// Telemetry commands (list, verify)
-    #[command(subcommand, alias = "telemetry-list", alias = "telemetry-verify")]
+    #[command(subcommand)]
     Telemetry(telemetry::TelemetryCommand),
 
     /// Federation commands (verify cross-host signatures)
-    #[command(subcommand, alias = "federation-verify")]
+    #[command(subcommand)]
     Federation(federation::FederationCommand),
 
     /// Check for environment drift
@@ -308,14 +308,14 @@ Examples:
     // CodeGraph & Call Graph
     // ============================================================
     /// CodeGraph commands (export, stats)
-    #[command(subcommand, alias = "callgraph-export", alias = "codegraph-stats")]
+    #[command(subcommand)]
     Codegraph(codegraph::CodegraphCommand),
 
     // ============================================================
     // Security Daemon
     // ============================================================
     /// Security daemon commands (status, audit)
-    #[command(subcommand, alias = "secd-status", alias = "secd-audit")]
+    #[command(subcommand)]
     Secd(secd::SecdCommand),
 
     // ============================================================
@@ -872,8 +872,220 @@ Examples:
     // Code Intelligence Commands
     // ============================================================
     /// Code intelligence commands (init, update, list, status)
-    #[command(subcommand, alias = "code-init", alias = "code-update", alias = "code-list", alias = "code-status")]
+    #[command(subcommand)]
     Code(code::CodeCommand),
+
+    // ============================================================
+    // Deprecated Commands (hidden, for backward compatibility)
+    // ============================================================
+
+    /// List adapters (deprecated - use `adapter list`)
+    #[command(name = "adapter-list", hide = true)]
+    AdapterListDeprecated {
+        /// Filter by tier
+        #[arg(short, long)]
+        tier: Option<String>,
+        /// Include metadata
+        #[arg(long)]
+        include_meta: bool,
+    },
+
+    /// Pin adapter (deprecated - use `adapter pin`)
+    #[command(name = "adapter-pin", hide = true)]
+    AdapterPinDeprecated {
+        /// Adapter ID
+        adapter_id: String,
+        /// Tenant ID
+        #[arg(long)]
+        tenant: Option<String>,
+    },
+
+    /// Unpin adapter (deprecated - use `adapter unpin`)
+    #[command(name = "adapter-unpin", hide = true)]
+    AdapterUnpinDeprecated {
+        /// Adapter ID
+        adapter_id: String,
+        /// Tenant ID
+        #[arg(long)]
+        tenant: Option<String>,
+    },
+
+    /// List nodes (deprecated - use `node list`)
+    #[command(name = "node-list", hide = true)]
+    NodeListDeprecated {
+        /// Offline mode
+        #[arg(long)]
+        offline: bool,
+    },
+
+    /// Verify nodes (deprecated - use `node verify`)
+    #[command(name = "node-verify", hide = true)]
+    NodeVerifyDeprecated {
+        /// Verify all nodes
+        #[arg(long)]
+        all: bool,
+        /// Specific node IDs
+        #[arg(long, value_delimiter = ',')]
+        nodes: Option<Vec<String>>,
+    },
+
+    /// List telemetry events (deprecated - use `telemetry list`)
+    #[command(name = "telemetry-list", hide = true)]
+    TelemetryListDeprecated {
+        /// Database path
+        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        database: PathBuf,
+        /// Filter by stack ID
+        #[arg(long)]
+        by_stack: Option<String>,
+        /// Maximum results
+        #[arg(long, default_value = "50")]
+        limit: u32,
+    },
+
+    /// Verify telemetry (deprecated - use `telemetry verify`)
+    #[command(name = "telemetry-verify", hide = true)]
+    TelemetryVerifyDeprecated {
+        /// Telemetry bundle directory
+        #[arg(short, long)]
+        bundle_dir: PathBuf,
+    },
+
+    /// Sync registry (deprecated - use `registry sync`)
+    #[command(name = "registry-sync", hide = true)]
+    RegistrySyncDeprecated {
+        /// Directory containing adapters
+        #[arg(short, long)]
+        dir: PathBuf,
+        /// CAS root directory
+        #[arg(long, default_value = "./var/cas")]
+        cas_root: PathBuf,
+        /// Registry database path
+        #[arg(long, default_value = "./var/registry.db")]
+        registry: PathBuf,
+    },
+
+    /// Migrate registry (deprecated - use `registry migrate`)
+    #[command(name = "registry-migrate", hide = true)]
+    RegistryMigrateDeprecated {
+        /// Source database
+        #[arg(long, default_value = "deprecated/registry.db")]
+        from_db: PathBuf,
+        /// Target database
+        #[arg(long, default_value = "var/registry.db")]
+        to_db: PathBuf,
+        /// Dry run
+        #[arg(long)]
+        dry_run: bool,
+        /// Force migration
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Verify federation (deprecated - use `federation verify`)
+    #[command(name = "federation-verify", hide = true)]
+    FederationVerifyDeprecated {
+        /// Telemetry bundle directory
+        #[arg(short, long)]
+        bundle_dir: PathBuf,
+        /// Database path
+        #[arg(long, default_value = "./var/cp.db")]
+        database: PathBuf,
+    },
+
+    /// Initialize code repository (deprecated - use `code init`)
+    #[command(name = "code-init", hide = true)]
+    CodeInitDeprecated {
+        /// Path to the repository
+        repo_path: PathBuf,
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Update code repository (deprecated - use `code update`)
+    #[command(name = "code-update", hide = true)]
+    CodeUpdateDeprecated {
+        /// Repository ID
+        repo_id: String,
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+        /// Specific commit
+        #[arg(long)]
+        commit: Option<String>,
+    },
+
+    /// List code repositories (deprecated - use `code list`)
+    #[command(name = "code-list", hide = true)]
+    CodeListDeprecated {
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Get code repository status (deprecated - use `code status`)
+    #[command(name = "code-status", hide = true)]
+    CodeStatusDeprecated {
+        /// Repository ID
+        repo_id: String,
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Show secd status (deprecated - use `secd status`)
+    #[command(name = "secd-status", hide = true)]
+    SecdStatusDeprecated {
+        /// PID file path
+        #[arg(long, default_value = "/var/run/aos-secd.pid")]
+        pid_file: PathBuf,
+        /// Heartbeat file path
+        #[arg(long, default_value = "/var/run/aos-secd.heartbeat")]
+        heartbeat_file: PathBuf,
+        /// Socket path
+        #[arg(long, default_value = "/var/run/aos-secd.sock")]
+        socket: PathBuf,
+        /// Database path
+        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        database: PathBuf,
+    },
+
+    /// Show secd audit (deprecated - use `secd audit`)
+    #[command(name = "secd-audit", hide = true)]
+    SecdAuditDeprecated {
+        /// Database path
+        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        database: PathBuf,
+        /// Number of operations to show
+        #[arg(short, long, default_value = "50")]
+        limit: i64,
+        /// Filter by operation type
+        #[arg(short, long)]
+        operation: Option<String>,
+    },
+
+    /// Show codegraph stats (deprecated - use `codegraph stats`)
+    #[command(name = "codegraph-stats", hide = true)]
+    CodegraphStatsDeprecated {
+        /// CodeGraph database path
+        #[arg(short, long)]
+        codegraph_db: PathBuf,
+    },
+
+    /// Export call graph (deprecated - use `codegraph export`)
+    #[command(name = "callgraph-export", hide = true)]
+    CallgraphExportDeprecated {
+        /// CodeGraph database path
+        #[arg(short, long)]
+        codegraph_db: PathBuf,
+        /// Output file path
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Export format
+        #[arg(short, long, default_value = "dot")]
+        format: String,
+    },
 }
 
 
@@ -1238,6 +1450,262 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Code(cmd) => {
             code::handle_code_command(cmd.clone(), &output).await?;
         }
+
+        // ============================================================
+        // Deprecated Commands (backward compatibility)
+        // ============================================================
+
+        Commands::AdapterListDeprecated { .. } => {
+            eprintln!("Warning: 'adapter-list' is deprecated. Use 'aosctl adapter list' instead.");
+            adapter::handle_adapter_command(
+                adapter::AdapterCommand::List {
+                    json: cli.json,
+                    tenant: None,
+                    pinned_only: false,
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::AdapterPinDeprecated { adapter_id, tenant } => {
+            eprintln!("Warning: 'adapter-pin' is deprecated. Use 'aosctl adapter pin' instead.");
+            adapter::handle_adapter_command(
+                adapter::AdapterCommand::Pin {
+                    adapter_id: adapter_id.clone(),
+                    tenant: tenant.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::AdapterUnpinDeprecated { adapter_id, tenant } => {
+            eprintln!("Warning: 'adapter-unpin' is deprecated. Use 'aosctl adapter unpin' instead.");
+            adapter::handle_adapter_command(
+                adapter::AdapterCommand::Unpin {
+                    adapter_id: adapter_id.clone(),
+                    tenant: tenant.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::NodeListDeprecated { offline } => {
+            eprintln!("Warning: 'node-list' is deprecated. Use 'aosctl node list' instead.");
+            node::handle_node_command(
+                node::NodeCommand::List {
+                    offline: *offline,
+                    json: cli.json,
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::NodeVerifyDeprecated { all, nodes } => {
+            eprintln!("Warning: 'node-verify' is deprecated. Use 'aosctl node verify' instead.");
+            node::handle_node_command(
+                node::NodeCommand::Verify {
+                    all: *all,
+                    nodes: nodes.clone(),
+                    json: cli.json,
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::TelemetryListDeprecated {
+            database,
+            by_stack,
+            limit,
+        } => {
+            eprintln!("Warning: 'telemetry-list' is deprecated. Use 'aosctl telemetry list' instead.");
+            telemetry::handle_telemetry_command(
+                telemetry::TelemetryCommand::List {
+                    database: database.clone(),
+                    by_stack: by_stack.clone(),
+                    event_type: None,
+                    limit: *limit,
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::TelemetryVerifyDeprecated { bundle_dir } => {
+            eprintln!("Warning: 'telemetry-verify' is deprecated. Use 'aosctl telemetry verify' instead.");
+            telemetry::handle_telemetry_command(
+                telemetry::TelemetryCommand::Verify {
+                    bundle_dir: bundle_dir.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::RegistrySyncDeprecated {
+            dir,
+            cas_root,
+            registry: registry_path,
+        } => {
+            eprintln!("Warning: 'registry-sync' is deprecated. Use 'aosctl registry sync' instead.");
+            registry::handle_registry_command(
+                registry::RegistryCommand::Sync {
+                    dir: dir.clone(),
+                    cas_root: cas_root.clone(),
+                    registry: registry_path.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::RegistryMigrateDeprecated {
+            from_db,
+            to_db,
+            dry_run,
+            force,
+        } => {
+            eprintln!("Warning: 'registry-migrate' is deprecated. Use 'aosctl registry migrate' instead.");
+            registry::handle_registry_command(
+                registry::RegistryCommand::Migrate(registry::RegistryMigrateArgs {
+                    from_db: from_db.clone(),
+                    to_db: to_db.clone(),
+                    dry_run: *dry_run,
+                    force: *force,
+                }),
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::FederationVerifyDeprecated {
+            bundle_dir,
+            database,
+        } => {
+            eprintln!("Warning: 'federation-verify' is deprecated. Use 'aosctl federation verify' instead.");
+            federation::handle_federation_command(
+                federation::FederationCommand::Verify {
+                    bundle_dir: bundle_dir.clone(),
+                    database: database.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::CodeInitDeprecated { repo_path, tenant } => {
+            eprintln!("Warning: 'code-init' is deprecated. Use 'aosctl code init' instead.");
+            code::handle_code_command(
+                code::CodeCommand::Init {
+                    repo_path: repo_path.clone(),
+                    tenant: tenant.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::CodeUpdateDeprecated {
+            repo_id,
+            tenant,
+            commit,
+        } => {
+            eprintln!("Warning: 'code-update' is deprecated. Use 'aosctl code update' instead.");
+            code::handle_code_command(
+                code::CodeCommand::Update {
+                    repo_id: repo_id.clone(),
+                    tenant: tenant.clone(),
+                    commit: commit.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::CodeListDeprecated { tenant } => {
+            eprintln!("Warning: 'code-list' is deprecated. Use 'aosctl code list' instead.");
+            code::handle_code_command(
+                code::CodeCommand::List {
+                    tenant: tenant.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::CodeStatusDeprecated { repo_id, tenant } => {
+            eprintln!("Warning: 'code-status' is deprecated. Use 'aosctl code status' instead.");
+            code::handle_code_command(
+                code::CodeCommand::Status {
+                    repo_id: repo_id.clone(),
+                    tenant: tenant.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::SecdStatusDeprecated {
+            pid_file,
+            heartbeat_file,
+            socket,
+            database,
+        } => {
+            eprintln!("Warning: 'secd-status' is deprecated. Use 'aosctl secd status' instead.");
+            secd::handle_secd_command(secd::SecdCommand::Status {
+                pid_file: pid_file.clone(),
+                heartbeat_file: heartbeat_file.clone(),
+                socket: socket.clone(),
+                database: database.clone(),
+            })
+            .await?;
+        }
+
+        Commands::SecdAuditDeprecated {
+            database,
+            limit,
+            operation,
+        } => {
+            eprintln!("Warning: 'secd-audit' is deprecated. Use 'aosctl secd audit' instead.");
+            secd::handle_secd_command(secd::SecdCommand::Audit {
+                database: database.clone(),
+                limit: *limit,
+                operation: operation.clone(),
+            })
+            .await?;
+        }
+
+        Commands::CodegraphStatsDeprecated { codegraph_db } => {
+            eprintln!("Warning: 'codegraph-stats' is deprecated. Use 'aosctl codegraph stats' instead.");
+            codegraph::handle_codegraph_command(
+                codegraph::CodegraphCommand::Stats {
+                    codegraph_db: codegraph_db.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
+
+        Commands::CallgraphExportDeprecated {
+            codegraph_db,
+            output: output_path,
+            format,
+        } => {
+            eprintln!("Warning: 'callgraph-export' is deprecated. Use 'aosctl codegraph export' instead.");
+            codegraph::handle_codegraph_command(
+                codegraph::CodegraphCommand::Export {
+                    codegraph_db: codegraph_db.clone(),
+                    output: output_path.clone(),
+                    format: format.clone(),
+                },
+                &output,
+            )
+            .await?;
+        }
     }
 
     Ok(())
@@ -1286,6 +1754,25 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Train { .. } => "train",
         Commands::Code(_) => "code",
         Commands::BackendStatus(_) => "backend-status",
+        // Deprecated commands
+        Commands::AdapterListDeprecated { .. } => "adapter-list",
+        Commands::AdapterPinDeprecated { .. } => "adapter-pin",
+        Commands::AdapterUnpinDeprecated { .. } => "adapter-unpin",
+        Commands::NodeListDeprecated { .. } => "node-list",
+        Commands::NodeVerifyDeprecated { .. } => "node-verify",
+        Commands::TelemetryListDeprecated { .. } => "telemetry-list",
+        Commands::TelemetryVerifyDeprecated { .. } => "telemetry-verify",
+        Commands::RegistrySyncDeprecated { .. } => "registry-sync",
+        Commands::RegistryMigrateDeprecated { .. } => "registry-migrate",
+        Commands::FederationVerifyDeprecated { .. } => "federation-verify",
+        Commands::CodeInitDeprecated { .. } => "code-init",
+        Commands::CodeUpdateDeprecated { .. } => "code-update",
+        Commands::CodeListDeprecated { .. } => "code-list",
+        Commands::CodeStatusDeprecated { .. } => "code-status",
+        Commands::SecdStatusDeprecated { .. } => "secd-status",
+        Commands::SecdAuditDeprecated { .. } => "secd-audit",
+        Commands::CodegraphStatsDeprecated { .. } => "codegraph-stats",
+        Commands::CallgraphExportDeprecated { .. } => "callgraph-export",
     }
     .to_string()
 }

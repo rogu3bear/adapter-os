@@ -107,6 +107,7 @@ export function AdapterActions({
             <DropdownMenuItem
               onClick={() => onLoad?.(adapter.adapter_id)}
               disabled={!canLoad || isLoading}
+              title="Activate in memory"
             >
               <Power className="mr-2 h-4 w-4" />
               Load
@@ -115,6 +116,7 @@ export function AdapterActions({
             <DropdownMenuItem
               onClick={() => onUnload?.(adapter.adapter_id)}
               disabled={!canUnload || isLoading || isResident}
+              title="Remove from memory"
             >
               <PowerOff className="mr-2 h-4 w-4" />
               Unload
@@ -127,14 +129,16 @@ export function AdapterActions({
           <DropdownMenuItem
             onClick={() => onPromote?.(adapter.adapter_id)}
             disabled={isLoading || isResident}
+            title="Moves adapter through lifecycle stages: cold->warm->hot->resident"
           >
             <ArrowUp className="mr-2 h-4 w-4" />
-            Promote State
+            Promote Lifecycle
           </DropdownMenuItem>
 
           <DropdownMenuItem
             onClick={() => onPin?.(adapter.adapter_id, !adapter.pinned)}
             disabled={isLoading}
+            title={adapter.pinned ? "Allow this adapter to be evicted during memory pressure" : "Prevents this adapter from being evicted during memory pressure"}
           >
             {adapter.pinned ? (
               <>
@@ -168,6 +172,7 @@ export function AdapterActions({
           <DropdownMenuItem
             onClick={handleEvictClick}
             disabled={!canUnload || isLoading || adapter.pinned || adapter.current_state === 'unloaded'}
+            title="Forces memory release due to pressure. Adapter remains stored and can be reloaded."
           >
             <Square className="mr-2 h-4 w-4" />
             Evict

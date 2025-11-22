@@ -118,8 +118,8 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
             Ok(())
         }
         VerifyCommand::Telemetry { bundle_dir } => {
-            use crate::commands::verify_telemetry;
-            verify_telemetry::verify_telemetry_chain(&bundle_dir, output)
+            use crate::commands::telemetry;
+            telemetry::verify_telemetry_chain(&bundle_dir, output)
                 .await
                 .map_err(|e| anyhow::anyhow!("{}", e))
         }
@@ -127,8 +127,8 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
             bundle_dir,
             database,
         } => {
-            use crate::commands::verify_federation;
-            verify_federation::run(&bundle_dir, &database, output).await
+            use crate::commands::federation;
+            federation::verify_federation(&bundle_dir, &database, output).await
         }
     }
 }

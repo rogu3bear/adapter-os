@@ -95,16 +95,18 @@ const validateTierAlignment = (adapters: StackAdapter[]): ValidationIssue[] => {
 
   if (enabledAdapters.length === 0) return issues;
 
-  const tiers = enabledAdapters.map((item) => item.adapter.tier);
-  const minTier = Math.min(...tiers);
-  const maxTier = Math.max(...tiers);
+  const tiers = enabledAdapters
+    .map((item) => item.adapter.tier)
+    .filter((tier) => tier !== undefined) as string[];
 
-  if (minTier !== maxTier) {
+  const uniqueTiers = new Set(tiers);
+
+  if (uniqueTiers.size > 1) {
     issues.push({
       level: 'info',
       category: 'Tier Alignment',
-      message: `Stack contains adapters from different tiers (${minTier}-${maxTier})`,
-      suggestion: 'Mixing tiers is allowed but may affect performance. For consistent behavior, consider using adapters from the same tier.',
+      message: `Stack contains adapters from different tiers (${Array.from(uniqueTiers).join(', ')})`,
+      suggestion: 'Mixing storage tiers is allowed but may affect memory efficiency. For consistent behavior, consider using adapters from the same tier.',
     });
   }
 

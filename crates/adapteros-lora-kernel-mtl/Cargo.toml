@@ -54,6 +54,7 @@ half = "2.4"
 safetensors = { workspace = true }
 memmap2 = "0.9"
 parking_lot = { workspace = true }
+ed25519-dalek = { workspace = true }
 
 # macOS-specific dependencies for Metal GPU support
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -66,6 +67,10 @@ core-foundation = { workspace = true }
 blake3 = { workspace = true }
 chrono = "0.4"
 cc = "1.0"
+ed25519-dalek = { workspace = true }
+base64 = "0.22"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 bytemuck = { workspace = true }

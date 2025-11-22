@@ -2,6 +2,8 @@
 //!
 //! REST endpoints for federation verification status and management.
 
+use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use adapteros_core::AosError;
 use adapteros_db::Db;
@@ -10,7 +12,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -71,7 +73,11 @@ pub struct QuarantineDetails {
 )]
 pub async fn get_federation_status(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> std::result::Result<Json<FederationStatusResponse>, AppError> {
+    require_permission(&claims, Permission::FederationView)
+        .map_err(|_| AppError(AosError::PolicyViolation("Insufficient permissions".into())))?;
+
     info!("Fetching federation status");
 
     let daemon = state
@@ -126,7 +132,11 @@ pub async fn get_federation_status(
 )]
 pub async fn get_quarantine_status(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> std::result::Result<Json<QuarantineStatusResponse>, AppError> {
+    require_permission(&claims, Permission::FederationView)
+        .map_err(|_| AppError(AosError::PolicyViolation("Insufficient permissions".into())))?;
+
     info!("Fetching quarantine status");
 
     let daemon = state
@@ -171,7 +181,11 @@ pub async fn get_quarantine_status(
 )]
 pub async fn release_quarantine(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> std::result::Result<Json<serde_json::Value>, AppError> {
+    require_permission(&claims, Permission::FederationManage)
+        .map_err(|_| AppError(AosError::PolicyViolation("Insufficient permissions".into())))?;
+
     info!("Releasing system from quarantine");
 
     // Mark all active quarantine records as released

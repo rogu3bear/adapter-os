@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn test_list_policies_count() {
         let policies = list_policies();
-        assert_eq!(policies.len(), 20, "Must have exactly 20 policies");
+        assert_eq!(policies.len(), 22, "Must have exactly 22 policies");
     }
 
     #[test]

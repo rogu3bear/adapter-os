@@ -1,12 +1,15 @@
 //! Adapter lifecycle management commands
 
 use crate::output::OutputWriter;
+use adapteros_api_types::adapters::RegisterAdapterRequest;
 use adapteros_client::{AdapterOSClient, UdsClient};
 use adapteros_core::validation;
 use adapteros_core::AosError;
+use adapteros_core::B3Hash;
 use adapteros_core::Result;
 use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{error, info};
 
@@ -471,6 +474,86 @@ pub enum AdapterCommand {
         /// New lifecycle state (draft, active, deprecated, retired)
         state: String,
     },
+
+    /// Register a packaged adapter by path (dir or weights file)
+    #[command(
+        after_help = "Examples:\n  aosctl adapter register --path ./adapters/my-adapter\n  aosctl adapter register --path ./adapters/my-adapter/weights.safetensors --adapter-id custom-id\n  aosctl adapter register --path ./adapters/my-adapter --rank 16 --tier 1"
+    )]
+    Register {
+        /// Path to packaged adapter dir or weights.safetensors
+        #[arg(long)]
+        path: PathBuf,
+
+        /// Adapter ID (defaults to directory name)
+        #[arg(long)]
+        adapter_id: Option<String>,
+
+        /// Name to display (defaults to adapter_id)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Rank (defaults from manifest if present; else 8)
+        #[arg(long)]
+        rank: Option<i32>,
+
+        /// Tier (ephemeral=0, persistent=1) default ephemeral
+        #[arg(long)]
+        tier: Option<i32>,
+
+        /// Control plane base URL
+        #[arg(long, default_value = "http://127.0.0.1:8080/api")]
+        base_url: String,
+    },
+
+    /// Hot-swap adapters in running worker
+    #[command(
+        after_help = "Examples:\n  aosctl adapter swap --tenant dev --add specialist --remove temp_fix\n  aosctl adapter swap --tenant dev --add specialist --remove temp_fix --commit\n  aosctl adapter swap --tenant dev --add adapter1,adapter2 --commit"
+    )]
+    Swap {
+        /// Tenant ID
+        #[arg(short, long)]
+        tenant: String,
+
+        /// Adapter IDs to add (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        add: Vec<String>,
+
+        /// Adapter IDs to remove (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        remove: Vec<String>,
+
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "5000")]
+        timeout: u64,
+
+        /// Commit the swap (otherwise dry-run)
+        #[arg(long)]
+        commit: bool,
+
+        /// UDS socket path
+        #[arg(long, default_value = "/var/run/aos/aos.sock")]
+        socket: std::path::PathBuf,
+    },
+
+    /// Show adapter information and provenance
+    #[command(
+        after_help = "Examples:\n  aosctl adapter info specialist\n  aosctl adapter info temp_fix"
+    )]
+    Info {
+        /// Adapter ID
+        #[arg()]
+        adapter_id: String,
+    },
+
+    /// List pinned adapters for a tenant
+    #[command(
+        after_help = "Examples:\n  aosctl adapter list-pinned --tenant dev\n  aosctl adapter list-pinned --tenant dev --json"
+    )]
+    ListPinned {
+        /// Tenant ID
+        #[arg(short, long)]
+        tenant: String,
+    },
 }
 
 /// Get adapter command name for telemetry
@@ -487,6 +570,10 @@ fn get_adapter_command_name(cmd: &AdapterCommand) -> String {
         AdapterCommand::DirectoryUpsert { .. } => "adapter_directory_upsert".to_string(),
         AdapterCommand::VerifyGpu { .. } => "adapter_verify_gpu".to_string(),
         AdapterCommand::UpdateLifecycle { .. } => "adapter_update_lifecycle".to_string(),
+        AdapterCommand::Register { .. } => "adapter_register".to_string(),
+        AdapterCommand::Swap { .. } => "adapter_swap".to_string(),
+        AdapterCommand::Info { .. } => "adapter_info".to_string(),
+        AdapterCommand::ListPinned { .. } => "adapter_list_pinned".to_string(),
     }
 }
 
@@ -504,6 +591,10 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
         AdapterCommand::UpdateLifecycle { .. } => None, // No tenant parameter
+        AdapterCommand::Register { .. } => None, // No tenant parameter
+        AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
+        AdapterCommand::Info { .. } => None, // No tenant parameter
+        AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
     }
 }
 
@@ -572,6 +663,37 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
         }
         AdapterCommand::UpdateLifecycle { adapter_id, state } => {
             update_lifecycle(&adapter_id, &state, output).await
+        }
+        AdapterCommand::Register {
+            path,
+            adapter_id,
+            name,
+            rank,
+            tier,
+            base_url,
+        } => register_adapter(&path, adapter_id, name, rank, tier, &base_url, output).await,
+        AdapterCommand::Swap {
+            tenant,
+            add,
+            remove,
+            timeout,
+            commit,
+            socket,
+        } => {
+            crate::commands::adapter_swap::run(&tenant, &add, &remove, timeout, commit, &socket)
+                .await
+                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
+        }
+        AdapterCommand::Info { adapter_id } => {
+            crate::commands::adapter_info::run(&adapter_id)
+                .await
+                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
+        }
+        AdapterCommand::ListPinned { tenant } => {
+            let db = adapteros_db::Db::connect_env().await?;
+            crate::commands::pin::list_pinned(&db, &tenant, output)
+                .await
+                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
         }
     }
 }
@@ -1566,6 +1688,141 @@ async fn update_lifecycle(adapter_id: &str, state_str: &str, output: &OutputWrit
             Err(e)
         }
     }
+}
+
+/// Resolve paths for adapter registration
+/// Returns (weights_path, manifest_path, default_adapter_id)
+fn resolve_paths(path: &Path) -> Result<(PathBuf, PathBuf, String)> {
+    let (weights_path, manifest_path, adapter_id_default) = if path.is_dir() {
+        // Directory: look for weights.safetensors and manifest.json
+        let weights = path.join("weights.safetensors");
+        let manifest = path.join("manifest.json");
+        let id = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "adapter".to_string());
+        (weights, manifest, id)
+    } else {
+        // File: assume it's weights, look for manifest in same dir
+        let parent = path.parent().unwrap_or(Path::new("."));
+        let manifest = parent.join("manifest.json");
+        let id = parent
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "adapter".to_string());
+        (path.to_path_buf(), manifest, id)
+    };
+
+    Ok((weights_path, manifest_path, adapter_id_default))
+}
+
+/// Register a packaged adapter by path
+async fn register_adapter(
+    path: &Path,
+    adapter_id: Option<String>,
+    name: Option<String>,
+    rank: Option<i32>,
+    tier: Option<i32>,
+    base_url: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    use std::fs;
+
+    let (weights_path, manifest_path, adapter_id_default) = resolve_paths(path)?;
+
+    // Read weights file and compute hash
+    if !weights_path.exists() {
+        return Err(AosError::Io(format!(
+            "Weights file not found: {}",
+            weights_path.display()
+        )));
+    }
+
+    let weights_data = fs::read(&weights_path)
+        .map_err(|e| AosError::Io(format!("Failed to read weights: {}", e)))?;
+    let weights_hash = B3Hash::hash(&weights_data);
+
+    // Read manifest if it exists
+    let manifest: Option<serde_json::Value> = if manifest_path.exists() {
+        let manifest_data = fs::read_to_string(&manifest_path)
+            .map_err(|e| AosError::Io(format!("Failed to read manifest: {}", e)))?;
+        Some(serde_json::from_str(&manifest_data).map_err(|e| {
+            AosError::Io(format!("Failed to parse manifest: {}", e))
+        })?)
+    } else {
+        None
+    };
+
+    let adapter_id = adapter_id.unwrap_or(adapter_id_default.clone());
+    let name = name.unwrap_or_else(|| adapter_id.clone());
+
+    // Get rank from manifest or use default
+    let rank = rank.unwrap_or_else(|| {
+        manifest
+            .as_ref()
+            .and_then(|m| m.get("rank"))
+            .and_then(|r| r.as_i64())
+            .map(|r| r as i32)
+            .unwrap_or(8)
+    });
+
+    // Get tier (0=ephemeral, 1=persistent)
+    let tier = tier.unwrap_or(0);
+    let tier_str = if tier == 1 { "persistent" } else { "ephemeral" };
+
+    output.info("Registering adapter");
+    output.kv("Adapter ID", &adapter_id);
+    output.kv("Name", &name);
+    output.kv("Hash", &weights_hash.to_hex());
+    output.kv("Rank", &rank.to_string());
+    output.kv("Tier", tier_str);
+
+    // Build request
+    let request = RegisterAdapterRequest {
+        adapter_id: adapter_id.clone(),
+        name,
+        hash_b3: weights_hash.to_hex(),
+        rank,
+        tier: tier_str.to_string(),
+        languages: vec![],
+        framework: None,
+        category: "code".to_string(),
+        scope: None,
+        expires_at: None,
+    };
+
+    // Send to API
+    let client = reqwest::Client::new();
+    let url = format!("{}/v1/adapters/register", base_url.trim_end_matches('/'));
+
+    let response = client
+        .post(&url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| AosError::Io(format!("HTTP request failed: {}", e)))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return Err(AosError::Other(format!(
+            "Registration failed: {} {}",
+            status, text
+        )));
+    }
+
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| AosError::Http(e.to_string()))?;
+
+    if output.is_json() {
+        output.result(&serde_json::to_string_pretty(&value).unwrap());
+    } else {
+        output.success(&format!("Adapter registered: {}", adapter_id));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

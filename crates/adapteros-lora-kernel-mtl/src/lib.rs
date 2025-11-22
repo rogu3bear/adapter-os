@@ -237,18 +237,19 @@ unsafe impl Sync for MetalKernels {}
 
 impl MetalKernels {
     /// Create a new Metal kernel executor with manifest verification
+    ///
+    /// This constructor verifies the embedded kernel manifest signature using
+    /// the deterministic test signing infrastructure. The test keys are derived
+    /// from a fixed seed at both build time (for signing) and runtime (for
+    /// verification), ensuring reproducible and verifiable builds without
+    /// requiring production signing keys.
+    ///
+    /// In production, CI replaces the test keys with actual production signing
+    /// keys before deployment.
     pub fn new() -> Result<Self> {
-        // Skip manifest verification in test/development environment with placeholder keys.
-        // In production, CI replaces the placeholder keys with real signing keys.
-        // Set AOS_SKIP_MANIFEST_VERIFY=1 for development/testing.
-        let skip_verify = std::env::var("AOS_SKIP_MANIFEST_VERIFY")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false);
-
-        if !skip_verify {
-            // Verify embedded manifest before proceeding
-            let _manifest = verify_embedded_manifest(METALLIB_BYTES, None)?;
-        }
+        // Verify embedded manifest before proceeding
+        // Uses the deterministic test key infrastructure - no environment variable needed
+        let _manifest = verify_embedded_manifest(METALLIB_BYTES, None)?;
 
         let device = Self::select_device()?;
         let queue = device.new_command_queue();

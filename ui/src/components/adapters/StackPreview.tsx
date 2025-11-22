@@ -136,19 +136,19 @@ const validationRules = {
     const issues: ValidationIssue[] = [];
     const tiers = adapters
       .filter((item) => item.enabled)
-      .map((item) => item.adapter.tier);
+      .map((item) => item.adapter.tier)
+      .filter((tier) => tier !== undefined) as string[];
 
     if (tiers.length === 0) return issues;
 
-    const minTier = Math.min(...tiers);
-    const maxTier = Math.max(...tiers);
+    const uniqueTiers = new Set(tiers);
 
-    if (minTier !== maxTier) {
+    if (uniqueTiers.size > 1) {
       issues.push({
         level: 'info',
         category: 'Tier Alignment',
-        message: `Stack contains adapters from different tiers (${minTier}-${maxTier})`,
-        suggestion: 'Mixing tiers is allowed but may affect performance characteristics',
+        message: `Stack contains adapters from different tiers (${Array.from(uniqueTiers).join(', ')})`,
+        suggestion: 'Mixing storage tiers is allowed but may affect memory efficiency',
       });
     }
 

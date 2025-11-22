@@ -23,6 +23,7 @@ import { logger, toError } from '../utils/logger';
 import { DensityProvider, useDensity } from '../contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
+import { HelpTooltip } from './ui/help-tooltip';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { TrainingConfigSchema, formatValidationError } from '../schemas';
@@ -91,7 +92,7 @@ interface WizardState {
   registerAfter?: boolean;
   adaptersRoot?: string;
   adapterId?: string;
-  tier?: number;
+  tier?: string;
 }
 
 const CATEGORY_ICONS = {
@@ -146,7 +147,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     packageAfter: true,
     registerAfter: true,
     adaptersRoot: './adapters',
-    tier: 8,
+    tier: 'warm',
   };
 
   const {
@@ -629,7 +630,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="contextWindow">Context Window (tokens)</Label>
+              <div className="flex items-center gap-1">
+                <Label htmlFor="contextWindow">Context Window (tokens)</Label>
+                <HelpTooltip content="Maximum input length. 4096 tokens = ~3000 words. Longer = more context but more memory." />
+              </div>
               <Input
                 id="contextWindow"
                 type="number"
@@ -648,7 +652,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="rank">Rank (r)</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="rank">Rank (r)</Label>
+            <HelpTooltip content="Controls capacity of learned patterns. Higher = more expressive but slower. Start with 8-16 for most tasks." />
+          </div>
           <Input
             id="rank"
             type="number"
@@ -659,7 +666,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="alpha">Alpha</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="alpha">Alpha</Label>
+            <HelpTooltip content="Controls how strongly adapter influences model. Usually keep at 2x your Rank value." />
+          </div>
           <Input
             id="alpha"
             type="number"
@@ -670,7 +680,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="epochs">Epochs</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="epochs">Epochs</Label>
+            <HelpTooltip content="Number of times to repeat training data. More = better learning but risk of overfitting. Start with 3-5." />
+          </div>
           <Input
             id="epochs"
             type="number"
@@ -680,7 +693,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="learningRate">Learning Rate</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="learningRate">Learning Rate</Label>
+            <HelpTooltip content="How fast model learns. Too high = unstable, too low = slow. Default 0.0003 is safe for most cases." />
+          </div>
           <Input
             id="learningRate"
             type="number"
@@ -691,7 +707,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="batchSize">Batch Size</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="batchSize">Batch Size</Label>
+            <HelpTooltip content="Number of examples processed together. Larger = faster but needs more memory. Default 4 is conservative." />
+          </div>
           <Input
             id="batchSize"
             type="number"
@@ -701,7 +720,10 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="warmupSteps">Warmup Steps (Optional)</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="warmupSteps">Warmup Steps (Optional)</Label>
+            <HelpTooltip content="Gradually increase learning rate at start to stabilize training. Optional; helps with some datasets." />
+          </div>
           <Input
             id="warmupSteps"
             type="number"
@@ -786,13 +808,17 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
       <div className="space-y-2">
         <Label htmlFor="tier">Tier</Label>
-        <Input
-          id="tier"
-          type="number"
-          value={state.tier || 8}
-          onChange={(e) => updateState({ tier: parseInt(e.target.value) || 8 })}
-        />
-        <p className="text-xs text-muted-foreground">Tier used for registration (e.g., 8 for ephemeral)</p>
+        <Select value={state.tier || 'warm'} onValueChange={(value) => updateState({ tier: value })}>
+          <SelectTrigger id="tier">
+            <SelectValue placeholder="Select tier" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="persistent">Persistent</SelectItem>
+            <SelectItem value="warm">Warm</SelectItem>
+            <SelectItem value="ephemeral">Ephemeral</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">Tier used for registration (persistent, warm, or ephemeral)</p>
       </div>
     </div>
   );
@@ -1356,7 +1382,7 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     {
       id: 'training-params',
       title: 'Training Parameters',
-      description: 'LoRA configuration',
+      description: 'Set training speed and style',
       component: <TrainingParamsStep />,
       validate: () => {
         setValidationError(null);

@@ -54,7 +54,7 @@ const formSchema = z.object({
   revision: z.string().regex(/^r\d{3,}$/, 'Revision must be in format rXXX (e.g., r001)'),
   hash_b3: z.string().regex(/^b3:[a-f0-9]{64}$/, 'Hash must be in format: b3:{64 hex characters}'),
   rank: z.number().int().min(1, 'Rank must be at least 1').max(256, 'Rank must not exceed 256'),
-  tier: z.number().int().min(1, 'Tier must be at least 1').max(3, 'Tier must not exceed 3'),
+  tier: z.enum(['persistent', 'warm', 'ephemeral']),
   languages: z.array(z.enum(SupportedLanguages)).min(1, 'At least one language required'),
   framework: z.string().optional(),
   description: z.string().max(1000).optional(),
@@ -109,7 +109,7 @@ export function AdapterRegisterPage() {
       revision: 'r001',
       hash_b3: '',
       rank: 16,
-      tier: 1,
+      tier: 'warm',
       languages: [],
       framework: '',
       description: '',
@@ -147,7 +147,7 @@ export function AdapterRegisterPage() {
         hash_b3: data.hash_b3,
         rank: data.rank,
         tier: data.tier,
-        languages_json: JSON.stringify(data.languages),
+        languages: data.languages,
         framework: data.framework,
         category: data.category,
         scope: data.scope,
@@ -357,24 +357,27 @@ export function AdapterRegisterPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="tier">
-                    Tier <span className="text-destructive">*</span>
+                    Storage Policy <span className="text-destructive">*</span>
                   </Label>
                   <Select
-                    value={String(watch('tier'))}
-                    onValueChange={(value) => setValue('tier', parseInt(value))}
+                    value={watch('tier')}
+                    onValueChange={(value) => setValue('tier', value as 'persistent' | 'warm' | 'ephemeral')}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select tier" />
+                      <SelectValue placeholder="Select storage policy" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1">Tier 1 (High Priority)</SelectItem>
-                      <SelectItem value="2">Tier 2 (Medium Priority)</SelectItem>
-                      <SelectItem value="3">Tier 3 (Low Priority)</SelectItem>
+                      <SelectItem value="persistent">Keep (always retained)</SelectItem>
+                      <SelectItem value="warm">Standard (auto-managed)</SelectItem>
+                      <SelectItem value="ephemeral">Temporary (auto-evict)</SelectItem>
                     </SelectContent>
                   </Select>
                   {errors.tier && (
                     <p className="text-sm text-destructive">{errors.tier.message}</p>
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    Keep: never evicted, Standard: managed by lifecycle, Temporary: evicted when memory is low
+                  </p>
                 </div>
 
                 <div className="space-y-2">

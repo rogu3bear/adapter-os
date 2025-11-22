@@ -8,13 +8,15 @@ use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use chrono;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 // use crate::types::ErrorResponse; // unused
 
@@ -93,8 +95,16 @@ pub struct ReplayDivergence {
 )]
 pub async fn list_replay_sessions(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<ListReplaySessionsParams>,
 ) -> Result<Json<Vec<ReplaySessionResponse>>, (StatusCode, String)> {
+    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
+
     let sessions = state
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
@@ -125,8 +135,16 @@ pub async fn list_replay_sessions(
 )]
 pub async fn get_replay_session(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
 ) -> Result<Json<ReplaySessionResponse>, (StatusCode, String)> {
+    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
+
     let session = state
         .db
         .get_replay_session(&session_id)
@@ -164,8 +182,16 @@ pub async fn get_replay_session(
 )]
 pub async fn create_replay_session(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<CreateReplaySessionRequest>,
 ) -> Result<Json<ReplaySessionResponse>, (StatusCode, String)> {
+    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
+
     // Generate session ID
     let session_id = uuid::Uuid::new_v4().to_string();
 
@@ -238,8 +264,16 @@ pub async fn create_replay_session(
 )]
 pub async fn verify_replay_session(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
 ) -> Result<Json<ReplayVerificationResponse>, (StatusCode, String)> {
+    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
+
     let session = state
         .db
         .get_replay_session(&session_id)

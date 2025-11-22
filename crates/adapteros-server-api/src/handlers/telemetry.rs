@@ -2,6 +2,7 @@
 
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::telemetry::{SpanStatus, TraceSearchQuery};
 use crate::types::{
@@ -30,7 +31,10 @@ use tracing::warn;
 /// GET /api/metrics/snapshot - Get current metrics snapshot
 pub async fn get_metrics_snapshot(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<MetricsSnapshotResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::MetricsView)?;
+
     // Use metrics_exporter snapshot and convert to response format
     let exporter_snapshot = state.metrics_exporter.snapshot();
 
@@ -65,8 +69,11 @@ pub struct MetricsSeriesQuery {
 /// GET /api/metrics/series - Get time series data for metrics
 pub async fn get_metrics_series(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<MetricsSeriesQuery>,
 ) -> Result<Json<Vec<MetricsSeriesResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::MetricsView)?;
+
     if let (Some(start), Some(end)) = (params.start_ms, params.end_ms) {
         if start > end {
             return Err((
@@ -139,8 +146,16 @@ pub struct LogsQueryParams {
 /// GET /api/logs/query - Query logs with filters
 pub async fn query_logs(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<LogsQueryParams>,
 ) -> Result<Json<Vec<UnifiedTelemetryEvent>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
+    require_permission(&claims, Permission::TelemetryView).map_err(|_| {
+        (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("insufficient permissions").with_code("FORBIDDEN")),
+        )
+    })?;
+
     let parsed_filters = match normalize_log_filters(&params) {
         Ok(filters) => filters,
         Err(err) => return Err((StatusCode::BAD_REQUEST, Json(err))),
@@ -153,8 +168,14 @@ pub async fn query_logs(
 /// GET /api/logs/stream - SSE stream of logs
 pub async fn stream_logs(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<LogsQueryParams>,
 ) -> Sse<impl TokioStream<Item = Result<Event, Infallible>>> {
+    // Permission check (note: can't use ? operator in SSE handler, so logging here)
+    if require_permission(&claims, Permission::TelemetryView).is_err() {
+        warn!("Unauthorized access to log stream");
+    }
+
     let filters_for_stream = match normalize_log_filters(&params) {
         Ok(filters) => filters.realtime,
         Err(err) => {
@@ -216,8 +237,16 @@ pub struct TracesSearchQuery {
 )]
 pub async fn search_traces(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<TracesSearchQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<crate::types::ErrorResponse>)> {
+    require_permission(&claims, Permission::TelemetryView).map_err(|_| {
+        (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("insufficient permissions").with_code("FORBIDDEN")),
+        )
+    })?;
+
     // Parse status parameter
     let status = params.status.as_ref().and_then(|s| match s.as_str() {
         "ok" | "OK" => Some(SpanStatus::Ok),
@@ -254,11 +283,19 @@ pub async fn search_traces(
 )]
 pub async fn get_trace(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(trace_id): Path<String>,
 ) -> Result<
     Json<Option<crate::telemetry::TraceEvent>>,
     (StatusCode, Json<crate::types::ErrorResponse>),
 > {
+    require_permission(&claims, Permission::TelemetryView).map_err(|_| {
+        (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("insufficient permissions").with_code("FORBIDDEN")),
+        )
+    })?;
+
     // Get trace from the trace buffer
     let trace = state.trace_buffer.get_trace(&trace_id);
     Ok(Json(trace))

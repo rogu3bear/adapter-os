@@ -12,8 +12,10 @@ import {
   CheckCircle,
   Target,
   TrendingUp,
-  Radio
+  Radio,
+  HelpCircle
 } from 'lucide-react';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { InferResponse } from '../../api/types';
 
 export interface InferenceMetrics {
@@ -92,7 +94,7 @@ export function InferenceOutput({
               {metrics && (
                 <Badge variant="outline" className="gap-1">
                   <TrendingUp className="h-3 w-3" />
-                  {metrics.tokensPerSecond.toFixed(1)} t/s
+                  {metrics.tokensPerSecond.toFixed(1)} tokens/sec
                 </Badge>
               )}
             </div>
@@ -127,14 +129,24 @@ export function InferenceOutput({
         <div className="flex items-center gap-2">
           <CheckCircle className="h-4 w-4 text-muted-foreground" />
           <div>
-            <div className="text-sm font-medium">Finish Reason</div>
+            <div className="text-sm font-medium flex items-center gap-1">
+              Finish Reason
+              <HelpTooltip content="Indicates why generation stopped - 'stop' (complete), 'length' (max tokens reached), 'error' (failure)">
+                <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+              </HelpTooltip>
+            </div>
             <div className="text-xs text-muted-foreground">{response.finish_reason || 'unknown'}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Target className="h-4 w-4 text-muted-foreground" />
           <div>
-            <div className="text-sm font-medium">Router Decisions</div>
+            <div className="text-sm font-medium flex items-center gap-1">
+              Router Decisions
+              <HelpTooltip content="Number of adapter selection decisions made during inference. Each token may trigger routing to select which adapters to use.">
+                <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+              </HelpTooltip>
+            </div>
             <div className="text-xs text-muted-foreground">
               {response.trace?.router_decisions?.length || 0} steps
             </div>
@@ -143,7 +155,12 @@ export function InferenceOutput({
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
           <div>
-            <div className="text-sm font-medium">Evidence Spans</div>
+            <div className="text-sm font-medium flex items-center gap-1">
+              Evidence Spans
+              <HelpTooltip content="Document excerpts used to support the answer (RAG - Retrieval-Augmented Generation)">
+                <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+              </HelpTooltip>
+            </div>
             <div className="text-xs text-muted-foreground">
               {response.trace?.evidence_spans?.length || 0} found
             </div>

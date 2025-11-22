@@ -42,12 +42,11 @@ export const ReservedDomains = ['core', 'internal', 'deprecated'] as const;
 
 /**
  * Adapter tier schema
+ * Valid values: 'persistent', 'warm', 'ephemeral'
+ * From: adapteros-db/src/adapters.rs::AdapterRegistrationBuilder::tier()
  */
-export const adapterTierSchema = z.number()
-  .int('Tier must be an integer')
-  .min(1, 'Tier must be at least 1')
-  .max(3, 'Tier must not exceed 3')
-  .describe('Adapter tier (1=high priority, 3=low priority)');
+export const adapterTierSchema = z.enum(['persistent', 'warm', 'ephemeral'])
+  .describe('Adapter storage tier');
 
 /**
  * Adapter name component validators

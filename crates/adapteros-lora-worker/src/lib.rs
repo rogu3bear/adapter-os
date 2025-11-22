@@ -9,23 +9,26 @@
 //!
 //! # Examples
 //!
-//! ```ignore
-//! use adapteros_lora_worker::{Worker, InferenceRequest, InferenceResponse};
-//! use adapteros_lora_kernel_mtl::MetalKernels;
+//! Basic usage showing the Worker structure and inference request types:
 //!
-//! // Create a worker with Metal kernels (async context required)
-//! let worker = Worker::<MetalKernels>::new(config)?;
+//! ```rust
+//! use adapteros_lora_worker::{InferenceRequest, RequestType};
 //!
-//! // Process inference requests
+//! // Create an inference request
 //! let request = InferenceRequest {
+//!     cpid: "test-cpid".to_string(),
 //!     prompt: "Hello, world!".to_string(),
 //!     max_tokens: 100,
-//!     temperature: 0.7,
-//!     adapters: vec!["adapter-1".to_string()],
+//!     require_evidence: false,
+//!     request_type: RequestType::Normal,
+//!     stack_id: None,
+//!     stack_version: None,
 //! };
 //!
-//! let response = worker.infer(request).await?;
+//! assert_eq!(request.max_tokens, 100);
 //! ```
+//!
+//! For full Worker usage with inference, see the integration tests.
 
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
@@ -83,7 +86,10 @@ pub mod training;
 pub mod vision_adapter;
 pub mod vision_lora;
 
-pub use adapter_hotswap::{AdapterCommand, AdapterCommandResult, HotSwapManager};
+pub use adapter_hotswap::{
+    AdapterCommand, AdapterCommandResult, AdapterTable, GpuFingerprint, HotSwapManager,
+    HotSwapManagerNoKernel, Stack, StackCheckpoint,
+};
 pub use adapteros_core::CircuitState;
 pub use adapteros_lora_rag::DocIndexImpl;
 pub use adapteros_lora_rag::SymbolIndexImpl;
@@ -1107,7 +1113,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     /// Verify GPU buffers for all loaded adapters
     ///
     /// Reads GPU buffer checkpoints and validates against stored fingerprints.
-    /// Also checks memory footprint against adaptive baseline with 2σ tolerance.
+    /// Also checks memory footprint against adaptive baseline with 2 sigma tolerance.
     ///
     /// Returns a report with verified/failed/skipped adapters.
     ///
@@ -1116,12 +1122,30 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     /// This method can be called on-demand to verify GPU integrity after adapter
     /// operations (load, swap, rollback) or as part of periodic health checks.
     ///
-    /// ```ignore
-    /// // Async context required for await
-    /// let report = worker.verify_gpu_integrity().await?;
+    /// ```rust
+    /// use adapteros_lora_lifecycle::GpuIntegrityReport;
+    ///
+    /// // Example of how to check a GPU integrity report
+    /// let report = GpuIntegrityReport {
+    ///     verified: vec![(0, "adapter-1".to_string())],
+    ///     failed: vec![],
+    ///     skipped: vec![],
+    ///     total_checked: 1,
+    ///     timestamp: 0,
+    /// };
+    ///
+    /// // Check if any adapters failed verification
     /// if !report.failed.is_empty() {
     ///     // Handle integrity failures
+    ///     for (idx, id, reason) in &report.failed {
+    ///         eprintln!("Adapter {} (idx {}) failed: {}", id, idx, reason);
+    ///     }
     /// }
+    /// ```
+    ///
+    /// In async context with a Worker instance:
+    /// ```ignore
+    /// let report = worker.verify_gpu_integrity().await?;
     /// ```
     pub async fn verify_gpu_integrity(
         &self,

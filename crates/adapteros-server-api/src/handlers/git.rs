@@ -7,7 +7,7 @@ use axum::{
         sse::{Event, KeepAlive},
         Sse,
     },
-    Json,
+    Extension, Json,
 };
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,8 @@ use std::convert::Infallible;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use utoipa::ToSchema;
 
+use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 
@@ -99,7 +101,10 @@ pub struct FileChangeStreamQuery {
 )]
 pub async fn git_status(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<GitStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitView)?;
+
     // Citation: crates/adapteros-server-api/src/handlers/git.rs L131-L139
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
@@ -148,8 +153,11 @@ pub async fn git_status(
 #[axum::debug_handler]
 pub async fn start_git_session(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(request): Json<StartGitSessionRequest>,
 ) -> Result<Json<StartGitSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+
     // Get Git subsystem from state
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
@@ -196,9 +204,12 @@ pub async fn start_git_session(
 )]
 pub async fn end_git_session(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(request): Json<EndGitSessionRequest>,
 ) -> Result<Json<EndGitSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitManage)?;
+
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -242,7 +253,10 @@ pub async fn end_git_session(
 )]
 pub async fn list_git_branches(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<GitBranchInfo>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitView)?;
+
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -280,8 +294,11 @@ pub async fn list_git_branches(
 )]
 pub async fn file_changes_stream(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(query): Query<FileChangeStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::GitView)?;
+
     // Get file change broadcast channel from state
     let rx = state
         .file_change_tx

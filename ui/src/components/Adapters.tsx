@@ -386,7 +386,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
               category: previousAdapter.category,
               framework: previousAdapter.framework,
               scope: previousAdapter.scope,
-              languages_json: previousAdapter.languages_json,
+              languages: previousAdapter.languages,
             });
             await loadAdapters();
             showStatus(`Adapter "${adapter.name}" restored.`, 'success');
@@ -827,7 +827,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
                   category: adapter.category,
                   framework: adapter.framework,
                   scope: adapter.scope,
-                  languages_json: adapter.languages_json,
+                  languages: adapter.languages,
                 });
               }
               await loadAdapters();

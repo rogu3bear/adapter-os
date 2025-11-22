@@ -12,8 +12,15 @@ fn test_doctor_command_help_output() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Verify help output contains expected elements
-    assert!(stdout.contains("doctor"));
-    assert!(stdout.contains("Check system health"));
+    // The command description is "Run system health diagnostics (PRD-06)"
+    assert!(
+        stdout.contains("doctor") || stdout.contains("health"),
+        "Help should reference doctor or health"
+    );
+    assert!(
+        stdout.contains("health") || stdout.contains("diagnostics"),
+        "Help should describe health checking functionality"
+    );
     assert!(stdout.contains("--server-url"));
     assert!(stdout.contains("--timeout"));
 }

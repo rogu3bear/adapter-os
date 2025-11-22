@@ -44,7 +44,7 @@ interface AdapterExportData {
     name: string;
     hash_b3: string;
     rank: number;
-    tier: number;
+    tier: string;
     category: string;
     scope: string;
     framework?: string;
@@ -190,7 +190,7 @@ export function AdaptersPage() {
                     category: adapterData.category as 'code' | 'framework' | 'codebase' | 'ephemeral',
                     scope: adapterData.scope as 'global' | 'tenant' | 'repo' | 'commit',
                     framework: adapterData.framework,
-                    languages_json: adapterData.languages_json,
+                    languages: adapterData.languages,
                   });
                   importResults.success++;
                 } catch (adapterErr) {

@@ -120,7 +120,7 @@ export function AdapterTable({
             <TableHead className="min-w-[200px]">Name</TableHead>
             <TableHead className="w-[100px]">Status</TableHead>
             <TableHead className="w-[80px]">Tier</TableHead>
-            <TableHead className="w-[100px]">Activation %</TableHead>
+            <TableHead className="w-[100px]">Usage Frequency</TableHead>
             <TableHead className="w-[100px]">Memory</TableHead>
             <TableHead className="w-[100px]">Category</TableHead>
             <TableHead className="w-[60px] text-right">Actions</TableHead>
@@ -227,13 +227,13 @@ function AdapterTableRow({
         <div className="flex items-center gap-2">
           {getStateIcon(adapter.current_state)}
           <Badge variant={getStateBadgeVariant(adapter.current_state)}>
-            {adapter.current_state}
+            {getStateDisplayName(adapter.current_state)}
           </Badge>
         </div>
       </TableCell>
       <TableCell>
         <Badge variant="outline">
-          Tier {adapter.tier || 1}
+          {getTierDisplayName(adapter.tier)}
         </Badge>
       </TableCell>
       <TableCell>
@@ -294,7 +294,7 @@ function AdapterTableSkeleton() {
             <TableHead className="min-w-[200px]">Name</TableHead>
             <TableHead className="w-[100px]">Status</TableHead>
             <TableHead className="w-[80px]">Tier</TableHead>
-            <TableHead className="w-[100px]">Activation %</TableHead>
+            <TableHead className="w-[100px]">Usage Frequency</TableHead>
             <TableHead className="w-[100px]">Memory</TableHead>
             <TableHead className="w-[100px]">Category</TableHead>
             <TableHead className="w-[60px]">Actions</TableHead>
@@ -387,6 +387,41 @@ function getStateBadgeVariant(state: AdapterState): 'default' | 'secondary' | 'o
       return 'outline';
     default:
       return 'secondary';
+  }
+}
+
+function getStateDisplayName(state: AdapterState): string {
+  switch (state) {
+    case 'unloaded':
+      return 'Unloaded';
+    case 'cold':
+      return 'Cold (stored)';
+    case 'warm':
+      return 'Warm (ready)';
+    case 'hot':
+      return 'Hot (active)';
+    case 'resident':
+      return 'Resident (pinned)';
+    default:
+      return state;
+  }
+}
+
+function getTierDisplayName(tier: string | number | undefined): string {
+  // Handle both string tier names and legacy numeric tiers
+  const tierValue = typeof tier === 'number' ? String(tier) : tier;
+  switch (tierValue) {
+    case 'persistent':
+    case '1':
+      return 'Keep';
+    case 'warm':
+    case '2':
+      return 'Standard';
+    case 'ephemeral':
+    case '3':
+      return 'Temporary';
+    default:
+      return tierValue || 'Standard';
   }
 }
 

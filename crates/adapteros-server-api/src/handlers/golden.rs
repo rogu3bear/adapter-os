@@ -5,6 +5,7 @@ use axum::{
 };
 
 use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, GoldenCompareRequest, GoldenRunSummary};
 
@@ -24,8 +25,10 @@ use adapteros_verify::{
 )]
 pub async fn list_golden_runs(
     State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::PromotionManage)?;
+
     let base = std::path::Path::new("golden_runs");
     // Ensure directory exists; empty vec if none
     if !base.exists() {
@@ -60,9 +63,11 @@ pub async fn list_golden_runs(
 )]
 pub async fn get_golden_run(
     State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(name): Path<String>,
 ) -> Result<Json<GoldenRunSummary>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::PromotionManage)?;
+
     let dir = std::path::Path::new("golden_runs")
         .join("baselines")
         .join(&name);
@@ -113,12 +118,14 @@ pub async fn get_golden_run(
 )]
 pub async fn golden_compare(
     State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<GoldenCompareRequest>,
 ) -> Result<
     Json<adapteros_verify::verification::VerificationReport>,
     (StatusCode, Json<ErrorResponse>),
 > {
+    require_permission(&claims, Permission::PromotionManage)?;
+
     // Resolve golden path and bundle path
     let golden_dir = std::path::Path::new("golden_runs")
         .join("baselines")

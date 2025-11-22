@@ -238,7 +238,7 @@ export interface AdapterDetailResponse {
   alpha?: number;
   category?: string;
   scope?: string;
-  tier?: number;
+  tier?: string;
 }
 
 export interface AdapterManifest {

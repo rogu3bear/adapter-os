@@ -1,9 +1,11 @@
+use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -151,8 +153,11 @@ pub struct CommitDeltaResponse {
 )]
 pub async fn register_repo(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<RegisterRepositoryRequest>,
 ) -> Result<Json<RegisterRepositoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::CodeScan)?;
+
     // Check if repository already exists
     let existing = state
         .db
@@ -215,8 +220,11 @@ pub async fn register_repo(
 )]
 pub async fn scan_repo(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<ScanRepositoryRequest>,
 ) -> Result<Json<ScanJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::CodeScan)?;
+
     // Get repository
     let repo = state
         .db
@@ -312,8 +320,11 @@ pub async fn scan_repo(
 )]
 pub async fn get_scan_status(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<ScanJobStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::CodeView)?;
+
     let job = state
         .db
         .get_scan_job(&job_id)
@@ -382,8 +393,11 @@ pub async fn get_scan_status(
 )]
 pub async fn list_repositories(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(query): Query<ListRepositoriesQuery>,
 ) -> Result<Json<RepositoryListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::CodeView)?;
+
     // Default tenant for now
     let tenant_id = "default";
     let page = query.page.unwrap_or(1);
@@ -450,8 +464,11 @@ pub async fn list_repositories(
 )]
 pub async fn get_repository(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(repo_id): Path<String>,
 ) -> Result<Json<RepositoryDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::CodeView)?;
+
     let tenant_id = "default";
 
     let repo = state
@@ -503,8 +520,11 @@ pub async fn get_repository(
 )]
 pub async fn create_commit_delta(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<CommitDeltaRequest>,
 ) -> Result<Json<CommitDeltaResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::CodeScan)?;
+
     // Verify repository exists
     let _repo = state
         .db

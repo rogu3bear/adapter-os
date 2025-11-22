@@ -1,13 +1,13 @@
 {
-  "kernel_hash": "b3:placeholder_hash_will_be_replaced_by_ci",
-  "xcrun_version": "xcrun 1.0.0",
-  "sdk_version": "14.0",
-  "rust_version": "1.75.0",
-  "build_timestamp": "2024-01-15T10:30:00Z",
+  "kernel_hash": "3e75c92f5c6f3ca1477c041696bed30cfe00380011e6694d788e03cd06b4b8c5",
+  "xcrun_version": "xcrun version 72.",
+  "sdk_version": "26.1",
+  "rust_version": "",
+  "build_timestamp": "2025-11-22T20:59:21.830645+00:00",
   "toolchain_metadata": {
-    "xcode_version": "15.2",
-    "sdk_version": "14.0",
-    "rust_version": "1.75.0",
+    "xcode_version": "xcrun version 72.",
+    "sdk_version": "26.1",
+    "rust_version": "",
     "metal_version": "3.1"
   }
 }

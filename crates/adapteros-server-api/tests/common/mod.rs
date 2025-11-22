@@ -200,3 +200,119 @@ pub async fn create_test_notification(
         .map_err(|e| anyhow::anyhow!("Failed to create notification: {}", e))?;
     Ok(notification_id)
 }
+
+/// Create a test adapter in the database
+pub async fn create_test_adapter(
+    state: &AppState,
+    adapter_id: &str,
+    tenant_id: &str,
+    tier: i32,
+    rank: i32,
+) -> anyhow::Result<()> {
+    use adapteros_core::B3Hash;
+
+    let hash = B3Hash::hash(adapter_id.as_bytes()).to_hex();
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO adapters (id, tenant_id, hash, tier, rank, activation_percentage)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(adapter_id)
+    .bind(tenant_id)
+    .bind(hash)
+    .bind(tier)
+    .bind(rank)
+    .bind(0.0)
+    .execute(state.db.pool())
+    .await?;
+
+    Ok(())
+}
+
+/// Create test adapter with defaults (tier_1, rank=16)
+pub async fn create_test_adapter_default(
+    state: &AppState,
+    adapter_id: &str,
+    tenant_id: &str,
+) -> anyhow::Result<()> {
+    create_test_adapter(state, adapter_id, tenant_id, 1, 16).await
+}
+
+/// Create a test dataset in the database
+pub async fn create_test_dataset(
+    state: &AppState,
+    dataset_id: &str,
+) -> anyhow::Result<()> {
+    use adapteros_core::B3Hash;
+
+    let hash = B3Hash::hash(dataset_id.as_bytes()).to_hex();
+
+    adapteros_db::sqlx::query(
+        "INSERT INTO training_datasets (id, hash_b3, validation_status, format)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(dataset_id)
+    .bind(hash)
+    .bind("valid")
+    .bind("jsonl")
+    .execute(state.db.pool())
+    .await?;
+
+    Ok(())
+}
+
+/// Create a test tenant in the database
+pub async fn create_test_tenant(
+    state: &AppState,
+    tenant_id: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)",
+    )
+    .bind(tenant_id)
+    .bind(name)
+    .execute(state.db.pool())
+    .await?;
+
+    Ok(())
+}
+
+/// Cleanup: delete a test adapter
+pub async fn delete_test_adapter(
+    state: &AppState,
+    adapter_id: &str,
+) -> anyhow::Result<()> {
+    adapteros_db::sqlx::query("DELETE FROM adapters WHERE id = ?")
+        .bind(adapter_id)
+        .execute(state.db.pool())
+        .await?;
+
+    Ok(())
+}
+
+/// Cleanup: delete a test dataset
+pub async fn delete_test_dataset(
+    state: &AppState,
+    dataset_id: &str,
+) -> anyhow::Result<()> {
+    adapteros_db::sqlx::query("DELETE FROM training_datasets WHERE id = ?")
+        .bind(dataset_id)
+        .execute(state.db.pool())
+        .await?;
+
+    Ok(())
+}
+
+/// Cleanup: delete a test training job
+pub async fn delete_test_training_job(
+    state: &AppState,
+    job_id: &str,
+) -> anyhow::Result<()> {
+    adapteros_db::sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
+        .bind(job_id)
+        .execute(state.db.pool())
+        .await?;
+
+    Ok(())
+}

@@ -94,7 +94,12 @@ async fn test_training_loop_small_dataset() {
     assert!(result.is_ok());
     let result = result.unwrap();
     assert!(result.final_loss >= 0.0);
-    assert!(result.training_time_ms > 0);
+    // Use microsecond precision to verify training actually ran
+    assert!(
+        result.training_time_us > 0,
+        "Training time should be positive, got: {}us",
+        result.training_time_us
+    );
     assert_eq!(result.weights.lora_a.len(), 2);
     assert_eq!(result.weights.lora_b.len(), 64);
 }
@@ -159,15 +164,12 @@ async fn test_end_to_end_training_and_quantization() {
         ..Default::default()
     };
 
-    let trainer = MicroLoRATrainer::new(config);
+    let mut trainer = MicroLoRATrainer::new(config).unwrap();
     let examples = vec![TrainingExample {
         input: vec![1, 2, 3],
         target: vec![4, 5, 6],
         metadata: HashMap::new(),
-<<<<<<< HEAD
         weight: 1.0,
-=======
->>>>>>> integration-branch
     }];
 
     // Train
@@ -196,7 +198,7 @@ async fn test_training_performance_benchmark() {
         ..Default::default()
     };
 
-    let trainer = MicroLoRATrainer::new(config);
+    let mut trainer = MicroLoRATrainer::new(config).unwrap();
 
     // Generate 100 examples
     let mut examples = Vec::new();
