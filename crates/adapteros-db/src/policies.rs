@@ -15,7 +15,7 @@ impl Db {
     pub async fn get_policies(&self, tenant_id: &str) -> Result<TenantPolicies> {
         // Query the active policy for this tenant from the policies table
         let row = sqlx::query(
-            "SELECT body_json FROM policies WHERE tenant_id = ? AND active = 1 LIMIT 1"
+            "SELECT body_json FROM policies WHERE tenant_id = ? AND active = 1 LIMIT 1",
         )
         .bind(tenant_id)
         .fetch_optional(self.pool())
@@ -25,8 +25,9 @@ impl Db {
         match row {
             Some(row) => {
                 let body_json: String = row.get("body_json");
-                let policies: TenantPolicies = serde_json::from_str(&body_json)
-                    .map_err(|e| AosError::Database(format!("Failed to parse policy JSON: {}", e)))?;
+                let policies: TenantPolicies = serde_json::from_str(&body_json).map_err(|e| {
+                    AosError::Database(format!("Failed to parse policy JSON: {}", e))
+                })?;
                 debug!(tenant_id = %tenant_id, "Loaded tenant policies from database");
                 Ok(policies)
             }

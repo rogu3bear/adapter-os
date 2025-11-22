@@ -265,7 +265,9 @@ impl Db {
         .bind(id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update repository frameworks: {}", e)))?;
+        .map_err(|e| {
+            AosError::Database(format!("Failed to update repository frameworks: {}", e))
+        })?;
 
         Ok(())
     }
@@ -276,7 +278,10 @@ impl Db {
     /// This prevents partial deletion if any step fails.
     pub async fn delete_repository(&self, id: &str) -> Result<()> {
         // Begin transaction for atomic multi-step deletion
-        let mut tx = self.pool.begin().await
+        let mut tx = self
+            .pool
+            .begin()
+            .await
             .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
 
         // Delete related CodeGraph metadata first (if exists)
@@ -284,7 +289,9 @@ impl Db {
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete code graph metadata: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to delete code graph metadata: {}", e))
+            })?;
 
         // Delete scan jobs
         sqlx::query("DELETE FROM scan_jobs WHERE repo_id = ?")
@@ -301,7 +308,8 @@ impl Db {
             .map_err(|e| AosError::Database(format!("Failed to delete repository: {}", e)))?;
 
         // Commit transaction - all deletions succeed together
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(())
@@ -401,7 +409,9 @@ impl Db {
         .bind(repo_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AosError::Database(format!("Failed to get latest code graph metadata: {}", e)))?;
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get latest code graph metadata: {}", e))
+        })?;
 
         Ok(metadata)
     }

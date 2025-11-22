@@ -94,8 +94,13 @@ impl ConfigLoader {
     }
 
     /// Load configuration from environment variables
+    ///
+    /// Supports two prefixes:
+    /// - `ADAPTEROS_*` - Standard prefix (e.g., `ADAPTEROS_SERVER_PORT` -> `server.port`)
+    /// - `AOS_*` - Short prefix for model-related vars (e.g., `AOS_MODEL_PATH` -> `model.path`)
     fn load_environment(&self, mut builder: ConfigBuilder) -> Result<ConfigBuilder> {
-        let env_vars: HashMap<String, String> = std::env::vars()
+        // Collect vars with ADAPTEROS_ prefix
+        let adapteros_vars: HashMap<String, String> = std::env::vars()
             .filter(|(key, _)| key.starts_with(&self.options.env_prefix))
             .map(|(key, value)| {
                 // Remove prefix and convert to lowercase with dots
@@ -107,6 +112,36 @@ impl ConfigLoader {
                 (config_key, value)
             })
             .collect();
+
+        // Collect vars with AOS_ prefix (for model-related config)
+        let aos_prefix = "AOS_";
+        let aos_vars: HashMap<String, String> = std::env::vars()
+            .filter(|(key, _)| {
+                key.starts_with(aos_prefix) && !key.starts_with("AOS_")
+                    || key.starts_with(aos_prefix)
+            })
+            .filter(|(key, _)| {
+                // Only allow specific AOS_ prefixed vars for model configuration
+                key.starts_with("AOS_MODEL_")
+            })
+            .map(|(key, value)| {
+                // Remove AOS_ prefix and convert to lowercase with dots
+                let config_key = key
+                    .strip_prefix(aos_prefix)
+                    .unwrap_or(&key)
+                    .to_lowercase()
+                    .replace('_', ".");
+                tracing::debug!(env_var = %key, config_key = %config_key, "Mapped AOS_ env var");
+                (config_key, value)
+            })
+            .collect();
+
+        // Merge both sets (AOS_ vars don't override ADAPTEROS_ vars)
+        let mut env_vars = aos_vars;
+        for (key, value) in adapteros_vars {
+            // ADAPTEROS_ prefix takes precedence over AOS_ prefix
+            env_vars.insert(key, value);
+        }
 
         let count = env_vars.len();
         for (key, value) in env_vars {
@@ -287,6 +322,9 @@ strict_mode = true
             r#"
 [server]
 port = 8080
+
+[database]
+url = "sqlite://manifest.db"
 "#
         )
         .unwrap();
@@ -312,10 +350,113 @@ port = 8080
 
     #[test]
     fn test_config_freeze() {
+        // Required field for validation
+        std::env::set_var("ADAPTEROS_DATABASE_URL", "sqlite://test.db");
+
         let loader = ConfigLoader::new();
         let config = loader.load(vec![], None).unwrap();
 
         assert!(config.is_frozen());
         assert!(!config.get_metadata().hash.is_empty());
+
+        // Clean up
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+    }
+
+    #[test]
+    fn test_aos_model_path_env() {
+        // Test that AOS_MODEL_PATH maps to model.path
+        std::env::set_var("AOS_MODEL_PATH", "/path/to/custom/model");
+        std::env::set_var("AOS_MODEL_BACKEND", "mlx");
+        std::env::set_var("AOS_MODEL_ARCHITECTURE", "llama");
+        // Required field for validation
+        std::env::set_var("ADAPTEROS_DATABASE_URL", "sqlite://test.db");
+
+        let loader = ConfigLoader::new();
+        let config = loader.load(vec![], None).unwrap();
+
+        // Verify AOS_ env vars are mapped correctly
+        assert_eq!(
+            config.get("model.path"),
+            Some(&"/path/to/custom/model".to_string())
+        );
+        assert_eq!(config.get("model.backend"), Some(&"mlx".to_string()));
+        assert_eq!(config.get("model.architecture"), Some(&"llama".to_string()));
+
+        // Clean up
+        std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("AOS_MODEL_BACKEND");
+        std::env::remove_var("AOS_MODEL_ARCHITECTURE");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
+    }
+
+    #[test]
+    fn test_aos_model_path_precedence() {
+        // Test that CLI > ENV > manifest precedence is maintained
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(
+            temp_file,
+            r#"
+[model]
+path = "/manifest/model/path"
+
+[database]
+url = "sqlite://manifest.db"
+"#
+        )
+        .unwrap();
+        temp_file.flush().unwrap();
+
+        // Set AOS_ environment variable
+        std::env::set_var("AOS_MODEL_PATH", "/env/model/path");
+
+        let loader = ConfigLoader::new();
+
+        // Test ENV > manifest
+        let config = loader
+            .load(vec![], Some(temp_file.path().to_string_lossy().to_string()))
+            .unwrap();
+        assert_eq!(
+            config.get("model.path"),
+            Some(&"/env/model/path".to_string())
+        );
+
+        // Test CLI > ENV > manifest
+        let config_with_cli = loader
+            .load(
+                vec!["--model.path".to_string(), "/cli/model/path".to_string()],
+                Some(temp_file.path().to_string_lossy().to_string()),
+            )
+            .unwrap();
+        assert_eq!(
+            config_with_cli.get("model.path"),
+            Some(&"/cli/model/path".to_string())
+        );
+
+        // Clean up
+        std::env::remove_var("AOS_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_adapteros_prefix_takes_precedence_over_aos() {
+        // ADAPTEROS_ prefix should take precedence over AOS_ prefix
+        std::env::set_var("AOS_MODEL_PATH", "/aos/path");
+        std::env::set_var("ADAPTEROS_MODEL_PATH", "/adapteros/path");
+        // Required field for validation
+        std::env::set_var("ADAPTEROS_DATABASE_URL", "sqlite://test.db");
+
+        let loader = ConfigLoader::new();
+        let config = loader.load(vec![], None).unwrap();
+
+        // ADAPTEROS_ should win
+        assert_eq!(
+            config.get("model.path"),
+            Some(&"/adapteros/path".to_string())
+        );
+
+        // Clean up
+        std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("ADAPTEROS_MODEL_PATH");
+        std::env::remove_var("ADAPTEROS_DATABASE_URL");
     }
 }

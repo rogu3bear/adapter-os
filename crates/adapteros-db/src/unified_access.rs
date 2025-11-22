@@ -333,8 +333,7 @@ impl UnifiedDatabaseAccess {
                     stats.failed_commands += 1;
                 }
                 // Update average command time
-                let total_time =
-                    stats.average_command_time_ms * (stats.total_commands - 1) as f64;
+                let total_time = stats.average_command_time_ms * (stats.total_commands - 1) as f64;
                 stats.average_command_time_ms =
                     (total_time + duration_ms as f64) / stats.total_commands as f64;
             }
@@ -384,7 +383,8 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("query", duration.as_millis() as u64, success).await;
+        self.update_statistics("query", duration.as_millis() as u64, success)
+            .await;
 
         match result {
             Ok(rows) => {
@@ -446,7 +446,8 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("query", duration.as_millis() as u64, success).await;
+        self.update_statistics("query", duration.as_millis() as u64, success)
+            .await;
 
         match result {
             Ok(row) => {
@@ -497,7 +498,8 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("command", duration.as_millis() as u64, success).await;
+        self.update_statistics("command", duration.as_millis() as u64, success)
+            .await;
 
         match result {
             Ok(result) => {
@@ -536,7 +538,8 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
         let duration = start_time.elapsed();
         let success = result.is_ok();
 
-        self.update_statistics("transaction", duration.as_millis() as u64, success).await;
+        self.update_statistics("transaction", duration.as_millis() as u64, success)
+            .await;
 
         match result {
             Ok(transaction) => {

@@ -53,7 +53,10 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
-        let mut tx = self.pool().begin().await
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Get current state and version
@@ -86,7 +89,8 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-            tx.commit().await
+            tx.commit()
+                .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
             return Ok(current_version);
         }
@@ -123,7 +127,8 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(new_version)
     }
@@ -138,7 +143,10 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
-        let mut tx = self.pool().begin().await
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Get current state, version, and adapter composition
@@ -173,7 +181,8 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-            tx.commit().await
+            tx.commit()
+                .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
             return Ok(current_version);
         }
@@ -211,7 +220,8 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(new_version)
     }

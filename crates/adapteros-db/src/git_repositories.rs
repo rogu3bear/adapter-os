@@ -183,13 +183,11 @@ impl Db {
     /// Evidence: migrations/0054_add_git_repository_last_scan.sql:1-5
     /// Pattern: Track when repository was last scanned
     pub async fn update_git_repository_last_scan(&self, repo_id: &str) -> Result<()> {
-        sqlx::query(
-            "UPDATE git_repositories SET last_scan = datetime('now') WHERE repo_id = ?",
-        )
-        .bind(repo_id)
-        .execute(self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        sqlx::query("UPDATE git_repositories SET last_scan = datetime('now') WHERE repo_id = ?")
+            .bind(repo_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 }

@@ -133,7 +133,9 @@ impl Db {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM enclave_operations")
             .fetch_one(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to count enclave operations: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to count enclave operations: {}", e))
+            })?;
 
         Ok(count)
     }

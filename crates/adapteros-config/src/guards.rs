@@ -55,7 +55,8 @@ impl FeatureFlagRegistry {
     fn new() -> Self {
         Self {
             flags: HashMap::new(),
-            environment: std::env::var("ADAPTEROS_ENV").unwrap_or_else(|_| "development".to_string()),
+            environment: std::env::var("ADAPTEROS_ENV")
+                .unwrap_or_else(|_| "development".to_string()),
             tenant_id: None,
         }
     }

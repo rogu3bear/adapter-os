@@ -80,7 +80,10 @@ impl std::str::FromStr for ActivityEventType {
             "repo_scan_triggered" => Ok(ActivityEventType::RepoScanTriggered),
             "repo_report_viewed" => Ok(ActivityEventType::RepoReportViewed),
             "training_session_started" => Ok(ActivityEventType::TrainingSessionStarted),
-            _ => Err(AosError::Parse(format!("invalid activity event type: {}", s))),
+            _ => Err(AosError::Parse(format!(
+                "invalid activity event type: {}",
+                s
+            ))),
         }
     }
 }

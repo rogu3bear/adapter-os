@@ -565,7 +565,11 @@ impl Db {
     pub async fn delete_adapter_cascade(&self, id: &str) -> Result<()> {
         use tracing::{info, warn};
 
-        let mut tx = self.pool().begin().await.map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Get adapter_id for pinning check
         let adapter_id: Option<String> =
@@ -614,7 +618,9 @@ impl Db {
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
-            tx.commit().await.map_err(|e| AosError::Database(e.to_string()))?;
+            tx.commit()
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?;
             Ok(())
         } else {
             // Adapter not found
@@ -701,7 +707,9 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        let total: i64 = row.try_get("total").map_err(|e| AosError::Database(e.to_string()))?;
+        let total: i64 = row
+            .try_get("total")
+            .map_err(|e| AosError::Database(e.to_string()))?;
         let selected: i64 = row.try_get("selected_count").unwrap_or(0);
         let avg_gate: f64 = row.try_get("avg_gate").unwrap_or(0.0);
 
@@ -758,7 +766,11 @@ impl Db {
     ) -> Result<()> {
         use tracing::{debug, warn};
 
-        let mut tx = self.pool().begin().await.map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Lock the row to prevent concurrent updates
         let row_exists: Option<(String,)> =
@@ -770,7 +782,10 @@ impl Db {
 
         if row_exists.is_none() {
             warn!(adapter_id = %adapter_id, "Adapter not found for state update");
-            return Err(AosError::NotFound(format!("Adapter not found: {}", adapter_id)));
+            return Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )));
         }
 
         // Update state with reason logged
@@ -786,7 +801,9 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await.map_err(|e| AosError::Database(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -805,7 +822,11 @@ impl Db {
     ) -> Result<()> {
         use tracing::debug;
 
-        let mut tx = self.pool().begin().await.map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Verify adapter exists
         let row_exists: Option<(String,)> =
@@ -816,7 +837,10 @@ impl Db {
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
         if row_exists.is_none() {
-            return Err(AosError::NotFound(format!("Adapter not found: {}", adapter_id)));
+            return Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )));
         }
 
         debug!(adapter_id = %adapter_id, memory_bytes = %memory_bytes,
@@ -831,7 +855,9 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await.map_err(|e| AosError::Database(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -850,7 +876,11 @@ impl Db {
     ) -> Result<()> {
         use tracing::debug;
 
-        let mut tx = self.pool().begin().await.map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Verify adapter exists
         let row_exists: Option<(String,)> =
@@ -861,7 +891,10 @@ impl Db {
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
         if row_exists.is_none() {
-            return Err(AosError::NotFound(format!("Adapter not found: {}", adapter_id)));
+            return Err(AosError::NotFound(format!(
+                "Adapter not found: {}",
+                adapter_id
+            )));
         }
 
         debug!(
@@ -885,7 +918,9 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        tx.commit().await.map_err(|e| AosError::Database(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -969,10 +1004,18 @@ impl Db {
 
         let mut result = Vec::new();
         for row in summary {
-            let category: String = row.try_get("category").map_err(|e| AosError::Database(e.to_string()))?;
-            let scope: String = row.try_get("scope").map_err(|e| AosError::Database(e.to_string()))?;
-            let state: String = row.try_get("current_state").map_err(|e| AosError::Database(e.to_string()))?;
-            let count: i64 = row.try_get("count").map_err(|e| AosError::Database(e.to_string()))?;
+            let category: String = row
+                .try_get("category")
+                .map_err(|e| AosError::Database(e.to_string()))?;
+            let scope: String = row
+                .try_get("scope")
+                .map_err(|e| AosError::Database(e.to_string()))?;
+            let state: String = row
+                .try_get("current_state")
+                .map_err(|e| AosError::Database(e.to_string()))?;
+            let count: i64 = row
+                .try_get("count")
+                .map_err(|e| AosError::Database(e.to_string()))?;
             let total_memory: i64 = row.try_get("total_memory_bytes").unwrap_or(0);
             let avg_activations: f64 = row.try_get("avg_activations").unwrap_or(0.0);
             let most_recent: Option<String> = row.try_get("most_recent_activation").ok();
@@ -1218,11 +1261,7 @@ impl Db {
         if gap > max_gap {
             return Err(AosError::Validation(format!(
                 "Revision gap ({}) exceeds maximum allowed ({}) for adapter family {}/{}/{}",
-                gap,
-                max_gap,
-                tenant_namespace,
-                domain,
-                purpose
+                gap, max_gap, tenant_namespace, domain, purpose
             )));
         }
 

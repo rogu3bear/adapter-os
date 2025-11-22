@@ -164,7 +164,9 @@ impl Db {
             query_builder = query_builder.bind(id);
         }
 
-        query_builder.execute(self.pool()).await
+        query_builder
+            .execute(self.pool())
+            .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }

@@ -233,6 +233,40 @@ impl Default for ConfigSchema {
             },
         );
 
+        // Model configuration
+        fields.insert(
+            "model.path".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("./models/default".to_string()),
+                description: Some("Path to the model directory".to_string()),
+                validation_rules: None,
+            },
+        );
+
+        fields.insert(
+            "model.backend".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("auto".to_string()),
+                description: Some("Model backend selection".to_string()),
+                validation_rules: Some(vec!["enum:auto,coreml,metal,mlx".to_string()]),
+            },
+        );
+
+        fields.insert(
+            "model.architecture".to_string(),
+            FieldDefinition {
+                field_type: "string".to_string(),
+                required: false,
+                default_value: Some("qwen2.5".to_string()),
+                description: Some("Model architecture type".to_string()),
+                validation_rules: None,
+            },
+        );
+
         Self {
             version: "1.0.0".to_string(),
             fields,

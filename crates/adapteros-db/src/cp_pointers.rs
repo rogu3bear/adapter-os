@@ -58,7 +58,9 @@ impl Db {
             .bind(id)
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update CP pointer signing key: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update CP pointer signing key: {}", e))
+            })?;
         Ok(())
     }
 

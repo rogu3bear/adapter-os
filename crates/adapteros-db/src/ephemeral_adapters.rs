@@ -53,7 +53,9 @@ impl Db {
             .bind(id)
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete ephemeral adapter: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to delete ephemeral adapter: {}", e))
+            })?;
         Ok(())
     }
 }

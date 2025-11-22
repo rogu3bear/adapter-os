@@ -179,7 +179,10 @@ impl Db {
             q = q.bind(param);
         }
 
-        let logs = q.fetch_all(self.pool()).await.map_err(|e| AosError::Database(e.to_string()))?;
+        let logs = q
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(logs)
     }
 
@@ -268,7 +271,10 @@ impl Db {
             q = q.bind(param);
         }
 
-        let stats = q.fetch_all(self.pool()).await.map_err(|e| AosError::Database(e.to_string()))?;
+        let stats = q
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(stats)
     }
 }

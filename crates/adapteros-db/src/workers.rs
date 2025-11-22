@@ -76,17 +76,25 @@ impl WorkerInsertBuilder {
     /// Build the worker insertion parameters
     pub fn build(self) -> Result<WorkerInsertParams> {
         Ok(WorkerInsertParams {
-            id: self.id.ok_or_else(|| AosError::Validation("id is required".to_string()))?,
+            id: self
+                .id
+                .ok_or_else(|| AosError::Validation("id is required".to_string()))?,
             tenant_id: self
                 .tenant_id
                 .ok_or_else(|| AosError::Validation("tenant_id is required".to_string()))?,
-            node_id: self.node_id.ok_or_else(|| AosError::Validation("node_id is required".to_string()))?,
-            plan_id: self.plan_id.ok_or_else(|| AosError::Validation("plan_id is required".to_string()))?,
+            node_id: self
+                .node_id
+                .ok_or_else(|| AosError::Validation("node_id is required".to_string()))?,
+            plan_id: self
+                .plan_id
+                .ok_or_else(|| AosError::Validation("plan_id is required".to_string()))?,
             uds_path: self
                 .uds_path
                 .ok_or_else(|| AosError::Validation("uds_path is required".to_string()))?,
             pid: self.pid,
-            status: self.status.ok_or_else(|| AosError::Validation("status is required".to_string()))?,
+            status: self
+                .status
+                .ok_or_else(|| AosError::Validation("status is required".to_string()))?,
         })
     }
 }
@@ -192,5 +200,17 @@ impl Db {
                 .map_err(|e| AosError::Database(e.to_string()))?;
         }
         Ok(())
+    }
+
+    /// Get a worker by ID
+    pub async fn get_worker(&self, worker_id: &str) -> Result<Option<Worker>> {
+        let worker = sqlx::query_as::<_, Worker>(
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at FROM workers WHERE id = ?",
+        )
+        .bind(worker_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(worker)
     }
 }

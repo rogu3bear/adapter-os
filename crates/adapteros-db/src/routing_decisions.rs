@@ -245,7 +245,7 @@ impl Db {
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_high_overhead WHERE tenant_id = ? LIMIT ?"
+                 FROM routing_decisions_high_overhead WHERE tenant_id = ? LIMIT ?",
             )
             .bind(tid)
             .bind(limit)
@@ -257,7 +257,7 @@ impl Db {
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_high_overhead LIMIT ?"
+                 FROM routing_decisions_high_overhead LIMIT ?",
             )
             .bind(limit)
             .fetch_all(self.pool())
@@ -290,7 +290,7 @@ impl Db {
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_low_entropy WHERE tenant_id = ? LIMIT ?"
+                 FROM routing_decisions_low_entropy WHERE tenant_id = ? LIMIT ?",
             )
             .bind(tid)
             .bind(limit)
@@ -302,7 +302,7 @@ impl Db {
                  stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
                  candidate_adapters, selected_adapter_ids, router_latency_us, \
                  total_inference_latency_us, overhead_pct, created_at \
-                 FROM routing_decisions_low_entropy LIMIT ?"
+                 FROM routing_decisions_low_entropy LIMIT ?",
             )
             .bind(limit)
             .fetch_all(self.pool())

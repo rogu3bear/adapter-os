@@ -229,10 +229,7 @@ impl From<crate::adapters::Adapter> for AdapterMeta {
             purpose: adapter.purpose,
             revision: adapter.revision,
             parent_id: adapter.parent_id,
-            fork_type: adapter
-                .fork_type
-                .as_deref()
-                .and_then(ForkType::from_str),
+            fork_type: adapter.fork_type.as_deref().and_then(ForkType::from_str),
             fork_reason: adapter.fork_reason,
             framework: adapter.framework,
             framework_id: adapter.framework_id,

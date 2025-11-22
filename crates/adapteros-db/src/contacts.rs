@@ -82,7 +82,9 @@ impl ContactUpsertBuilder {
             tenant_id: self
                 .tenant_id
                 .ok_or_else(|| AosError::Validation("tenant_id is required".to_string()))?,
-            name: self.name.ok_or_else(|| AosError::Validation("name is required".to_string()))?,
+            name: self
+                .name
+                .ok_or_else(|| AosError::Validation("name is required".to_string()))?,
             category: self
                 .category
                 .ok_or_else(|| AosError::Validation("category is required".to_string()))?,
@@ -162,7 +164,9 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some(row) = existing {
-            let id: String = row.try_get("id").map_err(|e| AosError::Database(e.to_string()))?;
+            let id: String = row
+                .try_get("id")
+                .map_err(|e| AosError::Database(e.to_string()))?;
 
             // Update existing contact
             sqlx::query(
@@ -298,7 +302,9 @@ impl Db {
 
         // Insert interaction entry
         let id = Uuid::now_v7().to_string();
-        let context_json = context.map(serde_json::to_string).transpose()
+        let context_json = context
+            .map(serde_json::to_string)
+            .transpose()
             .map_err(|e| AosError::Validation(format!("Failed to serialize context: {}", e)))?;
 
         sqlx::query(
@@ -368,21 +374,51 @@ impl Db {
         let mut result = Vec::new();
         for row in rows {
             let contact = Contact {
-                id: row.try_get("id").map_err(|e| AosError::Database(e.to_string()))?,
-                tenant_id: row.try_get("tenant_id").map_err(|e| AosError::Database(e.to_string()))?,
-                name: row.try_get("name").map_err(|e| AosError::Database(e.to_string()))?,
-                email: row.try_get("email").map_err(|e| AosError::Database(e.to_string()))?,
-                category: row.try_get("category").map_err(|e| AosError::Database(e.to_string()))?,
-                role: row.try_get("role").map_err(|e| AosError::Database(e.to_string()))?,
-                metadata_json: row.try_get("metadata_json").map_err(|e| AosError::Database(e.to_string()))?,
-                avatar_url: row.try_get("avatar_url").map_err(|e| AosError::Database(e.to_string()))?,
-                discovered_at: row.try_get("discovered_at").map_err(|e| AosError::Database(e.to_string()))?,
-                discovered_by: row.try_get("discovered_by").map_err(|e| AosError::Database(e.to_string()))?,
-                last_interaction: row.try_get("last_interaction").map_err(|e| AosError::Database(e.to_string()))?,
-                interaction_count: row.try_get("interaction_count").map_err(|e| AosError::Database(e.to_string()))?,
-                permissions_json: row.try_get("permissions_json").map_err(|e| AosError::Database(e.to_string()))?,
-                created_at: row.try_get("created_at").map_err(|e| AosError::Database(e.to_string()))?,
-                updated_at: row.try_get("updated_at").map_err(|e| AosError::Database(e.to_string()))?,
+                id: row
+                    .try_get("id")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                tenant_id: row
+                    .try_get("tenant_id")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                name: row
+                    .try_get("name")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                email: row
+                    .try_get("email")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                category: row
+                    .try_get("category")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                role: row
+                    .try_get("role")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                metadata_json: row
+                    .try_get("metadata_json")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                avatar_url: row
+                    .try_get("avatar_url")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                discovered_at: row
+                    .try_get("discovered_at")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                discovered_by: row
+                    .try_get("discovered_by")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                last_interaction: row
+                    .try_get("last_interaction")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                interaction_count: row
+                    .try_get("interaction_count")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                permissions_json: row
+                    .try_get("permissions_json")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                created_at: row
+                    .try_get("created_at")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
+                updated_at: row
+                    .try_get("updated_at")
+                    .map_err(|e| AosError::Database(e.to_string()))?,
             };
             let count: i64 = row.try_get("logged_interaction_count").unwrap_or(0);
             result.push((contact, count));
@@ -428,7 +464,9 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        let total: i64 = row.try_get("total").map_err(|e| AosError::Database(e.to_string()))?;
+        let total: i64 = row
+            .try_get("total")
+            .map_err(|e| AosError::Database(e.to_string()))?;
         let first: Option<String> = row.try_get("first_interaction").ok();
         let last: Option<String> = row.try_get("last_interaction").ok();
 
