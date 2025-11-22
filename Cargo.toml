@@ -8,6 +8,9 @@ repository = "https://github.com/rogu3bear/mplora"
 
 [workspace]
 resolver = "2"
+exclude = [
+    "crates/adapteros-server",  # Server crate - excluded for stable main merge
+]
 members = [
     "crates/adapteros-core",
     "crates/adapteros-crypto",
