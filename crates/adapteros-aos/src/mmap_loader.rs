@@ -1,8 +1,32 @@
-//! Memory-mapped .aos file loader
+//! Memory-mapped .aos file loader (DEPRECATED)
 //!
-//! TODO: Complete migration to proper AOS types
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
+//! # Deprecation Notice
+//!
+//! This module is **deprecated** and non-functional. The canonical AOS loading
+//! implementation is in [`crate::implementation`], which provides:
+//!
+//! - [`AosLoader`](crate::AosLoader) - The working AOS file loader with Metal integration
+//! - [`AosManifest`](crate::AosManifest) - Proper manifest structure matching docs/AOS_FORMAT.md
+//! - [`LoadedAdapter`](crate::LoadedAdapter) - Loaded adapter with Metal buffers
+//!
+//! ## Migration
+//!
+//! Replace usage of this module's types:
+//! - `MmapAdapterLoader` -> `AosLoader`
+//! - `MmapAdapter` -> `LoadedAdapter`
+//! - `AdapterManifest` -> `AosManifest`
+//!
+//! ## Why This Module Exists
+//!
+//! This module was created during the migration from the deleted
+//! `adapteros-single-file-adapter` crate. The proper implementation now lives in
+//! `implementation.rs`. This module is retained only for API compatibility with
+//! `manager.rs`, `hot_swap.rs`, and `cache.rs`, which should be migrated to use
+//! the canonical implementation.
+//!
+//! ## Status
+//!
+//! All methods in this module return errors. Do not use for new code.
 
 use adapteros_core::{AosError, Result};
 // Removed: use adapteros_single_file_adapter::{AdapterManifest, SingleFileAdapter};
@@ -12,17 +36,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-// Temporary stub types until migration to proper types is complete
-// TODO: Replace with crate::AosManifest or proper types
+// DEPRECATED: These are stub types that do not function.
+// Use crate::AosManifest, crate::AosLoader, and crate::LoadedAdapter instead.
+// See crate::implementation for the canonical working implementation.
 
-/// Stub manifest for mmap loader (pending migration)
+/// Stub manifest for mmap loader (DEPRECATED - use crate::AosManifest instead)
+#[deprecated(since = "0.1.0", note = "Use crate::AosManifest from crate::implementation instead")]
 #[derive(Debug, Clone, Default)]
 pub struct AdapterManifest {
     pub adapter_id: String,
     pub version: String,
 }
 
-/// Stub adapter for mmap loader (pending migration)
+/// Stub adapter for mmap loader (DEPRECATED - use crate::LoadedAdapter instead)
+#[deprecated(since = "0.1.0", note = "Use crate::LoadedAdapter from crate::implementation instead")]
 #[derive(Debug, Clone, Default)]
 pub struct SingleFileAdapter {
     pub manifest: AdapterManifest,
@@ -30,17 +57,22 @@ pub struct SingleFileAdapter {
 }
 
 impl SingleFileAdapter {
-    /// Stub verification - always succeeds
+    /// Stub verification - always succeeds (DEPRECATED)
     pub fn verify_signature(&self) -> std::result::Result<(), String> {
-        // TODO: Implement proper signature verification with AOS types
+        // DEPRECATED: This is a stub that always succeeds.
+        // Use crate::AosLoader for proper loading with validation.
         Ok(())
     }
 }
 
-/// Memory-mapped adapter wrapper
+/// Memory-mapped adapter wrapper (DEPRECATED)
 ///
-/// Provides zero-copy access to .aos file contents via memory mapping.
-/// The underlying file remains mapped for the lifetime of this struct.
+/// **DEPRECATED**: Use [`crate::LoadedAdapter`] from [`crate::AosLoader`] instead.
+///
+/// This type was intended to provide zero-copy access to .aos file contents via
+/// memory mapping, but the implementation is incomplete and non-functional.
+/// The canonical implementation is in [`crate::implementation`].
+#[deprecated(since = "0.1.0", note = "Use crate::LoadedAdapter from crate::AosLoader instead")]
 #[derive(Clone)]
 pub struct MmapAdapter {
     /// Path to the .aos file
@@ -97,9 +129,13 @@ impl std::fmt::Debug for MmapAdapter {
     }
 }
 
-/// Memory-mapped adapter loader
+/// Memory-mapped adapter loader (DEPRECATED)
 ///
-/// Loads .aos files using memory mapping for efficient zero-copy access.
+/// **DEPRECATED**: Use [`crate::AosLoader`] from [`crate::implementation`] instead.
+///
+/// This loader is non-functional. All load operations return an error.
+/// The canonical working implementation is [`crate::AosLoader`].
+#[deprecated(since = "0.1.0", note = "Use crate::AosLoader from crate::implementation instead")]
 #[derive(Debug)]
 pub struct MmapAdapterLoader {
     /// Whether to verify signatures during load
@@ -201,16 +237,16 @@ impl MmapAdapterLoader {
         self.load_via_tempfile(mmap).await
     }
 
-    /// Load adapter via temporary file (workaround for ZIP requiring seekable input)
+    /// Load adapter via temporary file (DEPRECATED - always fails)
     ///
-    /// TODO: Implement proper .aos parsing
+    /// This method is non-functional. Use [`crate::AosLoader::load_from_path`] instead.
     async fn load_via_tempfile(&self, _mmap: &Mmap) -> Result<SingleFileAdapter> {
-        // Removed: use adapteros_single_file_adapter::SingleFileAdapterLoader;
-        // TODO: Implement proper .aos loading with AOS types
-        // For now, return a stub adapter
+        // DEPRECATED: This module is non-functional.
+        // Use crate::AosLoader from crate::implementation for proper AOS loading.
+        // See the module-level documentation for migration instructions.
 
         Err(AosError::Internal(
-            "MmapAdapterLoader::load_via_tempfile not yet migrated to AOS types".to_string(),
+            "MmapAdapterLoader is deprecated. Use crate::AosLoader instead (see crate::implementation)".to_string(),
         ))
     }
 

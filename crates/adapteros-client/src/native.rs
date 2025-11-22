@@ -53,7 +53,7 @@ impl AdapterOSClient for NativeClient {
     }
 
     async fn register_adapter(&self, req: RegisterAdapterRequest) -> Result<AdapterResponse> {
-        let url = format!("{}/v1/adapters", self.base_url);
+        let url = format!("{}/v1/adapters/register", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json()
             .await
@@ -75,7 +75,7 @@ impl AdapterOSClient for NativeClient {
 
     // Memory Management
     async fn get_memory_usage(&self) -> Result<MemoryUsageResponse> {
-        let url = format!("{}/v1/memory/usage", self.base_url);
+        let url = format!("{}/v1/system/memory", self.base_url);
         let resp = self.client.get(&url).send().await?;
         resp.json().await.context("Failed to parse memory usage")
     }
@@ -85,7 +85,7 @@ impl AdapterOSClient for NativeClient {
         &self,
         req: StartTrainingRequest,
     ) -> Result<TrainingSessionResponse> {
-        let url = format!("{}/v1/training/sessions", self.base_url);
+        let url = format!("{}/v1/training/start", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json()
             .await
@@ -93,7 +93,7 @@ impl AdapterOSClient for NativeClient {
     }
 
     async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse> {
-        let url = format!("{}/v1/training/sessions/{}", self.base_url, session_id);
+        let url = format!("{}/v1/training/jobs/{}", self.base_url, session_id);
         let resp = self.client.get(&url).send().await?;
         resp.json()
             .await
@@ -101,7 +101,7 @@ impl AdapterOSClient for NativeClient {
     }
 
     async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>> {
-        let url = format!("{}/v1/training/sessions", self.base_url);
+        let url = format!("{}/v1/training/jobs", self.base_url);
         let resp = self.client.get(&url).send().await?;
         resp.json()
             .await
@@ -276,7 +276,7 @@ impl AdapterOSClient for NativeClient {
 
     // Code Intelligence
     async fn register_repo(&self, req: RegisterRepoRequest) -> Result<RepoResponse> {
-        let url = format!("{}/v1/repos/register", self.base_url);
+        let url = format!("{}/v1/code/register-repo", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json()
             .await
@@ -284,13 +284,13 @@ impl AdapterOSClient for NativeClient {
     }
 
     async fn scan_repo(&self, req: ScanRepoRequest) -> Result<JobResponse> {
-        let url = format!("{}/v1/repos/scan", self.base_url);
+        let url = format!("{}/v1/code/scan", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json().await.context("Failed to parse repo scan")
     }
 
     async fn list_repos(&self) -> Result<Vec<RepoResponse>> {
-        let url = format!("{}/v1/repos", self.base_url);
+        let url = format!("{}/v1/code/repositories", self.base_url);
         let resp = self.client.get(&url).send().await?;
         resp.json().await.context("Failed to parse repos")
     }
@@ -325,31 +325,18 @@ impl AdapterOSClient for NativeClient {
         resp.json().await.context("Failed to parse commit details")
     }
 
-    // Routing Inspector
-    async fn extract_router_features(
-        &self,
-        req: RouterFeaturesRequest,
-    ) -> Result<RouterFeaturesResponse> {
-        let url = format!("{}/v1/router/features", self.base_url);
-        let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse router features")
-    }
-
-    async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse> {
-        let url = format!("{}/v1/router/score", self.base_url);
-        let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse adapter scores")
-    }
+    // Routing Inspector - REMOVED (endpoints don't exist in API)
+    // extract_router_features and score_adapters are not available endpoints
 
     // Patch Lab
     async fn propose_patch(&self, req: ProposePatchRequest) -> Result<ProposePatchResponse> {
-        let url = format!("{}/v1/patches/propose", self.base_url);
+        let url = format!("{}/v1/patch/propose", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json().await.context("Failed to parse patch proposal")
     }
 
     async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse> {
-        let url = format!("{}/v1/patches/validate", self.base_url);
+        let url = format!("{}/v1/patch/validate", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json()
             .await
@@ -357,39 +344,37 @@ impl AdapterOSClient for NativeClient {
     }
 
     async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse> {
-        let url = format!("{}/v1/patches/apply", self.base_url);
+        let url = format!("{}/v1/patch/apply", self.base_url);
         let resp = self.client.post(&url).json(&req).send().await?;
         resp.json()
             .await
             .context("Failed to parse patch application")
     }
 
-    // Code Policy
+    // Code Policy - STUB (endpoint not implemented in API)
     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        let url = format!("{}/v1/code-policy", self.base_url);
-        let resp = self.client.get(&url).send().await?;
-        resp.json().await.context("Failed to parse code policy")
+        Err(anyhow::anyhow!(
+            "Code policy endpoint not available"
+        ))
     }
 
-    async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()> {
-        let url = format!("{}/v1/code-policy", self.base_url);
-        self.client.put(&url).json(&req).send().await?;
-        Ok(())
+    async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Code policy endpoint not available"
+        ))
     }
 
-    // Metrics Dashboard
-    async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        let url = format!("{}/v1/metrics/code", self.base_url);
-        let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json().await.context("Failed to parse code metrics")
+    // Metrics Dashboard - STUB (endpoints not implemented in API)
+    async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "Code metrics endpoint not available"
+        ))
     }
 
-    async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        let url = format!("{}/v1/metrics/compare", self.base_url);
-        let resp = self.client.post(&url).json(&req).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse metrics comparison")
+    async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "Metrics comparison endpoint not available"
+        ))
     }
 }
 

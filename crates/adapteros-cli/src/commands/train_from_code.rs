@@ -1,6 +1,5 @@
 //! Train adapter from codebase command
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
 //! This module is temporarily stubbed pending migration from the deleted
 //! adapteros-single-file-adapter crate.
 //!
@@ -105,22 +104,19 @@ pub struct TrainFromCodeArgs {
 
 impl TrainFromCodeArgs {
     /// Execute the train-from-code command
-    ///
-    /// TODO: Migrate to adapteros-aos v3.0 types
     pub async fn execute(&self) -> Result<()> {
         tracing::warn!(
-            "train-from-code command is temporarily disabled pending migration to v3.0 types"
+            "train-from-code command is temporarily disabled pending crate migration"
         );
 
-        // TODO: Migrate to adapteros-aos v3.0 types
         // The original implementation used:
         // - adapteros_single_file_adapter::format::WeightGroupConfig
         // - adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig}
         //
-        // These need to be replaced with types from adapteros-aos v3.0
+        // These need to be replaced with types from adapteros-aos
 
         Err(AosError::Config(
-            "train-from-code: pending migration to adapteros-aos v3.0 types".to_string()
+            "train-from-code: pending crate migration".to_string()
         ))
     }
 

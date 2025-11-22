@@ -1,6 +1,5 @@
 //! `aosctl adapter train-from-code` implementation
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
 //! This module is temporarily stubbed pending migration from the deleted
 //! adapteros-single-file-adapter crate.
 
@@ -125,18 +124,17 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
         output.warning("--negative-weight is non-negative; abstention training may be ineffective");
     }
 
-    output.warning("adapter train-from-code command is temporarily disabled pending migration to v3.0 types");
+    output.warning("adapter train-from-code command is temporarily disabled pending crate migration");
 
-    // TODO: Migrate to adapteros-aos v3.0 types
     // The original implementation used:
     // - adapteros_single_file_adapter::format::WeightGroupConfig
     // - adapteros_orchestrator::code_ingestion::{CodeDatasetConfig, CodeIngestionPipeline, ...}
     // - adapteros_lora_worker::training::TrainingConfig
     //
-    // These need to be replaced with types from adapteros-aos v3.0
+    // These need to be replaced with types from adapteros-aos
 
     Err(AosError::Config(
-        "adapter train-from-code: pending migration to adapteros-aos v3.0 types".to_string()
+        "adapter train-from-code: pending crate migration".to_string()
     ))
 }
 

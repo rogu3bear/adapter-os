@@ -327,7 +327,7 @@ eprintln!("Fingerprint: {:?}", fp);
 
 ## See Also
 
-- [UNIFIED_MEMORY_MANAGEMENT.md](UNIFIED_MEMORY_MANAGEMENT.md) - Full documentation
+- [GUIDE_UNIFIED_MEMORY.md](GUIDE_UNIFIED_MEMORY.md) - Full documentation
 - [examples/unified_memory_example.rs](examples/unified_memory_example.rs) - Complete example
 - [CLAUDE.md](../../CLAUDE.md) - System architecture
 - [Policy Pack #12](../../docs/POLICIES.md) - Memory policy

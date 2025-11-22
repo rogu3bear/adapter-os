@@ -201,7 +201,12 @@ mod tests {
     #[test]
     fn test_process_channels_detects_anomaly() {
         let mut adapter = TelemetryAdapter::new(TelemetryAdapterConfig::default()).unwrap();
-        let normal = make_channel("temperature", &[1.0, 1.2, 0.9, 1.1, 5.0, 1.0]);
+        // Need min_points (8) samples before anomaly detection starts
+        // Values around 1.0, then spike to 10.0 should be detected as anomaly
+        let normal = make_channel(
+            "temperature",
+            &[1.0, 1.1, 0.9, 1.0, 1.2, 0.95, 1.05, 1.0, 10.0, 1.0],
+        );
         let outputs = adapter.process_channels(&[normal]).unwrap();
         assert_eq!(outputs.len(), 1);
         assert!(!outputs[0].anomalies.is_empty());

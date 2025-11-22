@@ -288,5 +288,18 @@ cargo run --bin gpu_training_benchmark --release
 
 ---
 
+## See Also
+
+- [docs/GPU_TRAINING_INTEGRATION.md](docs/GPU_TRAINING_INTEGRATION.md) - Complete GPU training API reference
+- [docs/TRAINING_PIPELINE.md](docs/TRAINING_PIPELINE.md) - Training pipeline architecture
+- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Architectural patterns and diagrams
+- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend for research/training
+- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+- [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Feature flag reference for backend selection
+- [QUICKSTART.md](QUICKSTART.md) - Quick start guide for inference
+- [CLAUDE.md](CLAUDE.md) - Developer quick reference guide
+
+---
+
 **Last Updated:** 2025-11-21
 **Status:** Production Ready

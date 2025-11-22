@@ -1,26 +1,78 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use adapteros_orchestrator::TrainingService;
+use adapteros_db::Db;
+use adapteros_lora_worker::memory::UmaPressureMonitor;
+use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
-
-// NOTE: This test setup is currently incomplete due to API changes.
-// Tests using setup_state should be marked with #[ignore] until the
-// AppState construction is updated to match the current API.
+use adapteros_server_api::telemetry::MetricsRegistry;
+use adapteros_telemetry::MetricsCollector;
 
 /// Build a minimal AppState with in-memory DB, metrics, and training service.
 ///
-/// IMPORTANT: This function currently returns Err due to API changes.
-/// Tests using this should be marked with #[ignore = "Pending API refactoring"]
+/// Creates all required dependencies for integration testing:
+/// - In-memory SQLite database with migrations applied
+/// - Default tenant created for test isolation
+/// - Metrics infrastructure (collector, registry, exporter)
+/// - UMA pressure monitor for memory management
 #[allow(dead_code)]
 pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState> {
-    // TODO: Refactor to match current AppState API
-    // The AppState constructor has changed significantly and requires:
-    // - Different config structure
-    // - UmaPressureMonitor
-    // - MetricsRegistry from adapteros_telemetry
-    Err(anyhow::anyhow!("setup_state needs refactoring to match current AppState API"))
+    // 1. Create in-memory database with migrations
+    let db = Db::new_in_memory()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create in-memory DB: {}", e))?;
+
+    // 2. Create test tenants
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO tenants (id, name) VALUES ('default', 'Default Tenant')",
+    )
+    .execute(db.pool())
+    .await?;
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant 1')",
+    )
+    .execute(db.pool())
+    .await?;
+
+    // 3. Create test JWT secret
+    let jwt_secret = b"test-jwt-secret-for-integration-tests-32bytes!".to_vec();
+
+    // 4. Create API config
+    let config = Arc::new(RwLock::new(ApiConfig {
+        metrics: MetricsConfig {
+            enabled: true,
+            bearer_token: "test-bearer-token".to_string(),
+        },
+        directory_analysis_timeout_secs: 120,
+    }));
+
+    // 5. Create metrics exporter with standard histogram buckets
+    let histogram_buckets = vec![
+        0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+    ];
+    let metrics_exporter = Arc::new(
+        MetricsExporter::new(histogram_buckets)
+            .map_err(|e| anyhow::anyhow!("Failed to create metrics exporter: {}", e))?,
+    );
+
+    // 6. Create metrics collector and registry
+    let metrics_collector = Arc::new(MetricsCollector::default());
+    let metrics_registry = Arc::new(MetricsRegistry::new());
+
+    // 7. Create UMA pressure monitor (15% min headroom, no telemetry for tests)
+    let uma_monitor = Arc::new(UmaPressureMonitor::new(15, None));
+
+    // 8. Build AppState
+    Ok(AppState::new(
+        db,
+        jwt_secret,
+        config,
+        metrics_exporter,
+        metrics_collector,
+        metrics_registry,
+        uma_monitor,
+    ))
 }
 
 /// Standard admin claims for tests

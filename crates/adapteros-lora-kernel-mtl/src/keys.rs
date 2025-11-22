@@ -7,6 +7,7 @@
 ///
 /// NOTE: This is a test key for development. In production, this is replaced
 /// by the CI build process with the actual signing public key.
+/// The format expected is raw 32-byte Ed25519 public key in base64 (not ASN.1/DER).
 pub const SIGNING_PUBLIC_KEY_PEM: &str = r#"-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 -----END PUBLIC KEY-----"#;

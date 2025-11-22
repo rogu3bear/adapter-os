@@ -96,4 +96,14 @@ cargo test --package adapteros-lora-mlx-ffi
 - [MasterPlan.md Patch 4.2](../../docs/architecture/MasterPlan.md#patch-42-mlx-integration)
 - [Kernel API Trait](../adapteros-lora-kernel-api/src/lib.rs)
 
+## See Also
+
+- [MLX_FFI_INTEGRATION_PROOF.md](./MLX_FFI_INTEGRATION_PROOF.md) - MLX FFI integration proof document
+- [docs/MLX_INTEGRATION.md](../../docs/MLX_INTEGRATION.md) - Complete MLX integration guide
+- [docs/ADR_MULTI_BACKEND_STRATEGY.md](../../docs/ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision
+- [docs/COREML_INTEGRATION.md](../../docs/COREML_INTEGRATION.md) - CoreML backend (alternative)
+- [BENCHMARK_RESULTS.md](../../BENCHMARK_RESULTS.md) - MLX FFI benchmark results
+- [benches/mlx_integration_benchmark.rs](./benches/mlx_integration_benchmark.rs) - MLX FFI benchmarks
+- [tests/INDEX.md](./tests/INDEX.md) - Test documentation index
+
 

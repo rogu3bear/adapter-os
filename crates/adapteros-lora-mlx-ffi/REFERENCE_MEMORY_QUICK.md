@@ -249,8 +249,8 @@ Yes. Atomic counters guarantee thread safety.
 
 ## Links
 
-- **Full Docs:** `MEMORY_MANAGEMENT.md`
-- **Developer Guide:** `DEVELOPER_GUIDE.md`
+- **Full Docs:** `REFERENCE_MEMORY_MANAGEMENT.md`
+- **Developer Guide:** `GUIDE_DEVELOPER_MEMORY.md`
 - **Implementation:** `src/lib.rs::memory` module
 - **C Code:** `src/mlx_cpp_wrapper_real.cpp`
 - **Tests:** `tests/memory_tracking_tests.rs`

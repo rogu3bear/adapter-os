@@ -544,11 +544,10 @@ mod tests {
         let batch = create_test_batch(2, 3, 32, 32);
         let output = pipeline.process_batch(&batch).unwrap();
         assert_eq!(output.batch, 2);
-        // ResNet applies convolutions and max pooling, reducing spatial dims by 4x (32->8)
-        // The actual output may vary based on layer configuration
+        // ResNet: 3 layers with stride (1,2,2) reduce 32->32->16->8, then max pool 8->4
         assert!(output.channels > 0);
-        assert_eq!(output.height, 8);
-        assert_eq!(output.width, 8);
+        assert_eq!(output.height, 4);
+        assert_eq!(output.width, 4);
     }
 
     #[test]
@@ -561,9 +560,9 @@ mod tests {
         let batch = create_test_batch(1, 3, 32, 32);
         let output = pipeline.process_batch(&batch).unwrap();
         assert!(output.channels > 0);
-        // Average pooling reduces spatial dimensions by 2x
-        assert_eq!(output.height, 16);
-        assert_eq!(output.width, 16);
+        // VGG: 3 layers with stride (1,1,2) reduce 32->32->32->16, then avg pool 16->8
+        assert_eq!(output.height, 8);
+        assert_eq!(output.width, 8);
     }
 
     #[test]

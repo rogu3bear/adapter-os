@@ -270,7 +270,19 @@ See [LICENSE-APACHE](../LICENSE-APACHE) and [LICENSE-MIT](../LICENSE-MIT) for de
 
 ---
 
-**Last Updated**: November 13, 2025  
-**AdapterOS Version**: alpha-v0.04-unstable  
+## See Also
+
+- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architecture patterns with diagrams
+- [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Complete architecture documentation index
+- [FEATURE_FLAGS.md](FEATURE_FLAGS.md) - Feature flag reference
+- [LOCAL_BUILD.md](LOCAL_BUILD.md) - Local build guide
+- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend integration
+- [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+- [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision
+
+---
+
+**Last Updated**: November 13, 2025
+**AdapterOS Version**: alpha-v0.04-unstable
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 

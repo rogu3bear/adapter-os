@@ -78,8 +78,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/rogu3bear/mplora"
 
 [features]
-# Default configuration: deterministic-only, no platform-specific backends
-default = ["deterministic-only"]
+# Default configuration: deterministic-only + CoreML backend on macOS
+# CoreML provides ANE acceleration and guaranteed determinism for production
+default = ["deterministic-only", "coreml-backend"]
 
 # Core capability flags
 deterministic-only = []

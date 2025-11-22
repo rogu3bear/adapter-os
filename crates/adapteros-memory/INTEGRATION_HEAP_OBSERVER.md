@@ -327,7 +327,7 @@ Compiled with `-fobjc-arc` flag, so:
 
 ## Related Documentation
 
-- **Implementation Details:** [HEAP_OBSERVER_IMPL.md](HEAP_OBSERVER_IMPL.md)
+- **Implementation Details:** [ARCHITECTURE_HEAP_OBSERVER.md](ARCHITECTURE_HEAP_OBSERVER.md)
 - **FFI Patterns:** [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](docs/OBJECTIVE_CPP_FFI_PATTERNS.md)
 - **Rust Interface:** `src/heap_observer.rs`
 - **C Header:** `include/heap_observer.h`

@@ -13,9 +13,18 @@ pub struct RegisterAdapterRequest {
     pub name: String,
     pub hash_b3: String,
     pub rank: i32,
-    pub tier: i32,
+    /// Adapter tier: 'persistent', 'warm', or 'ephemeral'
+    pub tier: String,
     pub languages: Vec<String>,
     pub framework: Option<String>,
+    /// Adapter category: 'code', 'framework', 'codebase', or 'ephemeral'
+    pub category: String,
+    /// Adapter scope: 'global', 'tenant', 'repo', or 'commit'
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Expiration timestamp (ISO 8601 format)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
 }
 
 /// Adapter response
@@ -44,10 +53,35 @@ pub struct AdapterResponse {
     pub name: String,
     pub hash_b3: String,
     pub rank: i32,
-    pub tier: i32,
+    /// Storage tier: 'persistent', 'warm', or 'ephemeral'
+    pub tier: String,
+    /// Supported programming languages
     pub languages: Vec<String>,
     pub framework: Option<String>,
+    /// Adapter category: 'code', 'framework', 'codebase', or 'ephemeral'
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Adapter scope: 'global', 'tenant', 'repo', or 'commit'
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Framework identifier for code intelligence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework_id: Option<String>,
+    /// Framework version for code intelligence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework_version: Option<String>,
+    /// Repository identifier
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_id: Option<String>,
+    /// Git commit SHA
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_sha: Option<String>,
+    /// Adapter intent/purpose
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intent: Option<String>,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
     pub stats: Option<AdapterStats>,
     /// Adapter version from migration 0068 (semantic or monotonic)
     pub version: String,
@@ -58,6 +92,12 @@ pub struct AdapterResponse {
     /// Maps from database `current_state` field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_state: Option<String>,
+    /// Whether adapter is pinned (protected from eviction)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    /// Memory usage in bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<i64>,
 }
 
 /// Adapter statistics
@@ -104,7 +144,8 @@ pub struct AdapterManifest {
     pub name: String,
     pub hash_b3: String,
     pub rank: i32,
-    pub tier: i32,
+    /// Storage tier: 'persistent', 'warm', or 'ephemeral'
+    pub tier: String,
     pub framework: Option<String>,
     pub languages_json: Option<String>,
     pub category: Option<String>,

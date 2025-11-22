@@ -20,7 +20,11 @@ export interface Adapter {
   name: string;
   hash_b3: string;
   rank: number;
-  tier: number;
+  // Storage tier: 'persistent', 'warm', or 'ephemeral'
+  tier: string;
+  // Supported programming languages
+  languages?: string[];
+  // Languages in JSON string format (for backward compatibility)
   languages_json?: string;
   framework?: string;
 
@@ -36,8 +40,8 @@ export interface Adapter {
   fork_reason?: string;
 
   // Code intelligence fields
-  category: 'code' | 'framework' | 'codebase' | 'ephemeral';
-  scope: 'global' | 'tenant' | 'repo' | 'commit';
+  category?: 'code' | 'framework' | 'codebase' | 'ephemeral';
+  scope?: 'global' | 'tenant' | 'repo' | 'commit';
   framework_id?: string;
   framework_version?: string;
   repo_id?: string;
@@ -45,16 +49,17 @@ export interface Adapter {
   intent?: string;
 
   // Lifecycle state management
-  current_state: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+  current_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
   lifecycle_state?: string;        // Alternative name for current_state
-  pinned: boolean;
-  memory_bytes: number;
+  runtime_state?: string;          // Memory/runtime status
+  pinned?: boolean;
+  memory_bytes?: number;
   last_activated?: string;
-  activation_count: number;
+  activation_count?: number;
 
   created_at: string;
-  updated_at: string;
-  active: boolean;
+  updated_at?: string;
+  active?: boolean;
   state?: AdapterState;
   last_inference?: string;
   error_count?: number;
@@ -87,18 +92,24 @@ export interface RegisterAdapterRequest {
   name: string;
   hash_b3: string;
   rank: number;
-  tier: number;
-  languages_json?: string;
+  // Storage tier: 'persistent', 'warm', or 'ephemeral'
+  tier: string;
+  // Supported programming languages
+  languages: string[];
   framework?: string;
+  // Adapter category: 'code', 'framework', 'codebase', or 'ephemeral'
   category: AdapterCategory;
+  // Adapter scope: 'global', 'tenant', 'repo', or 'commit'
   scope?: AdapterScope;
+  // Expiration timestamp (ISO 8601 format)
   expires_at?: string;
   metadata_json?: string;
 }
 
 export interface UpdateAdapterRequest {
   name?: string;
-  tier?: number;
+  // Storage tier: 'persistent', 'warm', or 'ephemeral'
+  tier?: string;
   expires_at?: string;
   metadata_json?: string;
 }

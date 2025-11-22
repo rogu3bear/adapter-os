@@ -961,15 +961,50 @@ impl PathValidator {
 
     /// Check if path matches glob pattern (simplified implementation)
     fn matches_pattern(&self, pattern: &str, path: &str) -> bool {
-        // Simplified glob matching - in real implementation would use proper glob library
-        if pattern.contains("**") {
-            let prefix = pattern.split("**").next().unwrap_or("");
+        // Handle common glob patterns
+        if pattern.starts_with("**/") {
+            // Pattern like "**/.env*" or "**/secrets/**"
+            let suffix_pattern = &pattern[3..]; // Remove "**/"
+            // Check if any path segment matches the suffix pattern
+            for segment in path.split('/') {
+                if self.simple_glob_match(suffix_pattern, segment)
+                    || self.simple_glob_match(suffix_pattern, path)
+                {
+                    return true;
+                }
+            }
+            // Also check for patterns like "**/secrets/**" matching full paths
+            if suffix_pattern.ends_with("/**") {
+                let dir_name = suffix_pattern.trim_end_matches("/**");
+                return path.contains(&format!("/{}/", dir_name))
+                    || path.starts_with(&format!("{}/", dir_name));
+            }
+            false
+        } else if pattern.ends_with("/**") {
+            // Pattern like "src/**"
+            let prefix = pattern.trim_end_matches("/**");
             path.starts_with(prefix)
         } else if pattern.ends_with("*") {
+            // Pattern like "*.rs" or "src/*.rs"
             let prefix = pattern.trim_end_matches('*');
             path.starts_with(prefix)
         } else {
+            // Exact match
             path == pattern
+        }
+    }
+
+    /// Simple glob matching for single segment patterns
+    fn simple_glob_match(&self, pattern: &str, text: &str) -> bool {
+        if pattern.starts_with('.') && pattern.ends_with('*') {
+            // Pattern like ".env*"
+            let prefix = pattern.trim_end_matches('*');
+            text.starts_with(prefix)
+        } else if pattern.ends_with('*') {
+            let prefix = pattern.trim_end_matches('*');
+            text.starts_with(prefix)
+        } else {
+            text == pattern
         }
     }
 }
@@ -1035,11 +1070,23 @@ impl DependencyChecker {
 
     /// Extract Rust dependency from use statement
     fn extract_dependency(&self, line: &str) -> Option<String> {
+        // Standard library crates that should not be flagged as external deps
+        const BUILTIN_CRATES: &[&str] = &[
+            "std", "core", "alloc", "proc_macro", "test",
+            "self", "super", "crate",
+        ];
+
         if let Some(start) = line.find("use ") {
             let after_use = &line[start + 4..];
-            after_use
-                .find("::")
-                .map(|end| after_use[..end].trim().to_string())
+            after_use.find("::").and_then(|end| {
+                let dep = after_use[..end].trim();
+                // Filter out builtin crates
+                if BUILTIN_CRATES.contains(&dep) {
+                    None
+                } else {
+                    Some(dep.to_string())
+                }
+            })
         } else {
             None
         }

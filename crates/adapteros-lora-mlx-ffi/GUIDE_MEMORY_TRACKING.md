@@ -47,7 +47,7 @@ if memory::memory_usage() > threshold {
 Start with one of these based on your needs:
 
 ### Quick Reference (5-10 minutes)
-**File:** `MEMORY_QUICK_REFERENCE.md`
+**File:** `REFERENCE_MEMORY_QUICK.md`
 
 - API cheat sheet
 - Common code patterns
@@ -55,7 +55,7 @@ Start with one of these based on your needs:
 - Basic examples
 
 ### Developer Guide (20-30 minutes)
-**File:** `DEVELOPER_GUIDE.md`
+**File:** `GUIDE_DEVELOPER_MEMORY.md`
 
 - Integration patterns
 - Common memory patterns
@@ -64,7 +64,7 @@ Start with one of these based on your needs:
 - Integration checklist
 
 ### Complete Architecture (30-45 minutes)
-**File:** `MEMORY_MANAGEMENT.md`
+**File:** `REFERENCE_MEMORY_MANAGEMENT.md`
 
 - System architecture
 - Implementation details
@@ -115,12 +115,12 @@ Start with one of these based on your needs:
 - `tests/memory_tracking_tests.rs` - 21 comprehensive tests
 
 ### Documentation
-- `MEMORY_MANAGEMENT.md` - Complete architecture
-- `DEVELOPER_GUIDE.md` - Developer patterns and integration
-- `MEMORY_QUICK_REFERENCE.md` - API quick reference
+- `REFERENCE_MEMORY_MANAGEMENT.md` - Complete architecture
+- `GUIDE_DEVELOPER_MEMORY.md` - Developer patterns and integration
+- `REFERENCE_MEMORY_QUICK.md` - API quick reference
 - `IMPLEMENTATION_SUMMARY.md` - Implementation overview
 - `MEMORY_IMPLEMENTATION_COMPLETE.md` - Status report
-- `README_MEMORY_TRACKING.md` - This file
+- `GUIDE_MEMORY_TRACKING.md` - This file
 
 ## API Reference
 
@@ -303,9 +303,9 @@ The `weights` unordered_map in `MLXModelWrapper` fails to compile due to `mx::ar
 
 For detailed information:
 
-1. **5-minute intro:** Start with `MEMORY_QUICK_REFERENCE.md`
-2. **Integration guide:** Read `DEVELOPER_GUIDE.md`
-3. **Deep dive:** Review `MEMORY_MANAGEMENT.md`
+1. **5-minute intro:** Start with `REFERENCE_MEMORY_QUICK.md`
+2. **Integration guide:** Read `GUIDE_DEVELOPER_MEMORY.md`
+3. **Deep dive:** Review `REFERENCE_MEMORY_MANAGEMENT.md`
 4. **Status check:** See `MEMORY_IMPLEMENTATION_COMPLETE.md`
 
 ## Files at a Glance
@@ -316,9 +316,9 @@ For detailed information:
 | `wrapper.h` | C FFI declarations | +3 lines |
 | `src/lib.rs` | Rust wrapper module | +170 lines |
 | `tests/memory_tracking_tests.rs` | Test suite | 250 lines |
-| `MEMORY_MANAGEMENT.md` | Architecture docs | 450 lines |
-| `DEVELOPER_GUIDE.md` | Integration guide | 300 lines |
-| `MEMORY_QUICK_REFERENCE.md` | API reference | 200 lines |
+| `REFERENCE_MEMORY_MANAGEMENT.md` | Architecture docs | 450 lines |
+| `GUIDE_DEVELOPER_MEMORY.md` | Integration guide | 300 lines |
+| `REFERENCE_MEMORY_QUICK.md` | API reference | 200 lines |
 
 ## Total Implementation
 
@@ -330,10 +330,10 @@ For detailed information:
 ## Getting Started
 
 ### Step 1: Understand the Design
-Read: `MEMORY_QUICK_REFERENCE.md` (10 minutes)
+Read: `REFERENCE_MEMORY_QUICK.md` (10 minutes)
 
 ### Step 2: Learn Integration
-Read: `DEVELOPER_GUIDE.md` (20 minutes)
+Read: `GUIDE_DEVELOPER_MEMORY.md` (20 minutes)
 
 ### Step 3: Implement Integration
 Reference: Code examples in guides

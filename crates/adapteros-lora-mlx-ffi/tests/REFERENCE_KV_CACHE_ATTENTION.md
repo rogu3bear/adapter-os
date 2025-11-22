@@ -504,7 +504,7 @@ println!("Frequency decay mean ratio: {}", freq_analysis.mean_ratio);
 |------|------|-------|---------|
 | `kv_cache_attention_verification.rs` | Test Suite | 800+ | Main verification tests (45+ tests) |
 | `attention_debug_utilities.rs` | Utilities | 500+ | Debugging and visualization tools |
-| `KV_CACHE_ATTENTION_VERIFICATION.md` | Documentation | 400+ | This comprehensive guide |
+| `REFERENCE_KV_CACHE_ATTENTION.md` | Documentation | 400+ | This comprehensive guide |
 
 ---
 

@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{
     BatchInferItemResponse, BatchInferRequest, BatchInferResponse, ErrorResponse, InferResponse,
@@ -47,6 +48,8 @@ pub async fn batch_infer(
     Extension(claims): Extension<Claims>,
     Json(req): Json<BatchInferRequest>,
 ) -> Result<Json<BatchInferResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::InferenceExecute)?;
+
     if req.requests.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,

@@ -787,5 +787,16 @@ coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 
 ---
 
+## See Also
+
+- [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
+- [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend for research/training
+- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
+- [crates/adapteros-lora-kernel-coreml/README.md](../crates/adapteros-lora-kernel-coreml/README.md) - CoreML crate documentation
+- [crates/adapteros-lora-mlx-ffi/README.md](../crates/adapteros-lora-mlx-ffi/README.md) - MLX FFI crate documentation
+
+---
+
 **Maintained by**: James KC Auchterlonie
 **Copyright**: © 2025 JKCA / James KC Auchterlonie. All rights reserved.

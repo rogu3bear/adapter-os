@@ -674,5 +674,17 @@ After successful local build:
 
 ---
 
+## See Also
+
+- [QUICKSTART.md](QUICKSTART.md) - Quick start guide for deployment
+- [FEATURE_FLAGS.md](FEATURE_FLAGS.md) - Feature flag reference
+- [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision
+- [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend for research/training
+- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
+- [../CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution guidelines
+
+---
+
 **Maintained by**: James KC Auchterlonie
 **Copyright**: © 2025 JKCA / James KC Auchterlonie. All rights reserved.

@@ -410,3 +410,15 @@ cargo build --features multi-backend
 - **CLI Audit Command**: `crates/adapteros-cli/src/commands/audit_determinism.rs`
 - **Tests**: `tests/determinism_attestation.rs`, `tests/backend_selection.rs`, `tests/policy_attestation.rs`
 
+---
+
+## See Also
+
+- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns with diagrams
+- [DETERMINISTIC_EXECUTION.md](DETERMINISTIC_EXECUTION.md) - HKDF seeding hierarchy and tick ledger
+- [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
+- [FEATURE_FLAGS.md](FEATURE_FLAGS.md) - Feature flag reference for backend selection
+- [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend determinism guarantees
+- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend HKDF-seeded determinism
+- [../CLAUDE.md](../CLAUDE.md) - Developer quick reference guide
+

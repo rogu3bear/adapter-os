@@ -12,6 +12,7 @@ pub mod bootstrap;
 pub mod build_plan;
 pub mod cdp_list;
 pub mod code;
+pub mod codegraph;
 pub mod completions;
 pub mod config;
 pub mod db;
@@ -21,6 +22,7 @@ pub mod doctor;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
 pub mod drift_check;
 pub mod explain;
+pub mod federation;
 // pub mod export_callgraph;  // Temporarily disabled due to mplora-codegraph dependency
 pub mod golden;
 pub mod import;
@@ -33,6 +35,7 @@ pub mod manual;
 pub mod status;
 // pub mod metrics;  // Temporarily disabled - depends on adapteros-system-metrics
 pub mod infer;
+pub mod node;
 pub mod node_list;
 pub mod node_sync;
 pub mod node_verify;
@@ -40,17 +43,20 @@ pub mod pin;
 pub mod policy;
 pub mod profile;
 pub mod register_adapter;
+pub mod registry;
 pub mod registry_migrate;
 pub mod replay;
 pub mod report;
 pub mod rollback;
 pub mod router;
+pub mod secd;
 #[cfg(feature = "secd-support")]
 pub mod secd_audit;
 #[cfg(feature = "secd-support")]
 pub mod secd_status;
 pub mod serve;
 pub mod sync_registry;
+pub mod telemetry;
 pub mod telemetry_list;
 pub mod telemetry_show;
 pub mod trace;

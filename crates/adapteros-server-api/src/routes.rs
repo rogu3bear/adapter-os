@@ -23,8 +23,11 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::health::check_all_health,
         crate::health::check_component_health,
         handlers::auth_login,
+        handlers::auth_logout,
+        handlers::auth_me,
         handlers::propose_patch,
         handlers::infer,
+        handlers::streaming_infer::streaming_infer,
         handlers::batch::batch_infer,
         handlers::list_adapters,
         handlers::get_adapter,
@@ -100,6 +103,23 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::plugins::list_plugins,
         handlers::get_uma_memory,
         handlers::hydrate_tenant_from_bundle,
+        // Service handlers
+        handlers::services::start_service,
+        handlers::services::stop_service,
+        handlers::services::restart_service,
+        handlers::services::start_essential_services,
+        handlers::services::stop_essential_services,
+        handlers::services::get_service_logs,
+        // Models handlers
+        handlers::models::load_model,
+        handlers::models::unload_model,
+        handlers::models::get_model_status,
+        handlers::models::validate_model,
+        // Auth enhanced handlers
+        handlers::auth_enhanced::refresh_token_handler,
+        handlers::auth_enhanced::bootstrap_admin_handler,
+        handlers::auth_enhanced::list_sessions_handler,
+        handlers::auth_enhanced::revoke_session_handler,
         // Routing decision handlers (PRD-04)
         handlers::routing_decisions::get_routing_decisions,
         handlers::routing_decisions::get_routing_decision_by_id,
@@ -136,6 +156,35 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::activity::create_activity_event,
         handlers::activity::list_activity_events,
         handlers::activity::list_user_workspace_activity,
+        // Workspace handlers
+        handlers::workspaces::list_workspaces,
+        handlers::workspaces::list_user_workspaces,
+        handlers::workspaces::create_workspace,
+        handlers::workspaces::get_workspace,
+        handlers::workspaces::update_workspace,
+        handlers::workspaces::delete_workspace,
+        handlers::workspaces::list_workspace_members,
+        handlers::workspaces::add_workspace_member,
+        handlers::workspaces::update_workspace_member,
+        handlers::workspaces::remove_workspace_member,
+        handlers::workspaces::list_workspace_resources,
+        handlers::workspaces::share_workspace_resource,
+        handlers::workspaces::unshare_workspace_resource,
+        // Notification handlers
+        handlers::notifications::list_notifications,
+        handlers::notifications::get_notification_summary,
+        handlers::notifications::mark_notification_read,
+        handlers::notifications::mark_all_notifications_read,
+        // Dashboard handlers
+        handlers::dashboard::get_dashboard_config,
+        handlers::dashboard::update_dashboard_config,
+        handlers::dashboard::reset_dashboard_config,
+        // Tutorial handlers
+        handlers::tutorials::list_tutorials,
+        handlers::tutorials::mark_tutorial_completed,
+        handlers::tutorials::unmark_tutorial_completed,
+        handlers::tutorials::mark_tutorial_dismissed,
+        handlers::tutorials::unmark_tutorial_dismissed,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -151,6 +200,10 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::ProposePatchResponse,
         crate::types::InferRequest,
         crate::types::InferResponse,
+        handlers::streaming_infer::StreamingInferRequest,
+        handlers::streaming_infer::StreamingChunk,
+        handlers::streaming_infer::StreamingChoice,
+        handlers::streaming_infer::Delta,
         crate::types::BatchInferRequest,
         crate::types::BatchInferResponse,
         crate::types::BatchInferItemRequest,
@@ -258,6 +311,44 @@ use utoipa_swagger_ui::SwaggerUi;
         // Activity types
         handlers::activity::CreateActivityEventRequest,
         handlers::activity::ActivityEventResponse,
+        // Service control types
+        handlers::services::ServiceControlResponse,
+        handlers::services::LogsQuery,
+        // Models types
+        handlers::models::ImportModelRequest,
+        handlers::models::ImportModelResponse,
+        handlers::models::ModelStatusResponse,
+        handlers::models::ModelValidationResponse,
+        handlers::models::ModelRuntimeHealthResponse,
+        // Auth enhanced types
+        handlers::auth_enhanced::BootstrapRequest,
+        handlers::auth_enhanced::BootstrapResponse,
+        handlers::auth_enhanced::RefreshResponse,
+        handlers::auth_enhanced::LogoutResponse,
+        handlers::auth_enhanced::SessionInfo,
+        handlers::auth_enhanced::SessionsResponse,
+        // Workspace types
+        handlers::workspaces::WorkspaceResponse,
+        handlers::workspaces::CreateWorkspaceRequest,
+        handlers::workspaces::UpdateWorkspaceRequest,
+        handlers::workspaces::AddWorkspaceMemberRequest,
+        handlers::workspaces::UpdateWorkspaceMemberRequest,
+        handlers::workspaces::ShareResourceRequest,
+        // Notification types
+        handlers::notifications::NotificationResponse,
+        handlers::notifications::NotificationSummary,
+        // Dashboard types
+        adapteros_api_types::dashboard::DashboardWidgetConfig,
+        adapteros_api_types::dashboard::GetDashboardConfigResponse,
+        adapteros_api_types::dashboard::UpdateDashboardConfigRequest,
+        adapteros_api_types::dashboard::UpdateDashboardConfigResponse,
+        adapteros_api_types::dashboard::ResetDashboardConfigResponse,
+        // Tutorial types
+        handlers::tutorials::TutorialStep,
+        handlers::tutorials::TutorialResponse,
+        handlers::tutorials::TutorialStatusResponse,
+        // Auth types
+        crate::types::UserInfoResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -280,6 +371,10 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "inference", description = "Model inference endpoints"),
         (name = "promotion", description = "Golden run promotion workflow"),
         (name = "activity", description = "Activity event tracking and feeds"),
+        (name = "workspaces", description = "Workspace management and resource sharing"),
+        (name = "notifications", description = "User notifications and alerts"),
+        (name = "dashboard", description = "Dashboard configuration and widgets"),
+        (name = "tutorials", description = "Tutorial management and progress tracking"),
     )
 )]
 pub struct ApiDoc;
@@ -298,6 +393,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/login",
             post(handlers::auth_enhanced::login_handler),
         )
+        .route(
+            "/v1/auth/bootstrap",
+            post(handlers::auth_enhanced::bootstrap_admin_handler),
+        )
         .route("/v1/meta", get(handlers::meta));
 
     // Metrics endpoint (custom auth, not JWT)
@@ -309,6 +408,18 @@ pub fn build(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/v1/auth/logout", post(handlers::auth_logout))
         .route("/v1/auth/me", get(handlers::auth_me))
+        .route(
+            "/v1/auth/refresh",
+            post(handlers::auth_enhanced::refresh_token_handler),
+        )
+        .route(
+            "/v1/auth/sessions",
+            get(handlers::auth_enhanced::list_sessions_handler),
+        )
+        .route(
+            "/v1/auth/sessions/{jti}",
+            delete(handlers::auth_enhanced::revoke_session_handler),
+        )
         .route(
             "/v1/tenants",
             get(handlers::list_tenants).post(handlers::create_tenant),
@@ -352,8 +463,49 @@ pub fn build(state: AppState) -> Router {
             "/v1/nodes/{node_id}/details",
             get(handlers::get_node_details),
         )
+        // Service control routes
+        .route(
+            "/v1/services/{service_id}/start",
+            post(handlers::services::start_service),
+        )
+        .route(
+            "/v1/services/{service_id}/stop",
+            post(handlers::services::stop_service),
+        )
+        .route(
+            "/v1/services/{service_id}/restart",
+            post(handlers::services::restart_service),
+        )
+        .route(
+            "/v1/services/essential/start",
+            post(handlers::services::start_essential_services),
+        )
+        .route(
+            "/v1/services/essential/stop",
+            post(handlers::services::stop_essential_services),
+        )
+        .route(
+            "/v1/services/{service_id}/logs",
+            get(handlers::services::get_service_logs),
+        )
         .route("/v1/models/import", post(handlers::import_model))
         .route("/v1/models/status", get(handlers::get_base_model_status))
+        .route(
+            "/v1/models/{model_id}/load",
+            post(handlers::models::load_model),
+        )
+        .route(
+            "/v1/models/{model_id}/unload",
+            post(handlers::models::unload_model),
+        )
+        .route(
+            "/v1/models/{model_id}/status",
+            get(handlers::models::get_model_status),
+        )
+        .route(
+            "/v1/models/{model_id}/validate",
+            get(handlers::models::validate_model),
+        )
         .route("/v1/plans", get(handlers::list_plans))
         .route("/v1/plans/build", post(handlers::build_plan))
         .route(
@@ -481,6 +633,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/patch/propose", post(handlers::propose_patch))
         .route("/v1/infer", post(handlers::infer))
+        .route("/v1/infer/stream", post(handlers::streaming_infer::streaming_infer))
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))

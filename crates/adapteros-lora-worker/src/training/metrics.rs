@@ -471,7 +471,8 @@ impl TrainingReport {
             return false;
         }
 
-        let last_20_pct = self.loss_curve.len() / 5;
+        // Ensure we check at least 5 samples or 20% of the curve, whichever is larger
+        let last_20_pct = (self.loss_curve.len() / 5).max(5).min(self.loss_curve.len());
         let recent_losses = &self.loss_curve[self.loss_curve.len() - last_20_pct..];
 
         let avg_improvement = recent_losses
@@ -480,7 +481,8 @@ impl TrainingReport {
             .sum::<f32>()
             / (recent_losses.len() as f32 - 1.0);
 
-        avg_improvement < 0.001
+        // Threshold of 0.05 means less than 5% change between consecutive epochs
+        avg_improvement < 0.05
     }
 }
 

@@ -34,6 +34,15 @@ pub async fn auth_login(
 }
 
 /// Logout endpoint (client-side token discard)
+#[utoipa::path(
+    post,
+    path = "/v1/auth/logout",
+    responses(
+        (status = 204, description = "Logged out successfully"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
 pub async fn auth_logout(
     Extension(_claims): Extension<Claims>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
@@ -43,6 +52,15 @@ pub async fn auth_logout(
 }
 
 /// Get current user info
+#[utoipa::path(
+    get,
+    path = "/v1/auth/me",
+    responses(
+        (status = 200, description = "Current user info", body = UserInfoResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
 pub async fn auth_me(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<UserInfoResponse>, (StatusCode, Json<ErrorResponse>)> {

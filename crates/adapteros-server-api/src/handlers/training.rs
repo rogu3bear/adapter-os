@@ -6,6 +6,7 @@
 //! 【2025-01-20†rectification†training_handlers】
 
 use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
@@ -28,9 +29,11 @@ use tracing::{error, info};
 )]
 pub async fn list_training_jobs(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<TrainingListParams>,
 ) -> Result<Json<TrainingJobListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingView)?;
+
     // Get jobs from training service
     let all_jobs = state.training_service.list_jobs().await.map_err(|e| {
         error!(error = %e, "Failed to list training jobs");
@@ -107,9 +110,11 @@ pub async fn list_training_jobs(
 )]
 pub async fn get_training_job(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingView)?;
+
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
         error!(job_id = %job_id, error = %e, "Failed to get training job");
         let error_str = e.to_string();
@@ -153,6 +158,8 @@ pub async fn start_training(
     Extension(claims): Extension<Claims>,
     Json(request): Json<StartTrainingRequest>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
     // Validate adapter name
     if request.adapter_name.is_empty() {
         return Err((
@@ -212,6 +219,8 @@ pub async fn cancel_training(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingCancel)?;
+
     state
         .training_service
         .cancel_job(&job_id)

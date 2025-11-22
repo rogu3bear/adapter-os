@@ -10,12 +10,12 @@
 ## Document Navigation
 
 ### Start Here
-1. **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** ← Best for quick lookups and commands
-2. **[VERIFICATION_SUMMARY.md](VERIFICATION_SUMMARY.md)** ← Executive overview
-3. **[TEST_EXECUTION_GUIDE.md](TEST_EXECUTION_GUIDE.md)** ← How to run tests
+1. **[REFERENCE_TESTS_QUICK.md](REFERENCE_TESTS_QUICK.md)** ← Best for quick lookups and commands
+2. **[STATUS_VERIFICATION_SUMMARY.md](STATUS_VERIFICATION_SUMMARY.md)** ← Executive overview
+3. **[GUIDE_TEST_EXECUTION.md](GUIDE_TEST_EXECUTION.md)** ← How to run tests
 
 ### For Detailed Information
-4. **[KV_CACHE_ATTENTION_VERIFICATION.md](KV_CACHE_ATTENTION_VERIFICATION.md)** ← Complete test documentation
+4. **[REFERENCE_KV_CACHE_ATTENTION.md](REFERENCE_KV_CACHE_ATTENTION.md)** ← Complete test documentation
 
 ### Test Files (Source Code)
 5. **[kv_cache_attention_verification.rs](kv_cache_attention_verification.rs)** ← 45+ main tests
@@ -23,23 +23,23 @@
 7. **[ffi_verification_examples.rs](ffi_verification_examples.rs)** ← Reference examples
 
 ### This File
-8. **[INDEX.md](INDEX.md)** ← You are here
+8. **[INDEX_TESTS.md](INDEX_TESTS.md)** ← You are here
 
 ---
 
 ## Quick Navigation by Task
 
 ### "I want to run tests"
-→ Go to **[TEST_EXECUTION_GUIDE.md](TEST_EXECUTION_GUIDE.md)** Section: Quick Start
+→ Go to **[GUIDE_TEST_EXECUTION.md](GUIDE_TEST_EXECUTION.md)** Section: Quick Start
 
 ### "I want to understand what tests exist"
-→ Go to **[VERIFICATION_SUMMARY.md](VERIFICATION_SUMMARY.md)** Section: Test Coverage Summary
+→ Go to **[STATUS_VERIFICATION_SUMMARY.md](STATUS_VERIFICATION_SUMMARY.md)** Section: Test Coverage Summary
 
 ### "I need a specific command"
-→ Go to **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** Section: Test Command Reference
+→ Go to **[REFERENCE_TESTS_QUICK.md](REFERENCE_TESTS_QUICK.md)** Section: Test Command Reference
 
 ### "I need to debug a failing test"
-→ Go to **[TEST_EXECUTION_GUIDE.md](TEST_EXECUTION_GUIDE.md)** Section: Debugging Failed Tests
+→ Go to **[GUIDE_TEST_EXECUTION.md](GUIDE_TEST_EXECUTION.md)** Section: Debugging Failed Tests
 
 ### "I want to understand the implementation"
 → Go to **[kv_cache_attention_verification.rs](kv_cache_attention_verification.rs)** (read source code with inline comments)
@@ -48,7 +48,7 @@
 → Go to **[ffi_verification_examples.rs](ffi_verification_examples.rs)** (6 complete examples)
 
 ### "I want complete test documentation"
-→ Go to **[KV_CACHE_ATTENTION_VERIFICATION.md](KV_CACHE_ATTENTION_VERIFICATION.md)** (400+ lines, all tests described)
+→ Go to **[REFERENCE_KV_CACHE_ATTENTION.md](REFERENCE_KV_CACHE_ATTENTION.md)** (400+ lines, all tests described)
 
 ---
 
@@ -56,11 +56,11 @@
 
 | File | Type | Size | Purpose | Read Time |
 |------|------|------|---------|-----------|
-| INDEX.md | Navigation | 2KB | This index | 5 min |
-| QUICK_REFERENCE.md | Reference | 8KB | Command/formula lookup | 10 min |
-| VERIFICATION_SUMMARY.md | Summary | 12KB | Executive overview | 15 min |
-| TEST_EXECUTION_GUIDE.md | Guide | 10KB | How to run tests | 15 min |
-| KV_CACHE_ATTENTION_VERIFICATION.md | Documentation | 20KB | Complete test guide | 30 min |
+| INDEX_TESTS.md | Navigation | 2KB | This index | 5 min |
+| REFERENCE_TESTS_QUICK.md | Reference | 8KB | Command/formula lookup | 10 min |
+| STATUS_VERIFICATION_SUMMARY.md | Summary | 12KB | Executive overview | 15 min |
+| GUIDE_TEST_EXECUTION.md | Guide | 10KB | How to run tests | 15 min |
+| REFERENCE_KV_CACHE_ATTENTION.md | Documentation | 20KB | Complete test guide | 30 min |
 | kv_cache_attention_verification.rs | Test Code | 25KB | 45+ test cases | 40 min |
 | attention_debug_utilities.rs | Utility Code | 18KB | Debug tools | 30 min |
 | ffi_verification_examples.rs | Example Code | 15KB | Usage examples | 25 min |
@@ -126,7 +126,7 @@ cargo test test_sdpa --lib            # Attention tests
 # Run with output
 cargo test test_name -- --nocapture
 
-# For more: See QUICK_REFERENCE.md
+# For more: See REFERENCE_TESTS_QUICK.md
 ```
 
 ---
@@ -176,18 +176,18 @@ cargo test test_name -- --nocapture
 ## For Developers
 
 ### New to the Codebase?
-1. Read **QUICK_REFERENCE.md** (10 min)
-2. Skim **VERIFICATION_SUMMARY.md** (10 min)
-3. Run tests with **TEST_EXECUTION_GUIDE.md** (5 min)
+1. Read **REFERENCE_TESTS_QUICK.md** (10 min)
+2. Skim **STATUS_VERIFICATION_SUMMARY.md** (10 min)
+3. Run tests with **GUIDE_TEST_EXECUTION.md** (5 min)
 4. Browse example code in **ffi_verification_examples.rs** (10 min)
 
 ### Need to Debug?
-1. Consult **TEST_EXECUTION_GUIDE.md** - "Debugging Failed Tests"
-2. Check **QUICK_REFERENCE.md** - "Common Issues and Fixes"
+1. Consult **GUIDE_TEST_EXECUTION.md** - "Debugging Failed Tests"
+2. Check **REFERENCE_TESTS_QUICK.md** - "Common Issues and Fixes"
 3. Review **ffi_verification_examples.rs** - "Example Error Handling"
 
 ### Want to Add Tests?
-1. See **KV_CACHE_ATTENTION_VERIFICATION.md** - "Test Patterns"
+1. See **REFERENCE_KV_CACHE_ATTENTION.md** - "Test Patterns"
 2. Reference **kv_cache_attention_verification.rs** - Look at similar tests
 3. Follow same structure: Arrange → Act → Assert
 
@@ -252,9 +252,9 @@ finished in 2.35s
 
 ## Integration Checklist
 
-- [ ] Reviewed QUICK_REFERENCE.md
-- [ ] Read VERIFICATION_SUMMARY.md
-- [ ] Ran tests using TEST_EXECUTION_GUIDE.md
+- [ ] Reviewed REFERENCE_TESTS_QUICK.md
+- [ ] Read STATUS_VERIFICATION_SUMMARY.md
+- [ ] Ran tests using GUIDE_TEST_EXECUTION.md
 - [ ] Reviewed test code in kv_cache_attention_verification.rs
 - [ ] Understood at least one example from ffi_verification_examples.rs
 - [ ] Verified all tests pass locally
@@ -266,16 +266,16 @@ finished in 2.35s
 ## Support and Troubleshooting
 
 ### Test Won't Compile
-→ **TEST_EXECUTION_GUIDE.md** → "Troubleshooting" → "Issue: Tests Won't Compile"
+→ **GUIDE_TEST_EXECUTION.md** → "Troubleshooting" → "Issue: Tests Won't Compile"
 
 ### Test Fails
-→ **TEST_EXECUTION_GUIDE.md** → "Debugging Failed Tests"
+→ **GUIDE_TEST_EXECUTION.md** → "Debugging Failed Tests"
 
 ### Need More Info
-→ **KV_CACHE_ATTENTION_VERIFICATION.md** → Specific section for your test
+→ **REFERENCE_KV_CACHE_ATTENTION.md** → Specific section for your test
 
 ### Not Sure Which File to Read
-→ Start with **QUICK_REFERENCE.md**
+→ Start with **REFERENCE_TESTS_QUICK.md**
 
 ---
 
@@ -284,8 +284,8 @@ finished in 2.35s
 ### Adding New Tests
 1. Add to appropriate section in `kv_cache_attention_verification.rs`
 2. Follow pattern: `#[test]` + arrangement → act → assert
-3. Update **KV_CACHE_ATTENTION_VERIFICATION.md** with description
-4. Update test count in **VERIFICATION_SUMMARY.md**
+3. Update **REFERENCE_KV_CACHE_ATTENTION.md** with description
+4. Update test count in **STATUS_VERIFICATION_SUMMARY.md**
 
 ### Updating Documentation
 1. Edit relevant .md file
@@ -337,13 +337,13 @@ See the main project LICENSE file for details.
 Root: /Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/tests/
 
 Start Here:
-  ├── INDEX.md (you are here)
-  ├── QUICK_REFERENCE.md (best for quick lookup)
-  └── VERIFICATION_SUMMARY.md (executive overview)
+  ├── INDEX_TESTS.md (you are here)
+  ├── REFERENCE_TESTS_QUICK.md (best for quick lookup)
+  └── STATUS_VERIFICATION_SUMMARY.md (executive overview)
 
 How-To Guides:
-  ├── TEST_EXECUTION_GUIDE.md (running tests)
-  └── KV_CACHE_ATTENTION_VERIFICATION.md (all tests described)
+  ├── GUIDE_TEST_EXECUTION.md (running tests)
+  └── REFERENCE_KV_CACHE_ATTENTION.md (all tests described)
 
 Test Implementation:
   ├── kv_cache_attention_verification.rs (main test suite)
@@ -357,7 +357,7 @@ Test Implementation:
 
 **Quick Start:**
 1. Run: `cargo test -p adapteros-lora-mlx-ffi --test kv_cache_attention_verification --lib`
-2. Read: QUICK_REFERENCE.md
+2. Read: REFERENCE_TESTS_QUICK.md
 3. Explore: ffi_verification_examples.rs
 
 ---

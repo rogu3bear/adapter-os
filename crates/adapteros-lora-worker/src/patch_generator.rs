@@ -276,7 +276,12 @@ impl PatchParser {
 
                 // Start new file
                 if let Some(stripped) = line.strip_prefix("+++ ") {
-                    current_file = Some(stripped.to_string());
+                    // Strip git diff prefixes (a/, b/) if present
+                    let file_path = stripped
+                        .strip_prefix("b/")
+                        .or_else(|| stripped.strip_prefix("a/"))
+                        .unwrap_or(stripped);
+                    current_file = Some(file_path.to_string());
                     current_hunks.clear();
                     current_lines = 0;
                 }

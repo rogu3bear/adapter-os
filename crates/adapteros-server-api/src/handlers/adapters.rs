@@ -1744,10 +1744,90 @@ pub async fn import_adapter(
         ));
     }
 
-    // TODO: Parse manifest from AOS file, validate, and register adapter
-    // For now, generate a placeholder adapter ID
+    // Parse AOS header (64 bytes)
+    let weights_offset = u64::from_le_bytes([
+        data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
+    ]) as usize;
+    let weights_size = u64::from_le_bytes([
+        data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23],
+    ]) as usize;
+    let manifest_offset = u64::from_le_bytes([
+        data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
+    ]) as usize;
+    let manifest_size = u64::from_le_bytes([
+        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
+    ]) as usize;
+
+    // Validate offsets
+    if manifest_offset + manifest_size > data.len() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid AOS file: manifest offset out of bounds")
+                    .with_code("INVALID_FORMAT"),
+            ),
+        ));
+    }
+
+    // Extract and parse manifest JSON
+    let manifest_bytes = &data[manifest_offset..manifest_offset + manifest_size];
+    let manifest_str = std::str::from_utf8(manifest_bytes).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid AOS file: manifest is not valid UTF-8")
+                    .with_code("INVALID_FORMAT"),
+            ),
+        )
+    })?;
+
+    let manifest: serde_json::Value = serde_json::from_str(manifest_str).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new(format!("invalid AOS file: manifest JSON parse error: {}", e))
+                    .with_code("INVALID_FORMAT"),
+            ),
+        )
+    })?;
+
+    // Extract adapter fields from manifest
+    let adapter_id = manifest
+        .get("adapter_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("imported-{}", uuid::Uuid::new_v4()));
+
+    let adapter_name = manifest
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| _name.clone());
+
+    let rank = manifest
+        .get("rank")
+        .and_then(|v| v.as_i64())
+        .map(|r| r as i32)
+        .unwrap_or(16);
+
+    let version = manifest
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "1.0.0".to_string());
+
+    let weights_hash = manifest
+        .get("weights_hash")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            // Compute hash if not present
+            use adapteros_core::B3Hash;
+            let weights_data = &data[weights_offset..weights_offset + weights_size];
+            B3Hash::hash(weights_data).to_hex().to_string()
+        });
+
     let auto_load = params.get("load").map(|v| v == "true").unwrap_or(false);
-    let adapter_id = format!("imported-{}", uuid::Uuid::new_v4());
 
     // Emit telemetry event
     info!(
@@ -1755,6 +1835,8 @@ pub async fn import_adapter(
         adapter_id = %adapter_id,
         auto_load = %auto_load,
         file_size = %data.len(),
+        rank = %rank,
+        weights_hash = %weights_hash,
         actor = %claims.sub,
         "Adapter imported from AOS file"
     );
@@ -1769,22 +1851,32 @@ pub async fn import_adapter(
     )
     .await;
 
-    // Return adapter response with flat fields
+    // Return adapter response with manifest data
     let now = chrono::Utc::now().to_rfc3339();
     Ok(Json(AdapterResponse {
         schema_version: "v1".to_string(),
         id: adapter_id.clone(),
         adapter_id: adapter_id.clone(),
-        name: _name,
-        hash_b3: "pending".to_string(),
-        rank: 16,
-        tier: if auto_load { 1 } else { 0 },
+        name: adapter_name,
+        hash_b3: weights_hash,
+        rank,
+        tier: if auto_load { "warm".to_string() } else { "ephemeral".to_string() },
         languages: vec![],
         framework: None,
+        category: None,
+        scope: None,
+        framework_id: None,
+        framework_version: None,
+        repo_id: None,
+        commit_sha: None,
+        intent: None,
         created_at: now,
+        updated_at: None,
         stats: None,
-        version: "1.0.0".to_string(),
+        version,
         lifecycle_state: "draft".to_string(),
         runtime_state: Some(if auto_load { "warm".to_string() } else { "cold".to_string() }),
+        pinned: None,
+        memory_bytes: None,
     }))
 }

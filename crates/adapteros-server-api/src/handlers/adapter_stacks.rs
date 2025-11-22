@@ -1,5 +1,7 @@
 use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
+use crate::types::ErrorResponse;
 use adapteros_api_types::adapters::*;
 use adapteros_core::B3Hash;
 use adapteros_core::StackName;
@@ -72,6 +74,9 @@ pub async fn create_stack(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateStackRequest>,
 ) -> Result<(StatusCode, Json<StackResponse>), (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterRegister)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
     let tenant_id = claims.tenant_id.clone();
 
     // Validate stack name format
@@ -147,6 +152,9 @@ pub async fn list_stacks(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<StackResponse>>, (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterView)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
     let tenant_id = claims.tenant_id;
 
     let rows = state
@@ -203,6 +211,9 @@ pub async fn get_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<StackResponse>, (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterView)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
     let tenant_id = claims.tenant_id;
 
     let row = state
@@ -270,6 +281,9 @@ pub async fn delete_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterRegister)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
     let tenant_id = claims.tenant_id;
 
     let deleted = state
@@ -306,6 +320,9 @@ pub async fn activate_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterLoad)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
     let tenant_id = claims.tenant_id;
 
     // First verify the stack exists and parse adapter IDs (including version for telemetry)
@@ -540,6 +557,9 @@ pub async fn deactivate_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterLoad)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
     let tenant_id = claims.tenant_id;
 
     let previous_stack = {

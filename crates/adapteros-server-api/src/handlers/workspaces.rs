@@ -60,6 +60,16 @@ pub struct ShareResourceRequest {
 }
 
 /// List all workspaces
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces",
+    responses(
+        (status = 200, description = "List of workspaces", body = Vec<WorkspaceResponse>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn list_workspaces(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -94,6 +104,16 @@ pub async fn list_workspaces(
 }
 
 /// List workspaces for current user
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/me",
+    responses(
+        (status = 200, description = "User's workspaces", body = Vec<WorkspaceResponse>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn list_user_workspaces(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -135,6 +155,18 @@ pub async fn list_user_workspaces(
 }
 
 /// Create a new workspace
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces",
+    request_body = CreateWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace created", body = WorkspaceResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn create_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -222,6 +254,21 @@ pub async fn create_workspace(
 }
 
 /// Get a workspace by ID
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 200, description = "Workspace details", body = WorkspaceResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Workspace not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn get_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -281,6 +328,23 @@ pub async fn get_workspace(
 }
 
 /// Update a workspace
+#[utoipa::path(
+    put,
+    path = "/v1/workspaces/{workspace_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    request_body = UpdateWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace updated", body = WorkspaceResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Workspace not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn update_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -384,6 +448,21 @@ pub async fn update_workspace(
 }
 
 /// Delete a workspace
+#[utoipa::path(
+    delete,
+    path = "/v1/workspaces/{workspace_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 200, description = "Workspace deleted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Workspace not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn delete_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -450,6 +529,21 @@ pub async fn delete_workspace(
 }
 
 /// List workspace members
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}/members",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 200, description = "List of workspace members"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Workspace not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn list_workspace_members(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -515,6 +609,22 @@ pub async fn list_workspace_members(
 }
 
 /// Add a workspace member
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces/{workspace_id}/members",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    request_body = AddWorkspaceMemberRequest,
+    responses(
+        (status = 200, description = "Member added"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn add_workspace_member(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -605,6 +715,24 @@ pub async fn add_workspace_member(
 }
 
 /// Update workspace member role
+#[utoipa::path(
+    put,
+    path = "/v1/workspaces/{workspace_id}/members/{member_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID"),
+        ("member_id" = String, Path, description = "Member ID")
+    ),
+    request_body = UpdateWorkspaceMemberRequest,
+    responses(
+        (status = 200, description = "Member role updated"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Member not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn update_workspace_member(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -715,6 +843,22 @@ pub async fn update_workspace_member(
 }
 
 /// Remove workspace member
+#[utoipa::path(
+    delete,
+    path = "/v1/workspaces/{workspace_id}/members/{member_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID"),
+        ("member_id" = String, Path, description = "Member ID")
+    ),
+    responses(
+        (status = 200, description = "Member removed"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Member not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn remove_workspace_member(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -808,6 +952,21 @@ pub async fn remove_workspace_member(
 }
 
 /// List workspace resources
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}/resources",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 200, description = "List of workspace resources"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Workspace not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn list_workspace_resources(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -872,6 +1031,23 @@ pub async fn list_workspace_resources(
 }
 
 /// Share a resource to workspace
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces/{workspace_id}/resources",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID")
+    ),
+    request_body = ShareResourceRequest,
+    responses(
+        (status = 200, description = "Resource shared"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Resource not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn share_workspace_resource(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1060,6 +1236,23 @@ pub async fn share_workspace_resource(
 }
 
 /// Remove resource from workspace
+#[utoipa::path(
+    delete,
+    path = "/v1/workspaces/{workspace_id}/resources/{resource_id}",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace ID"),
+        ("resource_id" = String, Path, description = "Resource ID"),
+        ("resource_type" = String, Query, description = "Resource type (adapter, node, or model)")
+    ),
+    responses(
+        (status = 200, description = "Resource unshared"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn unshare_workspace_resource(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

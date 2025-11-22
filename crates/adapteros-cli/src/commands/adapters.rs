@@ -97,9 +97,12 @@ async fn register(args: RegisterArgs, output: &OutputWriter) -> Result<()> {
         name,
         hash_b3,
         rank,
-        tier,
+        tier: tier.to_string(),
         languages: vec![],
         framework: None,
+        category: "code".to_string(),
+        scope: None,
+        expires_at: None,
     };
 
     let url = format!(

@@ -448,7 +448,8 @@ mod tests {
 
     #[test]
     fn test_kv_cache_allocation() {
-        let mut cache = KvCache::new(1024 * 1024); // 1 MB
+        // Need 2x capacity for K+V buffers: 128 tokens * 8192 bytes/token * 2 = 2MB
+        let mut cache = KvCache::new(4 * 1024 * 1024); // 4 MB
 
         // Allocate for 128 token sequence
         let seq_id = cache
@@ -460,7 +461,7 @@ mod tests {
         // Check usage
         let (used, capacity) = cache.usage();
         assert!(used > 0);
-        assert_eq!(capacity, 1024 * 1024);
+        assert_eq!(capacity, 4 * 1024 * 1024);
 
         // Free allocation
         cache.free(seq_id).expect("Test cache free should succeed");
@@ -479,7 +480,8 @@ mod tests {
 
     #[test]
     fn test_kv_cache_zeroize() {
-        let mut cache = KvCache::new(1024 * 1024);
+        // Need 2x capacity for K+V buffers per sequence
+        let mut cache = KvCache::new(8 * 1024 * 1024); // 8 MB for multiple allocations
 
         // Allocate some sequences
         let _seq1 = cache
@@ -524,8 +526,9 @@ mod tests {
 
     #[test]
     fn test_reset_all() {
-        let mut cache = KvCache::new(1024 * 1024);
-        let seq1 = cache.allocate(10).unwrap();
+        // seq_len 10 rounds to 128 tokens, needs 128 * 8192 * 2 = 2MB
+        let mut cache = KvCache::new(4 * 1024 * 1024);
+        let _seq1 = cache.allocate(10).unwrap();
         assert!(!cache.allocations.is_empty());
         assert!(cache.used_bytes > 0);
 
@@ -546,7 +549,10 @@ mod proptests {
     proptest! {
         # [test]
         fn prop_kv_allocate_no_overlap(seqs in prop::collection::vec(1usize..1000, 1..10)) {
-            let mut cache = KvCache::new(1024*1024*10); // 10MB
+            // Each seq can be up to 1000 tokens, rounded to 1000
+            // 1000 tokens * 8192 bytes = ~8MB per seq, K+V = 16MB per seq
+            // 10 seqs = 160MB max, use 200MB
+            let mut cache = KvCache::new(200 * 1024 * 1024); // 200MB
             let mut offsets = Vec::new();
             for seq_len in seqs {
                 let id = cache.allocate(seq_len).unwrap();
@@ -560,7 +566,9 @@ mod proptests {
 
         # [test]
         fn prop_kv_reset_reallocates_from_zero(seq_len in 1usize..512) {
-            let mut cache = KvCache::new(1024*1024);
+            // seq_len up to 512 tokens, rounded to 512
+            // 512 tokens * 8192 bytes = 4MB, K+V = 8MB needed, use 16MB
+            let mut cache = KvCache::new(16 * 1024 * 1024);
             let _id1 = cache.allocate(seq_len).unwrap();
             cache.reset_all();
             let id2 = cache.allocate(seq_len).unwrap();

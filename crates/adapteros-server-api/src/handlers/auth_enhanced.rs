@@ -69,6 +69,17 @@ pub struct SessionsResponse {
 ///
 /// Can only be called when no users exist in the database.
 /// Creates a single admin user for initial system access.
+#[utoipa::path(
+    post,
+    path = "/v1/auth/bootstrap",
+    request_body = BootstrapRequest,
+    responses(
+        (status = 200, description = "Admin user created", body = BootstrapResponse),
+        (status = 403, description = "Bootstrap not allowed"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth"
+)]
 pub async fn bootstrap_admin_handler(
     State(state): State<AppState>,
     Extension(client_ip): Extension<ClientIp>,
@@ -452,6 +463,16 @@ pub async fn logout_handler(
 }
 
 /// Token refresh handler
+#[utoipa::path(
+    post,
+    path = "/v1/auth/refresh",
+    responses(
+        (status = 200, description = "Token refreshed", body = RefreshResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth"
+)]
 pub async fn refresh_token_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -520,6 +541,16 @@ pub async fn refresh_token_handler(
 }
 
 /// List active sessions for current user
+#[utoipa::path(
+    get,
+    path = "/v1/auth/sessions",
+    responses(
+        (status = 200, description = "Active sessions", body = SessionsResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth"
+)]
 pub async fn list_sessions_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -550,6 +581,20 @@ pub async fn list_sessions_handler(
 }
 
 /// Revoke a specific session
+#[utoipa::path(
+    delete,
+    path = "/v1/auth/sessions/{jti}",
+    params(
+        ("jti" = String, Path, description = "Session ID (JTI) to revoke")
+    ),
+    responses(
+        (status = 200, description = "Session revoked", body = LogoutResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Session not found"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "auth"
+)]
 pub async fn revoke_session_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

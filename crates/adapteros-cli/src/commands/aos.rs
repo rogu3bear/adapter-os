@@ -1,8 +1,7 @@
 //! AOS adapter commands
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
+//! This module provides CLI commands for working with .aos adapter files.
+//! Uses adapteros-aos v3.0 types (see `crates/adapteros-aos/src/implementation.rs`).
 
 // ============================================================================
 // AOS COORDINATION HEADER
@@ -10,7 +9,7 @@
 // File: crates/adapteros-cli/src/commands/aos.rs
 // Phase: 2 - System Integration
 // Assigned: Intern B (CLI Commands Team)
-// Status: STUBBED - Pending migration to adapteros-aos v3.0
+// Status: STUBBED - Implementation pending
 // Dependencies: SingleFileAdapter, Database, Lifecycle Management
 // Last Updated: 2024-01-15
 //
@@ -193,57 +192,50 @@ pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
 }
 
 pub async fn create_aos(_args: CreateArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos create command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos create command is not yet implemented");
     Err(AosError::Config(
-        "aos create: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos create: not yet implemented".to_string(),
     ))
 }
 
 pub async fn load_aos(_args: LoadArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos load command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos load command is not yet implemented");
     Err(AosError::Config(
-        "aos load: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos load: not yet implemented".to_string(),
     ))
 }
 
 pub async fn verify_aos(_args: VerifyArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos verify command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos verify command is not yet implemented");
     Err(AosError::Config(
-        "aos verify: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos verify: not yet implemented".to_string(),
     ))
 }
 
 async fn extract_aos(_args: ExtractArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos extract command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos extract command is not yet implemented");
     Err(AosError::Config(
-        "aos extract: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos extract: not yet implemented".to_string(),
     ))
 }
 
 async fn info_aos(_args: InfoArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos info command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos info command is not yet implemented");
     Err(AosError::Config(
-        "aos info: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos info: not yet implemented".to_string(),
     ))
 }
 
 async fn migrate_aos(_args: MigrateArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos migrate command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos migrate command is not yet implemented");
     Err(AosError::Config(
-        "aos migrate: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos migrate: not yet implemented".to_string(),
     ))
 }
 
 async fn convert_aos(_args: ConvertArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("aos convert command is temporarily disabled pending migration to v3.0 types");
-    // TODO: Migrate to adapteros-aos v3.0 types
+    output.warning("aos convert command is not yet implemented");
     Err(AosError::Config(
-        "aos convert: pending migration to adapteros-aos v3.0 types".to_string(),
+        "aos convert: not yet implemented".to_string(),
     ))
 }

@@ -111,13 +111,6 @@ pub trait AdapterOSClient {
         commit: String,
     ) -> Result<CommitDetailsResponse>;
 
-    // Routing Inspector
-    async fn extract_router_features(
-        &self,
-        req: RouterFeaturesRequest,
-    ) -> Result<RouterFeaturesResponse>;
-    async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse>;
-
     // Patch Lab
     async fn propose_patch(&self, req: ProposePatchRequest) -> Result<ProposePatchResponse>;
     async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse>;

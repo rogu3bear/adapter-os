@@ -3,7 +3,6 @@
 /// Proxy endpoints that forward service control operations to the supervisor API.
 /// These handlers provide service start/stop/restart functionality with JWT auth.
 use crate::auth::Claims;
-use crate::errors::ErrorResponseExt;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::supervisor_client::SupervisorClient;
@@ -12,8 +11,7 @@ use adapteros_core::AosError;
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
-    response::Json,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};

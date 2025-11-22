@@ -824,11 +824,147 @@ cargo test -p adapteros-lora-mlx-ffi --test integration_verification -- --nocapt
 open target/criterion/report/index.html
 ```
 
+### CLI Commands (Git-Style)
+```bash
+# Adapter management
+aosctl adapter list                    # List adapters
+aosctl adapter register <id> <hash>    # Register adapter
+aosctl adapter pin <id>                # Pin adapter
+aosctl adapter swap --add <id>         # Hot-swap adapters
+
+# Node management
+aosctl node list                       # List cluster nodes
+aosctl node verify --all               # Verify cross-node determinism
+aosctl node sync push --to <node>      # Push adapters to node
+
+# Telemetry
+aosctl telemetry list                  # List telemetry events
+aosctl telemetry verify --bundle-dir   # Verify bundle chain
+
+# Registry
+aosctl registry sync --dir ./adapters # Sync adapters to registry
+aosctl registry migrate                # Migrate legacy database
+
+# Code intelligence
+aosctl code init .                     # Initialize repository
+aosctl code update <repo>              # Scan repository
+aosctl code list                       # List repositories
+
+# Other grouped commands
+aosctl federation verify               # Verify federation signatures
+aosctl codegraph stats                 # CodeGraph statistics
+aosctl secd status                     # Security daemon status
+```
+
 **After running benchmarks, update [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) with new results.**
 
 Key benchmark locations:
 - `crates/adapteros-lora-mlx-ffi/benches/mlx_integration_benchmark.rs` - MLX FFI benchmarks
 - `target/criterion/` - Criterion results and HTML reports
+
+---
+
+## Quick Start UX Flow
+
+Complete workflow from startup to inference with trained adapters. For detailed steps, see [QUICKSTART.md](QUICKSTART.md) and [docs/QUICKSTART_COMPLETE_SYSTEM.md](docs/QUICKSTART_COMPLETE_SYSTEM.md).
+
+### 1. Start the System
+
+```bash
+# Terminal 1: Start backend server
+export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
+export DATABASE_URL=sqlite://var/aos-cp.sqlite3
+cargo run --release -p adapteros-server-api
+
+# Terminal 2: Start UI (optional)
+cd ui && pnpm dev
+# UI available at http://localhost:5173
+```
+
+### 2. Load a Model
+
+```bash
+# Download Qwen 2.5 7B MLX format (~3.8GB)
+huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
+    --include "*.safetensors" "*.json" \
+    --local-dir models/qwen2.5-7b-mlx
+
+# Verify model is detected
+curl http://localhost:8080/healthz
+```
+
+### 3. Run Inference
+
+**Standard (batch) inference:**
+```bash
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Write hello world in Rust", "max_tokens": 100}'
+```
+
+**Streaming inference (SSE):**
+```bash
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Explain async in Rust", "max_tokens": 200, "stream": true}'
+```
+
+**Via UI:** Navigate to `/inference`, enter prompt, click Generate.
+
+### 4. Train an Adapter
+
+**Prepare dataset (JSONL):**
+```jsonl
+{"input": "What is Rust?", "target": "Rust is a systems programming language..."}
+{"input": "Explain ownership", "target": "Ownership is Rust's memory management..."}
+```
+
+**Upload and train:**
+```bash
+# Upload dataset
+curl -X POST http://localhost:8080/v1/datasets/upload \
+  -F "name=rust-qa" -F "format=jsonl" -F "file=@training.jsonl"
+
+# Start training (save dataset_id from response)
+./target/release/aosctl train \
+  --dataset-id <dataset_id> \
+  --output adapters/rust-expert.aos \
+  --rank 16 --epochs 3
+```
+
+**Via UI:** Navigate to `/training`, upload dataset, configure hyperparameters, start job.
+
+### 5. Use the Trained Adapter
+
+```bash
+# Load adapter
+curl -X POST http://localhost:8080/v1/adapters/rust-expert/load
+
+# Inference with adapter
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Explain borrowing in Rust", "max_tokens": 150, "adapters": ["rust-expert"]}'
+
+# Hot-swap adapters (live, <100ms)
+./target/release/aosctl adapter swap --tenant default --add rust-expert --remove code-assistant --commit
+```
+
+**Via UI:** Select adapter from dropdown in Inference page.
+
+### Quick Verification
+
+```bash
+# Health check
+curl http://localhost:8080/healthz
+
+# List adapters
+curl http://localhost:8080/v1/adapters
+
+# System metrics
+curl http://localhost:8080/v1/metrics/system
+```
+
+**Full guides:** [QUICKSTART.md](QUICKSTART.md) | [docs/QUICKSTART_COMPLETE_SYSTEM.md](docs/QUICKSTART_COMPLETE_SYSTEM.md) | [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md)
 
 ---
 
@@ -866,8 +1002,11 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 
 ## References
 
+- [QUICKSTART.md](QUICKSTART.md) - Quick start guide
+- [docs/QUICKSTART_COMPLETE_SYSTEM.md](docs/QUICKSTART_COMPLETE_SYSTEM.md) - Complete system setup
+- [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md) - GPU training quick start
 - [CONTRIBUTING.md](CONTRIBUTING.md) - PR guidelines
-- [README.md](README.md) - Quick start
+- [README.md](README.md) - Project overview
 - [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) - Full architecture
 - [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Detailed patterns & diagrams
 - [docs/TELEMETRY_EVENTS.md](docs/TELEMETRY_EVENTS.md) - Event catalog
@@ -889,6 +1028,20 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 ---
 
 **Rule:** When in doubt, follow patterns in `crates/`. All documentation and code signed by **James KC Auchterlonie**.
+
+---
+
+## See Also
+
+Key cross-references for daily development:
+
+- [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale and architecture
+- [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Complete feature flag reference
+- [docs/LOCAL_BUILD.md](docs/LOCAL_BUILD.md) - Build troubleshooting and environment setup
+- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend complete guide
+- [docs/README.md](docs/README.md) - Documentation index and navigation
+
+---
 
 ## Language Requirements
 - **Rust only** - No Python should be used or created

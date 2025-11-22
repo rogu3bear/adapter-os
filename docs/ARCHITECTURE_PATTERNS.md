@@ -371,3 +371,7 @@ SQLite transactions provide serialization (no race conditions between tiers).
 - [LIFECYCLE.md](LIFECYCLE.md) - Adapter lifecycle state machine
 - [DETERMINISTIC_EXECUTION.md](DETERMINISTIC_EXECUTION.md) - Deterministic execution details
 - [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Full architecture overview
+- [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Training pipeline documentation
+- [DATABASE_REFERENCE.md](DATABASE_REFERENCE.md) - Database schema reference
+- [PINNING_TTL.md](PINNING_TTL.md) - Adapter pinning and TTL enforcement

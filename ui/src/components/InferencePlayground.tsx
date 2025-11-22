@@ -101,6 +101,14 @@ interface StreamingToken {
   timestamp: number;
 }
 
+interface StreamingState {
+  isStreaming: boolean;
+  streamedText: string;
+  tokenCount: number;
+  startTime: number | null;
+  tokensPerSecond: number;
+}
+
 function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps) {
   const [searchParams] = useSearchParams();
   const { can, userRole } = useRBAC();
@@ -133,6 +141,16 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
   // Cancellation support for inference operations
   const { state: inferenceState, start: startInference, cancel: cancelInference } = useCancellableOperation();
+
+  // Streaming inference state
+  const [streamingState, setStreamingState] = useState<StreamingState>({
+    isStreaming: false,
+    streamedText: '',
+    tokenCount: 0,
+    startTime: null,
+    tokensPerSecond: 0,
+  });
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   // Graceful degradation: Monitor adapter availability
   const adapterAvailability = useFeatureDegradation({
@@ -475,6 +493,162 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     }
   };
 
+  // Streaming inference handler
+  const handleStreamingInfer = async (config: InferenceConfig, setResponse: (r: InferResponse | null) => void, setLoading: (l: boolean) => void) => {
+    clearError('inference');
+    setLoading(true);
+    setResponse(null);
+
+    // Reset streaming state
+    setStreamingState({
+      isStreaming: true,
+      streamedText: '',
+      tokenCount: 0,
+      startTime: Date.now(),
+      tokensPerSecond: 0,
+    });
+
+    // Create abort controller for cancellation
+    abortControllerRef.current = new AbortController();
+    const startTime = Date.now();
+    let tokenCount = 0;
+
+    try {
+      // Validate prompt against schema
+      await InferenceRequestSchema.parseAsync({
+        prompt: config.prompt,
+        max_tokens: config.max_tokens,
+        temperature: config.temperature,
+        top_k: config.top_k,
+        top_p: config.top_p,
+        seed: config.seed,
+        require_evidence: config.require_evidence,
+        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+      });
+
+      await apiClient.streamInfer(
+        {
+          prompt: config.prompt,
+          max_tokens: config.max_tokens,
+          temperature: config.temperature,
+          top_k: config.top_k,
+          top_p: config.top_p,
+          seed: config.seed,
+          adapter_stack: selectedAdapterId && selectedAdapterId !== 'none' ? selectedAdapterId : undefined,
+        },
+        {
+          onToken: (token, chunk) => {
+            tokenCount++;
+            const elapsed = (Date.now() - startTime) / 1000;
+            const tokensPerSecond = elapsed > 0 ? tokenCount / elapsed : 0;
+
+            setStreamingState(prev => ({
+              ...prev,
+              streamedText: prev.streamedText + token,
+              tokenCount,
+              tokensPerSecond,
+            }));
+          },
+          onComplete: (fullText, finishReason) => {
+            const elapsed = Date.now() - startTime;
+
+            // Map streaming finish reason to InferResponse finish reason
+            const mapFinishReason = (reason: string | null): 'stop' | 'length' | 'error' => {
+              if (reason === 'length') return 'length';
+              if (reason === 'content_filter' || reason === 'error' || reason === 'cancelled') return 'error';
+              return 'stop';
+            };
+
+            // Build final response (partial - streaming doesn't have all fields)
+            const finalResponse = {
+              schema_version: '1.0',
+              id: `stream-${Date.now()}`,
+              text: fullText,
+              tokens_generated: tokenCount,
+              token_count: tokenCount,
+              latency_ms: elapsed,
+              adapters_used: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : [],
+              finish_reason: mapFinishReason(finishReason),
+            } as InferResponse;
+
+            setResponse(finalResponse);
+            saveSession(config, finalResponse);
+
+            // Update metrics
+            setMetrics({
+              latency: elapsed,
+              tokensPerSecond: tokenCount / (elapsed / 1000),
+              totalTokens: tokenCount,
+            });
+
+            setStreamingState(prev => ({
+              ...prev,
+              isStreaming: false,
+            }));
+            setLoading(false);
+
+            logger.info('Streaming inference completed', {
+              component: 'InferencePlayground',
+              operation: 'streamingInfer',
+              tokenCount,
+              latencyMs: elapsed,
+              finishReason,
+            });
+          },
+          onError: (error) => {
+            addError('inference', error.message || 'Streaming inference failed.', () => handleStreamingInfer(config, setResponse, setLoading));
+            setStreamingState(prev => ({
+              ...prev,
+              isStreaming: false,
+            }));
+            setLoading(false);
+
+            logger.error('Streaming inference failed', {
+              component: 'InferencePlayground',
+              operation: 'streamingInfer',
+              configId: config.id,
+            }, error);
+          },
+        },
+        abortControllerRef.current.signal
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Streaming inference failed');
+
+      if (error.name === 'ZodError') {
+        logger.warn('Streaming inference validation failed', {
+          component: 'InferencePlayground',
+          operation: 'validate',
+          configId: config.id,
+        });
+        addError('inference', `Validation error: ${error.message}`, () => handleStreamingInfer(config, setResponse, setLoading));
+      } else {
+        logger.error('Streaming inference request failed', {
+          component: 'InferencePlayground',
+          operation: 'streamingInfer',
+          configId: config.id,
+          tenantId: selectedTenant,
+          adapterId: selectedAdapterId,
+        }, toError(err));
+        addError('inference', error.message || 'An unexpected error occurred during streaming inference.', () => handleStreamingInfer(config, setResponse, setLoading));
+      }
+
+      setStreamingState(prev => ({
+        ...prev,
+        isStreaming: false,
+      }));
+      setLoading(false);
+    }
+  };
+
+  // Cancel streaming inference
+  const cancelStreamingInfer = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
 
   const handleExport = (config: InferenceConfig, response: InferResponse | null) => {
     if (!response) return;
@@ -696,14 +870,37 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   );
 
 
-  const renderResponse = (response: InferResponse | null, isLoading: boolean) => (
-    <InferenceOutput
-      response={response}
-      isLoading={isLoading}
-      metrics={metrics}
-      isStreaming={inferenceMode === 'streaming'}
-    />
-  );
+  const renderResponse = (response: InferResponse | null, isLoading: boolean) => {
+    // When streaming is active, show streaming output
+    if (inferenceMode === 'streaming' && streamingState.isStreaming) {
+      return (
+        <InferenceOutput
+          response={{
+            text: streamingState.streamedText,
+            token_count: streamingState.tokenCount,
+            latency_ms: streamingState.startTime ? Date.now() - streamingState.startTime : 0,
+            finish_reason: null,
+          } as InferResponse}
+          isLoading={false}
+          metrics={{
+            latency: streamingState.startTime ? Date.now() - streamingState.startTime : 0,
+            tokensPerSecond: streamingState.tokensPerSecond,
+            totalTokens: streamingState.tokenCount,
+          }}
+          isStreaming={true}
+        />
+      );
+    }
+
+    return (
+      <InferenceOutput
+        response={response}
+        isLoading={isLoading}
+        metrics={metrics}
+        isStreaming={inferenceMode === 'streaming'}
+      />
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -1002,18 +1199,30 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <div className="flex gap-2">
                   <Button
                     className={`flex-1 ${!can('inference:execute') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    onClick={() => handleInfer(configA, setResponseA, setIsLoadingA)}
-                    disabled={isLoadingA || !can('inference:execute')}
+                    onClick={() => {
+                      if (inferenceMode === 'streaming') {
+                        handleStreamingInfer(configA, setResponseA, setIsLoadingA);
+                      } else {
+                        handleInfer(configA, setResponseA, setIsLoadingA);
+                      }
+                    }}
+                    disabled={isLoadingA || streamingState.isStreaming || !can('inference:execute')}
                     aria-label="Run inference with current configuration"
                     title={!can('inference:execute') ? 'Requires inference:execute permission' : undefined}
                   >
                     <Play className="h-4 w-4 mr-2" aria-hidden="true" />
-                    {isLoadingA ? 'Generating...' : 'Generate'}
+                    {isLoadingA || streamingState.isStreaming ? 'Generating...' : 'Generate'}
                   </Button>
-                  {inferenceState.isRunning && (
+                  {(inferenceState.isRunning || streamingState.isStreaming) && (
                     <Button
                       variant="outline"
-                      onClick={cancelInference}
+                      onClick={() => {
+                        if (streamingState.isStreaming) {
+                          cancelStreamingInfer();
+                        } else {
+                          cancelInference();
+                        }
+                      }}
                       aria-label="Cancel inference"
                     >
                       <Square className="h-4 w-4" />

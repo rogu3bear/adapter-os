@@ -77,18 +77,20 @@ impl AnomalyDetector {
 
     /// Observe a new sample and return its anomaly score.
     pub fn observe(&mut self, sample: f32) -> AnomalyScore {
-        if self.history.len() == self.config.window_size {
-            if let Some(oldest) = self.history.pop_front() {
-                self.sum -= oldest;
-                self.sum_sq -= oldest * oldest;
-            }
-        }
-
-        self.history.push_back(sample);
-        self.sum += sample;
-        self.sum_sq += sample * sample;
-
+        // Check for anomaly BEFORE adding sample to history
+        // so the sample doesn't affect its own baseline
         if self.history.len() < self.config.min_points {
+            // Not enough data yet, just add the sample
+            if self.history.len() == self.config.window_size {
+                if let Some(oldest) = self.history.pop_front() {
+                    self.sum -= oldest;
+                    self.sum_sq -= oldest * oldest;
+                }
+            }
+            self.history.push_back(sample);
+            self.sum += sample;
+            self.sum_sq += sample * sample;
+
             return AnomalyScore {
                 is_anomaly: false,
                 score: 0.0,
@@ -96,16 +98,29 @@ impl AnomalyDetector {
             };
         }
 
+        // Calculate score BEFORE adding sample to history
         let score = match self.config.algorithm {
             DetectionAlgorithm::ZScore => self.z_score(sample),
             DetectionAlgorithm::PercentageChange => self.percentage_change(sample),
             DetectionAlgorithm::MedianDeviation => self.median_deviation(sample),
         };
+        let baseline = self.baseline();
+
+        // Now add sample to history
+        if self.history.len() == self.config.window_size {
+            if let Some(oldest) = self.history.pop_front() {
+                self.sum -= oldest;
+                self.sum_sq -= oldest * oldest;
+            }
+        }
+        self.history.push_back(sample);
+        self.sum += sample;
+        self.sum_sq += sample * sample;
 
         AnomalyScore {
             is_anomaly: score.abs() >= self.config.threshold,
             score,
-            baseline: self.baseline(),
+            baseline,
         }
     }
 

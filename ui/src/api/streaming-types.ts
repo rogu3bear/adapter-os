@@ -447,3 +447,93 @@ export function isAdapterStateTransitionEvent(data: any): data is AdapterStateTr
 export function isSystemMetricsEvent(data: any): data is SystemMetricsEvent {
   return data && 'cpu' in data && 'memory' in data && 'disk' in data;
 }
+
+// ============================================================================
+// Streaming Inference Types (OpenAI-compatible)
+// ============================================================================
+
+/**
+ * Request payload for streaming inference endpoint
+ * POST /v1/infer (with stream: true)
+ */
+export interface StreamingInferRequest {
+  /** The prompt text to generate from */
+  prompt: string;
+
+  /** Model identifier (optional, uses default if not specified) */
+  model?: string;
+
+  /** Maximum number of tokens to generate */
+  max_tokens?: number;
+
+  /** Sampling temperature (0.0-2.0, higher = more creative) */
+  temperature?: number;
+
+  /** Top-p (nucleus) sampling parameter */
+  top_p?: number;
+
+  /** Top-k sampling parameter */
+  top_k?: number;
+
+  /** Stop sequences to halt generation */
+  stop?: string[];
+
+  /** Adapter stack to use for inference */
+  adapter_stack?: string;
+
+  /** Random seed for reproducible generation */
+  seed?: number;
+}
+
+/**
+ * A single streaming chunk response (OpenAI chat.completion.chunk format)
+ * Delivered via SSE: data: {"id":"...","object":"chat.completion.chunk",...}
+ */
+export interface StreamingChunk {
+  /** Unique identifier for the completion */
+  id: string;
+
+  /** Object type, always "chat.completion.chunk" for streaming */
+  object: string;
+
+  /** Unix timestamp of when the chunk was created */
+  created: number;
+
+  /** Model used for generation */
+  model: string;
+
+  /** Array of choices (typically one for streaming) */
+  choices: StreamingChoice[];
+}
+
+/**
+ * A single choice within a streaming chunk
+ */
+export interface StreamingChoice {
+  /** Index of this choice in the choices array */
+  index: number;
+
+  /** Incremental content delta */
+  delta: StreamingDelta;
+
+  /** Reason for stopping (null while streaming, set on final chunk) */
+  finish_reason: 'stop' | 'length' | 'content_filter' | null;
+}
+
+/**
+ * Delta content within a streaming choice
+ */
+export interface StreamingDelta {
+  /** Role of the message (only present in first chunk) */
+  role?: 'assistant' | 'user' | 'system';
+
+  /** Incremental text content */
+  content?: string;
+}
+
+/**
+ * Helper to check if data is a streaming inference chunk
+ */
+export function isStreamingChunk(data: any): data is StreamingChunk {
+  return data && 'object' in data && data.object === 'chat.completion.chunk' && 'choices' in data;
+}

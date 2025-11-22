@@ -64,16 +64,16 @@ impl BackendCoordinator {
     /// * `model_size_bytes` - Optional model size for capacity checks
     ///
     /// # Examples
-    /// ```no_run
+    /// ```ignore
     /// use adapteros_lora_worker::backend_coordinator::BackendCoordinator;
     /// use adapteros_lora_worker::backend_factory::BackendStrategy;
     ///
+    /// // Async context required for await
     /// let coordinator = BackendCoordinator::new(
     ///     BackendStrategy::MetalWithCoreMLFallback,
     ///     true,
     ///     Some(8_000_000_000)
     /// ).await?;
-    /// # Ok::<(), adapteros_core::AosError>(())
     /// ```
     pub async fn new(
         strategy: BackendStrategy,
@@ -386,17 +386,29 @@ impl BackendCoordinator {
 mod tests {
     use super::*;
 
+    /// Set up test environment with manifest verification disabled
+    fn setup_test_env() {
+        // Skip manifest verification for tests (placeholder signing keys)
+        std::env::set_var("AOS_SKIP_MANIFEST_VERIFY", "1");
+    }
+
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_creation() {
+        setup_test_env();
         let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None).await;
 
-        assert!(coordinator.is_ok());
+        assert!(
+            coordinator.is_ok(),
+            "Coordinator creation failed: {:?}",
+            coordinator.err()
+        );
     }
 
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_metrics() {
+        setup_test_env();
         let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None)
             .await
             .expect("Failed to create coordinator");

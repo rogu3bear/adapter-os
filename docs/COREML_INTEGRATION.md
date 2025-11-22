@@ -1917,6 +1917,11 @@ Related backend documentation:
 - [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, research/training path
 - [docs/ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
 - [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
+- [docs/FEATURE_FLAGS.md](./FEATURE_FLAGS.md) - Feature flag reference for backend selection
+- [docs/LOCAL_BUILD.md](./LOCAL_BUILD.md) - Local build guide with backend configuration
+- [docs/ARCHITECTURE_PATTERNS.md](./ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
+- [docs/DETERMINISM-ATTESTATION.md](./DETERMINISM-ATTESTATION.md) - Determinism attestation and verification
+- [BENCHMARK_RESULTS.md](../BENCHMARK_RESULTS.md) - Performance benchmark results
 
 ---
 

@@ -1,11 +1,128 @@
 ///! Code intelligence CLI commands
 ///!
-///! Handles repository registration, scanning, and status queries
+///! Provides git-style subcommands for code intelligence operations:
+///! - `aosctl code init` - Initialize a code repository for scanning
+///! - `aosctl code update` - Update repository scan
+///! - `aosctl code list` - List registered repositories
+///! - `aosctl code status` - Get repository status
 use crate::output::OutputWriter;
 use anyhow::Result;
+use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
+use tracing::info;
+
+/// Code intelligence subcommands
+#[derive(Debug, Subcommand, Clone)]
+pub enum CodeCommand {
+    /// Initialize a code repository for scanning
+    #[command(
+        after_help = r#"Examples:
+  aosctl code init ./my-repo
+  aosctl code init ./my-repo --tenant dev
+  aosctl code init /path/to/project --tenant prod"#
+    )]
+    Init {
+        /// Path to the repository to initialize
+        #[arg()]
+        repo_path: PathBuf,
+
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Update repository scan (trigger re-scan)
+    #[command(
+        after_help = r#"Examples:
+  aosctl code update my-repo
+  aosctl code update my-repo --tenant dev
+  aosctl code update my-repo --commit abc123"#
+    )]
+    Update {
+        /// Repository ID
+        #[arg()]
+        repo_id: String,
+
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+
+        /// Specific commit to scan (defaults to HEAD)
+        #[arg(long)]
+        commit: Option<String>,
+    },
+
+    /// List registered repositories
+    #[command(
+        after_help = r#"Examples:
+  aosctl code list
+  aosctl code list --tenant dev"#
+    )]
+    List {
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+
+    /// Get repository status
+    #[command(
+        after_help = r#"Examples:
+  aosctl code status my-repo
+  aosctl code status my-repo --tenant dev"#
+    )]
+    Status {
+        /// Repository ID
+        #[arg()]
+        repo_id: String,
+
+        /// Tenant ID
+        #[arg(long, default_value = "default")]
+        tenant: String,
+    },
+}
+
+/// Get code command name for telemetry
+pub fn get_code_command_name(cmd: &CodeCommand) -> String {
+    match cmd {
+        CodeCommand::Init { .. } => "code_init".to_string(),
+        CodeCommand::Update { .. } => "code_update".to_string(),
+        CodeCommand::List { .. } => "code_list".to_string(),
+        CodeCommand::Status { .. } => "code_status".to_string(),
+    }
+}
+
+/// Handle code intelligence subcommands
+///
+/// Routes code commands to appropriate handlers
+pub async fn handle_code_command(cmd: CodeCommand, output: &OutputWriter) -> Result<()> {
+    let command_name = get_code_command_name(&cmd);
+
+    info!(command = ?cmd, "Handling code command");
+
+    // Emit CLI telemetry
+    let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
+
+    match cmd {
+        CodeCommand::Init { repo_path, tenant } => {
+            code_init(&repo_path, &tenant, output).await
+        }
+        CodeCommand::Update {
+            repo_id,
+            tenant,
+            commit,
+        } => {
+            code_update(&repo_id, &tenant, commit.as_deref(), output).await
+        }
+        CodeCommand::List { tenant } => {
+            code_list(&tenant, output).await
+        }
+        CodeCommand::Status { repo_id, tenant } => {
+            code_status(&repo_id, &tenant, output).await
+        }
+    }
+}
 
 /// Code repository information
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,7 +167,7 @@ pub async fn code_init(repo_path: &PathBuf, tenant_id: &str, output: &OutputWrit
     // Call API to register repository
     let client = reqwest::Client::new();
     let response = client
-        .post("http://localhost:8080/api/v1/code/register-repo")
+        .post("http://localhost:8080/v1/code/register-repo")
         .json(&json!({
             "tenant_id": tenant_id,
             "repo_id": repo_id,
@@ -91,7 +208,7 @@ pub async fn code_update(
     // Call API to trigger scan
     let client = reqwest::Client::new();
     let response = client
-        .post("http://localhost:8080/api/v1/code/scan")
+        .post("http://localhost:8080/v1/code/scan")
         .json(&json!({
             "tenant_id": tenant_id,
             "repo_id": repo_id,
@@ -125,7 +242,7 @@ pub async fn code_update(
 pub async fn code_list(tenant_id: &str, output: &OutputWriter) -> Result<()> {
     let client = reqwest::Client::new();
     let response = client
-        .get("http://localhost:8080/api/v1/code/repositories")
+        .get("http://localhost:8080/v1/code/repositories")
         .query(&[("tenant_id", tenant_id)])
         .send()
         .await?;
@@ -165,7 +282,7 @@ pub async fn code_status(repo_id: &str, tenant_id: &str, output: &OutputWriter) 
     let client = reqwest::Client::new();
     let response = client
         .get(&format!(
-            "http://localhost:8080/api/v1/code/repositories/{}",
+            "http://localhost:8080/v1/code/repositories/{}",
             repo_id
         ))
         .query(&[("tenant_id", tenant_id)])
@@ -220,7 +337,7 @@ async fn poll_scan_job(job_id: &str, output: &OutputWriter) -> Result<()> {
 
         let response = client
             .get(&format!(
-                "http://localhost:8080/api/v1/code/scan/{}",
+                "http://localhost:8080/v1/code/scan/{}",
                 job_id
             ))
             .send()
@@ -295,4 +412,117 @@ fn detect_languages(repo_path: &PathBuf) -> Result<Vec<String>> {
     }
 
     Ok(languages.into_iter().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_code_command_name() {
+        assert_eq!(
+            get_code_command_name(&CodeCommand::Init {
+                repo_path: PathBuf::from("./repo"),
+                tenant: "default".to_string()
+            }),
+            "code_init"
+        );
+        assert_eq!(
+            get_code_command_name(&CodeCommand::Update {
+                repo_id: "my-repo".to_string(),
+                tenant: "default".to_string(),
+                commit: None
+            }),
+            "code_update"
+        );
+        assert_eq!(
+            get_code_command_name(&CodeCommand::List {
+                tenant: "default".to_string()
+            }),
+            "code_list"
+        );
+        assert_eq!(
+            get_code_command_name(&CodeCommand::Status {
+                repo_id: "my-repo".to_string(),
+                tenant: "default".to_string()
+            }),
+            "code_status"
+        );
+    }
+
+    #[test]
+    fn test_code_command_clone() {
+        let cmd = CodeCommand::Init {
+            repo_path: PathBuf::from("./my-repo"),
+            tenant: "dev".to_string(),
+        };
+
+        let cloned = cmd.clone();
+        match cloned {
+            CodeCommand::Init { repo_path, tenant } => {
+                assert_eq!(repo_path, PathBuf::from("./my-repo"));
+                assert_eq!(tenant, "dev");
+            }
+            _ => panic!("Expected Init variant"),
+        }
+    }
+
+    #[test]
+    fn test_update_command_with_commit() {
+        let cmd = CodeCommand::Update {
+            repo_id: "test-repo".to_string(),
+            tenant: "prod".to_string(),
+            commit: Some("abc123".to_string()),
+        };
+
+        let cloned = cmd.clone();
+        match cloned {
+            CodeCommand::Update {
+                repo_id,
+                tenant,
+                commit,
+            } => {
+                assert_eq!(repo_id, "test-repo");
+                assert_eq!(tenant, "prod");
+                assert_eq!(commit, Some("abc123".to_string()));
+            }
+            _ => panic!("Expected Update variant"),
+        }
+    }
+
+    #[test]
+    fn test_code_repository_serialization() {
+        let repo = CodeRepository {
+            repo_id: "test-repo".to_string(),
+            path: "/path/to/repo".to_string(),
+            languages: vec!["Rust".to_string(), "Python".to_string()],
+            default_branch: "main".to_string(),
+            latest_scan_commit: Some("abc123".to_string()),
+            latest_scan_at: Some("2025-01-01T00:00:00Z".to_string()),
+            status: "active".to_string(),
+        };
+
+        let json = serde_json::to_string(&repo).unwrap();
+        let deserialized: CodeRepository = serde_json::from_str(&json).unwrap();
+        assert_eq!(repo.repo_id, deserialized.repo_id);
+        assert_eq!(repo.path, deserialized.path);
+        assert_eq!(repo.languages, deserialized.languages);
+    }
+
+    #[test]
+    fn test_scan_job_status_serialization() {
+        let status = ScanJobStatus {
+            job_id: "job-123".to_string(),
+            status: "running".to_string(),
+            progress_pct: 50,
+            current_stage: Some("parsing".to_string()),
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        let deserialized: ScanJobStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(status.job_id, deserialized.job_id);
+        assert_eq!(status.status, deserialized.status);
+        assert_eq!(status.progress_pct, deserialized.progress_pct);
+        assert_eq!(status.current_stage, deserialized.current_stage);
+    }
 }

@@ -393,7 +393,7 @@ cargo test test_allocation_tracking -- --nocapture
 ## Support
 
 For issues or questions:
-1. Check [HEAP_OBSERVER_CALLBACKS.md](docs/HEAP_OBSERVER_CALLBACKS.md)
+1. Check [REFERENCE_HEAP_OBSERVER_CALLBACKS.md](docs/REFERENCE_HEAP_OBSERVER_CALLBACKS.md)
 2. Review example code in this file
 3. Enable debug logging
 4. Check error messages from `metal_heap_get_last_error()`

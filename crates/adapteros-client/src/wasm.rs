@@ -221,23 +221,6 @@ impl CpClient for WasmClient {
         Ok(())
     }
 
-    // Routing Inspector
-
-    async fn extract_router_features(
-        &self,
-        req: RouterFeaturesRequest,
-    ) -> Result<RouterFeaturesResponse> {
-        let url = format!("{}/v1/code/router/features", self.base_url);
-        let resp = Request::post(&url).json(&req)?.send().await?;
-        resp.json().await.context("Failed to parse router features")
-    }
-
-    async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse> {
-        let url = format!("{}/v1/code/router/score", self.base_url);
-        let resp = Request::post(&url).json(&req)?.send().await?;
-        resp.json().await.context("Failed to parse adapter scores")
-    }
-
     // Patch Lab
 
     async fn propose_patch(&self, req: ProposePatchRequest) -> Result<ProposePatchResponse> {
@@ -247,7 +230,7 @@ impl CpClient for WasmClient {
     }
 
     async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse> {
-        let url = format!("{}/v1/code/patch/validate", self.base_url);
+        let url = format!("{}/v1/patch/validate", self.base_url);
         let resp = Request::post(&url).json(&req)?.send().await?;
         resp.json()
             .await
@@ -255,46 +238,36 @@ impl CpClient for WasmClient {
     }
 
     async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse> {
-        let url = format!("{}/v1/code/patch/apply", self.base_url);
+        let url = format!("{}/v1/patch/apply", self.base_url);
         let resp = Request::post(&url).json(&req)?.send().await?;
         resp.json()
             .await
             .context("Failed to parse patch application")
     }
 
-    // Code Policy
-
+    // Code Policy - STUB (endpoint not implemented in API)
     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        let url = format!("{}/v1/code/policy", self.base_url);
-        let resp = Request::get(&url).send().await?;
-        resp.json().await.context("Failed to parse code policy")
+        Err(anyhow::anyhow!(
+            "Code policy endpoint not available"
+        ))
     }
 
-    async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()> {
-        let url = format!("{}/v1/code/policy", self.base_url);
-        Request::put(&url).json(&req)?.send().await?;
-        Ok(())
+    async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Code policy endpoint not available"
+        ))
     }
 
-    // Metrics Dashboard
-
-    async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        let url = format!(
-            "{}/v1/code/metrics/{}?time_range={}",
-            self.base_url, req.cpid, req.time_range
-        );
-        let resp = Request::get(&url).send().await?;
-        resp.json().await.context("Failed to parse code metrics")
+    // Metrics Dashboard - STUB (endpoints not implemented in API)
+    async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "Code metrics endpoint not available"
+        ))
     }
 
-    async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        let url = format!(
-            "{}/v1/code/metrics/compare?old={}&new={}",
-            self.base_url, req.old_cpid, req.new_cpid
-        );
-        let resp = Request::get(&url).send().await?;
-        resp.json()
-            .await
-            .context("Failed to parse metrics comparison")
+    async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
+        Err(anyhow::anyhow!(
+            "Metrics comparison endpoint not available"
+        ))
     }
 }

@@ -1286,7 +1286,7 @@ async fn lineage_adapter(
     // Call lineage API endpoint
     let client = Client::new();
     let url = format!(
-        "http://127.0.0.1:8080/api/v1/adapters/{}/lineage",
+        "http://127.0.0.1:8080/v1/adapters/{}/lineage",
         adapter_id
     );
 

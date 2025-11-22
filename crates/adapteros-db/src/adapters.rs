@@ -343,6 +343,10 @@ pub struct Adapter {
     pub load_state: String,
     pub last_loaded_at: Option<String>,
 
+    // .aos file support (from migration 0045)
+    pub aos_file_path: Option<String>,
+    pub aos_file_hash: Option<String>,
+
     // Semantic naming (from migration 0061)
     pub adapter_name: Option<String>,
     pub tenant_namespace: Option<String>,
@@ -468,6 +472,7 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     version, lifecycle_state, created_at, updated_at, active
              FROM adapters
@@ -486,6 +491,7 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     version, lifecycle_state, created_at, updated_at, active
              FROM adapters
@@ -635,6 +641,7 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     version, lifecycle_state, created_at, updated_at, active
              FROM adapters
@@ -931,6 +938,7 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     version, lifecycle_state, created_at, updated_at, active
              FROM adapters
@@ -951,6 +959,7 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     version, lifecycle_state, created_at, updated_at, active
              FROM adapters
@@ -971,6 +980,7 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
                     version, lifecycle_state, created_at, updated_at, active
              FROM adapters
@@ -1055,8 +1065,9 @@ impl Db {
                         languages_json, framework, category, scope, framework_id, framework_version,
                         repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                         activation_count, expires_at, load_state, last_loaded_at,
+                        aos_file_path, aos_file_hash,
                         adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                        created_at, updated_at, active, 1 as depth
+                        created_at, updated_at, active, version, lifecycle_state, 1 as depth
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
@@ -1065,7 +1076,7 @@ impl Db {
                         a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
                         a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
                         a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
-                        a.created_at, a.updated_at, a.active, anc.depth + 1
+                        a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, anc.depth + 1
                  FROM adapters a
                  JOIN ancestors anc ON a.adapter_id = anc.parent_id
                  WHERE anc.depth < 10  -- Prevent infinite loops
@@ -1076,8 +1087,9 @@ impl Db {
                         languages_json, framework, category, scope, framework_id, framework_version,
                         repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                         activation_count, expires_at, load_state, last_loaded_at,
+                        aos_file_path, aos_file_hash,
                         adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                        created_at, updated_at, active, 1 as depth
+                        created_at, updated_at, active, version, lifecycle_state, 1 as depth
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
@@ -1086,7 +1098,7 @@ impl Db {
                         a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
                         a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
                         a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
-                        a.created_at, a.updated_at, a.active, desc.depth + 1
+                        a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, desc.depth + 1
                  FROM adapters a
                  JOIN descendants desc ON a.parent_id = desc.adapter_id
                  WHERE desc.depth < 10  -- Prevent infinite loops
@@ -1095,8 +1107,9 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    created_at, updated_at, active, version, lifecycle_state
              FROM (
                  SELECT * FROM ancestors
                  UNION
@@ -1121,8 +1134,9 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    created_at, updated_at, active, version, lifecycle_state
              FROM adapters
              WHERE parent_id = ? AND active = 1
              ORDER BY revision ASC, created_at ASC"
@@ -1145,8 +1159,9 @@ impl Db {
                         languages_json, framework, category, scope, framework_id, framework_version,
                         repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                         activation_count, expires_at, load_state, last_loaded_at,
+                        aos_file_path, aos_file_hash,
                         adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                        created_at, updated_at, active, 0 as depth
+                        created_at, updated_at, active, version, lifecycle_state, 0 as depth
                  FROM adapters
                  WHERE adapter_id = ?
                  UNION ALL
@@ -1155,7 +1170,7 @@ impl Db {
                         a.repo_id, a.commit_sha, a.intent, a.current_state, a.pinned, a.memory_bytes, a.last_activated,
                         a.activation_count, a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash,
                         a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, a.fork_type, a.fork_reason,
-                        a.created_at, a.updated_at, a.active, lin.depth + 1
+                        a.created_at, a.updated_at, a.active, a.version, a.lifecycle_state, lin.depth + 1
                  FROM adapters a
                  JOIN lineage lin ON a.adapter_id = lin.parent_id
                  WHERE lin.depth < 10  -- Prevent infinite loops
@@ -1164,8 +1179,9 @@ impl Db {
                     languages_json, framework, category, scope, framework_id, framework_version,
                     repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
                     activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
                     adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
-                    created_at, updated_at, active
+                    created_at, updated_at, active, version, lifecycle_state
              FROM lineage
              ORDER BY depth DESC")
         .bind(adapter_id)

@@ -1,8 +1,6 @@
 //! Train base adapter command implementation for CLI
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
+//! This module is temporarily stubbed pending reimplementation.
 //!
 //! Loads the curated dataset manifest, runs the deterministic Micro-LoRA trainer,
 //! and packages quantized weights into `adapters/<adapter_id>/`.
@@ -68,22 +66,13 @@ pub struct TrainBaseAdapterArgs {
 
 impl TrainBaseAdapterArgs {
     /// Execute the train-base-adapter command
-    ///
-    /// TODO: Migrate to adapteros-aos v3.0 types
     pub async fn execute(&self) -> Result<()> {
         tracing::warn!(
-            "train-base-adapter command is temporarily disabled pending migration to v3.0 types"
+            "train-base-adapter command is temporarily disabled pending reimplementation"
         );
 
-        // TODO: Migrate to adapteros-aos v3.0 types
-        // The original implementation used:
-        // - adapteros_single_file_adapter::format::{AdapterWeights, LineageInfo, WeightGroup, ...}
-        // - adapteros_single_file_adapter::{SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig}
-        //
-        // These need to be replaced with types from adapteros-aos v3.0
-
         Err(AosError::Config(
-            "train-base-adapter: pending migration to adapteros-aos v3.0 types".to_string()
+            "train-base-adapter: pending reimplementation".to_string()
         ))
     }
 }

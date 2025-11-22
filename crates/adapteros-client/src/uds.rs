@@ -694,22 +694,6 @@ impl AdapterOSClient for UdsClient {
         ))
     }
 
-    // Routing Inspector
-    async fn extract_router_features(
-        &self,
-        _req: RouterFeaturesRequest,
-    ) -> Result<RouterFeaturesResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support routing inspector"
-        ))
-    }
-
-    async fn score_adapters(&self, _req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse> {
-        Err(anyhow::anyhow!(
-            "UDS clients don't support routing inspector"
-        ))
-    }
-
     // Patch Lab
     async fn propose_patch(&self, _req: ProposePatchRequest) -> Result<ProposePatchResponse> {
         Err(anyhow::anyhow!("UDS clients don't support patch lab"))

@@ -469,3 +469,14 @@ To check plugin status for all tenants:
 curl -X GET http://localhost:8080/v1/plugins/health \
   -H "Authorization: Bearer $JWT"
 ```
+
+---
+
+## See Also
+
+- [QUICKSTART.md](QUICKSTART.md) - Quick start guide for macOS
+- [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) - Full architecture documentation
+- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
+- [CLAUDE.md](CLAUDE.md) - Developer quick reference guide
+- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend integration
+- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration

@@ -7,8 +7,8 @@
 | `kv_cache_attention_verification.rs` | Main verification suite | 45+ | Core tests |
 | `attention_debug_utilities.rs` | Debug and visualization tools | 15+ | Utilities |
 | `ffi_verification_examples.rs` | Reference implementations | 6 | Examples |
-| `KV_CACHE_ATTENTION_VERIFICATION.md` | Detailed test guide | - | Full docs |
-| `VERIFICATION_SUMMARY.md` | Executive summary | - | Summary |
+| `REFERENCE_KV_CACHE_ATTENTION.md` | Detailed test guide | - | Full docs |
+| `STATUS_VERIFICATION_SUMMARY.md` | Executive summary | - | Summary |
 
 ---
 
@@ -290,9 +290,9 @@ assert!(valid_probs, "Invalid probability distribution");
 ```
 Quick Reference (you are here)
     ↓
-VERIFICATION_SUMMARY.md (executive overview)
+STATUS_VERIFICATION_SUMMARY.md (executive overview)
     ↓
-KV_CACHE_ATTENTION_VERIFICATION.md (detailed test guide)
+REFERENCE_KV_CACHE_ATTENTION.md (detailed test guide)
     ↓
 Test files (source code with inline comments)
 ```
@@ -306,9 +306,9 @@ Test files (source code with inline comments)
 ├── kv_cache_attention_verification.rs
 ├── attention_debug_utilities.rs
 ├── ffi_verification_examples.rs
-├── KV_CACHE_ATTENTION_VERIFICATION.md
-├── VERIFICATION_SUMMARY.md
-└── QUICK_REFERENCE.md (this file)
+├── REFERENCE_KV_CACHE_ATTENTION.md
+├── STATUS_VERIFICATION_SUMMARY.md
+└── REFERENCE_TESTS_QUICK.md (this file)
 
 /Users/star/Dev/aos/crates/adapteros-lora-mlx-ffi/src/
 ├── kv_cache.rs

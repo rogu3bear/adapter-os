@@ -37,6 +37,23 @@ pub struct NotificationSummary {
 }
 
 /// List user notifications
+#[utoipa::path(
+    get,
+    path = "/v1/notifications",
+    params(
+        ("workspace_id" = Option<String>, Query, description = "Filter by workspace ID"),
+        ("type" = Option<String>, Query, description = "Filter by notification type"),
+        ("unread_only" = Option<bool>, Query, description = "Show only unread"),
+        ("limit" = Option<i64>, Query, description = "Result limit"),
+        ("offset" = Option<i64>, Query, description = "Result offset")
+    ),
+    responses(
+        (status = 200, description = "List of notifications", body = Vec<NotificationResponse>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "notifications"
+)]
 pub async fn list_notifications(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -104,6 +121,19 @@ pub async fn list_notifications(
 }
 
 /// Get notification summary (unread count)
+#[utoipa::path(
+    get,
+    path = "/v1/notifications/summary",
+    params(
+        ("workspace_id" = Option<String>, Query, description = "Filter by workspace ID")
+    ),
+    responses(
+        (status = 200, description = "Notification summary", body = NotificationSummary),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "notifications"
+)]
 pub async fn get_notification_summary(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -151,6 +181,21 @@ pub async fn get_notification_summary(
 }
 
 /// Mark notification as read
+#[utoipa::path(
+    post,
+    path = "/v1/notifications/{notification_id}/read",
+    params(
+        ("notification_id" = String, Path, description = "Notification ID")
+    ),
+    responses(
+        (status = 200, description = "Notification marked as read"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Notification not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "notifications"
+)]
 pub async fn mark_notification_read(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -216,6 +261,19 @@ pub async fn mark_notification_read(
 }
 
 /// Mark all notifications as read
+#[utoipa::path(
+    post,
+    path = "/v1/notifications/read-all",
+    params(
+        ("workspace_id" = Option<String>, Query, description = "Filter by workspace ID")
+    ),
+    responses(
+        (status = 200, description = "All notifications marked as read"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "notifications"
+)]
 pub async fn mark_all_notifications_read(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

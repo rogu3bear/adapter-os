@@ -1151,6 +1151,145 @@ class ApiClient {
     }, false, cancelToken);
   }
 
+  /**
+   * Stream inference using the /v1/infer/stream endpoint with SSE
+   *
+   * @param data - The streaming inference request payload
+   * @param callbacks - Event callbacks for streaming tokens
+   * @param cancelToken - Optional abort signal for cancellation
+   * @returns Promise that resolves when stream completes
+   */
+  async streamInfer(
+    data: types.StreamingInferRequest,
+    callbacks: {
+      onToken: (token: string, chunk: types.StreamingChunk) => void;
+      onComplete: (fullText: string, finishReason: string | null) => void;
+      onError: (error: Error) => void;
+    },
+    cancelToken?: AbortSignal
+  ): Promise<void> {
+    const url = `${this.baseUrl}/v1/infer/stream`;
+
+    logger.info('Streaming inference requested', {
+      component: 'ApiClient',
+      operation: 'streamInfer',
+      prompt_length: data.prompt.length,
+    });
+
+    let fullText = '';
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+        credentials: 'include',
+        signal: cancelToken,
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const error = await response.json();
+          errorMessage = error.error || errorMessage;
+        } catch {
+          // If JSON parsing fails, use status text
+        }
+        throw new Error(errorMessage);
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null - streaming not supported');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let finishReason: string | null = null;
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        // Decode the chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE messages from buffer
+        const lines = buffer.split('\n');
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+
+          // Skip empty lines and comments
+          if (!trimmedLine || trimmedLine.startsWith(':')) {
+            continue;
+          }
+
+          // Handle SSE data lines
+          if (trimmedLine.startsWith('data: ')) {
+            const data = trimmedLine.slice(6);
+
+            // Check for stream termination
+            if (data === '[DONE]') {
+              callbacks.onComplete(fullText, finishReason);
+              return;
+            }
+
+            try {
+              const chunk = JSON.parse(data) as types.StreamingChunk;
+
+              // Extract token from delta
+              const choice = chunk.choices?.[0];
+              if (choice) {
+                const token = choice.delta?.content || '';
+                if (token) {
+                  fullText += token;
+                  callbacks.onToken(token, chunk);
+                }
+
+                // Check for finish reason
+                if (choice.finish_reason) {
+                  finishReason = choice.finish_reason;
+                }
+              }
+            } catch (parseError) {
+              logger.warn('Failed to parse streaming chunk', {
+                component: 'ApiClient',
+                operation: 'streamInfer',
+                data,
+              });
+            }
+          }
+        }
+      }
+
+      // Stream ended normally (without [DONE])
+      callbacks.onComplete(fullText, finishReason);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        logger.info('Streaming inference cancelled', {
+          component: 'ApiClient',
+          operation: 'streamInfer',
+        });
+        callbacks.onComplete(fullText || '', 'cancelled');
+        return;
+      }
+
+      logger.error('Streaming inference failed', {
+        component: 'ApiClient',
+        operation: 'streamInfer',
+      }, error instanceof Error ? error : new Error(String(error)));
+      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
   // ===== Phase 6: Policy Operations =====
   async signPolicy(cpid: string): Promise<types.SignPolicyResponse> {
     return this.request<types.SignPolicyResponse>(`/v1/policies/${cpid}/sign`, {

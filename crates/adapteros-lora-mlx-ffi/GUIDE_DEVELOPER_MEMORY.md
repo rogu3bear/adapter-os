@@ -365,7 +365,7 @@ A: Yes, but this is experimental. MLX backend is non-deterministic and not produ
 
 ## References
 
-- **Complete Architecture:** `MEMORY_MANAGEMENT.md`
+- **Complete Architecture:** `REFERENCE_MEMORY_MANAGEMENT.md`
 - **Implementation Details:** `src/mlx_cpp_wrapper_real.cpp` (lines 29-90)
 - **Rust API:** `src/lib.rs::memory` module
 - **Tests:** `tests/memory_tracking_tests.rs`
@@ -374,7 +374,7 @@ A: Yes, but this is experimental. MLX backend is non-deterministic and not produ
 ## Support
 
 For questions or issues:
-1. Check `MEMORY_MANAGEMENT.md` for architecture details
+1. Check `REFERENCE_MEMORY_MANAGEMENT.md` for architecture details
 2. Review test cases in `tests/memory_tracking_tests.rs` for usage examples
 3. Check error messages via `mlx_get_last_error()` (GC hints only)
 4. Enable tracing logs: `RUST_LOG=debug`

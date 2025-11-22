@@ -333,7 +333,7 @@ The FFI layer adds only ~35ns overhead per inference call, well within the budge
 | `benches/mlx_integration_benchmark.rs` | Criterion benchmarks | ~260 |
 | `tests/integration_verification.rs` | Verification tests | ~175 |
 | `wrapper.h` | C header for FFI | ~395 |
-| `BENCHMARKS.md` | Benchmark documentation | ~130 |
+| `RESULTS_BENCHMARKS.md` | Benchmark documentation | ~130 |
 
 ---
 

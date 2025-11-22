@@ -37,14 +37,18 @@ pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod golden;
+pub mod models;
 pub mod notifications;
 pub mod plugins;
 pub mod promotion;
 pub mod replay;
 pub mod routing_decisions;
+pub mod services;
+pub mod streaming_infer;
 pub mod telemetry;
 pub mod tenants;
 pub mod training;
+pub mod tutorials;
 pub mod workspaces;
 
 // Re-export adapter lifecycle and lineage handlers
@@ -4347,14 +4351,6 @@ pub async fn list_adapters(
             .and_then(|j| serde_json::from_str(j).ok())
             .unwrap_or_default();
 
-        // Convert tier string to i32: persistent=0, warm=1, ephemeral=2
-        let tier_int = match adapter.tier.as_str() {
-            "persistent" => 0,
-            "warm" => 1,
-            "ephemeral" => 2,
-            _ => 1, // default to warm
-        };
-
         responses.push(AdapterResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: adapter.id.clone(),
@@ -4362,10 +4358,18 @@ pub async fn list_adapters(
             name: adapter.name.clone(),
             hash_b3: adapter.hash_b3.clone(),
             rank: adapter.rank,
-            tier: tier_int,
+            tier: adapter.tier.clone(),
             languages,
             framework: adapter.framework.clone(),
+            category: adapter.category.clone(),
+            scope: adapter.scope.clone(),
+            framework_id: adapter.framework_id.clone(),
+            framework_version: adapter.framework_version.clone(),
+            repo_id: adapter.repo_id.clone(),
+            commit_sha: adapter.commit_sha.clone(),
+            intent: adapter.intent.clone(),
             created_at: adapter.created_at.clone(),
+            updated_at: adapter.updated_at.clone(),
             stats: Some(AdapterStats {
                 total_activations: total,
                 selected_count: selected,
@@ -4375,6 +4379,8 @@ pub async fn list_adapters(
             version: adapter.version.clone(),
             lifecycle_state: adapter.lifecycle_state.clone(),
             runtime_state: Some(adapter.current_state.clone()),
+            pinned: None,
+            memory_bytes: None,
         });
     }
 
@@ -4448,10 +4454,18 @@ pub async fn get_adapter(
         name: adapter.name.clone(),
         hash_b3: adapter.hash_b3.clone(),
         rank: adapter.rank,
-        tier: tier_str_to_int(&adapter.tier),
+        tier: adapter.tier.clone(),
         languages,
         framework: adapter.framework.clone(),
+        category: adapter.category.clone(),
+        scope: adapter.scope.clone(),
+        framework_id: adapter.framework_id.clone(),
+        framework_version: adapter.framework_version.clone(),
+        repo_id: adapter.repo_id.clone(),
+        commit_sha: adapter.commit_sha.clone(),
+        intent: adapter.intent.clone(),
         created_at: adapter.created_at.clone(),
+        updated_at: adapter.updated_at.clone(),
         stats: Some(AdapterStats {
             total_activations: total,
             selected_count: selected,
@@ -4461,6 +4475,8 @@ pub async fn get_adapter(
         version: adapter.version.clone(),
         lifecycle_state: adapter.lifecycle_state.clone(),
         runtime_state: Some(adapter.current_state),
+        pinned: None,
+        memory_bytes: None,
     }))
 }
 /// Register new adapter
@@ -4516,21 +4532,40 @@ pub async fn register_adapter(
         )
     })?;
 
-    // Build registration params using the builder pattern
-    let tier_str = match req.tier {
-        0 => "persistent".to_string(),
-        1 => "warm".to_string(),
-        _ => "ephemeral".to_string(),
-    };
+    // Validate tier is one of the allowed values
+    if !["persistent", "warm", "ephemeral"].contains(&req.tier.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("tier must be one of: 'persistent', 'warm', or 'ephemeral'")
+                    .with_code("BAD_REQUEST"),
+            ),
+        ));
+    }
 
+    // Validate category is provided
+    if req.category.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("category is required")
+                    .with_code("BAD_REQUEST"),
+            ),
+        ));
+    }
+
+    // Build registration params using the builder pattern
     let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
         .adapter_id(&req.adapter_id)
         .name(&req.name)
         .hash_b3(&req.hash_b3)
         .rank(req.rank)
-        .tier(&tier_str)
+        .tier(&req.tier)
         .languages_json(Some(languages_json.clone()))
         .framework(req.framework.clone())
+        .category(Some(req.category.clone()))
+        .scope(req.scope.clone())
+        .expires_at(req.expires_at.clone())
         .build()
         .map_err(|e| {
             (
@@ -4578,9 +4613,19 @@ pub async fn register_adapter(
             lifecycle_state: "active".to_string(),
             languages: req.languages,
             framework: req.framework,
+            category: Some(req.category.clone()),
+            scope: req.scope.clone(),
+            framework_id: None,
+            framework_version: None,
+            repo_id: None,
+            commit_sha: None,
+            intent: None,
             created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: Some(chrono::Utc::now().to_rfc3339()),
             stats: None,
             runtime_state: Some("unloaded".to_string()),
+            pinned: Some(false),
+            memory_bytes: Some(0),
         }),
     ))
 }
@@ -4839,13 +4884,21 @@ pub async fn load_adapter(
         name: adapter.name,
         hash_b3: adapter.hash_b3,
         rank: adapter.rank,
-        tier: tier_str_to_int(&adapter.tier),
+        tier: adapter.tier,
         version: adapter.version.clone(),
         lifecycle_state: adapter.lifecycle_state.clone(),
         languages: serde_json::from_str(adapter.languages_json.as_deref().unwrap_or("[]"))
             .unwrap_or_default(),
         framework: adapter.framework,
+        category: adapter.category,
+        scope: adapter.scope,
+        framework_id: adapter.framework_id,
+        framework_version: adapter.framework_version,
+        repo_id: adapter.repo_id,
+        commit_sha: adapter.commit_sha,
+        intent: adapter.intent,
         created_at: adapter.created_at,
+        updated_at: adapter.updated_at,
         stats: Some(AdapterStats {
             total_activations: total,
             selected_count: selected,
@@ -4853,6 +4906,8 @@ pub async fn load_adapter(
             selection_rate,
         }),
         runtime_state: Some(adapter.current_state),
+        pinned: None,
+        memory_bytes: None,
     }))
 }
 

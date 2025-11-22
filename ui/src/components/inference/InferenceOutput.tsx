@@ -11,7 +11,8 @@ import {
   BarChart3,
   CheckCircle,
   Target,
-  TrendingUp
+  TrendingUp,
+  Radio
 } from 'lucide-react';
 import { InferResponse } from '../../api/types';
 
@@ -61,14 +62,23 @@ export function InferenceOutput({
     );
   }
 
+  // Check if actively streaming (finish_reason is null while streaming)
+  const isActivelyStreaming = isStreaming && response.finish_reason === null;
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              {isStreaming && <CheckCircle className="h-4 w-4 text-green-500" />}
+              {isActivelyStreaming && <Radio className="h-4 w-4 text-green-500 animate-pulse" />}
+              {isStreaming && !isActivelyStreaming && <CheckCircle className="h-4 w-4 text-green-500" />}
               Response
+              {isActivelyStreaming && (
+                <Badge variant="secondary" className="text-xs animate-pulse">
+                  Streaming...
+                </Badge>
+              )}
             </CardTitle>
             <div className="flex gap-2">
               <Badge variant="outline" className="gap-1">
@@ -90,14 +100,18 @@ export function InferenceOutput({
         </CardHeader>
         <CardContent>
           <div className="relative">
-            <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg">
+            <pre className="whitespace-pre-wrap text-sm p-4 bg-muted border border-border rounded-lg min-h-[100px]">
               {response.text}
+              {isActivelyStreaming && (
+                <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
+              )}
             </pre>
             <Button
               variant="ghost"
               size="sm"
               className="absolute top-2 right-2"
               onClick={() => handleCopy(response.text)}
+              disabled={isActivelyStreaming}
             >
               <Copy className="h-4 w-4" aria-hidden="true" />
             </Button>

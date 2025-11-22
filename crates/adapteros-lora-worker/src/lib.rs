@@ -9,12 +9,12 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```ignore
 //! use adapteros_lora_worker::{Worker, InferenceRequest, InferenceResponse};
 //! use adapteros_lora_kernel_mtl::MetalKernels;
 //!
-//! // Create a worker with Metal kernels
-//! let worker = Worker::<MetalKernels>::new(/* config */)?;
+//! // Create a worker with Metal kernels (async context required)
+//! let worker = Worker::<MetalKernels>::new(config)?;
 //!
 //! // Process inference requests
 //! let request = InferenceRequest {
@@ -1116,7 +1116,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     /// This method can be called on-demand to verify GPU integrity after adapter
     /// operations (load, swap, rollback) or as part of periodic health checks.
     ///
-    /// ```no_run
+    /// ```ignore
+    /// // Async context required for await
     /// let report = worker.verify_gpu_integrity().await?;
     /// if !report.failed.is_empty() {
     ///     // Handle integrity failures

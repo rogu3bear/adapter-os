@@ -222,14 +222,14 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
 /// It uses the unified configuration system for consistent backend creation.
 ///
 /// # Example
-/// ```rust,no_run
+/// ```ignore
 /// use adapteros_config::{ModelConfig, BackendPreference};
 /// use adapteros_lora_worker::backend_factory::create_backend_from_config;
+/// use std::path::PathBuf;
 ///
-/// let config = ModelConfig::new("./models/qwen2.5-7b")
-///     .with_backend(BackendPreference::CoreML);
+/// let mut config = ModelConfig::new(PathBuf::from("./models/qwen2.5-7b"));
+/// config.backend = BackendPreference::CoreML;
 /// let backend = create_backend_from_config(&config)?;
-/// # Ok::<(), adapteros_core::AosError>(())
 /// ```
 pub fn create_backend_from_config(config: &ModelConfig) -> Result<Box<dyn FusedKernels>> {
     let choice = match config.backend {

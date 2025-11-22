@@ -1,3 +1,5 @@
+use crate::auth::Claims;
+use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{
     CreateDomainAdapterRequest, DomainAdapterExecutionResponse, DomainAdapterManifestResponse,
@@ -7,7 +9,7 @@ use crate::types::{
 use adapteros_db::adapters::{Adapter, AdapterRegistrationBuilder};
 use adapteros_lora_worker::InferenceRequest;
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::Json,
 };
@@ -64,7 +66,10 @@ fn adapter_to_domain_response(adapter: Adapter) -> DomainAdapterResponse {
 )]
 pub async fn list_domain_adapters(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<DomainAdapterResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     let adapters = state
         .db
         .list_adapters_by_category("domain")
@@ -104,8 +109,11 @@ pub async fn list_domain_adapters(
 )]
 pub async fn get_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     let adapter = state
         .db
         .get_adapter(&adapter_id)
@@ -163,8 +171,11 @@ pub async fn get_domain_adapter(
 )]
 pub async fn create_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<CreateDomainAdapterRequest>,
 ) -> Result<(StatusCode, Json<DomainAdapterResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
     // Validate inputs
     if req.name.is_empty() || req.domain_type.is_empty() || req.model.is_empty() {
         return Err((
@@ -258,9 +269,12 @@ pub async fn create_domain_adapter(
 )]
 pub async fn load_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(_req): Json<LoadDomainAdapterRequest>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterLoad)?;
+
     // Get adapter from database
     let adapter = state
         .db
@@ -381,8 +395,11 @@ pub async fn load_domain_adapter(
 )]
 pub async fn unload_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterLoad)?;
+
     // Get adapter from database
     let adapter = state
         .db
@@ -488,9 +505,12 @@ pub async fn unload_domain_adapter(
 )]
 pub async fn test_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(req): Json<TestDomainAdapterRequest>,
 ) -> Result<Json<TestDomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     let start_time = Instant::now();
     let iterations = req.iterations.unwrap_or(1);
 
@@ -656,8 +676,11 @@ pub async fn test_domain_adapter(
 )]
 pub async fn get_domain_adapter_manifest(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<DomainAdapterManifestResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterView)?;
+
     // Get adapter from database
     let adapter = state
         .db
@@ -748,9 +771,12 @@ pub async fn get_domain_adapter_manifest(
 )]
 pub async fn execute_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(input_data): Json<serde_json::Value>,
 ) -> Result<Json<DomainAdapterExecutionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::InferenceExecute)?;
+
     let start_time = Instant::now();
 
     // Get adapter from database
@@ -885,8 +911,11 @@ pub async fn execute_domain_adapter(
 )]
 pub async fn delete_domain_adapter(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
     // Get adapter to verify it exists and is a domain adapter
     let adapter = state
         .db

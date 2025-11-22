@@ -1,8 +1,6 @@
 //! End-to-end training workflow for the AdapterOS base code adapter.
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
+//! This module is temporarily stubbed pending reimplementation.
 //!
 //! Loads the curated dataset manifest, runs the deterministic Micro-LoRA trainer,
 //! and packages quantized weights into `adapters/<adapter_id>/`.
@@ -74,16 +72,7 @@ pub async fn run(_args: TrainBaseAdapterArgs) -> Result<()> {
         .try_init()
         .ok();
 
-    info!("train-base-adapter command is temporarily disabled pending migration to v3.0 types");
+    info!("train-base-adapter command is temporarily disabled pending reimplementation");
 
-    // TODO: Migrate to adapteros-aos v3.0 types
-    // The original implementation used:
-    // - adapteros_single_file_adapter::format::{AdapterWeights, LineageInfo, WeightGroup, ...}
-    // - adapteros_single_file_adapter::{SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig, TrainingExample}
-    // - adapteros_lora_worker::tokenizer::QwenTokenizer
-    // - adapteros_lora_worker::training::{load_examples_from_manifest, AdapterPackager, ...}
-    //
-    // These need to be replaced with types from adapteros-aos v3.0
-
-    bail!("train-base-adapter: pending migration to adapteros-aos v3.0 types")
+    bail!("train-base-adapter: pending reimplementation")
 }

@@ -44,6 +44,8 @@ pub struct Stack {
 ///
 /// # Example
 /// ```
+/// use adapteros_lora_worker::adapter_hotswap::adapter_id_to_u16;
+///
 /// let id = adapter_id_to_u16("my_adapter");
 /// assert_eq!(id, adapter_id_to_u16("my_adapter"));  // Always equal
 /// ```

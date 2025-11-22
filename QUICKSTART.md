@@ -1,579 +1,315 @@
-# AdapterOS Quick Start Guide
+# AdapterOS Quick Start for macOS
 
-Get up and running with AdapterOS inference in 10 minutes.
+Get the full AdapterOS UX running in 10 minutes.
 
-## Prerequisites
-
-- **macOS with Apple Silicon** (M1/M2/M3/M4 required for Metal backend)
-- **Rust 1.75+** (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- **16GB+ RAM** (32GB recommended for Qwen2.5-7B)
-- **Git** and **Python 3.9+**
+**Requirements:** Apple Silicon Mac (M1/M2/M3/M4), 16GB+ RAM, macOS 14+
 
 ---
 
-## Step 1: Clone and Build
+## 1. Prerequisites
 
 ```bash
-# Clone repository
-git clone <repo-url>
-cd adapteros
+# Install Xcode Command Line Tools
+xcode-select --install
 
-# Set environment variables
-export DATABASE_URL="sqlite://var/aos-cp.sqlite3"
-export RUST_LOG="info,adapteros=debug"
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Install Node.js and pnpm
+brew install node@20
+npm install -g pnpm
+
+# Optional but recommended
+brew install b3sum sqlite3
+```
+
+Verify setup:
+```bash
+rustc --version    # 1.75+
+node --version     # 20+
+pnpm --version     # 8+
+```
+
+---
+
+## 2. Clone and Build
+
+```bash
+git clone https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
 
 # Build release binaries
-cargo build --release --bin adapteros-server
-cargo build --release --bin adapteros-cli
-```
-
-Build time: ~10-15 minutes on Apple Silicon M1/M2.
-
----
-
-## Step 2: Download Base Model
-
-AdapterOS requires Qwen2.5-7B-Instruct in SafeTensors format.
-
-**Option A: Using HuggingFace CLI (Recommended)**
-
-```bash
-# Install HuggingFace CLI
-pip install -U "huggingface_hub[cli]"
-
-# Download Qwen2.5-7B model
-mkdir -p models
-huggingface-cli download Qwen/Qwen2.5-7B-Instruct \
-  --local-dir models/qwen2.5-7b \
-  --include "model.safetensors" "config.json" "tokenizer.json"
-```
-
-**Option B: Manual Download**
-
-1. Go to https://huggingface.co/Qwen/Qwen2.5-7B-Instruct
-2. Download these files to `models/qwen2.5-7b/`:
-   - `model.safetensors` (~14GB)
-   - `config.json`
-   - `tokenizer.json`
-
-**Verify download:**
-
-```bash
-ls -lh models/qwen2.5-7b/
-# Should show:
-#   model.safetensors  (~14GB)
-#   config.json
-#   tokenizer.json
+cargo build --release --workspace
 ```
 
 ---
 
-## Step 3: Initialize Database
+## 3. Download a Model
 
 ```bash
-# Create database directory
-mkdir -p var
+# Download Qwen 2.5 7B (4-bit quantized, ~3.8GB)
+./scripts/download_model.sh
 
-# Run migrations
-./target/release/adapteros-cli db migrate
+# Or specify options:
+# ./scripts/download_model.sh --size 3b    # Smaller 3B model
+# ./scripts/download_model.sh --size 0.5b  # Tiny model for testing
+```
+
+The model will be downloaded to `models/qwen2.5-7b-instruct-4bit-mlx/`.
+
+---
+
+## 4. Initialize Database
+
+```bash
+# Create data directories
+mkdir -p var/artifacts var/bundles var/alerts
+
+# Copy environment template
+cp .env.example .env
+
+# Run database migrations
+cargo run --release -p adapteros-orchestrator -- db migrate
 
 # Initialize default tenant
-./target/release/adapteros-cli init-tenant \
-  --id default \
-  --uid 1000 \
-  --gid 1000
-```
-
-**Verify database:**
-
-```bash
-./target/release/adapteros-cli status db
+cargo run --release -p adapteros-orchestrator -- init-tenant \
+    --id default --uid 1000 --gid 1000
 ```
 
 ---
 
-## Step 4: Create Sample Adapters
+## 5. Start the System
 
-AdapterOS uses `.aos` files for adapters. Create sample adapters:
-
+**Option A: Full system with one script**
 ```bash
-# Create adapters directory
-mkdir -p adapters
-
-# Option A: Use Python script (recommended)
-python3 scripts/create_aos_adapter.py \
-  --name code-assistant \
-  --output adapters/code-assistant.aos
-
-python3 scripts/create_aos_adapter.py \
-  --name creative-writer \
-  --output adapters/creative-writer.aos
-
-# Option B: Use Rust packager
-cargo run --release --bin aos_packager -- \
-  --name readme-writer \
-  --output adapters/readme-writer.aos
+./scripts/run_complete_system.sh
 ```
 
-**Verify adapters:**
+**Option B: Start services separately**
 
+Terminal 1 - Backend:
 ```bash
-ls -lh adapters/
-# Should show *.aos files
+export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-instruct-4bit-mlx
+export DATABASE_URL=sqlite://var/aos-cp.sqlite3
+export RUST_LOG=info
+
+cargo run --release -p adapteros-server-api
+```
+
+Terminal 2 - UI:
+```bash
+cd ui
+pnpm install
+pnpm dev
 ```
 
 ---
 
-## Step 5: Start Server
+## 6. Access the UI
+
+Open http://localhost:5173 in your browser.
+
+**Key Pages:**
+
+| Page | URL | Purpose |
+|------|-----|---------|
+| Dashboard | `/dashboard` | System overview |
+| Inference | `/inference` | Run inference |
+| Adapters | `/adapters` | Manage adapters |
+| Training | `/training` | Train new adapters |
+| Metrics | `/metrics` | Performance monitoring |
+
+---
+
+## 7. Load a Model
+
+The model loads automatically on first inference. To verify the server is ready:
 
 ```bash
-# Start server (foreground)
-./target/release/adapteros-server
-
-# OR start server (background)
-./target/release/adapteros-server &
-SERVER_PID=$!
+curl http://localhost:8080/healthz
+# {"status":"healthy",...}
 ```
 
-The server will:
-- Load the base model into memory (~14GB VRAM)
-- Initialize Metal kernels
-- Listen on Unix socket: `/var/run/adapteros.sock`
+Or via UI: Navigate to the Dashboard to see system health status.
 
-**Wait for ready message:**
+---
 
+## 8. Run Inference
+
+**Via UI:**
+1. Go to `/inference`
+2. Enter a prompt (e.g., "Write a hello world function in Rust:")
+3. Configure options (temperature, max tokens)
+4. Click "Generate"
+
+**Via API:**
+```bash
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Write a hello world function in Rust:",
+    "max_tokens": 200,
+    "temperature": 0.7
+  }'
 ```
-✅ AdapterOS server ready
-   Socket: /var/run/adapteros.sock
-   Model: qwen2.5-7b
-   Adapters loaded: 0
+
+**Streaming inference:**
+```bash
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Explain async/await in Rust:",
+    "max_tokens": 300,
+    "stream": true
+  }'
 ```
 
 ---
 
-## Step 6: Run Inference
+## 9. Train an Adapter
 
-### Basic Inference (No Adapter)
+**Step 1: Prepare training data** (JSONL format):
 
+Create `training_data.jsonl`:
+```jsonl
+{"prompt": "What is Rust?", "completion": "Rust is a systems programming language..."}
+{"prompt": "Explain ownership", "completion": "Ownership is Rust's memory management..."}
+{"prompt": "What are lifetimes?", "completion": "Lifetimes are Rust's way of tracking..."}
+```
+
+**Step 2: Train via UI:**
+1. Go to `/training`
+2. Click "New Training Job"
+3. Upload your JSONL dataset
+4. Configure hyperparameters:
+   - Rank: 16 (default)
+   - Alpha: 32 (default)
+   - Learning Rate: 1e-4
+   - Epochs: 3
+5. Start training
+6. Monitor progress on the Training page
+
+**Or via API:**
 ```bash
-./target/release/adapteros-cli infer \
-  --prompt "Hello, how are you?" \
-  --max-tokens 20
-```
+# Upload dataset
+curl -X POST http://localhost:8080/v1/datasets/upload \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@training_data.jsonl" \
+  -F "name=my-dataset"
 
-**Expected output:**
+# Start training
+curl -X POST http://localhost:8080/v1/training/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset_id": "my-dataset",
+    "name": "my-adapter",
+    "rank": 16,
+    "alpha": 32,
+    "epochs": 3
+  }'
 
-```
-I'm doing well, thank you for asking! How can I help you today?
-```
-
-### Inference with Adapter
-
-```bash
-./target/release/adapteros-cli infer \
-  --adapter code-assistant \
-  --prompt "Write a hello world function in Python" \
-  --max-tokens 50
-```
-
-**Expected output:**
-
-```python
-def hello_world():
-    """Print hello world message"""
-    print("Hello, World!")
-
-hello_world()
-```
-
-### Show Trace and Citations
-
-```bash
-./target/release/adapteros-cli infer \
-  --prompt "Explain k-sparse routing" \
-  --max-tokens 100 \
-  --require-evidence \
-  --show-citations \
-  --show-trace
+# Check training status
+curl http://localhost:8080/v1/training/jobs
 ```
 
 ---
 
-## Step 7: Test Hot-Swap
+## 10. Use the Trained Adapter
 
+Once training completes, the adapter is automatically registered.
+
+**Load and use via UI:**
+1. Go to `/inference`
+2. Select your adapter from the dropdown
+3. Enter a prompt and generate
+
+**Or via API:**
 ```bash
-# Swap to creative-writer adapter
-./target/release/adapteros-cli adapter-swap \
-  --tenant default \
-  --add creative-writer \
-  --remove code-assistant \
-  --commit
+# Load the adapter
+curl -X POST http://localhost:8080/v1/adapters/my-adapter/load
 
-# Generate creative content
-./target/release/adapteros-cli infer \
-  --adapter creative-writer \
-  --prompt "Once upon a time" \
-  --max-tokens 50
+# Run inference with the adapter
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Your prompt here",
+    "max_tokens": 200,
+    "adapters": ["my-adapter"]
+  }'
 ```
-
-**Expected behavior:**
-- Swap completes in <100ms
-- No service interruption
-- Different output style (creative vs code)
 
 ---
 
-## Verification Checklist
+## Performance Expectations
 
-Run these commands to verify your installation:
+| Hardware | Inference Latency | Token Generation | Model Load |
+|----------|-------------------|------------------|------------|
+| M1 (16GB) | ~1ms/token | ~1,000 tok/sec | 5-8 sec |
+| M2/M3 Pro | ~0.6ms/token | ~1,600 tok/sec | 3-5 sec |
+| M4 Max (48GB) | ~0.39ms/token | ~2,500 tok/sec | 2-3 sec |
 
-```bash
-# 1. Server health check
-./target/release/adapteros-cli doctor
-
-# 2. List adapters
-./target/release/adapteros-cli list-adapters
-
-# 3. System status
-./target/release/adapteros-cli status system
-
-# 4. Run end-to-end test
-cargo test --test e2e_inference_complete -- --ignored --nocapture
-
-# 5. Run demo script
-./scripts/demo_inference.sh
-```
-
-All checks should pass ✅
-
----
-
-## Quick Demo
-
-Run the automated demo to see all features:
-
-```bash
-./scripts/demo_inference.sh
-```
-
-This will demonstrate:
-1. ✅ Basic inference
-2. ✅ Adapter-enhanced inference
-3. ✅ Hot-swap capability
-4. ✅ Evidence-grounded responses
-5. ✅ Performance metrics
+Adapter hot-swap: <100ms
 
 ---
 
 ## Troubleshooting
 
-### Server Won't Start
-
-**Symptom:** Server crashes or fails to bind socket
-
-**Solutions:**
-
+**Port in use:**
 ```bash
-# Check database
-./target/release/adapteros-cli db migrate
-
-# Check socket permissions
-ls -la /var/run/adapteros.sock
-sudo rm /var/run/adapteros.sock  # if stale
-
-# Check Metal support
-system_profiler SPDisplaysDataType | grep Metal
+lsof -i :8080
+lsof -i :5173
+pkill -f adapteros-server
 ```
 
-### Model Not Found
-
-**Symptom:** `Model file not found: models/qwen2.5-7b/model.safetensors`
-
-**Solutions:**
-
+**Model not found:**
 ```bash
-# Verify download
-ls -lh models/qwen2.5-7b/model.safetensors
-
-# Re-download if corrupted
-huggingface-cli download Qwen/Qwen2.5-7B-Instruct \
-  --local-dir models/qwen2.5-7b \
-  --resume-download
+ls -la models/
+echo $AOS_MLX_FFI_MODEL
+./scripts/download_model.sh  # Re-download if needed
 ```
 
-### Inference Timeout
-
-**Symptom:** `Inference request failed: timeout`
-
-**Solutions:**
-
+**Database errors:**
 ```bash
-# Increase timeout
-./target/release/adapteros-cli infer \
-  --prompt "..." \
-  --timeout 60000  # 60 seconds
-
-# Reduce max tokens
-./target/release/adapteros-cli infer \
-  --prompt "..." \
-  --max-tokens 10  # smaller generation
-
-# Check memory pressure
-./target/release/adapteros-cli status memory
+rm var/aos-cp.sqlite3
+cargo run --release -p adapteros-orchestrator -- db migrate
 ```
 
-### No Adapters Loaded
+**Memory issues:**
+- Use a smaller model: `./scripts/download_model.sh --size 3b`
+- Reduce concurrent requests in `configs/cp.toml`
 
-**Symptom:** `Found 0 adapter(s)`
-
-**Solutions:**
-
+**UI won't connect:**
 ```bash
-# List .aos files
-ls adapters/*.aos
+# Check backend is running
+curl http://localhost:8080/healthz
 
-# Register adapters
-./target/release/adapteros-cli register-adapter \
-  code-assistant \
-  b3:$(cat adapters/code-assistant.aos | b3sum | cut -d' ' -f1) \
-  --tier persistent \
-  --rank 16
-
-# Verify registration
-./target/release/adapteros-cli list-adapters
+# Restart UI dev server
+cd ui && pnpm dev
 ```
-
-### Metal Initialization Failed
-
-**Symptom:** `Failed to initialize Metal: No Metal device found`
-
-**Cause:** Not running on Apple Silicon or Metal disabled
-
-**Solutions:**
-
-```bash
-# Check GPU
-system_profiler SPDisplaysDataType | grep -A 5 "Chipset Model"
-
-# If Linux/x86, build without Metal
-cargo build --release --no-default-features
-```
-
-### Memory Pressure Errors
-
-**Symptom:** `System under pressure, retry in 30s`
-
-**Solutions:**
-
-```bash
-# Check memory usage
-./target/release/adapteros-cli status memory
-
-# Evict cold adapters
-./target/release/adapteros-cli maintenance evict-cold
-
-# Reduce model size or use quantization
-# (see docs/QUANTIZATION.md)
-```
-
----
-
-## Custom Adapter Training Workflow
-
-Create your own custom adapter using a dataset:
-
-### Step 1: Prepare Training Data
-
-Create a JSONL file (`training.jsonl`) with input-output pairs:
-
-```jsonl
-{"input": "What is machine learning?", "target": "Machine learning is a subset of artificial intelligence focused on learning from data."}
-{"input": "Explain neural networks", "target": "Neural networks are computing systems inspired by biological neural networks that form an animal brain."}
-{"input": "What is deep learning?", "target": "Deep learning is a subset of machine learning using neural networks with multiple layers."}
-```
-
-### Step 2: Upload Dataset
-
-```bash
-curl -X POST http://localhost:8080/v1/datasets/upload \
-  -F "name=my-training-data" \
-  -F "description=Custom training dataset" \
-  -F "format=jsonl" \
-  -F "file=@training.jsonl"
-```
-
-Save the returned `dataset_id` from the response.
-
-### Step 3: Train Custom Adapter
-
-```bash
-# Start training with your dataset
-./target/release/aosctl train \
-  --dataset-id <dataset_id> \
-  --output adapters/my-custom.aos \
-  --rank 24 \
-  --epochs 3 \
-  --learning-rate 0.0001
-```
-
-Training will take 5-15 minutes depending on your dataset size and hardware.
-
-### Step 4: Test Your Adapter
-
-```bash
-./target/release/aosctl infer \
-  --adapter my-custom \
-  --prompt "What is machine learning?" \
-  --max-tokens 50
-```
-
-**Expected output:**
-
-```
-Machine learning is a branch of artificial intelligence that enables systems
-to learn and improve from experience without explicit programming...
-```
-
-### Complete Dataset Workflow Example
-
-Automate the entire workflow:
-
-```bash
-#!/bin/bash
-
-# Create training data
-cat > training.jsonl << 'EOF'
-{"input": "Explain Python", "target": "Python is a high-level programming language known for simplicity and readability."}
-{"input": "What is Rust?", "target": "Rust is a systems programming language offering memory safety without garbage collection."}
-{"input": "Tell me about JavaScript", "target": "JavaScript is a versatile language primarily used for web development and increasingly for backend services."}
-EOF
-
-# Upload dataset
-echo "Uploading dataset..."
-RESPONSE=$(curl -s -X POST http://localhost:8080/v1/datasets/upload \
-  -F "name=programming-languages" \
-  -F "description=Programming language explanations" \
-  -F "format=jsonl" \
-  -F "file=@training.jsonl")
-
-DATASET_ID=$(echo "$RESPONSE" | grep -o '"dataset_id":"[^"]*' | cut -d'"' -f4)
-echo "Dataset ID: $DATASET_ID"
-
-# Validate dataset
-echo "Validating dataset..."
-curl -s -X POST http://localhost:8080/v1/datasets/$DATASET_ID/validate | jq .
-
-# Preview dataset
-echo "Dataset preview:"
-curl -s "http://localhost:8080/v1/datasets/$DATASET_ID/preview?limit=3" | jq .
-
-# Train adapter
-echo "Training custom adapter..."
-./target/release/aosctl train \
-  --dataset-id $DATASET_ID \
-  --output adapters/lang-explainer.aos \
-  --rank 16 \
-  --epochs 2
-
-# Test inference
-echo "Testing trained adapter..."
-./target/release/aosctl infer \
-  --adapter lang-explainer \
-  --prompt "Explain Go programming language" \
-  --max-tokens 50
-
-echo "Done!"
-```
-
-**For detailed dataset documentation**, see `docs/USER_GUIDE_DATASETS.md`
 
 ---
 
 ## Next Steps
 
-### Explore Features
-
-- **Datasets:** `docs/USER_GUIDE_DATASETS.md` - Complete dataset guide
-- **Training:** `docs/TRAINING.md` - Advanced training techniques
-- **Policy:** `docs/POLICY.md` - Configure governance rules
-- **Federation:** `docs/FEDERATION.md` - Multi-node setup
-- **Telemetry:** `docs/TELEMETRY.md` - Audit trail and metrics
-
-### Advanced Usage
-
-```bash
-# Create custom adapter from code
-./target/release/adapteros-cli train \
-  --input src/ \
-  --output adapters/custom.aos \
-  --rank 32
-
-# Replay deterministic bundle
-./target/release/adapteros-cli replay \
-  var/bundles/baseline.ndjson
-
-# Verify cross-host determinism
-./target/release/adapteros-cli node-verify --all
-```
-
-### Web UI (Optional)
-
-```bash
-# Build UI
-cd ui && pnpm install && pnpm build
-
-# Access dashboard
-open http://localhost:8080
-```
-
-### Documentation
-
-- **Architecture:** `docs/ARCHITECTURE_INDEX.md`
-- **API Reference:** `docs/API.md`
-- **Developer Guide:** `CLAUDE.md`
-- **Contributing:** `CONTRIBUTING.md`
+- **[Full Architecture](docs/ARCHITECTURE_INDEX.md)** - System design
+- **[MLX Integration](docs/MLX_INTEGRATION.md)** - Backend details
+- **[Training Guide](docs/training/aos_adapters.md)** - Advanced training
+- **[REST API Reference](CLAUDE.md#rest-api-reference)** - All endpoints
+- **[Complete System Guide](docs/QUICKSTART_COMPLETE_SYSTEM.md)** - Detailed setup
 
 ---
 
-## Performance Benchmarks
+## See Also
 
-On Apple M1 Max (32GB RAM):
-
-| Operation | Latency | Throughput |
-|-----------|---------|------------|
-| Model loading | ~8s | - |
-| Adapter hot-swap | ~50ms | - |
-| Token generation | ~10ms/token | ~100 tokens/s |
-| Router decision | <1ms | - |
-| Evidence retrieval | ~20ms | - |
-
-*Your results may vary based on hardware*
+- [CLAUDE.md](CLAUDE.md) - Developer quick reference guide
+- [docs/LOCAL_BUILD.md](docs/LOCAL_BUILD.md) - Local build guide with troubleshooting
+- [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Feature flag reference
+- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+- [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md) - GPU training quick start
+- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Detailed architecture patterns
+- [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md) - Database schema reference
 
 ---
 
-## Getting Help
-
-- **Issues:** https://github.com/anthropics/adapteros/issues
-- **Discord:** [join link]
-- **Documentation:** `docs/` directory
-- **Examples:** `examples/` directory
-
----
-
-## What's Next?
-
-You now have a working AdapterOS installation! Try:
-
-1. ✅ Generate text with different adapters
-2. ✅ Create your own custom adapter
-3. ✅ Test deterministic replay
-4. ✅ Explore the web UI
-5. ✅ Read the architecture docs
-
-**Happy inferencing! 🚀**
-
----
-
-**Last Updated:** 2025-01-19
-**Version:** Alpha v0.01-1
-**Platform:** macOS 13.0+ with Apple Silicon
+**Built for Apple Silicon** | Copyright 2025 JKCA / James KC Auchterlonie

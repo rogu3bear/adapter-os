@@ -8,6 +8,11 @@ const app = express();
 const PORT = 3301;
 const API_PROXY_TARGET = process.env.API_PROXY_TARGET || 'http://localhost:3300';
 
+// Compute project root as parent of ui/ directory
+// This allows the server to work from any location where the project is cloned
+const UI_DIR = __dirname;
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
 // Simple shared secret authentication for localhost communication
 const SHARED_SECRET = process.env.SERVICE_PANEL_SECRET || 'adapteros-local-dev';
 const AUTH_TOKEN = Buffer.from(`service-panel:${SHARED_SECRET}`).toString('base64');
@@ -60,10 +65,11 @@ app.use(express.static(path.join(__dirname, 'dist-service-panel')));
 const runningProcesses = new Map();
 
 // Service configurations - what actually works
+// Uses PROJECT_ROOT and UI_DIR for portable paths that work from any clone location
 const serviceConfigs = {
   'service-panel': {
     name: 'Service Panel',
-    startCommand: 'cd /Users/star/Dev/adapter-os/ui && SERVICE_PANEL_SECRET=adapteros-local-dev pnpm service-panel',
+    startCommand: `cd "${UI_DIR}" && SERVICE_PANEL_SECRET=adapteros-local-dev pnpm service-panel`,
     stopCommand: 'pkill -f "node server.js"',
     statusCommand: 'pgrep -f "node server.js" >/dev/null && echo "running" || echo "stopped"',
     healthCommand: 'curl -f http://localhost:3301/health >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
@@ -75,7 +81,7 @@ const serviceConfigs = {
   },
   'backend-server': {
     name: 'Backend Server',
-    startCommand: 'cd /Users/star/Dev/adapter-os && cargo run -p adapteros-server --bin adapteros-server -- --config configs/cp.toml --skip-pf-check --single-writer',
+    startCommand: `cd "${PROJECT_ROOT}" && cargo run -p adapteros-server --bin adapteros-server -- --config configs/cp.toml --skip-pf-check --single-writer`,
     stopCommand: 'pkill -f "adapteros-server.*configs/cp.toml"',
     statusCommand: 'pgrep -f "adapteros-server.*configs/cp.toml" >/dev/null && echo "running" || echo "stopped"',
     healthCommand: 'curl -f http://localhost:3300/healthz >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
@@ -87,7 +93,7 @@ const serviceConfigs = {
   },
   'ui-frontend': {
     name: 'UI Frontend',
-    startCommand: 'cd /Users/star/Dev/adapter-os/ui && pnpm dev -- --host 0.0.0.0 --port 3200',
+    startCommand: `cd "${UI_DIR}" && pnpm dev -- --host 0.0.0.0 --port 3200`,
     stopCommand: 'pkill -f "vite.*3200"',
     statusCommand: 'pgrep -f "vite.*3200" >/dev/null && echo "running" || echo "stopped"',
     healthCommand: 'curl -f http://localhost:3200 >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
@@ -99,7 +105,7 @@ const serviceConfigs = {
   },
   'supervisor': {
     name: 'Supervisor',
-    startCommand: 'cd /Users/star/Dev/adapter-os && aos-supervisor --config scripts/supervisor.toml',
+    startCommand: `cd "${PROJECT_ROOT}" && aos-supervisor --config scripts/supervisor.toml`,
     stopCommand: 'pkill -f "aos-supervisor"',
     statusCommand: 'pgrep -f "aos-supervisor" >/dev/null && echo "running" || echo "stopped"',
     healthCommand: 'test -S /var/run/aos/supervisor.sock >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',

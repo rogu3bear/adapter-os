@@ -1,5 +1,6 @@
 use crate::auth::{validate_token, Claims};
 use crate::ip_extraction::{extract_client_ip, ClientIp};
+use crate::security::is_token_revoked;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::identity::IdentityEnvelope;
@@ -44,6 +45,30 @@ pub async fn auth_middleware(
     if let Some(token) = token {
         match validate_token(token, &state.jwt_secret) {
             Ok(claims) => {
+                // Check if token has been revoked
+                if let Err(e) = is_token_revoked(&state.db, &claims.jti).await {
+                    tracing::warn!(error = %e, "Failed to check token revocation");
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+                    ));
+                }
+
+                if is_token_revoked(&state.db, &claims.jti)
+                    .await
+                    .unwrap_or(false)
+                {
+                    tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked token used");
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(
+                            ErrorResponse::new("token revoked")
+                                .with_code("TOKEN_REVOKED")
+                                .with_string_details("this token has been revoked"),
+                        ),
+                    ));
+                }
+
                 // Extract tenant_id before moving claims
                 let tenant_id = claims.tenant_id.clone();
                 // Insert claims into request extensions for handlers to use
@@ -61,7 +86,7 @@ pub async fn auth_middleware(
                 tracing::warn!(error = %e, "Token validation failed");
                 return Err((
                     StatusCode::UNAUTHORIZED,
-                    Json(ErrorResponse::new("unauthorized").with_code("INTERNAL_ERROR")),
+                    Json(ErrorResponse::new("unauthorized").with_code("UNAUTHORIZED")),
                 ));
             }
         }
@@ -72,7 +97,7 @@ pub async fn auth_middleware(
         StatusCode::UNAUTHORIZED,
         Json(
             ErrorResponse::new("unauthorized")
-                .with_code("INTERNAL_ERROR")
+                .with_code("UNAUTHORIZED")
                 .with_string_details("missing or invalid Authorization header"),
         ),
     ))
@@ -105,28 +130,33 @@ pub async fn dual_auth_middleware(
         .or(query_token.as_deref());
 
     if let Some(token) = token {
-        if token == "adapteros-local" {
-            let now = Utc::now();
-            let claims = Claims {
-                sub: "api-key-user".to_string(),
-                email: "api@adapteros.local".to_string(),
-                role: "User".to_string(),
-                tenant_id: "default".to_string(),
-                exp: (now + Duration::hours(1)).timestamp(),
-                iat: now.timestamp(),
-                jti: Uuid::new_v4().to_string(),
-                nbf: now.timestamp(),
-            };
-            let tenant_id = claims.tenant_id.clone();
-            req.extensions_mut().insert(claims);
-            let identity = IdentityEnvelope::new(
-                tenant_id,
-                "api".to_string(),
-                "middleware".to_string(), // or specific
-                IdentityEnvelope::default_revision(),
-            );
-            req.extensions_mut().insert(identity);
-            return Ok(next.run(req).await);
+        // SECURITY: Only allow debug bypass in development mode
+        #[cfg(debug_assertions)]
+        {
+            if token == "adapteros-local" {
+                let now = Utc::now();
+                let claims = Claims {
+                    sub: "api-key-user".to_string(),
+                    email: "api@adapteros.local".to_string(),
+                    role: "User".to_string(),
+                    tenant_id: "default".to_string(),
+                    exp: (now + Duration::hours(1)).timestamp(),
+                    iat: now.timestamp(),
+                    jti: Uuid::new_v4().to_string(),
+                    nbf: now.timestamp(),
+                };
+                let tenant_id = claims.tenant_id.clone();
+                tracing::debug!("Using debug bypass token (dev mode only)");
+                req.extensions_mut().insert(claims);
+                let identity = IdentityEnvelope::new(
+                    tenant_id,
+                    "api".to_string(),
+                    "middleware".to_string(),
+                    IdentityEnvelope::default_revision(),
+                );
+                req.extensions_mut().insert(identity);
+                return Ok(next.run(req).await);
+            }
         }
 
         match validate_token(token, &state.jwt_secret) {

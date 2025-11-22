@@ -463,15 +463,17 @@ impl PatchTelemetry {
         proposal_id: Option<&str>,
     ) {
         if let Some(&threshold_ms) = self.performance_thresholds.get(operation) {
-            let exceeded = duration_ms > threshold_ms;
-            let event = PerformanceThresholdEvent {
-                operation: operation.to_string(),
-                threshold_ms,
-                actual_ms: duration_ms,
-                threshold_exceeded: exceeded,
-                proposal_id: proposal_id.map(|s| s.to_string()),
-            };
-            self.log_performance_threshold("default_tenant", event);
+            // Only log when threshold is exceeded
+            if duration_ms > threshold_ms {
+                let event = PerformanceThresholdEvent {
+                    operation: operation.to_string(),
+                    threshold_ms,
+                    actual_ms: duration_ms,
+                    threshold_exceeded: true,
+                    proposal_id: proposal_id.map(|s| s.to_string()),
+                };
+                self.log_performance_threshold("default_tenant", event);
+            }
         }
     }
 

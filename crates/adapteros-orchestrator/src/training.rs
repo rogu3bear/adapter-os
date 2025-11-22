@@ -173,6 +173,7 @@ impl TrainingService {
         let jobs_ref = self.jobs.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
+        let adapter_name_for_run = job.adapter_name.clone();
         let dataset_id_for_run = job.dataset_id.clone();
         let db_for_run = self.db.clone();
         let storage_for_run = self.storage_root.clone();
@@ -180,6 +181,7 @@ impl TrainingService {
             if let Err(e) = run_training_job(
                 jobs_ref,
                 job_id_for_run.clone(),
+                adapter_name_for_run,
                 cfg_for_run,
                 dataset_id_for_run,
                 db_for_run,
@@ -346,15 +348,22 @@ impl Default for TrainingService {
 }
 
 /// Background runner for a single training job. Converts orchestrator config into worker trainer
-/// config, runs training with per-epoch callback, and updates the shared job map.
+/// config, runs training with per-epoch callback, packages weights, registers adapter, and
+/// updates the shared job map with artifact metadata.
 async fn run_training_job(
     jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
     job_id: String,
+    adapter_name: String,
     orchestrator_cfg: TrainingConfig,
     dataset_id: Option<String>,
     db: Option<adapteros_db::Db>,
     storage_root: Option<PathBuf>,
 ) -> Result<()> {
+    use adapteros_lora_worker::training::{
+        AdapterPackager, LoRAQuantizer,
+        TrainingConfig as WorkerTrainingConfigType,
+    };
+
     // Transition to running
     {
         let mut jobs = jobs_ref.write().await;
@@ -377,8 +386,11 @@ async fn run_training_job(
         max_gpu_memory_mb: 0, // unlimited
     };
 
+    // Clone db for later use in packaging/registration
+    let db_for_packaging = db.clone();
+
     // Load training examples from dataset if available, otherwise use synthetic fallback
-    let examples: Vec<WorkerTrainingExample> = match (dataset_id, db, storage_root) {
+    let examples: Vec<WorkerTrainingExample> = match (dataset_id, db, storage_root.clone()) {
         (Some(ds_id), Some(database), Some(storage)) => {
             use crate::training_dataset_integration::TrainingDatasetManager;
             let dataset_manager = TrainingDatasetManager::new(database, storage, None);
@@ -410,7 +422,7 @@ async fn run_training_job(
         }
     };
 
-    let mut trainer = WorkerTrainer::new(worker_cfg)?;
+    let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
 
     // Run with per-epoch callback to update progress
     let job_id_clone = job_id.clone();
@@ -434,13 +446,150 @@ async fn run_training_job(
         .await;
 
     match result {
-        Ok(_training_result) => {
-            let mut jobs = jobs_ref.write().await;
-            if let Some(job) = jobs.get_mut(&job_id) {
-                job.status = TrainingJobStatus::Completed;
-                job.progress_pct = 100.0;
-                job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+        Ok(training_result) => {
+            info!(
+                job_id = %job_id,
+                adapter_name = %adapter_name,
+                final_loss = training_result.final_loss,
+                "Training completed, packaging adapter"
+            );
+
+            // Step 1: Quantize weights to Q15 format
+            let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
+
+            // Step 2: Package the adapter
+            // Use storage_root/adapters or default path
+            let packager = match &storage_root {
+                Some(root) => AdapterPackager::new(root.join("adapters")),
+                None => AdapterPackager::with_default_path(),
+            };
+
+            // Create worker training config for packaging
+            let packager_cfg = WorkerTrainingConfigType {
+                rank: worker_cfg.rank,
+                alpha: worker_cfg.alpha,
+                learning_rate: worker_cfg.learning_rate,
+                batch_size: worker_cfg.batch_size,
+                epochs: worker_cfg.epochs,
+                hidden_dim: worker_cfg.hidden_dim,
+                preferred_backend: None,
+                require_gpu: false,
+                max_gpu_memory_mb: 0,
+            };
+
+            // Generate unique adapter ID from job_id
+            let adapter_id = format!("adapter-{}", job_id.trim_start_matches("train-"));
+
+            let packaged = match packager
+                .package(
+                    &adapter_id,
+                    &quantized_weights,
+                    &packager_cfg,
+                    "base-model", // TODO: Make configurable via orchestrator config
+                )
+                .await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    error!(job_id = %job_id, error = %e, "Failed to package adapter");
+                    let mut jobs = jobs_ref.write().await;
+                    if let Some(job) = jobs.get_mut(&job_id) {
+                        job.status = TrainingJobStatus::Failed;
+                        job.error_message = Some(format!("Packaging failed: {}", e));
+                        job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                    return Err(e.into());
+                }
+            };
+
+            info!(
+                job_id = %job_id,
+                adapter_id = %packaged.adapter_id,
+                weights_path = %packaged.weights_path.display(),
+                hash_b3 = %packaged.hash_b3,
+                "Adapter packaged successfully"
+            );
+
+            // Step 3: Register adapter in database (if db available)
+            if let Some(database) = &db_for_packaging {
+                use adapteros_db::AdapterRegistrationBuilder;
+
+                let reg_params = AdapterRegistrationBuilder::new()
+                    .adapter_id(&packaged.adapter_id)
+                    .name(&adapter_name)
+                    .hash_b3(&packaged.hash_b3)
+                    .rank(orchestrator_cfg.rank as i32)
+                    .tier("warm")
+                    .alpha(orchestrator_cfg.alpha as f64)
+                    .category("trained")
+                    .scope("global")
+                    .build()
+                    .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
+
+                match database.register_adapter(reg_params).await {
+                    Ok(db_id) => {
+                        info!(
+                            job_id = %job_id,
+                            adapter_id = %packaged.adapter_id,
+                            db_id = %db_id,
+                            "Adapter registered in database"
+                        );
+
+                        // Update training job with artifact metadata
+                        if let Err(e) = database
+                            .update_training_job_artifact(
+                                &job_id,
+                                packaged.weights_path.to_string_lossy().as_ref(),
+                                &packaged.adapter_id,
+                                &packaged.hash_b3,
+                            )
+                            .await
+                        {
+                            // Log but don't fail - adapter is already registered
+                            tracing::warn!(
+                                job_id = %job_id,
+                                error = %e,
+                                "Failed to update job artifact metadata (non-fatal)"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!(job_id = %job_id, error = %e, "Failed to register adapter in database");
+                        let mut jobs = jobs_ref.write().await;
+                        if let Some(job) = jobs.get_mut(&job_id) {
+                            job.status = TrainingJobStatus::Failed;
+                            job.error_message = Some(format!("Registration failed: {}", e));
+                            job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                        }
+                        return Err(e.into());
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    job_id = %job_id,
+                    "No database connection available, skipping adapter registration"
+                );
             }
+
+            // Step 4: Update job status to completed with artifact info
+            {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    job.status = TrainingJobStatus::Completed;
+                    job.progress_pct = 100.0;
+                    job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                    job.artifact_path = Some(packaged.weights_path.to_string_lossy().to_string());
+                    job.adapter_id = Some(packaged.adapter_id.clone());
+                    job.weights_hash_b3 = Some(packaged.hash_b3.clone());
+                }
+            }
+
+            info!(
+                job_id = %job_id,
+                adapter_id = %packaged.adapter_id,
+                "Training job completed successfully"
+            );
+
             Ok(())
         }
         Err(e) => {

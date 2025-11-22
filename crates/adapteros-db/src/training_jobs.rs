@@ -21,6 +21,11 @@ pub struct TrainingJobRecord {
     pub started_at: String,
     pub completed_at: Option<String>,
     pub created_by: String,
+    // Fields from migration 0050
+    pub adapter_name: Option<String>,
+    pub template_id: Option<String>,
+    pub created_at: Option<String>,
+    pub metadata_json: Option<String>,
 }
 
 /// Training progress data
@@ -83,7 +88,8 @@ impl Db {
     pub async fn get_training_job(&self, job_id: &str) -> Result<Option<TrainingJobRecord>> {
         let job = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
-                    started_at, completed_at, created_by
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
@@ -152,7 +158,8 @@ impl Db {
     pub async fn list_training_jobs(&self, repo_id: &str) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
-                    started_at, completed_at, created_by
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json
              FROM repository_training_jobs
              WHERE repo_id = ?
              ORDER BY started_at DESC",
@@ -175,7 +182,8 @@ impl Db {
     ) -> Result<Vec<TrainingJobRecord>> {
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT id, repo_id, training_config_json, status, progress_json,
-                    started_at, completed_at, created_by
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json
              FROM repository_training_jobs
              WHERE status = ?
              ORDER BY started_at DESC",
@@ -198,6 +206,65 @@ impl Db {
             .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Update training job with artifact metadata
+    ///
+    /// Called after training completes successfully to record:
+    /// - artifact_path: Path to the packaged .aos file
+    /// - adapter_id: Registered adapter identifier
+    /// - weights_hash_b3: BLAKE3 hash of the trained weights
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql:18-19
+    /// Pattern: metadata_json column for artifact tracking
+    pub async fn update_training_job_artifact(
+        &self,
+        job_id: &str,
+        artifact_path: &str,
+        adapter_id: &str,
+        weights_hash_b3: &str,
+    ) -> Result<()> {
+        let metadata = serde_json::json!({
+            "artifact_path": artifact_path,
+            "adapter_id": adapter_id,
+            "weights_hash_b3": weights_hash_b3
+        });
+        let metadata_json = serde_json::to_string(&metadata).map_err(AosError::Serialization)?;
+
+        sqlx::query(
+            "UPDATE repository_training_jobs
+             SET metadata_json = ?
+             WHERE id = ?",
+        )
+        .bind(&metadata_json)
+        .bind(job_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Update training job with adapter name
+    ///
+    /// Records the adapter_name field (from migration 0050)
+    pub async fn update_training_job_adapter_name(
+        &self,
+        job_id: &str,
+        adapter_name: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE repository_training_jobs
+             SET adapter_name = ?
+             WHERE id = ?",
+        )
+        .bind(adapter_name)
+        .bind(job_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(())
     }

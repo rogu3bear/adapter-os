@@ -144,222 +144,16 @@ Examples:
     // ============================================================
     // Adapter Management
     // ============================================================
-    /// List adapters in the registry
-    #[command(after_help = r#"Examples:
-  aosctl list-adapters
-  aosctl list-adapters --tier persistent
-  aosctl list-adapters --json > adapters.json
-  aosctl list-adapters --include-meta
-"#)]
-    AdapterList {
-        /// Filter by tier
-        #[arg(short, long)]
-        tier: Option<String>,
-
-        /// Output full metadata as JSON
-        #[arg(long)]
-        include_meta: bool,
-    },
-
-    /// Register a new adapter
-    #[command(after_help = "\
-Examples:
-  # Register a persistent adapter
-  aosctl register-adapter my_adapter b3:abc123... --tier persistent --rank 16
-
-  # Register an ephemeral adapter (default)
-  aosctl register-adapter temp_fix b3:def456... --rank 8
-
-  # High-rank adapter for complex tasks
-  aosctl register-adapter specialist b3:789ghi... --tier persistent --rank 32
-")]
-    AdapterRegister {
-        /// Adapter ID
-        id: String,
-
-        /// Artifact hash
-        hash: String,
-
-        /// Tier (persistent or ephemeral)
-        #[arg(short, long, default_value = "ephemeral")]
-        tier: String,
-
-        /// Rank
-        #[arg(short, long)]
-        rank: u32,
-    },
-
-    /// Pin adapter to prevent eviction
-    #[command(after_help = "\
-Examples:
-  # Pin adapter permanently
-  aosctl pin-adapter --tenant dev --adapter specialist --reason \"Production critical\"
-
-  # Pin adapter with TTL
-  aosctl pin-adapter --tenant dev --adapter temp_fix --ttl-hours 24 --reason \"Testing\"
-
-  # List pinned adapters
-  aosctl list-pinned --tenant dev
-")]
-    AdapterPin {
-        /// Tenant ID
-        #[arg(short, long)]
-        tenant: String,
-
-        /// Adapter ID
-        #[arg(short, long)]
-        adapter: String,
-
-        /// TTL in hours (omit for permanent pin)
-        #[arg(long)]
-        ttl_hours: Option<u64>,
-
-        /// Reason for pinning
-        #[arg(short, long)]
-        reason: String,
-    },
-
-    /// Unpin adapter to allow eviction
-    #[command(after_help = "\
-Examples:
-  # Unpin adapter
-  aosctl unpin-adapter --tenant dev --adapter temp_fix
-
-  # Verify unpinning
-  aosctl list-pinned --tenant dev
-")]
-    AdapterUnpin {
-        /// Tenant ID
-        #[arg(short, long)]
-        tenant: String,
-
-        /// Adapter ID
-        #[arg(short, long)]
-        adapter: String,
-    },
-
-    /// List pinned adapters
-    #[command(after_help = "\
-Examples:
-  # List all pinned adapters for tenant
-  aosctl list-pinned --tenant dev
-
-  # Check specific adapter status
-  aosctl adapter-info specialist
-")]
-    AdapterListPinned {
-        /// Tenant ID
-        #[arg(short, long)]
-        tenant: String,
-    },
-
-    /// Hot-swap adapters in running worker
-    #[command(after_help = "\
-Examples:
-  # Dry-run adapter swap
-  aosctl adapter-swap --tenant dev --add specialist --remove temp_fix
-
-  # Commit adapter swap
-  aosctl adapter-swap --tenant dev --add specialist --remove temp_fix --commit
-
-  # Add multiple adapters
-  aosctl adapter-swap --tenant dev --add adapter1,adapter2 --commit
-")]
-    AdapterSwap {
-        /// Tenant ID
-        #[arg(short, long)]
-        tenant: String,
-
-        /// Adapter IDs to add (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        add: Vec<String>,
-
-        /// Adapter IDs to remove (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        remove: Vec<String>,
-
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "5000")]
-        timeout: u64,
-
-        /// Commit the swap (otherwise dry-run)
-        #[arg(long)]
-        commit: bool,
-
-        /// UDS socket path
-        #[arg(long, default_value = "/var/run/aos/aos.sock")]
-        socket: PathBuf,
-    },
-
-    /// Show adapter information and provenance
-    #[command(after_help = "\
-Examples:
-  # Show adapter details
-  aosctl adapter-info specialist
-
-  # Check adapter compatibility
-  aosctl adapter-info temp_fix --check-compatibility
-
-  # Show adapter provenance
-  aosctl adapter-info specialist --show-provenance
-")]
-    AdapterInfo {
-        /// Adapter ID
-        adapter_id: String,
-    },
-
-    /// Adapter lifecycle management commands
-    #[command(subcommand)]
+    /// Adapter management commands (lifecycle, registration, pinning, etc.)
+    #[command(subcommand, visible_alias = "adapters")]
     Adapter(adapter::AdapterCommand),
 
     // ============================================================
     // Node & Cluster Management
     // ============================================================
-    /// List cluster nodes
-    #[command(after_help = "\
-Examples:
-  # List all nodes
-  aosctl node-list
-
-  # List nodes offline (cached)
-  aosctl node-list --offline
-
-  # Check node status
-  aosctl node-status node1
-")]
-    NodeList {
-        /// Offline mode (use cached database state)
-        #[arg(long)]
-        offline: bool,
-    },
-
-    /// Verify cross-node determinism
-    #[command(after_help = "\
-Examples:
-  # Verify all nodes
-  aosctl node-verify --all
-
-  # Verify specific nodes
-  aosctl node-verify --nodes node1,node2
-
-  # Check determinism across cluster
-  aosctl node-verify --all --verbose
-")]
-    NodeVerify {
-        /// Verify all nodes
-        #[arg(long)]
-        all: bool,
-
-        /// Specific node IDs to verify (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        nodes: Option<Vec<String>>,
-    },
-
-    /// Sync adapters across nodes
-    NodeSync {
-        #[command(subcommand)]
-        mode: NodeSyncMode,
-    },
+    /// Node management commands (list, verify, sync)
+    #[command(subcommand, visible_alias = "nodes")]
+    Node(node::NodeCommand),
 
     // ============================================================
     // System Status
@@ -396,42 +190,9 @@ Examples:
     // ============================================================
     // Registry Management
     // ============================================================
-    /// Sync adapters from local directory to registry
-    #[command(after_help = "\
-Examples:
-  # Sync adapters from directory
-  aosctl sync-registry --dir ./adapters
-
-  # Sync with custom CAS root
-  aosctl sync-registry --dir ./adapters --cas-root ./var/cas
-
-  # Sync to custom registry
-  aosctl sync-registry --dir ./adapters --registry ./var/custom.db
-")]
-    RegistrySync {
-        /// Directory containing adapters with SBOM and signatures
-        #[arg(short, long)]
-        dir: PathBuf,
-
-        /// CAS root directory
-        #[arg(long, default_value = "./var/cas")]
-        cas_root: PathBuf,
-
-        /// Registry database path
-        #[arg(long, default_value = "./var/registry.db")]
-        registry: PathBuf,
-    },
-
-    /// Migrate legacy registry database into new schema
-    #[command(after_help = "\
-Examples:
-  # Migrate from deprecated/registry.db to var/registry.db
-  aosctl registry migrate
-
-  # Explicit paths with dry run
-  aosctl registry migrate --from-db deprecated/registry.db --to-db var/registry.db --dry-run
-")]
-    RegistryMigrate(commands::registry_migrate::RegistryMigrateArgs),
+    /// Registry management commands (sync, migrate)
+    #[command(subcommand, alias = "sync-registry", alias = "registry-sync", alias = "registry-migrate")]
+    Registry(registry::RegistryCommand),
 
     // ============================================================
     // Plan Management
@@ -502,64 +263,13 @@ Examples:
     // ============================================================
     // Telemetry & Verification
     // ============================================================
-    /// List telemetry events
-    #[command(after_help = r#"Examples:
-  # List all events
-  aosctl telemetry-list
+    /// Telemetry commands (list, verify)
+    #[command(subcommand, alias = "telemetry-list", alias = "telemetry-verify")]
+    Telemetry(telemetry::TelemetryCommand),
 
-  # Filter by stack
-  aosctl telemetry-list --by-stack stack-prod-001
-
-  # Filter by event type
-  aosctl telemetry-list --event-type router.decision
-
-  # Combine filters with JSON output
-  aosctl telemetry-list --by-stack stack-prod-001 --limit 100 --json > events.json
-"#)]
-    TelemetryList {
-        /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
-        database: PathBuf,
-
-        /// Filter by stack ID (PRD-03)
-        #[arg(long)]
-        by_stack: Option<String>,
-
-        /// Filter by event type
-        #[arg(long)]
-        event_type: Option<String>,
-
-        /// Limit number of results
-        #[arg(long, default_value = "50")]
-        limit: u32,
-    },
-
-    /// Verify telemetry bundle chain
-    #[command(after_help = r#"Examples:
-  aosctl telemetry-verify --bundle-dir ./var/telemetry
-  aosctl telemetry-verify --bundle-dir ./var/telemetry --json > verify.json
-"#)]
-    TelemetryVerify {
-        /// Telemetry bundle directory
-        #[arg(short, long)]
-        bundle_dir: PathBuf,
-    },
-
-    /// Verify cross-host federation signatures
-    #[command(after_help = r#"Examples:
-  aosctl federation-verify --bundle-dir ./var/telemetry
-  aosctl federation-verify --bundle-dir ./var/telemetry --database ./var/cp.db
-  aosctl federation-verify --bundle-dir ./var/telemetry --json > federation.json
-"#)]
-    FederationVerify {
-        /// Telemetry bundle directory
-        #[arg(short, long)]
-        bundle_dir: PathBuf,
-
-        /// Database path
-        #[arg(long, default_value = "./var/cp.db")]
-        database: PathBuf,
-    },
+    /// Federation commands (verify cross-host signatures)
+    #[command(subcommand, alias = "federation-verify")]
+    Federation(federation::FederationCommand),
 
     /// Check for environment drift
     #[command(after_help = "\
@@ -597,78 +307,16 @@ Examples:
     // ============================================================
     // CodeGraph & Call Graph
     // ============================================================
-    /// Export call graph to various formats
-    #[command(after_help = r#"Examples:
-  aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.dot
-  aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.json --format json
-"#)]
-    CallgraphExport {
-        /// CodeGraph database path
-        #[arg(short, long)]
-        codegraph_db: PathBuf,
+    /// CodeGraph commands (export, stats)
+    #[command(subcommand, alias = "callgraph-export", alias = "codegraph-stats")]
+    Codegraph(codegraph::CodegraphCommand),
 
-        /// Output file path
-        #[arg(short, long)]
-        output: PathBuf,
-
-        /// Export format (dot, json, csv)
-        #[arg(short, long, default_value = "dot")]
-        format: String,
-    },
-
-    /// Generate CodeGraph statistics
-    #[command(after_help = "\
-Examples:
-  # Generate statistics
-  aosctl codegraph-stats --codegraph-db ./var/codegraph.db
-
-  # Export statistics to JSON
-  aosctl codegraph-stats --codegraph-db ./var/codegraph.db --json > stats.json
-")]
-    CodegraphStats {
-        /// CodeGraph database path
-        #[arg(short, long)]
-        codegraph_db: PathBuf,
-    },
-
-    /// Show aos-secd daemon status
-    #[command(after_help = r#"Examples:
-  aosctl secd-status
-  aosctl secd-status --database ./var/custom.db
-  aosctl secd-status --json > secd.json
-"#)]
-    SecdStatus {
-        /// PID file path
-        #[arg(long, default_value = "/var/run/aos-secd.pid")]
-        pid_file: PathBuf,
-
-        /// Heartbeat file path
-        #[arg(long, default_value = "/var/run/aos-secd.heartbeat")]
-        heartbeat_file: PathBuf,
-
-        /// Socket path
-        #[arg(long, default_value = "/var/run/aos-secd.sock")]
-        socket: PathBuf,
-
-        /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
-        database: PathBuf,
-    },
-
-    /// Show aos-secd operation audit trail
-    SecdAudit {
-        /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
-        database: PathBuf,
-
-        /// Number of operations to show
-        #[arg(short, long, default_value = "50")]
-        limit: i64,
-
-        /// Filter by operation type (sign, seal, unseal, get_public_key)
-        #[arg(short, long)]
-        operation: Option<String>,
-    },
+    // ============================================================
+    // Security Daemon
+    // ============================================================
+    /// Security daemon commands (status, audit)
+    #[command(subcommand, alias = "secd-status", alias = "secd-audit")]
+    Secd(secd::SecdCommand),
 
     // ============================================================
     // General Operations
@@ -1223,129 +871,11 @@ Examples:
     // ============================================================
     // Code Intelligence Commands
     // ============================================================
-    /// Initialize a code repository
-    #[command(after_help = "\
-Examples:
-  # Initialize current directory
-  aosctl code-init .
-
-  # Initialize specific repository
-  aosctl code-init /path/to/repo --tenant default
-")]
-    CodeInit {
-        /// Repository path
-        path: PathBuf,
-
-        /// Tenant ID
-        #[arg(long, default_value = "default")]
-        tenant: String,
-    },
-
-    /// Update repository scan
-    #[command(after_help = "\
-Examples:
-  # Scan repository at current commit
-  aosctl code-update my-repo
-
-  # Scan specific commit
-  aosctl code-update my-repo --commit abc123
-")]
-    CodeUpdate {
-        /// Repository ID
-        repo_id: String,
-
-        /// Commit SHA (defaults to HEAD)
-        #[arg(long)]
-        commit: Option<String>,
-
-        /// Tenant ID
-        #[arg(long, default_value = "default")]
-        tenant: String,
-    },
-
-    /// List registered repositories
-    #[command(after_help = "\
-Examples:
-  # List all repositories
-  aosctl code-list
-
-  # List with JSON output
-  aosctl code-list --json
-")]
-    CodeList {
-        /// Tenant ID
-        #[arg(long, default_value = "default")]
-        tenant: String,
-    },
-
-    /// Get repository status
-    #[command(after_help = "\
-Examples:
-  # Get repository status
-  aosctl code-status my-repo
-
-  # Get status with JSON output
-  aosctl code-status my-repo --json
-")]
-    CodeStatus {
-        /// Repository ID
-        repo_id: String,
-
-        /// Tenant ID
-        #[arg(long, default_value = "default")]
-        tenant: String,
-    },
+    /// Code intelligence commands (init, update, list, status)
+    #[command(subcommand, alias = "code-init", alias = "code-update", alias = "code-list", alias = "code-status")]
+    Code(code::CodeCommand),
 }
 
-#[derive(Subcommand)]
-enum NodeSyncMode {
-    /// Verify sync between two nodes
-    Verify {
-        /// Source node ID
-        #[arg(long)]
-        from: String,
-
-        /// Target node ID
-        #[arg(long)]
-        to: String,
-    },
-
-    /// Push adapters to target node
-    Push {
-        /// Target node ID
-        #[arg(long)]
-        to: String,
-
-        /// Adapter IDs to push (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        adapters: Vec<String>,
-    },
-
-    /// Pull adapters from source node
-    Pull {
-        /// Source node ID
-        #[arg(long)]
-        from: String,
-
-        /// Adapter IDs to pull (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        adapters: Vec<String>,
-    },
-
-    /// Export adapters for air-gap transfer
-    Export {
-        /// Output file path
-        #[arg(long)]
-        file: PathBuf,
-    },
-
-    /// Import adapters from air-gap bundle
-    Import {
-        /// Input file path
-        #[arg(long)]
-        file: PathBuf,
-    },
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -1410,77 +940,13 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Adapter Management
-        Commands::AdapterList { tier, include_meta } => {
-            list_adapters::run(tier.as_deref(), *include_meta, &output).await?;
-        }
-        Commands::AdapterRegister {
-            id,
-            hash,
-            tier,
-            rank,
-        } => {
-            register_adapter::run(&id, &hash, &tier, *rank, &output).await?;
-        }
-        Commands::AdapterPin {
-            tenant,
-            adapter,
-            ttl_hours,
-            reason,
-        } => {
-            let db = adapteros_db::Db::connect_env().await?;
-            pin::pin_adapter(&db, &tenant, &adapter, *ttl_hours, &reason, &output).await?;
-        }
-        Commands::AdapterUnpin { tenant, adapter } => {
-            let db = adapteros_db::Db::connect_env().await?;
-            pin::unpin_adapter(&db, &tenant, &adapter, &output).await?;
-        }
-        Commands::AdapterListPinned { tenant } => {
-            let db = adapteros_db::Db::connect_env().await?;
-            pin::list_pinned(&db, &tenant, &output).await?;
-        }
-        Commands::AdapterSwap {
-            tenant,
-            add,
-            remove,
-            timeout,
-            commit,
-            socket,
-        } => {
-            adapter_swap::run(&tenant, &add, &remove, *timeout, *commit, &socket).await?;
-        }
-        Commands::AdapterInfo { adapter_id } => {
-            adapter_info::run(&adapter_id).await?;
-        }
         Commands::Adapter(cmd) => {
             adapter::handle_adapter_command(cmd.clone(), &output).await?;
         }
 
         // Node & Cluster Management
-        Commands::NodeList { offline } => {
-            node_list::run(*offline).await?;
-        }
-        Commands::NodeVerify { all, nodes } => {
-            node_verify::run(*all, nodes.clone()).await?;
-        }
-        Commands::NodeSync { mode } => {
-            use node_sync::SyncMode;
-            let sync_mode = match mode {
-                NodeSyncMode::Verify { from, to } => SyncMode::Verify {
-                    from: from.clone(),
-                    to: to.clone(),
-                },
-                NodeSyncMode::Push { to, adapters } => SyncMode::Push {
-                    to: to.clone(),
-                    adapters: adapters.clone(),
-                },
-                NodeSyncMode::Pull { from, adapters } => SyncMode::Pull {
-                    from: from.clone(),
-                    adapters: adapters.clone(),
-                },
-                NodeSyncMode::Export { file } => SyncMode::Export { file: file.clone() },
-                NodeSyncMode::Import { file } => SyncMode::Import { file: file.clone() },
-            };
-            node_sync::run(sync_mode).await?;
+        Commands::Node(cmd) => {
+            node::handle_node_command(cmd.clone(), &output).await?;
         }
 
         // Deployment
@@ -1504,15 +970,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Registry Management
-        Commands::RegistrySync {
-            dir,
-            cas_root,
-            registry,
-        } => {
-            sync_registry::sync_registry(&dir, &cas_root, &registry, &output).await?;
-        }
-        Commands::RegistryMigrate(args) => {
-            commands::registry_migrate::run(args.clone(), &output).await?;
+        Commands::Registry(cmd) => {
+            registry::handle_registry_command(cmd.clone(), &output).await?;
         }
 
         // Plan Management
@@ -1546,31 +1005,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Telemetry & Verification
-        Commands::TelemetryList {
-            database,
-            by_stack,
-            event_type,
-            limit,
-        } => {
-            telemetry_list::list_telemetry_events(
-                &database,
-                by_stack.as_deref(),
-                event_type.as_deref(),
-                *limit,
-                &output,
-            )
-            .await?;
+        Commands::Telemetry(cmd) => {
+            telemetry::handle_telemetry_command(cmd.clone(), &output).await?;
         }
 
-        Commands::TelemetryVerify { bundle_dir } => {
-            verify_telemetry::verify_telemetry_chain(&bundle_dir, &output).await?;
-        }
-
-        Commands::FederationVerify {
-            bundle_dir,
-            database,
-        } => {
-            verify_federation::run(&bundle_dir, &database, &output).await?;
+        Commands::Federation(cmd) => {
+            federation::handle_federation_command(cmd.clone(), &output).await?;
         }
 
         Commands::DriftCheck {
@@ -1590,41 +1030,14 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             );
         }
 
-        // CodeGraph & Call Graph (temporarily disabled due to mplora-codegraph dependency)
-        Commands::CallgraphExport { .. } => {
-            anyhow::bail!(
-                "CallgraphExport is temporarily disabled due to mplora-codegraph dependency"
-            );
+        // CodeGraph & Call Graph
+        Commands::Codegraph(cmd) => {
+            codegraph::handle_codegraph_command(cmd.clone(), &output).await?;
         }
-        Commands::CodegraphStats { .. } => {
-            anyhow::bail!(
-                "CodegraphStats is temporarily disabled due to mplora-codegraph dependency"
-            );
-        }
-        #[cfg(feature = "secd-support")]
-        Commands::SecdStatus {
-            pid_file,
-            heartbeat_file,
-            socket,
-            database,
-        } => {
-            secd_status::run(&pid_file, &heartbeat_file, &socket, Some(&database)).await?;
-        }
-        #[cfg(not(feature = "secd-support"))]
-        Commands::SecdStatus { .. } => {
-            anyhow::bail!("secd-status command requires the 'secd-support' feature");
-        }
-        #[cfg(feature = "secd-support")]
-        Commands::SecdAudit {
-            database,
-            limit,
-            operation,
-        } => {
-            secd_audit::run(&database, *limit, operation.as_deref()).await?;
-        }
-        #[cfg(not(feature = "secd-support"))]
-        Commands::SecdAudit { .. } => {
-            anyhow::bail!("secd-audit command requires the 'secd-support' feature");
+
+        // Security Daemon
+        Commands::Secd(cmd) => {
+            secd::handle_secd_command(cmd.clone()).await?;
         }
 
         // General Operations
@@ -1822,21 +1235,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Code Intelligence Commands
-        Commands::CodeInit { path, tenant } => {
-            commands::code::code_init(&path, &tenant, &output).await?;
-        }
-        Commands::CodeUpdate {
-            repo_id,
-            commit,
-            tenant,
-        } => {
-            commands::code::code_update(&repo_id, &tenant, commit.as_deref(), &output).await?;
-        }
-        Commands::CodeList { tenant } => {
-            commands::code::code_list(&tenant, &output).await?;
-        }
-        Commands::CodeStatus { repo_id, tenant } => {
-            commands::code::code_status(&repo_id, &tenant, &output).await?;
+        Commands::Code(cmd) => {
+            code::handle_code_command(cmd.clone(), &output).await?;
         }
     }
 
@@ -1847,31 +1247,20 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 fn get_command_name(command: &Commands) -> String {
     match command {
         Commands::TenantInit { .. } | Commands::Init { .. } => "init-tenant",
-        Commands::AdapterList { .. } => "list-adapters",
-        Commands::AdapterRegister { .. } => "register-adapter",
-        Commands::AdapterPin { .. } => "pin-adapter",
-        Commands::AdapterUnpin { .. } => "unpin-adapter",
-        Commands::AdapterListPinned { .. } => "list-pinned",
-        Commands::AdapterSwap { .. } => "adapter-swap",
-        Commands::AdapterInfo { .. } => "adapter-info",
         Commands::Adapter(_) => "adapter",
-        Commands::NodeList { .. } => "node-list",
-        Commands::NodeVerify { .. } => "node-verify",
-        Commands::NodeSync { .. } => "node-sync",
+        Commands::Node(_) => "node",
         Commands::Status { .. } => "status",
         Commands::Doctor { .. } => "doctor",
         Commands::Maintenance { .. } => "maintenance",
         Commands::Deploy { .. } => "deploy",
+        Commands::Registry(_) => "registry",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
-        Commands::TelemetryList { .. } => "telemetry-list",
-        Commands::TelemetryVerify { .. } => "verify-telemetry",
-        Commands::FederationVerify { .. } => "federation-verify",
+        Commands::Telemetry(_) => "telemetry",
+        Commands::Federation(_) => "federation",
         Commands::DriftCheck { .. } => "drift-check",
-        Commands::CallgraphExport { .. } => "callgraph-export",
-        Commands::CodegraphStats { .. } => "codegraph-stats",
-        Commands::SecdStatus { .. } => "secd-status",
-        Commands::SecdAudit { .. } => "secd-audit",
+        Commands::Codegraph(_) => "codegraph",
+        Commands::Secd(_) => "secd",
         Commands::Import { .. } => "import",
         Commands::Verify { .. } => "verify",
         Commands::VerifyAdapters { .. } => "verify-adapters",
@@ -1885,8 +1274,6 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Rollback { .. } => "rollback",
         Commands::Golden(_) => "golden",
         Commands::Router(_) => "router",
-        Commands::RegistrySync { .. } => "registry-sync",
-        Commands::RegistryMigrate { .. } => "registry-migrate",
         Commands::Report { .. } => "report",
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
@@ -1897,10 +1284,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
         Commands::Train { .. } => "train",
-        Commands::CodeInit { .. } => "code-init",
-        Commands::CodeUpdate { .. } => "code-update",
-        Commands::CodeList { .. } => "code-list",
-        Commands::CodeStatus { .. } => "code-status",
+        Commands::Code(_) => "code",
         Commands::BackendStatus(_) => "backend-status",
     }
     .to_string()
@@ -1909,13 +1293,11 @@ fn get_command_name(command: &Commands) -> String {
 /// Extract tenant ID from command if present
 fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
-        Commands::AdapterPin { tenant, .. }
-        | Commands::AdapterUnpin { tenant, .. }
-        | Commands::AdapterListPinned { tenant, .. }
-        | Commands::AdapterSwap { tenant, .. }
-        | Commands::Serve { tenant, .. }
-        | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
+        Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => {
+            Some(tenant.clone())
+        }
         Commands::Diag { tenant, .. } => tenant.clone(),
+        // Tenant extraction for grouped commands is handled by their respective handlers
         _ => None,
     }
 }

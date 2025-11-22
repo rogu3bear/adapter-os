@@ -18,6 +18,16 @@ use tracing::{error, info};
 ///
 /// Returns all widget configurations (enabled/disabled, position) for the current user.
 /// If no configuration exists, returns an empty list (client should use role defaults).
+#[utoipa::path(
+    get,
+    path = "/v1/dashboard/config",
+    responses(
+        (status = 200, description = "Dashboard configuration", body = adapteros_api_types::dashboard::GetDashboardConfigResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "dashboard"
+)]
 pub async fn get_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -61,6 +71,18 @@ pub async fn get_dashboard_config(
 ///
 /// Accepts a list of widget configurations and updates them in a single transaction.
 /// This allows the client to send the entire dashboard state at once.
+#[utoipa::path(
+    put,
+    path = "/v1/dashboard/config",
+    request_body = adapteros_api_types::dashboard::UpdateDashboardConfigRequest,
+    responses(
+        (status = 200, description = "Dashboard configuration updated", body = adapteros_api_types::dashboard::UpdateDashboardConfigResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "dashboard"
+)]
 pub async fn update_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -129,6 +151,16 @@ pub async fn update_dashboard_config(
 ///
 /// Deletes all custom widget configurations for the user, allowing the client
 /// to revert to role-based defaults.
+#[utoipa::path(
+    post,
+    path = "/v1/dashboard/config/reset",
+    responses(
+        (status = 200, description = "Dashboard configuration reset", body = adapteros_api_types::dashboard::ResetDashboardConfigResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "dashboard"
+)]
 pub async fn reset_dashboard_config(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

@@ -80,6 +80,16 @@ fn is_valid_tutorial_id(id: &str) -> bool {
 }
 
 /// List all tutorials with their status for the current user
+#[utoipa::path(
+    get,
+    path = "/v1/tutorials",
+    responses(
+        (status = 200, description = "List of tutorials", body = Vec<TutorialResponse>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "tutorials"
+)]
 pub async fn list_tutorials(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -143,6 +153,20 @@ pub async fn list_tutorials(
 }
 
 /// Mark tutorial as completed
+#[utoipa::path(
+    post,
+    path = "/v1/tutorials/{tutorial_id}/complete",
+    params(
+        ("tutorial_id" = String, Path, description = "Tutorial ID")
+    ),
+    responses(
+        (status = 200, description = "Tutorial marked as completed"),
+        (status = 400, description = "Invalid tutorial ID"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "tutorials"
+)]
 pub async fn mark_tutorial_completed(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -180,6 +204,20 @@ pub async fn mark_tutorial_completed(
 }
 
 /// Unmark tutorial as completed
+#[utoipa::path(
+    post,
+    path = "/v1/tutorials/{tutorial_id}/incomplete",
+    params(
+        ("tutorial_id" = String, Path, description = "Tutorial ID")
+    ),
+    responses(
+        (status = 200, description = "Tutorial marked as incomplete"),
+        (status = 400, description = "Invalid tutorial ID"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "tutorials"
+)]
 pub async fn unmark_tutorial_completed(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -211,6 +249,20 @@ pub async fn unmark_tutorial_completed(
 }
 
 /// Mark tutorial as dismissed
+#[utoipa::path(
+    post,
+    path = "/v1/tutorials/{tutorial_id}/dismiss",
+    params(
+        ("tutorial_id" = String, Path, description = "Tutorial ID")
+    ),
+    responses(
+        (status = 200, description = "Tutorial dismissed"),
+        (status = 400, description = "Invalid tutorial ID"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "tutorials"
+)]
 pub async fn mark_tutorial_dismissed(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -242,6 +294,20 @@ pub async fn mark_tutorial_dismissed(
 }
 
 /// Unmark tutorial as dismissed
+#[utoipa::path(
+    post,
+    path = "/v1/tutorials/{tutorial_id}/undismiss",
+    params(
+        ("tutorial_id" = String, Path, description = "Tutorial ID")
+    ),
+    responses(
+        (status = 200, description = "Tutorial undismissed"),
+        (status = 400, description = "Invalid tutorial ID"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "tutorials"
+)]
 pub async fn unmark_tutorial_dismissed(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

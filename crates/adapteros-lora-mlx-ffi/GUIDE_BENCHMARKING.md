@@ -243,7 +243,7 @@ cargo bench -p adapteros-lora-mlx-ffi --bench comprehensive_performance -- --sav
 
 ### 4.3 Implement Optimization
 
-Example optimizations documented in `PERFORMANCE_GUIDE.md`:
+Example optimizations documented in `GUIDE_PERFORMANCE.md`:
 1. **Memory pooling** - Reuse buffers
 2. **Zero-copy FFI** - Avoid data copies
 3. **Fused kernels** - Combine FFI calls
@@ -434,7 +434,7 @@ Please investigate and optimize before merging.
 ## 10. References
 
 - **Criterion Documentation:** https://bheisler.github.io/criterion.rs/book/
-- **Performance Guide:** `/crates/adapteros-lora-mlx-ffi/PERFORMANCE_GUIDE.md`
+- **Performance Guide:** `/crates/adapteros-lora-mlx-ffi/GUIDE_PERFORMANCE.md`
 - **Architecture:** `/docs/ARCHITECTURE_INDEX.md`
 - **MLX Benchmarks:** https://github.com/ml-explore/mlx/tree/main/benchmarks
 
@@ -463,6 +463,6 @@ cargo test -p adapteros-lora-mlx-ffi --test performance_regression -- --nocaptur
 ## 12. Contact & Support
 
 For performance-related questions:
-- See: `PERFORMANCE_GUIDE.md` (detailed optimization guide)
+- See: `GUIDE_PERFORMANCE.md` (detailed optimization guide)
 - File issue: GitHub Issues with `performance` label
 - Code: `/crates/adapteros-lora-mlx-ffi/`

@@ -1,9 +1,5 @@
 //! Adapter migration commands
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
-//! This module is temporarily stubbed pending migration from the deleted
-//! adapteros-single-file-adapter crate.
-//!
 //! Migrate existing adapters to .aos format
 
 use crate::output::OutputWriter;
@@ -55,17 +51,9 @@ pub async fn run(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
 }
 
 async fn migrate_adapter(_args: AdapterMigrateArgs, output: &OutputWriter) -> Result<()> {
-    output.warning("migrate adapter command is temporarily disabled pending migration to v3.0 types");
-
-    // TODO: Migrate to adapteros-aos v3.0 types
-    // The original implementation used:
-    // - adapteros_single_file_adapter::format::{AdapterManifest, LineageInfo, SingleFileAdapter}
-    // - adapteros_single_file_adapter::SingleFileAdapterPackager
-    // - adapteros_lora_worker::training::{TrainingConfig, TrainingExample}
-    //
-    // These need to be replaced with types from adapteros-aos v3.0
+    output.warning("migrate adapter command is temporarily disabled");
 
     Err(anyhow::anyhow!(AosError::Config(
-        "migrate adapter: pending migration to adapteros-aos v3.0 types".to_string()
+        "migrate adapter: command not yet implemented".to_string()
     )))
 }
