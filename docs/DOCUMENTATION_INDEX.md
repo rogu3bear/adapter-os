@@ -180,7 +180,7 @@ Deployment guides, configuration, and production readiness.
 UI integration, component hierarchy, and user flows.
 
 - [UI Integration Verification](./UI_INTEGRATION_VERIFICATION.md)
-- [UI Component Hierarchy](./ui-component-hierarchy.md)
+- [UI Component Hierarchy](./UI-COMPONENT-HIERARCHY.md)
 - [User Flow](./USER_FLOW.md)
 
 ---
