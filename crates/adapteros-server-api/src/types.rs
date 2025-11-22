@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -7,6 +8,48 @@ use utoipa::ToSchema;
 pub use adapteros_api_types::*;
 
 // ErrorResponse is imported from adapteros_api_types via the pub use above
+
+// ===== Operation Progress Event Type =====
+
+/// Event tracking progress of long-running model operations
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OperationProgressEvent {
+    /// Unique operation identifier
+    pub operation_id: String,
+    /// Model ID being operated on
+    pub model_id: String,
+    /// Operation type: "load", "unload", "validate"
+    pub operation: String,
+    /// Current operation status: "started", "in_progress", "completed", "failed"
+    pub status: String,
+    /// Progress percentage (0-100)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_percent: Option<u8>,
+    /// Duration in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Error message if status is "failed"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    /// Event creation timestamp (RFC3339)
+    pub created_at: DateTime<Utc>,
+}
+
+impl OperationProgressEvent {
+    /// Create a new operation progress event with "started" status
+    pub fn new(operation_id: String, model_id: String, operation: String) -> Self {
+        Self {
+            operation_id,
+            model_id,
+            operation,
+            status: "started".to_string(),
+            progress_percent: None,
+            duration_ms: None,
+            error_message: None,
+            created_at: Utc::now(),
+        }
+    }
+}
 
 // ===== Telemetry Response Types =====
 

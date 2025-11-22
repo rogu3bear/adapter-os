@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2025-11-22T20:33:00Z",
+  "signed_at": "2025-11-22T21:00:08Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQWdVYUxaL3ZQSE8zdXkxaWVoNUU2Uld5dEtMMWZ5cVlPYXEyQllCamJtOEU9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "q+KagnRL8AVwXsV8wP+bcomgRPOxaM6mQi3O29lI9ArD8Uyx3txgbtibyL64qwy2hsCofY1uhMJsUPDyjwGvCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -53,7 +53,7 @@
     "0048_workspaces_and_messaging.sql": {"hash": "d5764b8ef7ed6741fd4db2df2a31d5e5a65efa36eebd4cff025ce93063ce3ece", "signature": "BNZbp7WYC6bj1PW6bMK2NAzftfJXpK8h47cVtyatyA4JIBEvHXLtzXQhzR47/QCBvIcnIGTGnCpJTMHi9a/gDQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0049_tutorial_statuses.sql": {"hash": "8495f1fc7f9a1a60916b7a11f4216c97521e940ac301dea108274799e337c2fb", "signature": "t0dH6shZAoxI4UshbqHTPer8DEdJKLVUBfzBaY++2YkRVF+yD+axs0bYNsp4GjxjYukFqz3nPxVFQTSjpst6Cg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0050_training_jobs_extensions.sql": {"hash": "d8c41d7560b972a126438f1fc42a0badbebdd4383853780f1c8570c877aa42ad", "signature": "gTCOg1fS0qFKMrq1pebhcqJes3GUKT12s03zGwv/cOwcol2k9fMvEPO7YGSPznZbs3mQrRz+GlOVeSzh+7JMDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0051_model_operations_audit.sql": {"hash": "c63b2ad05b109cb0a0c76c2b764d03965aa961d793058b9f56c1be6b722d87b6", "signature": "nNaWC+rJbJ/NIyfJ3EzOlNMRd/36V6/Tkh8sToVFggp7ihQO0lpJdX4Q0AlKeOrf3j3R8x6S3KfsqDarZ1WsBg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0051_model_operations_audit.sql": {"hash": "c71491075d88c5f8982c5fa1de6a2bd56015a932b4ef18549157f20502760e48", "signature": "pBZPVwlnINGSiyjNlgRTbJrXHW5fJNzZ2I/yc+MCce+6/pKIRE6LLtLOJAaWwsI+t+Jw7xkl1SceHKLXmCsGBg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0052_progress_events.sql": {"hash": "f803bbbaee65bb3c1d93a6f57a9ce7a1a5e5cf332d8649cea0333888fd146014", "signature": "JVfxKAdSulKRlV+XDSYdpKG+4H48gI/e7O/iSY3/71k77tg2o8c3jm3S3x7dHicHgN9Ptmq4Ox4MANy2zUqrCw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0053_add_model_metadata.sql": {"hash": "e032732222b9da6177292c00cfaf6b1436a755fa5f6b447cbbcf3a19127107dc", "signature": "pvpmZIETc0/zO99rRi1CvHniE+YJA6lDIN5ctH9N8GZQS/BDVg+VDyCMBVFrQsSa7FWbpvAUIoZsHff74xjBCg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0054_add_git_repository_last_scan.sql": {"hash": "0690aa2cd80977947b34123e9409b757ac7d987fd95c85c93a2c798d28efd8d3", "signature": "qHcm/j4MRDUS6VEht03XfXpcGYj+rdoa8r+wBq7zK1U2Lzaf8wfWIcZ4atWzcEne1w+NcR8O0VPmYwoLeI5+Aw==", "algorithm": "ed25519", "hash_algorithm": "blake3"},

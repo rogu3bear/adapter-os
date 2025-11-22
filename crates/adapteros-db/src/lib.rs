@@ -876,6 +876,8 @@ pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
 pub mod models;
+pub mod model_operations;
+pub use model_operations::ModelOperation;
 pub mod nodes;
 pub mod patch_proposals;
 pub use patch_proposals::PatchProposal;
@@ -899,13 +901,15 @@ pub use users::{Role, User};
 pub mod workers;
 pub use models::Worker;
 
-// Workspace, notifications, and dashboard modules
+// Workspace, notifications, dashboard, and tutorial modules
 pub mod dashboard_configs;
 pub mod notifications;
 pub mod workspaces;
+pub mod tutorials;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
 pub use workspaces::{ResourceType, Workspace, WorkspaceMember, WorkspaceResource, WorkspaceRole};
+pub use tutorials::TutorialStatus;
 
 // Re-export unified access types
 pub use unified_access::{

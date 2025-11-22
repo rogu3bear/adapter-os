@@ -3,7 +3,7 @@
 -- Evidence: Based on existing audit patterns in migrations/0008_enclave_audit.sql
 
 -- Model operations audit trail
-CREATE TABLE model_operations (
+CREATE TABLE IF NOT EXISTS model_operations (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     tenant_id TEXT NOT NULL,
     model_id TEXT NOT NULL,

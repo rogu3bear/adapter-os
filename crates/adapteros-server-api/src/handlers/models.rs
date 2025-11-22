@@ -200,26 +200,26 @@ pub async fn load_model(
     let estimated_memory_mb: i32 = 4096;
 
     // Update status to "loaded"
-    state
+    if let Err(e) = state
         .db
         .update_base_model_status(tenant_id, &model_id, "loaded", None, Some(estimated_memory_mb))
         .await
-        .map_err(|e| {
-            error!("Failed to update model status to loaded: {}", e);
-            // Log operation failure
-            let _ = state
-                .db
-                .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
-                .await;
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update model status")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    {
+        error!("Failed to update model status to loaded: {}", e);
+        // Log operation failure
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to update model status")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ));
+    }
 
     // Log successful operation
     let completion_time = chrono::Utc::now().to_rfc3339();
@@ -372,26 +372,26 @@ pub async fn unload_model(
         })?;
 
     // Update status to "unloaded"
-    state
+    if let Err(e) = state
         .db
         .update_base_model_status(tenant_id, &model_id, "unloaded", None, None)
         .await
-        .map_err(|e| {
-            error!("Failed to update model status to unloaded: {}", e);
-            // Log operation failure
-            let _ = state
-                .db
-                .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
-                .await;
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update model status")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    {
+        error!("Failed to update model status to unloaded: {}", e);
+        // Log operation failure
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to update model status")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        ));
+    }
 
     // Log successful operation
     let completion_time = chrono::Utc::now().to_rfc3339();
