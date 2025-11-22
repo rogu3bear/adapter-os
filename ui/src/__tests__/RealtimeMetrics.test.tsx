@@ -1,8 +1,8 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { RealtimeMetrics } from '../components/RealtimeMetrics';
 import * as api from '../api/client';
-import { act } from 'react';
 
 // Mock api client default export and named apiClient
 vi.mock('../api/client', () => {
@@ -60,32 +60,35 @@ describe('RealtimeMetrics', () => {
     });
   });
 
-  // TODO: Investigate why refresh button click doesn't trigger API call
-  it.skip('allows manual refresh to refetch metrics', async () => {
+  it('allows manual refresh to refetch metrics', async () => {
+    const user = userEvent.setup();
     const mockData = [
       { cpu_usage_percent: 15, memory_usage_pct: 20, gpu_utilization_percent: 5, latency_p95_ms: 10 },
       { cpu_usage_percent: 45, memory_usage_pct: 55, gpu_utilization_percent: 15, latency_p95_ms: 25 },
     ];
     (api.apiClient.getSystemMetrics as any)
       .mockResolvedValueOnce(mockData[0])
-      .mockResolvedValue(mockData[1]);
+      .mockResolvedValueOnce(mockData[1]);
 
     render(<RealtimeMetrics user={mockUser} selectedTenant={mockTenant} />);
 
+    // Wait for initial data to load
     await waitFor(() => {
       expect(screen.getByText(/15(\.0)?%/)).toBeInTheDocument();
     });
 
+    // Click refresh button using userEvent for proper async handling
     const refreshButton = screen.getByRole('button', { name: /Refresh/ });
-    fireEvent.click(refreshButton);
+    await user.click(refreshButton);
 
+    // Wait for the API to be called again
     await waitFor(() => {
       expect(api.apiClient.getSystemMetrics).toHaveBeenCalledTimes(2);
     });
 
+    // Wait for UI to update with new data
     await waitFor(() => {
       expect(screen.getByText(/45(\.0)?%/)).toBeInTheDocument();
-    }, { timeout: 3000 });
-
+    });
   });
 });

@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { toast } from 'sonner';
+import { logger } from '../../utils/logger';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -215,10 +217,49 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
     );
   }, [statistics]);
 
-  // Export chart as PNG (simplified - would need html2canvas or similar)
-  const exportChart = (_chartId: string) => {
-    // Placeholder for export functionality
-    // TODO: Implement with html2canvas or similar library
+  // Export chart as SVG
+  const exportChart = async (chartId: string) => {
+    try {
+      const chartContainer = document.getElementById(chartId);
+      if (!chartContainer) {
+        toast.error('Chart not found');
+        return;
+      }
+
+      const svg = chartContainer.querySelector('svg');
+      if (!svg) {
+        toast.error('Chart SVG not found');
+        return;
+      }
+
+      // Clone SVG and add styles
+      const clonedSvg = svg.cloneNode(true) as SVGElement;
+      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+      // Serialize to string
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(clonedSvg);
+
+      // Create blob and download
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${chartId}-${Date.now()}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success('Chart exported as SVG');
+    } catch (error) {
+      logger.error('Chart export failed', {
+        component: 'MetricsComparison',
+        operation: 'exportChart',
+        chartId
+      }, error instanceof Error ? error : new Error('Export failed'));
+      toast.error('Failed to export chart');
+    }
   };
 
   // Custom tooltip
@@ -394,74 +435,76 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
           </Button>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={lossData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="epoch"
-                label={{ value: 'Epoch', position: 'insideBottom', offset: -5 }}
-                className="text-xs"
-                tick={{ fill: 'currentColor' }}
-              />
-              <YAxis
-                scale={logScale ? 'log' : 'linear'}
-                domain={logScale ? ['auto', 'auto'] : [0, 'auto']}
-                label={{ value: 'Loss', angle: -90, position: 'insideLeft' }}
-                className="text-xs"
-                tick={{ fill: 'currentColor' }}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend
-                wrapperStyle={{ paddingTop: '20px' }}
-                iconType="line"
-              />
-              {jobs.map((job, idx) => {
-                if (!visibleJobs.has(job.id)) return null;
-                const color = JOB_COLORS[idx % JOB_COLORS.length];
-                return (
-                  <React.Fragment key={job.id}>
-                    {/* Training loss */}
-                    <Line
-                      type="monotone"
-                      dataKey={`${job.id}_loss`}
-                      name={`${job.adapter_name} (train)`}
-                      stroke={color}
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
-                    {/* Validation loss */}
-                    {showValidation && (
+          <div id="loss-curve">
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={lossData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="epoch"
+                  label={{ value: 'Epoch', position: 'insideBottom', offset: -5 }}
+                  className="text-xs"
+                  tick={{ fill: 'currentColor' }}
+                />
+                <YAxis
+                  scale={logScale ? 'log' : 'linear'}
+                  domain={logScale ? ['auto', 'auto'] : [0, 'auto']}
+                  label={{ value: 'Loss', angle: -90, position: 'insideLeft' }}
+                  className="text-xs"
+                  tick={{ fill: 'currentColor' }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend
+                  wrapperStyle={{ paddingTop: '20px' }}
+                  iconType="line"
+                />
+                {jobs.map((job, idx) => {
+                  if (!visibleJobs.has(job.id)) return null;
+                  const color = JOB_COLORS[idx % JOB_COLORS.length];
+                  return (
+                    <React.Fragment key={job.id}>
+                      {/* Training loss */}
                       <Line
                         type="monotone"
-                        dataKey={`${job.id}_val_loss`}
-                        name={`${job.adapter_name} (val)`}
+                        dataKey={`${job.id}_loss`}
+                        name={`${job.adapter_name} (train)`}
                         stroke={color}
                         strokeWidth={2}
-                        strokeDasharray="5 5"
                         dot={false}
                         activeDot={{ r: 4 }}
                       />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-              {/* Best epoch indicator */}
-              {bestJob && (
-                <ReferenceLine
-                  x={bestJob.bestEpoch}
-                  stroke="#10b981"
-                  strokeDasharray="3 3"
-                  label={{
-                    value: 'Best',
-                    position: 'top',
-                    fill: '#10b981',
-                    fontSize: 12,
-                  }}
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
+                      {/* Validation loss */}
+                      {showValidation && (
+                        <Line
+                          type="monotone"
+                          dataKey={`${job.id}_val_loss`}
+                          name={`${job.adapter_name} (val)`}
+                          stroke={color}
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                {/* Best epoch indicator */}
+                {bestJob && (
+                  <ReferenceLine
+                    x={bestJob.bestEpoch}
+                    stroke="#10b981"
+                    strokeDasharray="3 3"
+                    label={{
+                      value: 'Best',
+                      position: 'top',
+                      fill: '#10b981',
+                      fontSize: 12,
+                    }}
+                  />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </CardContent>
       </Card>
 
@@ -487,40 +530,42 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
           </Button>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={performanceData}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis
-                dataKey="epoch"
-                label={{ value: 'Epoch', position: 'insideBottom', offset: -5 }}
-                className="text-xs"
-                tick={{ fill: 'currentColor' }}
-              />
-              <YAxis
-                label={{ value: 'Tokens/Second', angle: -90, position: 'insideLeft' }}
-                className="text-xs"
-                tick={{ fill: 'currentColor' }}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ paddingTop: '20px' }} />
-              {jobs.map((job, idx) => {
-                if (!visibleJobs.has(job.id)) return null;
-                const color = JOB_COLORS[idx % JOB_COLORS.length];
-                return (
-                  <Area
-                    key={job.id}
-                    type="monotone"
-                    dataKey={`${job.id}_tokens_per_second`}
-                    name={job.adapter_name}
-                    fill={color}
-                    fillOpacity={0.2}
-                    stroke={color}
-                    strokeWidth={2}
-                  />
-                );
-              })}
-            </AreaChart>
-          </ResponsiveContainer>
+          <div id="performance">
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={performanceData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="epoch"
+                  label={{ value: 'Epoch', position: 'insideBottom', offset: -5 }}
+                  className="text-xs"
+                  tick={{ fill: 'currentColor' }}
+                />
+                <YAxis
+                  label={{ value: 'Tokens/Second', angle: -90, position: 'insideLeft' }}
+                  className="text-xs"
+                  tick={{ fill: 'currentColor' }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                {jobs.map((job, idx) => {
+                  if (!visibleJobs.has(job.id)) return null;
+                  const color = JOB_COLORS[idx % JOB_COLORS.length];
+                  return (
+                    <Area
+                      key={job.id}
+                      type="monotone"
+                      dataKey={`${job.id}_tokens_per_second`}
+                      name={job.adapter_name}
+                      fill={color}
+                      fillOpacity={0.2}
+                      stroke={color}
+                      strokeWidth={2}
+                    />
+                  );
+                })}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </CardContent>
       </Card>
 

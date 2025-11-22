@@ -14,9 +14,25 @@ vi.mock('@/api/client', () => {
       getToken: vi.fn(() => null),
       setToken: vi.fn(),
       getCurrentUser: vi.fn().mockResolvedValue({ user_id: 'u1', email: 'u@test.dev', role: 'viewer' }),
-      listTenants: vi.fn().mockResolvedValue([]),
+      // Return a tenant so TenantProvider sets selectedTenant, enabling alert fetching
+      listTenants: vi.fn().mockResolvedValue([{ id: 'test-tenant', name: 'Test Tenant' }]),
       getStatus: vi.fn().mockResolvedValue({ status: 'healthy', services: [] }),
       // Alerts API
+      listAlerts: vi.fn().mockResolvedValue([
+        { id: '1', severity: 'high', title: 'High latency', message: 'p95 = 30ms', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { id: '2', severity: 'critical', title: 'Memory pressure', message: 'Memory at 95%', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { id: '3', severity: 'medium', title: 'Queue backlog', message: 'Tasks pending', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+      ]),
+      acknowledgeAlert: vi.fn().mockResolvedValue({}),
+      subscribeToAlerts: vi.fn().mockReturnValue(() => {}),
+    },
+    // Also export apiClient for FeatureProviders import
+    apiClient: {
+      getToken: vi.fn(() => null),
+      setToken: vi.fn(),
+      getCurrentUser: vi.fn().mockResolvedValue({ user_id: 'u1', email: 'u@test.dev', role: 'viewer' }),
+      listTenants: vi.fn().mockResolvedValue([{ id: 'test-tenant', name: 'Test Tenant' }]),
+      getStatus: vi.fn().mockResolvedValue({ status: 'healthy', services: [] }),
       listAlerts: vi.fn().mockResolvedValue([
         { id: '1', severity: 'high', title: 'High latency', message: 'p95 = 30ms', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
         { id: '2', severity: 'critical', title: 'Memory pressure', message: 'Memory at 95%', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
@@ -29,8 +45,7 @@ vi.mock('@/api/client', () => {
 });
 
 describe('ActiveAlertsWidget', () => {
-  // TODO: Test needs proper tenant context setup to trigger alert fetching
-  it.skip('renders alerts from API', async () => {
+  it('renders alerts from API', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <MemoryRouter>

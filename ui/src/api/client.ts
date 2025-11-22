@@ -2662,6 +2662,138 @@ class ApiClient {
     });
   }
 
+  // ============================================================================
+  // Prompt Orchestration API Methods
+  // ============================================================================
+
+  /**
+   * Get orchestration configuration
+   *
+   * Retrieves the current prompt orchestration configuration including routing
+   * strategy, adapter settings, and custom rules.
+   *
+   * @returns OrchestrationConfig or null if endpoint not available
+   */
+  async getOrchestrationConfig(): Promise<types.OrchestrationConfig | null> {
+    logger.info('Fetching orchestration config', {
+      component: 'ApiClient',
+      operation: 'getOrchestrationConfig',
+    });
+
+    try {
+      return await this.request<types.OrchestrationConfig>('/v1/orchestration/config');
+    } catch (error) {
+      // Gracefully handle 404 - endpoint may not be implemented yet
+      if (error instanceof Error && (error.message.includes('404') || error.message.includes('Not Found'))) {
+        logger.info('Orchestration config endpoint not available', {
+          component: 'ApiClient',
+          operation: 'getOrchestrationConfig',
+        });
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Save orchestration configuration
+   *
+   * Updates the prompt orchestration configuration with new settings.
+   *
+   * @param config - New orchestration configuration
+   * @returns Updated configuration
+   * @throws Error if endpoint not available or validation fails
+   */
+  async saveOrchestrationConfig(config: types.OrchestrationConfig): Promise<types.OrchestrationConfig> {
+    logger.info('Saving orchestration config', {
+      component: 'ApiClient',
+      operation: 'saveOrchestrationConfig',
+      routing_strategy: config.routing_strategy,
+      enabled: config.enabled,
+    });
+
+    try {
+      return await this.request<types.OrchestrationConfig>('/v1/orchestration/config', {
+        method: 'PUT',
+        body: JSON.stringify(config),
+      });
+    } catch (error) {
+      // Provide friendly error for 404
+      if (error instanceof Error && (error.message.includes('404') || error.message.includes('Not Found'))) {
+        logger.warn('Orchestration config endpoint not available for saving', {
+          component: 'ApiClient',
+          operation: 'saveOrchestrationConfig',
+        });
+        throw new Error('Orchestration configuration endpoint is not available. The backend may not support this feature yet.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Analyze a prompt for routing recommendations
+   *
+   * Sends a prompt to the orchestration service for analysis, returning
+   * intent detection, complexity scoring, and adapter recommendations.
+   *
+   * @param prompt - The prompt text to analyze
+   * @returns PromptAnalysis with recommendations
+   * @throws Error if endpoint not available or analysis fails
+   */
+  async analyzePrompt(prompt: string): Promise<types.PromptAnalysis> {
+    logger.info('Analyzing prompt', {
+      component: 'ApiClient',
+      operation: 'analyzePrompt',
+      promptLength: prompt.length,
+    });
+
+    try {
+      return await this.request<types.PromptAnalysis>('/v1/orchestration/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ prompt }),
+      });
+    } catch (error) {
+      // Provide friendly error for 404
+      if (error instanceof Error && (error.message.includes('404') || error.message.includes('Not Found'))) {
+        logger.warn('Orchestration analyze endpoint not available', {
+          component: 'ApiClient',
+          operation: 'analyzePrompt',
+        });
+        throw new Error('Prompt analysis endpoint is not available. The backend may not support this feature yet.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get orchestration metrics
+   *
+   * Retrieves metrics about orchestration performance including request counts,
+   * latency percentiles, cache hit rates, and adapter usage statistics.
+   *
+   * @returns OrchestrationMetrics or null if endpoint not available
+   */
+  async getOrchestrationMetrics(): Promise<types.OrchestrationMetrics | null> {
+    logger.info('Fetching orchestration metrics', {
+      component: 'ApiClient',
+      operation: 'getOrchestrationMetrics',
+    });
+
+    try {
+      return await this.request<types.OrchestrationMetrics>('/v1/orchestration/metrics');
+    } catch (error) {
+      // Gracefully handle 404 - endpoint may not be implemented yet
+      if (error instanceof Error && (error.message.includes('404') || error.message.includes('Not Found'))) {
+        logger.info('Orchestration metrics endpoint not available', {
+          component: 'ApiClient',
+          operation: 'getOrchestrationMetrics',
+        });
+        return null;
+      }
+      throw error;
+    }
+  }
+
   /**
    * Generic GET request method
    *

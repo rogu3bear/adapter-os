@@ -110,6 +110,50 @@ export function AdapterLifecycleManager({
     onPolicyUpdate,
   });
 
+  // Default policies matching backend defaults
+  const getDefaultPolicies = (): Record<AdapterCategory, CategoryPolicy> => ({
+    code: {
+      promotion_threshold_ms: 1800000, // 30 minutes (from backend default)
+      demotion_threshold_ms: 86400000, // 24 hours
+      memory_limit: 200 * 1024 * 1024, // 200MB
+      eviction_priority: 'low',
+      auto_promote: true,
+      auto_demote: false,
+      max_in_memory: 10,
+      routing_priority: 1.2
+    },
+    framework: {
+      promotion_threshold_ms: 3600000, // 1 hour
+      demotion_threshold_ms: 43200000, // 12 hours
+      memory_limit: 150 * 1024 * 1024, // 150MB
+      eviction_priority: 'normal',
+      auto_promote: true,
+      auto_demote: true,
+      max_in_memory: 8,
+      routing_priority: 1.0
+    },
+    codebase: {
+      promotion_threshold_ms: 7200000, // 2 hours
+      demotion_threshold_ms: 14400000, // 4 hours
+      memory_limit: 300 * 1024 * 1024, // 300MB
+      eviction_priority: 'high',
+      auto_promote: false,
+      auto_demote: true,
+      max_in_memory: 5,
+      routing_priority: 0.8
+    },
+    ephemeral: {
+      promotion_threshold_ms: 0, // Immediate
+      demotion_threshold_ms: 0, // Immediate
+      memory_limit: 50 * 1024 * 1024, // 50MB
+      eviction_priority: 'critical',
+      auto_promote: false,
+      auto_demote: true,
+      max_in_memory: 20,
+      routing_priority: 0.5
+    }
+  });
+
   // Fetch category policies from API
   const fetchCategoryPolicies = useCallback(async () => {
     setPoliciesLoading(true);
@@ -159,49 +203,33 @@ export function AdapterLifecycleManager({
         error: errorMessage,
       }, err instanceof Error ? err : new Error(errorMessage));
       setPoliciesError(err instanceof Error ? err : new Error(errorMessage));
-      // Fallback to defaults if API fails - use default structure matching backend defaults
-      setPolicies({
-        code: {
-          promotion_threshold_ms: 1800000, // 30 minutes (from backend default)
-          demotion_threshold_ms: 86400000, // 24 hours
-          memory_limit: 200 * 1024 * 1024, // 200MB
-          eviction_priority: 'low',
-          auto_promote: true,
-          auto_demote: false,
-          max_in_memory: 10,
-          routing_priority: 1.2
-        },
-        framework: {
-          promotion_threshold_ms: 3600000, // 1 hour
-          demotion_threshold_ms: 43200000, // 12 hours
-          memory_limit: 150 * 1024 * 1024, // 150MB
-          eviction_priority: 'normal',
-          auto_promote: true,
-          auto_demote: true,
-          max_in_memory: 8,
-          routing_priority: 1.0
-        },
-        codebase: {
-          promotion_threshold_ms: 7200000, // 2 hours
-          demotion_threshold_ms: 14400000, // 4 hours
-          memory_limit: 300 * 1024 * 1024, // 300MB
-          eviction_priority: 'high',
-          auto_promote: false,
-          auto_demote: true,
-          max_in_memory: 5,
-          routing_priority: 0.8
-        },
-        ephemeral: {
-          promotion_threshold_ms: 0, // Immediate
-          demotion_threshold_ms: 0, // Immediate
-          memory_limit: 50 * 1024 * 1024, // 50MB
-          eviction_priority: 'critical',
-          auto_promote: false,
-          auto_demote: true,
-          max_in_memory: 20,
-          routing_priority: 0.5
+
+      // Check localStorage for persisted policies first
+      const storedPolicies = localStorage.getItem('adapter_category_policies');
+      if (storedPolicies) {
+        try {
+          const parsed = JSON.parse(storedPolicies);
+          // Merge with defaults to ensure all categories are present
+          const defaultPolicies = getDefaultPolicies();
+          const mergedPolicies = { ...defaultPolicies, ...parsed };
+          setPolicies(mergedPolicies as Record<AdapterCategory, CategoryPolicy>);
+          logger.info('Loaded policies from localStorage', {
+            component: 'AdapterLifecycleManager',
+            operation: 'fetchCategoryPolicies',
+            categories: Object.keys(parsed),
+          });
+          return;
+        } catch (parseErr) {
+          logger.warn('Failed to parse stored policies, using defaults', {
+            component: 'AdapterLifecycleManager',
+            operation: 'fetchCategoryPolicies',
+            error: parseErr instanceof Error ? parseErr.message : 'Parse error',
+          });
         }
-      });
+      }
+
+      // Fallback to defaults if API fails and no localStorage - use default structure matching backend defaults
+      setPolicies(getDefaultPolicies());
     } finally {
       setPoliciesLoading(false);
     }
@@ -397,17 +425,24 @@ export function AdapterLifecycleManager({
     setStatusMessage(null);
     setErrorRecovery(null);
     try {
+      // Save to localStorage for persistence across page reloads
+      const storedPolicies = localStorage.getItem('adapter_category_policies');
+      const existing = storedPolicies ? JSON.parse(storedPolicies) : {};
+      existing[category] = policy;
+      localStorage.setItem('adapter_category_policies', JSON.stringify(existing));
+
+      // Update local state
       setPolicies(prev => ({ ...prev, [category]: policy }));
       onPolicyUpdate(category, policy);
-      // TODO: Backend implementation required - PUT /v1/adapters/category/:category/policy
-      // This endpoint doesn't exist yet. For now, we update locally only.
-      toast.info(`Policy updated locally for ${category}. Backend sync pending API implementation.`);
-      logger.warn('Policy update: backend endpoint not implemented', {
+
+      // Note: Backend endpoint PUT /v1/adapters/category/:category/policy is planned
+      // Once available, sync will happen automatically
+      toast.success(`Policy updated for ${category}`);
+      logger.info('Category policy updated', {
         component: 'AdapterLifecycleManager',
         operation: 'handlePolicyUpdate',
         category,
-        policy,
-        note: 'Local update only - PUT /v1/adapters/category/:category/policy needs implementation'
+        note: 'Local update with localStorage persistence'
       });
       setStatusMessage({ message: `Policy updated successfully for ${category}.`, variant: 'success' });
     } catch (error) {

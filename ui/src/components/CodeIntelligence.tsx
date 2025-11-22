@@ -224,7 +224,6 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
     trainingConfig: Record<string, string | number | boolean>;
   }) => {
     try {
-      // Replace: TODO: Implement actual training API call
       logger.info('Starting adapter training', {
         component: 'CodeIntelligence',
         operation: 'startTraining',
@@ -257,7 +256,6 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
       
     } catch (err) {
       toast.error('Failed to start training');
-      // Replace: console.error(err);
       logger.error('Failed to start adapter training', {
         component: 'CodeIntelligence',
         operation: 'startTraining',

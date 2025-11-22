@@ -26,6 +26,43 @@ export interface UpdateMonitoringRuleRequest {
   severity?: 'low' | 'medium' | 'high' | 'critical';
 }
 
+// Prompt Orchestration types
+export interface OrchestrationConfig {
+  enabled: boolean;
+  baseModelThreshold: number;
+  adapterThreshold: number;
+  analysisTimeout: number;
+  cacheEnabled: boolean;
+  cacheTtl: number;
+  enableTelemetry: boolean;
+  fallbackStrategy: 'base_only' | 'best_effort' | 'adaptive';
+}
+
+export interface OrchestrationMetrics {
+  totalRequests: number;
+  baseModelOnly: number;
+  adapterUsed: number;
+  analysisTimeMs: number;
+  cacheHits: number;
+  cacheMisses: number;
+  lastUpdated: string;
+}
+
+export interface PromptAnalysisResult {
+  prompt: string;
+  complexityScore: number;
+  recommendedStrategy: 'base_model' | 'adapters' | 'mixed';
+  analysisTimeMs: number;
+  features: {
+    language: string;
+    frameworks: string[];
+    symbols: number;
+    tokens: number;
+    verb: string;
+  };
+  timestamp: string;
+}
+
 export interface ErrorResponse {
   error: string;
   code?: string;
@@ -95,6 +132,16 @@ export interface ReplaySession {
   manifest_hash_b3: string;
   policy_hash_b3: string;
   kernel_hash_b3?: string;
+  // Optional fields for inference session replay
+  prompt?: string;
+  config?: {
+    max_tokens?: number;
+    temperature?: number;
+    top_k?: number;
+    top_p?: number;
+    seed?: number;
+    require_evidence?: boolean;
+  };
 }
 
 export interface ReplayVerificationResponse {
@@ -1332,4 +1379,61 @@ export interface InferenceTrace {
     latency_ms: number;
     tokens: number;
   }>;
+}
+
+// Prompt Orchestration types
+export interface OrchestrationConfig {
+  enabled: boolean;
+  routing_strategy: 'entropy' | 'round_robin' | 'load_balanced' | 'weighted';
+  default_adapter_stack?: string;
+  max_adapters_per_request: number;
+  timeout_ms: number;
+  fallback_enabled: boolean;
+  fallback_adapter?: string;
+  entropy_threshold?: number;
+  confidence_threshold?: number;
+  cache_enabled: boolean;
+  cache_ttl_seconds: number;
+  telemetry_enabled: boolean;
+  custom_rules?: OrchestrationRule[];
+}
+
+export interface OrchestrationRule {
+  id: string;
+  name: string;
+  condition: string;
+  adapter_stack: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface PromptAnalysis {
+  prompt_hash: string;
+  detected_intent: string;
+  confidence: number;
+  suggested_adapters: string[];
+  complexity_score: number;
+  token_count: number;
+  domain_classification?: string;
+  language_detected?: string;
+  routing_recommendation: {
+    strategy: string;
+    adapter_stack: string;
+    reasoning: string;
+  };
+}
+
+export interface OrchestrationMetrics {
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  average_latency_ms: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+  cache_hit_rate: number;
+  adapter_usage: Record<string, number>;
+  routing_decisions_by_strategy: Record<string, number>;
+  errors_by_type: Record<string, number>;
+  last_updated: string;
 }

@@ -205,9 +205,24 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
   const fetchData = async () => {
     try {
       setLoading(true);
-      // TODO: Implement actual data fetching
+      setError(null);
+
+      // Fetch nodes and tenants in parallel for efficiency
+      const [nodes, tenants] = await Promise.all([
+        apiClient.listNodes(),
+        apiClient.listTenants(),
+      ]);
+
+      setNodeCount(nodes.length);
+      setTenantCount(tenants.length);
       setLoading(false);
     } catch (err) {
+      logger.error('Failed to fetch dashboard data', {
+        component: 'Dashboard',
+        operation: 'fetchData',
+        tenantId: selectedTenant,
+        userId: user?.user_id,
+      }, err instanceof Error ? err : new Error(String(err)));
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
       setLoading(false);
     }

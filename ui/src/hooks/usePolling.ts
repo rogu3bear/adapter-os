@@ -52,7 +52,8 @@ export function usePolling<T>(
   } = config || {};
   
   const [data, setData] = useState<T | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Only start in loading state if we intend to show a loading indicator
+  const [isLoading, setIsLoading] = useState(showLoadingIndicator);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<Error | null>(null);
   
