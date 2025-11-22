@@ -431,7 +431,25 @@ async fn main() -> Result<()> {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: cfg.metrics.enabled,
                 bearer_token: cfg.metrics.bearer_token.clone(),
+                system_metrics_interval_secs: 30,
+                telemetry_buffer_capacity: 10000,
+                telemetry_channel_capacity: 1000,
+                trace_buffer_capacity: 1000,
+                server_port: 9090,
+                server_enabled: true,
             },
+            directory_analysis_timeout_secs: 120,
+            golden_gate: None,
+            bundles_root: cfg.paths.bundles_root.clone(),
+            repository_paths: adapteros_server_api::state::RepositoryPathsConfig::default(),
+            model_load_timeout_secs: 300,
+            model_unload_timeout_secs: 60,
+            operation_retry: adapteros_server_api::state::OperationRetryConfig::default(),
+            security: adapteros_server_api::state::SecurityConfig::default(),
+            mlx: adapteros_server_api::state::MlxConfig::default(),
+            production_mode: cfg.server.production_mode,
+            rate_limits: adapteros_server_api::state::RateLimitsConfig::default(),
+            path_policy: adapteros_server_api::state::PathPolicyConfig::default(),
         }))
     };
 
@@ -646,6 +664,13 @@ async fn main() -> Result<()> {
         .clone();
 
     let uma_monitor = Arc::new(UmaPressureMonitor::new(15, Some(metrics_exporter.clone())));
+
+    // Create metrics collector and registry for AppState
+    let metrics_collector = Arc::new(
+        adapteros_telemetry::MetricsCollector::new()
+            .map_err(|e| AosError::Config(format!("Failed to create metrics collector: {}", e)))?
+    );
+    let metrics_registry = Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new());
     uma_monitor.start_polling().await;
 
     // Create broadcast channel for dataset progress (capacity 100)
@@ -656,6 +681,8 @@ async fn main() -> Result<()> {
         jwt_secret.as_bytes().to_vec(),
         api_config.clone(),
         Arc::clone(&metrics_exporter),
+        Arc::clone(&metrics_collector),
+        Arc::clone(&metrics_registry),
         uma_monitor.clone(),
     )
     .with_dataset_progress(dataset_progress_tx);
