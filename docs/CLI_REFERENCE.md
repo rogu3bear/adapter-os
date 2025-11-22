@@ -1114,9 +1114,20 @@ aosctl manual <ARGS>
 
 ## See Also
 
+### Core Documentation
+- [CLAUDE.md](../CLAUDE.md) - Quick Reference for build commands, database operations, and common patterns
+- [API Documentation](api.md) - REST API reference with OpenAPI specification
+- [RBAC.md](RBAC.md) - Complete permission matrix and audit logging
+
+### CLI-Specific
 - [CLI Guide](CLI_GUIDE.md) - Architectural overview of CLI layers
 - [Code Intelligence CLI Commands](code-intelligence/CODE-CLI-COMMANDS.md) - Detailed code intelligence commands
-- [API Documentation](API.md) - REST API reference
+
+### Related Topics
+- [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Full system architecture
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Training workflow reference
+- [DATABASE_REFERENCE.md](DATABASE_REFERENCE.md) - Schema and migration reference
+- [PINNING_TTL.md](PINNING_TTL.md) - Adapter pinning and TTL enforcement
 
 ---
 

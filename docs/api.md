@@ -6,6 +6,36 @@ This document contains the complete OpenAPI specification for the AdapterOS Serv
 
 The AdapterOS Server API provides endpoints for managing tenants, adapters, repositories, training jobs, and more in the AdapterOS system.
 
+## Authentication Flow
+
+All authenticated endpoints require a valid JWT token obtained via the login endpoint. The following diagram shows the request flow:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant Auth
+    participant Handler
+    participant AuditLog
+
+    Client->>API: Request + JWT (Authorization: Bearer)
+    API->>Auth: Validate Token (Ed25519)
+    Auth-->>API: Claims + Role
+    API->>Handler: Check Permission (RBAC)
+    Handler->>Handler: Execute Business Logic
+    Handler-->>API: Response
+    API->>AuditLog: Log Action (user_id, action, resource, status)
+    API->>Client: JSON Response
+```
+
+**Key Details:**
+- **Token Format:** Ed25519 signed JWT (8-hour TTL)
+- **Auth Header:** `Authorization: Bearer <token>`
+- **RBAC:** 5 roles (Admin, Operator, SRE, Compliance, Viewer) with 40 permissions
+- **Audit:** All actions logged to `audit_logs` table (immutable)
+
+See [RBAC.md](RBAC.md) for the complete permission matrix.
+
 ## Demo Credentials
 
 The following demo credentials are available for testing:

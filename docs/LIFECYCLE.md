@@ -334,7 +334,11 @@ db.unpin_adapter(tenant_id, adapter_id).await?;
 ## See Also
 
 - [CLAUDE.md](../CLAUDE.md) - Developer quick reference
-- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Hot-swap and other patterns
 - [PINNING_TTL.md](PINNING_TTL.md) - Pinning and TTL enforcement
-- [DATABASE_REFERENCE.md](DATABASE_REFERENCE.md) - Schema reference
+- [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Hot-swap and other patterns
+- [DATABASE_REFERENCE.md](DATABASE_REFERENCE.md) - Schema reference (adapters, pinned_adapters tables)
 - [TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md) - Event catalog
+
+### Hot-Swap Implementation
+
+Hot-swap functionality is implemented in `crates/adapteros-lora-worker/src/adapter_hotswap.rs` and documented in [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md). Hot-swap enables live adapter replacement without service interruption, working in conjunction with the lifecycle state machine.

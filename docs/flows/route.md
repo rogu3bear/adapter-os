@@ -280,9 +280,17 @@ Query via `/v1/router/stats`:
 
 ---
 
-**References**:
-- [Router Core](../../crates/adapteros-lora-router/src/lib.rs)
-- [Feature Extraction](../../crates/adapteros-lora-router/src/features.rs)
-- [Scoring Functions](../../crates/adapteros-lora-router/src/scoring.rs)
-- [CLAUDE.md § K-Sparse Routing](../../CLAUDE.md#k-sparse-routing)
-- [ROUTER_DETERMINISM_PROOF.md](../ROUTER_DETERMINISM_PROOF.md)
+## See Also
+
+- **[Routing Documentation Index](../routing/README.md)** - Router telemetry overview and integration guide
+- **[Telemetry Events Catalog](../TELEMETRY_EVENTS.md)** - Complete event catalog including `RouterDecisionEvent` and `RngSnapshot` schemas
+- **[Router Determinism Proof](../ROUTER_DETERMINISM_PROOF.md)** - Formal proof of deterministic routing guarantees with Q15 quantization
+- **[CLAUDE.md Architecture Patterns](../../CLAUDE.md)** - K-Sparse Routing pattern, Q15 quantization policy, and HKDF seeding
+
+---
+
+**Code References**:
+- [Router Core](../../crates/adapteros-lora-router/src/lib.rs) - K-sparse selection, Q15 quantization
+- [Feature Extraction](../../crates/adapteros-lora-router/src/features.rs) - Prompt feature extraction
+- [Scoring Functions](../../crates/adapteros-lora-router/src/scoring.rs) - Adapter scoring algorithm
+- [Router Policy](../../crates/adapteros-policy/src/packs/router.rs) - K-sparse routing policy enforcement

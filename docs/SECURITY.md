@@ -128,11 +128,29 @@ curl -X POST https://api.adapteros.local/v1/auth/bootstrap \
 
 ## Authorization (RBAC)
 
+> **Full Reference:** See [RBAC.md](RBAC.md) for comprehensive role-based access control documentation including all 40 permissions and usage examples.
+
 ### Role Hierarchy
 
+```mermaid
+graph TD
+    subgraph "RBAC Role Hierarchy"
+        Admin["Admin (full)"]
+        Operator["Operator (runtime ops)"]
+        SRE["SRE (infra debug)"]
+        Compliance["Compliance (audit-only)"]
+        Viewer["Viewer (read-only)"]
+    end
+
+    Admin --> Operator
+    Admin --> SRE
+    Admin --> Compliance
+    Operator --> Viewer
+    SRE --> Viewer
+    Compliance --> Viewer
 ```
-Admin > Operator > SRE > Compliance > Viewer
-```
+
+**Text representation:** `Admin > Operator > SRE > Compliance > Viewer`
 
 ### Permission Matrix
 
@@ -594,6 +612,14 @@ ORDER BY attempts DESC;
 **Security Issues:** security@adapteros.com
 **Bug Bounty:** https://adapteros.com/security/bounty
 **PGP Key:** Available at https://adapteros.com/security/pgp
+
+---
+
+## See Also
+
+- [RBAC.md](RBAC.md) - Complete RBAC permission matrix and role specifications
+- [AUTHENTICATION.md](AUTHENTICATION.md) - Detailed authentication flow and token management
+- [CLAUDE.md (RBAC section)](../CLAUDE.md#rbac-5-roles-40-permissions) - Quick reference for RBAC implementation
 
 ---
 

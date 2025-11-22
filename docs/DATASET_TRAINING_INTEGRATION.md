@@ -4,6 +4,34 @@
 
 This document describes the implementation of the dataset-to-training data flow, connecting uploaded dataset files to the training pipeline.
 
+## Canonical 5-Step Pipeline
+
+The AdapterOS training pipeline follows these canonical steps:
+
+```mermaid
+flowchart LR
+    A[1. Ingest] --> B[2. Generate]
+    B --> C[3. Dataset]
+    C --> D[4. Train]
+    D --> E[5. Package]
+
+    A -->|DocumentIngestor| A1[PDF/Text Input]
+    B -->|generate_training_data| B1[Training Examples]
+    C -->|TrainingDatasetManager| C1[Validated Dataset]
+    D -->|MicroLoRATrainer| D1[Adapter Weights]
+    E -->|AdapterPackager| E1[.aos Archive]
+```
+
+**Pipeline Steps:**
+
+1. **Ingest** - `DocumentIngestor::new(opts, tokenizer).ingest_pdf_path(path)?`
+2. **Generate** - `generate_training_data(&doc, &tokenizer, &config)?`
+3. **Dataset** - `TrainingDatasetManager::new(db, path, tok).create_dataset_from_documents(req).await?`
+4. **Train** - `MicroLoRATrainer::new(cfg)?.train(examples, adapter_id).await?`
+5. **Package** - `AdapterPackager::new().package(weights, manifest)?` then `registry.register_adapter(...)?`
+
+This document focuses on Steps 2-3 (Generate and Dataset), which handle the dataset-to-training data flow.
+
 ## Architecture
 
 The integration consists of three main components:
@@ -265,3 +293,11 @@ POST /v1/training/start
 - Database schema: `crates/adapteros-db/src/training_datasets.rs`
 - Integration tests: `tests/dataset_training_integration.rs`
 - API types: `crates/adapteros-api-types/src/training.rs`
+
+## See Also
+
+- [USER_GUIDE_DATASETS.md](USER_GUIDE_DATASETS.md) - Dataset upload and management guide
+- [Training.md](Training.md) - CLI training and orchestrated training guide
+- [AOS_FORMAT.md](AOS_FORMAT.md) - .aos archive format specification
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Full training pipeline architecture
+- [CLAUDE.md](../CLAUDE.md) - Training section in developer guide

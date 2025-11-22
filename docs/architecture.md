@@ -110,6 +110,49 @@ Event system with:
 
 ---
 
+## Multi-Backend Architecture
+
+AdapterOS supports multiple inference backends with a unified `FusedKernels` trait interface.
+
+```mermaid
+graph TD
+    subgraph "Multi-Backend Architecture"
+        A[Backend Factory<br/>backend_factory.rs] --> B[CoreML Backend]
+        A --> C[MLX Backend]
+        A --> D[Metal Backend]
+        B -->|"Placeholder"| E[ANE Acceleration<br/>Production]
+        C -->|"Stub"| F[Research/Training<br/>HKDF-seeded]
+        D -->|"Building"| G[GPU Fallback<br/>Deterministic]
+    end
+
+    subgraph "Crates"
+        B -.-> B1[adapteros-lora-kernel-coreml]
+        C -.-> C1[adapteros-lora-mlx-ffi]
+        D -.-> D1[adapteros-lora-kernel-mtl]
+    end
+
+    style B fill:#f9f,stroke:#333
+    style C fill:#bbf,stroke:#333
+    style D fill:#bfb,stroke:#333
+```
+
+**Backend Status:**
+
+| Backend | Status | Determinism | Use Case | Crate |
+|---------|--------|-------------|----------|-------|
+| **CoreML** | Placeholder | Guaranteed (ANE) | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
+| **MLX** | Stub | HKDF-seeded | Research, training | `adapteros-lora-mlx-ffi` |
+| **Metal** | Building | Guaranteed | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
+
+**Selection Strategy:** CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)
+
+**Known Limitations:**
+- CoreML adapter loading is a placeholder implementation
+- MLX backend is a stub - compiles but not fully functional
+- Multi-adapter routing is broken (currently only uses first adapter in stack)
+
+---
+
 ## Detailed Flow Documentation
 
 For step-by-step technical references of key operations, see:
@@ -212,6 +255,37 @@ Each flow document includes:
 3. **To add new telemetry events**: See [Record Flow § Event Structure](flows/record.md#event-structure)
 4. **To implement replay**: See [Replay Flow § Planned Components](flows/replay.md#planned-components)
 5. **To verify migrations**: Run `cargo test -p adapteros-db schema_consistency_tests`
+
+---
+
+## See Also
+
+### Core Documentation
+- [CLAUDE.md](../CLAUDE.md) - Developer guide and quick reference
+- [ARCHITECTURE_INDEX.md](./ARCHITECTURE_INDEX.md) - Complete documentation index
+- [ARCHITECTURE_PATTERNS.md](./ARCHITECTURE_PATTERNS.md) - Detailed architecture patterns
+- [CONCEPTS.md](./CONCEPTS.md) - Mental model and glossary
+
+### Backend Documentation
+- [ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
+- [COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML setup and ANE optimization
+- [ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for new backends
+- [OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - Rust/Swift/ObjC++ FFI patterns
+
+### Execution and Lifecycle
+- [DETERMINISTIC_EXECUTION.md](./DETERMINISTIC_EXECUTION.md) - HKDF, tick ledger, multi-agent coordination
+- [LIFECYCLE.md](./LIFECYCLE.md) - Adapter state machine details
+- [PINNING_TTL.md](./PINNING_TTL.md) - Adapter pinning and TTL enforcement
+
+### Database and Schema
+- [DATABASE_REFERENCE.md](./DATABASE_REFERENCE.md) - Schema reference
+- [database-schema/README.md](./database-schema/README.md) - Database design overview
+- [database-schema/SCHEMA-DIAGRAM.md](./database-schema/SCHEMA-DIAGRAM.md) - Complete ERD
+
+### Diagrams and Workflows
+- [architecture/PRECISION-DIAGRAMS.md](./architecture/PRECISION-DIAGRAMS.md) - Code-verified diagrams
+- [DIAGRAM_REFERENCE.md](./DIAGRAM_REFERENCE.md) - Quick diagram lookup
+- [database-schema/workflows/](./database-schema/workflows/) - Operational workflows
 
 ---
 

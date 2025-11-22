@@ -106,17 +106,41 @@ Pinned adapters are **never** evicted regardless of memory pressure.
 
 ## Lifecycle Integration
 
-The pinning and TTL systems integrate with the adapter lifecycle state machine:
+The pinning and TTL systems integrate with the adapter lifecycle state machine.
 
-```
-Unloaded → Cold → Warm → Hot → Resident
-    ↑                          ↓
-    └──── (eviction) ──────────┘
+### State Machine Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unloaded
+    Unloaded --> Cold: First load
+    Cold --> Warm: Activation increase
+    Warm --> Hot: Frequent use
+    Hot --> Resident: Pin
+    Resident --> Hot: Unpin
+    Hot --> Warm: Inactivity
+    Warm --> Cold: Timeout
+    Cold --> Unloaded: Eviction
+
+    note right of Resident: Pinned adapters immune to eviction
 ```
 
-- **Pinned adapters**: Can be promoted to `Resident` state, immune to eviction
+### State Transitions
+
+| State | Memory | Eviction Priority | TTL Behavior |
+|-------|--------|-------------------|--------------|
+| Unloaded | 0 MB | N/A | Can expire |
+| Cold | ~100 MB | Highest | First to evict |
+| Warm | ~150 MB | Medium | Evicted under pressure |
+| Hot | ~200 MB | Low | Protected unless critical |
+| Resident | ~200 MB | **Blocked** | Immune to eviction |
+
+### Integration Points
+
+- **Pinned adapters**: Promoted to `Resident` state, immune to eviction
 - **TTL adapters**: Automatically evicted when `expires_at` passes
 - **Heartbeat**: 5-minute timeout auto-resets stale adapters
+- **Memory pressure**: Expired TTL adapters evicted first, then by tier
 
 ---
 

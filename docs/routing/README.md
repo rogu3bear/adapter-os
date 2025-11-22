@@ -29,7 +29,7 @@ Documentation for AdapterOS router decision tracking, telemetry, and K-sparse ad
 
 ### What is Router Telemetry?
 
-Router telemetry captures every routing decision during inference:
+Router telemetry captures every routing decision during inference, including the K-sparse adapter selection process:
 - **Step**: Token generation step (0-indexed)
 - **Candidates**: Adapters with raw scores and Q15 gates
 - **Entropy**: Shannon entropy of gate distribution
@@ -41,6 +41,42 @@ Router telemetry captures every routing decision during inference:
 2. **Writer**: `RouterDecisionWriter` - async buffered, non-blocking
 3. **Database**: `routing_decisions` table (migration 0070)
 4. **API**: POST `/v1/telemetry/routing`, GET `/v1/routing/decisions`
+
+### K-Sparse Selection Algorithm
+
+The router uses K-sparse selection with Q15-quantized gates for deterministic adapter selection:
+
+```mermaid
+flowchart TD
+    A[Inference Request] --> B[Feature Extraction]
+    B --> C[Score All Adapters]
+    C --> D[Q15 Quantization]
+    D --> E[Top-K Selection]
+    E --> F[HKDF Tie-Break]
+    F --> G[Selected Adapters K=3]
+
+    subgraph "Q15 Quantization"
+        D1[f32 score] -->|"× 32767"| D2[i16 gate]
+    end
+
+    subgraph "Determinism Guarantees"
+        H[Same Input] --> I[Same Scores]
+        I --> J[Same Q15 Gates]
+        J --> K[Same Selection]
+    end
+
+    style A fill:#e1f5ff
+    style G fill:#d4f4dd
+    style E fill:#fff3cd
+```
+
+**Key Properties:**
+- **Q15 Quantization**: Converts f32 scores to i16 gates (score × 32767) for bitwise-reproducible comparison
+- **K-Sparse**: Selects exactly K adapters (default K=3) from scored candidates
+- **HKDF Tie-Break**: When multiple adapters have identical Q15 scores, uses seeded RNG for deterministic ordering
+- **Deterministic**: Same input + same seed = same adapter selection across all hardware
+
+For detailed flow with code references, see [flows/route.md](../flows/route.md).
 
 ### Implementation Status
 
@@ -140,3 +176,12 @@ if drop_rate > 0.05 {  // Alert if >5%
 **Status**: Ready for integration testing
 **Version**: Telemetry V1 Skeleton
 **Last Updated**: 2025-11-18
+
+---
+
+## See Also
+
+- **[Route Flow: K-Sparse Adapter Selection](../flows/route.md)** - Detailed flow diagram with code references for K-sparse routing
+- **[Telemetry Events Catalog](../TELEMETRY_EVENTS.md)** - Complete event catalog including `RouterDecisionEvent` schema
+- **[Router Determinism Proof](../ROUTER_DETERMINISM_PROOF.md)** - Formal proof of deterministic routing guarantees
+- **[CLAUDE.md Architecture Patterns](../../CLAUDE.md)** - K-Sparse Routing pattern and Q15 quantization policy

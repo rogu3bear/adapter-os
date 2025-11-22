@@ -1825,6 +1825,43 @@ jobs:
 
 ---
 
+## Backend Selection Status Flowchart
+
+The following diagram shows the current backend selection logic and implementation status:
+
+```mermaid
+flowchart TD
+    A[create_backend] --> B{Backend Choice}
+    B -->|CoreML| C[CoreML Backend]
+    B -->|MLX| D[MLX Backend]
+    B -->|Metal| E[Metal Backend]
+    C -->|Status: Placeholder| F[ANE Production]
+    D -->|Status: Stub| G[Research/Training]
+    E -->|Status: Building| H[Legacy Fallback]
+
+    style C fill:#fff3cd
+    style D fill:#fff3cd
+    style E fill:#d4edda
+```
+
+**Status Key:**
+- **CoreML (Yellow):** Placeholder implementation - adapter loading not implemented
+- **MLX (Yellow):** Stub implementation - compiles but not fully functional
+- **Metal (Green):** Building successfully - production ready
+
+---
+
+## See Also
+
+Related backend documentation:
+
+- [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
+- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, research/training path
+- [docs/ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
+- [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
+
+---
+
 ## References
 
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale

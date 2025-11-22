@@ -323,8 +323,81 @@ ORDER BY pinned_at DESC;
 
 ---
 
+## Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    tenants ||--o{ adapters : "owns"
+    tenants ||--o{ adapter_stacks : "owns"
+    tenants ||--o{ pinned_adapters : "manages"
+    tenants ||--o{ audit_logs : "tracked by"
+
+    adapters ||--o{ pinned_adapters : "can be pinned"
+    adapters }o--o{ adapter_stacks : "belongs to"
+
+    training_datasets ||--o{ training_jobs : "used by"
+
+    adapters {
+        text adapter_id PK
+        text tenant_id FK
+        text hash
+        text tier
+        text current_state
+        text expires_at
+    }
+
+    tenants {
+        text tenant_id PK
+        integer uid
+        integer gid
+        text isolation_metadata
+    }
+
+    adapter_stacks {
+        integer id PK
+        text name
+        text adapter_ids_json
+        text workflow_type
+        text tenant_id FK
+    }
+
+    training_datasets {
+        integer id PK
+        text dataset_id
+        text hash_b3
+        text validation_status
+    }
+
+    training_jobs {
+        integer id PK
+        text job_id
+        integer dataset_id FK
+        text status
+        real progress_pct
+    }
+
+    pinned_adapters {
+        text tenant_id PK
+        text adapter_id PK
+        text pinned_until
+        text reason
+    }
+
+    audit_logs {
+        integer id PK
+        text user_id
+        text action
+        text resource
+        text status
+    }
+```
+
+---
+
 ## See Also
 
-- [CLAUDE.md](../CLAUDE.md) - Developer quick reference
+- [CLAUDE.md](../CLAUDE.md) - Developer quick reference (source of truth)
+- [database-schema/README.md](database-schema/README.md) - Extended schema documentation
+- [LIFECYCLE.md](LIFECYCLE.md) - Adapter lifecycle states (Unloaded, Cold, Warm, Hot, Resident)
 - [PINNING_TTL.md](PINNING_TTL.md) - Pinning and TTL enforcement details
 - [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md) - Full architecture overview

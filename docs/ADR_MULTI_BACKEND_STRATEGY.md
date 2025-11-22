@@ -485,6 +485,41 @@ if config.server.production_mode {
 
 ---
 
+## Backend Selection Status Flowchart
+
+The following diagram shows the current backend selection logic and implementation status:
+
+```mermaid
+flowchart TD
+    A[create_backend] --> B{Backend Choice}
+    B -->|CoreML| C[CoreML Backend]
+    B -->|MLX| D[MLX Backend]
+    B -->|Metal| E[Metal Backend]
+    C -->|Status: Placeholder| F[ANE Production]
+    D -->|Status: Stub| G[Research/Training]
+    E -->|Status: Building| H[Legacy Fallback]
+
+    style C fill:#fff3cd
+    style D fill:#fff3cd
+    style E fill:#d4edda
+```
+
+**Status Key:**
+- **CoreML (Yellow):** Placeholder implementation - adapter loading not implemented
+- **MLX (Yellow):** Stub implementation - compiles but not fully functional
+- **Metal (Green):** Building successfully - production ready
+
+---
+
+## See Also
+
+Related backend documentation:
+
+- [docs/COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML backend guide, ANE optimization, Swift bridge
+- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, research/training path
+
+---
+
 ## References
 
 - [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
