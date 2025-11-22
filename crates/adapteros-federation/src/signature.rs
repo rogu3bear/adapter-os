@@ -179,7 +179,7 @@ impl QuorumManager {
                     "quorum".to_string(),
                     "1.0".to_string(),
                 );
-                let event = TelemetryEventBuilder::new(
+                match TelemetryEventBuilder::new(
                     adapteros_telemetry::EventType::Custom("federation.quorum_reached".to_string()),
                     LogLevel::Info,
                     format!("Quorum reached for bundle: {}", bundle_hash.to_hex()),
@@ -191,9 +191,15 @@ impl QuorumManager {
                     "required_signatures": required,
                     "collected_signatures": collected,
                 }))
-                .build();
-
-                let _ = telemetry.log_event(event);
+                .build()
+                {
+                    Ok(event) => {
+                        let _ = telemetry.log_event(event);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to build telemetry event for quorum reached");
+                    }
+                }
             }
 
             info!(

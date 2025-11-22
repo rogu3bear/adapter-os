@@ -214,7 +214,7 @@ impl OutputHashManager {
                 "verification".to_string(),
                 "1.0".to_string(),
             );
-            let event = TelemetryEventBuilder::new(
+            match TelemetryEventBuilder::new(
                 adapteros_telemetry::EventType::Custom(event_type.to_string()),
                 if consistent {
                     LogLevel::Info
@@ -234,9 +234,15 @@ impl OutputHashManager {
                 "hosts": hosts,
                 "divergence_count": divergence_count,
             }))
-            .build();
-
-            let _ = telemetry.log_event(event);
+            .build()
+            {
+                Ok(event) => {
+                    let _ = telemetry.log_event(event);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to build telemetry event for output hash comparison");
+                }
+            }
         }
 
         if consistent {
