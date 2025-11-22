@@ -8,7 +8,24 @@ description = "CoreML backend for AdapterOS - Neural Engine acceleration"
 
 [features]
 default = []
-ane-optimizations = []
+
+# =============================================================================
+# COREML KERNEL FEATURE FLAGS
+# =============================================================================
+# This crate provides CoreML + Neural Engine (ANE) acceleration.
+# It is the PRIMARY production backend for macOS 13+.
+#
+# ane-optimizations: Enable ANE-specific optimizations
+#   - Enables MLTensor-based operations (macOS 15+)
+#   - Falls back to MLMultiArray on older macOS
+#   - Provides 2x speedup on supported hardware
+#
+# Usage:
+#   cargo build -p adapteros-lora-kernel-coreml
+#   cargo build -p adapteros-lora-kernel-coreml --features ane-optimizations
+# =============================================================================
+
+ane-optimizations = []  # Enable ANE-specific code paths (macOS 15+ MLTensor)
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

@@ -76,5 +76,17 @@ tokenizers = "0.15"
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
 
 [features]
-experimental-backends = ["adapteros-lora-mlx-ffi"]
-secd-support = ["adapteros-secd"]
+# =============================================================================
+# CLI FEATURE FLAGS
+# =============================================================================
+# experimental-backends: Enable MLX backend support in CLI commands
+#   - Adds MLX FFI dependency
+#   - Enables `aosctl serve --backend mlx` and related commands
+#
+# secd-support: Enable Secure Enclave Daemon support
+#   - Adds adapteros-secd dependency
+#   - Enables hardware key management commands
+# =============================================================================
+
+experimental-backends = ["dep:adapteros-lora-mlx-ffi"]
+secd-support = ["dep:adapteros-secd"]

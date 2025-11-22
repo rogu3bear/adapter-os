@@ -831,19 +831,26 @@ impl MLXFFIModel {
         let logits: Vec<f32> =
             unsafe { std::slice::from_raw_parts(output_data, output_size as usize).to_vec() };
 
-        // Process hidden states
+        // Process hidden states - requires real MLX FFI implementation
         let mut hidden_states = std::collections::HashMap::new();
 
         if !hidden_states_ptr.is_null() && num_hidden > 0 {
-            // In real implementation, this would parse the hidden states array
-            // For now, create dummy hidden states for target modules
-            let dummy_hidden = vec![0.1f32; token_ids.len() * self.config.hidden_size];
-
-            for module in ["q_proj", "k_proj", "v_proj", "o_proj"].iter() {
-                hidden_states.insert(module.to_string(), dummy_hidden.clone());
-            }
+            // Hidden states extraction not yet implemented
+            // Real implementation requires:
+            // 1. MLX array layout parsing (shape, strides, dtype)
+            // 2. Per-layer hidden state extraction
+            // 3. Module name mapping (q_proj, k_proj, v_proj, o_proj)
+            //
+            // WARNING: Training/fine-tuning will not work correctly without real hidden states
+            tracing::warn!(
+                "MLX hidden states requested but extraction not implemented. \
+                 Returning empty hidden states. Training will not work correctly."
+            );
 
             unsafe { mlx_array_free(hidden_states_ptr) };
+
+            // Return empty instead of fake data - caller must handle this
+            // Do NOT return dummy values like vec![0.1; ...] as that corrupts training
         }
 
         // Clean up

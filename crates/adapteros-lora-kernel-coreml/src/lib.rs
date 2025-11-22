@@ -815,6 +815,10 @@ impl CoreMLBackend {
     /// # Arguments
     /// * `compute_units` - The compute units to use for inference
     /// * `production_mode` - If true, enforces ANE-only mode for guaranteed determinism
+    ///
+    /// # Note
+    /// CoreML FFI layer is not fully implemented. The native bridge code
+    /// (coreml_bridge.mm) is missing. Use Metal or MLX backends instead.
     pub fn new(compute_units: ComputeUnits, production_mode: bool) -> Result<Self> {
         #[cfg(not(target_os = "macos"))]
         {
@@ -826,6 +830,17 @@ impl CoreMLBackend {
 
         #[cfg(target_os = "macos")]
         {
+            // CoreML FFI layer not implemented - native bridge code missing
+            // The Objective-C++ bridge (coreml_bridge.mm) has not been written yet.
+            // Use Metal backend for production or MLX backend for training.
+            return Err(AosError::Kernel(
+                "CoreML backend FFI not implemented. Native bridge code (coreml_bridge.mm) is missing. \
+                 Use Metal backend for inference or MLX backend for training."
+                    .to_string(),
+            ));
+
+            // Original implementation preserved below for when FFI is ready:
+            #[allow(unreachable_code)]
             let is_available = unsafe { ffi::coreml_is_available() };
             if !is_available {
                 return Err(AosError::Kernel(

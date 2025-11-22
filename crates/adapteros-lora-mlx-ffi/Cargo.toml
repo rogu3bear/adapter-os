@@ -43,8 +43,28 @@ tokio.workspace = true
 
 [features]
 default = []
-real-mlx = []
-test-utils = []
+
+# =============================================================================
+# MLX FFI FEATURE FLAGS
+# =============================================================================
+# This crate provides MLX (Apple's ML framework) integration via C++ FFI.
+#
+# real-mlx: Enable real MLX library integration
+#   - Requires mlx C++ library to be installed
+#   - Enables actual GPU-accelerated inference
+#   - Without this flag, stub implementations are used
+#
+# test-utils: Enable test utilities
+#   - Mock implementations for testing
+#   - Deterministic test fixtures
+#
+# Usage:
+#   cargo build -p adapteros-lora-mlx-ffi                    # Stub implementation
+#   cargo build -p adapteros-lora-mlx-ffi --features real-mlx # Real MLX
+# =============================================================================
+
+real-mlx = []     # Enable real MLX library (requires mlx C++ installed)
+test-utils = []   # Enable test utilities and mocks
 
 [lints.rust]
 non_camel_case_types = "allow"

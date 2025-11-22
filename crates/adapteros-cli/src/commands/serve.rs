@@ -271,7 +271,7 @@ pub async fn run(
 
                 output.verbose("MLX detected");
                 adapteros_lora_worker::BackendChoice::Mlx {
-                    model_path: std::path::PathBuf::from(&model_path),
+                    model_path: model_path.clone(),
                 }
             }
         }

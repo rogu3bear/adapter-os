@@ -86,35 +86,45 @@ telemetry = []
 metrics = []
 replay = []
 
-# Backend feature flags - CLEARLY DISTINGUISH REAL VS STUB IMPLEMENTATIONS
+# =============================================================================
+# BACKEND FEATURE FLAGS
+# =============================================================================
 #
-# REAL BACKENDS (require external libraries/frameworks):
-# coreml-backend = []     # macOS CoreML + Neural Engine (requires macOS 13+, CoreML.framework)
-# metal-backend = []      # macOS Metal GPU acceleration (requires macOS, Metal.framework)
+# ARCHITECTURE: Features are defined at WORKSPACE level and propagate to crates
+# via optional dependencies. Each crate re-exports its backend feature.
 #
-# STUB BACKENDS (placeholder implementations for development/testing):
-# mlx-backend = []        # MLX FFI stubs (no real MLX library required)
-# stub-backends = []      # Enable all stub implementations
+# REAL BACKENDS (require macOS + frameworks):
+#   coreml-backend - CoreML + Neural Engine (macOS 13+, production primary)
+#   metal-backend  - Metal GPU (macOS, fallback for non-ANE systems)
 #
-# IMPORTANT: Most backends are currently STUBS. See BACKEND_STATUS.md for details.
+# DEVELOPMENT BACKENDS:
+#   mlx-backend    - MLX FFI (research/training, HKDF-seeded determinism)
+#   real-mlx       - Real MLX library integration (vs stub implementation)
+#
+# ACTIVATION:
+#   cargo build --features coreml-backend   # Enable CoreML backend
+#   cargo build --features metal-backend    # Enable Metal backend
+#   cargo build --features experimental-backends  # Enable MLX development
+#
+# =============================================================================
 
-# Workspace-level flags
-metal = []  # Enable Metal-related code paths
+# Workspace-level Metal flag (enables Metal code paths across crates)
+metal = []
 
-# Stub implementations (safe for all platforms)
-mlx-backend = []  # MLX stubs (no MLX library needed)
-stub-backends = ["mlx-backend"]  # All stub backends
+# Real backends (macOS-only, require frameworks)
+# These propagate to per-crate features via optional dependencies
+coreml-backend = []  # CoreML + ANE (production primary)
+metal-backend = []   # Metal GPU (production fallback)
 
-# Real backends (platform + library dependent - currently DISABLED)
-# coreml-backend = []    # DISABLED: Requires CoreML.framework
-# metal-backend = []     # DISABLED: Requires Metal.framework
+# MLX backend (development/research)
+mlx-backend = []     # MLX FFI stubs
+real-mlx = []        # Real MLX library (requires mlx-rs or C++ FFI)
 
-# Combined feature sets for common use cases
+# Combined feature sets
+stub-backends = ["mlx-backend"]  # All stub implementations
+experimental-backends = ["mlx-backend"]  # Alias for development backends
 full = ["telemetry", "metrics", "replay"]
 no-metal = []  # Explicitly disable Metal (for Linux/CI)
-
-# Legacy compatibility
-experimental-backends = ["mlx-backend"]
 
 # Testing features - used in 157+ test files and test infrastructure
 extended-tests = []  # Extended test suite with intensive tests
