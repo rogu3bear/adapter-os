@@ -63,7 +63,7 @@ Adapter stacks, versioning, and workflow composition.
 Determinism guarantees, attestation, and verification tooling.
 
 - [Determinism Attestation](./DETERMINISM-ATTESTATION.md)
-- [Determinism Audit](./determinism-audit.md)
+- [Determinism Audit](./DETERMINISM-AUDIT.md)
 - [Determinism Test Status](./DETERMINISM_TEST_STATUS.md)
 - [PRD-08: Determinism Guardrail Suite](./PRD_8_DETERMINISM_GUARDRAIL_SUITE.md)
 
@@ -85,7 +85,7 @@ Replay infrastructure, session management, and divergence analysis.
 Performance monitoring, system metrics, and observability.
 
 - [System Metrics](./SYSTEM-METRICS.md)
-- [Monitoring](./monitoring.md)
+- [Monitoring](./MONITORING.md)
 - [Auth Performance](./AUTH_PERFORMANCE.md)
 
 **Related Files:**
@@ -191,7 +191,7 @@ Cryptography, secure enclave, and security protocols.
 - [Crypto](./CRYPTO.md)
 - [Secure Enclave Integration](./SECURE-ENCLAVE-INTEGRATION.md)
 - [Signal Protocol Implementation](./SIGNAL-PROTOCOL-IMPLEMENTATION.md)
-- [Keychain Integration](./keychain-integration.md)
+- [Keychain Integration](./KEYCHAIN-INTEGRATION.md)
 
 ---
 

@@ -6,7 +6,7 @@
 - 🗄️ [Database Schema](database-schema/SCHEMA-DIAGRAM.md) - Complete ERD
 - 🔄 [Workflow Diagrams](database-schema/workflows/) - Operational workflows
 - 🔁 **[Flow Documentation](flows/README.md)** - Detailed operation flows (load → route → run → record → replay)
-- 📐 **[Diagrams & Schemas](flows/diagrams.md)** - Lifecycle diagrams and telemetry schema
+- 📐 **[Diagrams & Schemas](flows/DIAGRAMS.md)** - Lifecycle diagrams and telemetry schema
 
 ## System Overview
 
@@ -114,11 +114,11 @@ Event system with:
 
 For step-by-step technical references of key operations, see:
 
-- **[Load Flow](flows/load.md)** - Adapter loading and state initialization (✅ Implemented)
-- **[Route Flow](flows/route.md)** - K-sparse adapter selection via Q15 gates (✅ Implemented)
-- **[Run Flow](flows/run.md)** - Deterministic execution and inference (✅ Implemented)
-- **[Record Flow](flows/record.md)** - Telemetry event capture and bundle signing (✅ Implemented)
-- **[Replay Flow](flows/replay.md)** - Event log replay and divergence detection (🔧 Planned)
+- **[Load Flow](flows/LOAD.md)** - Adapter loading and state initialization (✅ Implemented)
+- **[Route Flow](flows/ROUTE.md)** - K-sparse adapter selection via Q15 gates (✅ Implemented)
+- **[Run Flow](flows/RUN.md)** - Deterministic execution and inference (✅ Implemented)
+- **[Record Flow](flows/RECORD.md)** - Telemetry event capture and bundle signing (✅ Implemented)
+- **[Replay Flow](flows/REPLAY.md)** - Event log replay and divergence detection (🔧 Planned)
 
 Each flow document includes:
 - Mermaid.js diagrams
@@ -137,18 +137,18 @@ Each flow document includes:
 
 | Feature | Status | Location |
 |---------|--------|----------|
-| **Load Flow** | ✅ Implemented | [flows/load.md](flows/load.md) |
+| **Load Flow** | ✅ Implemented | [flows/load.md](flows/LOAD.md) |
 | Adapter lifecycle state machine | ✅ Implemented | `adapteros-lora-lifecycle` |
 | Memory pressure monitoring | ✅ Implemented | UMA stats, tiered eviction |
 | Hash verification (CPU + GPU) | ✅ Implemented | BLAKE3 fingerprinting |
 | Heartbeat recovery | ✅ Implemented | 5-min timeout auto-reset |
-| **Route Flow** | ✅ Implemented | [flows/route.md](flows/route.md) |
+| **Route Flow** | ✅ Implemented | [flows/route.md](flows/ROUTE.md) |
 | K-sparse routing | ✅ Implemented | Default K=3 |
 | Q15 quantization | ✅ Implemented | Deterministic scores |
 | HKDF tie-breaking | ✅ Implemented | Seeded RNG |
 | Feature extraction | ✅ Implemented | 5 base + 3 MPLoRA features |
 | Framework/path routing | ✅ Implemented | React, Django, directory scoping |
-| **Run Flow** | ✅ Implemented | [flows/run.md](flows/run.md) |
+| **Run Flow** | ✅ Implemented | [flows/run.md](flows/RUN.md) |
 | Serial task execution | ✅ Implemented | FIFO queue, no concurrency |
 | HKDF seed derivation | ✅ Implemented | 8+ domain labels |
 | Global tick ledger | ✅ Implemented | Atomic tick assignment |
@@ -156,7 +156,7 @@ Each flow document includes:
 | Multi-agent barrier | ✅ Implemented | CAS + Notify, dead agent handling |
 | Sampling determinism | ✅ Implemented | ChaCha20Rng |
 | Cross-host consistency check | ✅ Implemented | Hash comparison, divergence detection |
-| **Record Flow** | ✅ Implemented | [flows/record.md](flows/record.md) |
+| **Record Flow** | ✅ Implemented | [flows/record.md](flows/RECORD.md) |
 | Canonical JSON (JCS) | ✅ Implemented | Deterministic serialization |
 | BLAKE3 event hashing | ✅ Implemented | Per-event hash |
 | Merkle tree bundles | ✅ Implemented | Binary tree with root hash |
@@ -180,7 +180,7 @@ Each flow document includes:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **Replay Flow** | 🔧 Planned | [flows/replay.md](flows/replay.md) |
+| **Replay Flow** | 🔧 Planned | [flows/replay.md](flows/REPLAY.md) |
 | Replay executor initialization | 🔧 Planned | Requires `replay_mode` in ExecutorConfig |
 | Router decision replay | 🔧 Planned | Re-run routing, compare selected adapters |
 | Inference replay | 🔧 Planned | Re-run inference, compare tokens |
@@ -208,7 +208,7 @@ Each flow document includes:
 ## Next Steps for Engineers
 
 1. **To understand a specific flow**: Read the corresponding [flow documentation](flows/README.md)
-2. **To debug determinism issues**: Review [Run Flow](flows/run.md) and [Replay Flow](flows/replay.md)
+2. **To debug determinism issues**: Review [Run Flow](flows/RUN.md) and [Replay Flow](flows/REPLAY.md)
 3. **To add new telemetry events**: See [Record Flow § Event Structure](flows/record.md#event-structure)
 4. **To implement replay**: See [Replay Flow § Planned Components](flows/replay.md#planned-components)
 5. **To verify migrations**: Run `cargo test -p adapteros-db schema_consistency_tests`
