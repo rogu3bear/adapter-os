@@ -194,8 +194,8 @@ pub fn enforce_deterministic_behavior(
 
 ## References
 
-- [Code Intelligence Architecture](code-intelligence-architecture.md)
+- [Code Intelligence Architecture](code-intelligence-ARCHITECTURE.md)
 - [Code Policies](code-policies.md)
-- [LLM Interface Specification](../llm-interface-specification.md)
-- [Patch Proposal System](../patch-proposal-system.md)
+- [LLM Interface Specification](../LLM-INTERFACE-SPECIFICATION.md)
+- [Patch Proposal System](../PATCH-PROPOSAL-SYSTEM.md)
 - [Contributing Guidelines](../../CONTRIBUTING.md)

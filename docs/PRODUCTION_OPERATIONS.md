@@ -843,7 +843,7 @@ sqlite3 /var/lib/adapteros/aos-cp.sqlite3 "VACUUM;"
 
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Complete deployment guide
 - [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) - Production readiness checklist
-- [system-metrics.md](system-metrics.md) - Monitoring and metrics guide
+- [system-metrics.md](SYSTEM-METRICS.md) - Monitoring and metrics guide
 - [database-schema/README.md](database-schema/README.md) - Database documentation
 - [Memory Ruleset #12](POLICIES.md) - Memory management policies
 

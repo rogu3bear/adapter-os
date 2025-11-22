@@ -470,7 +470,7 @@ aosctl adapter-swap --tenant dev --add my_adapter --commit
 
 ## See Also
 
-- [Architecture Overview](architecture.md) - System architecture
-- [Control Plane](control-plane.md) - Control plane API documentation
+- [Architecture Overview](ARCHITECTURE.md) - System architecture
+- [Control Plane](CONTROL-PLANE.md) - Control plane API documentation
 - [Architecture Index](ARCHITECTURE_INDEX.md) - Complete architecture reference
 

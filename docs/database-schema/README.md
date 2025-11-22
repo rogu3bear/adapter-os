@@ -203,13 +203,13 @@ Troubleshooting guide for operational issues:
 ## Related Documentation
 
 ### Core Architecture
-- [System Architecture](../architecture.md) - Overall system design
-- [Control Plane](../control-plane.md) - Control plane lifecycle
+- [System Architecture](../ARCHITECTURE.md) - Overall system design
+- [Control Plane](../CONTROL-PLANE.md) - Control plane lifecycle
 - [Runaway Prevention](../runaway-prevention.md) - Safety mechanisms
 
 ### Code Intelligence
 - [Code Intelligence](../code-intelligence/README.md) - Code analysis stack
-- [CodeGraph Specification](../codegraph-spec.md) - Code graph design
+- [CodeGraph Specification](../CODEGRAPH-SPEC.md) - Code graph design
 
 ### Operational Guides
 - [Quick Start Guide](../QUICKSTART.md) - Getting started

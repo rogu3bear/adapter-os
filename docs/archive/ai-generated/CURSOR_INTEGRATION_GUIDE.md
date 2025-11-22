@@ -437,7 +437,7 @@ Optimize:
 
 ## References
 
-- [Architecture Documentation](./code-intelligence/code-intelligence-architecture.md)
+- [Architecture Documentation](./code-intelligence/code-intelligence-ARCHITECTURE.md)
 - [API Registry](./code-intelligence/code-api-registry.md)
 - [Router Features](./code-intelligence/code-router-features.md)
 - [Implementation Roadmap](./code-intelligence/code-implementation-roadmap.md)

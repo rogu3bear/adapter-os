@@ -220,7 +220,7 @@ flowchart TD
 ## Related Documentation
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
-- [System Architecture](../../architecture.md) - Overall system design
+- [System Architecture](../../ARCHITECTURE.md) - Overall system design
 - [Router](../../architecture.md#router) - Adapter selection algorithm
 - [Memory Management](../../architecture.md#memory-management) - Memory budgeting and eviction
 

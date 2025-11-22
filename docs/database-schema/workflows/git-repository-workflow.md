@@ -241,7 +241,7 @@ INSERT INTO repository_analysis_cache (
 ## References
 
 - [Git Integration Citations](../../code-intelligence/git-integration-citations.md)
-- [Git Integration Architecture](../../code-intelligence/git-integration-architecture.md)
+- [Git Integration Architecture](../../code-intelligence/git-integration-ARCHITECTURE.md)
 - [Code Intelligence Workflow](code-intelligence.md)
 - [Database Schema Migration](../../migrations/0013_git_repository_integration.sql)
 - [Code Policies](../../code-intelligence/code-policies.md)

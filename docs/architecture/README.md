@@ -10,7 +10,7 @@ New to AdapterOS architecture? Start here:
 
 1. **[Precision Diagrams](precision-diagrams.md)** - Visual architecture guide (⭐ recommended)
 2. **[MasterPlan](MasterPlan.md)** - Complete system design
-3. **[Main Architecture Doc](../architecture.md)** - High-level overview
+3. **[Main Architecture Doc](../ARCHITECTURE.md)** - High-level overview
 
 ---
 
@@ -123,7 +123,7 @@ Complete database documentation with ERD and workflow animations.
 
 ### **API Layer**
 - [API Stack § 7](precision-diagrams.md#7-api-stack-architecture) - Routes and handlers
-- [Control Plane](../control-plane.md) - API documentation
+- [Control Plane](../CONTROL-PLANE.md) - API documentation
 
 **Code**:
 - `crates/adapteros-server/src/main.rs`

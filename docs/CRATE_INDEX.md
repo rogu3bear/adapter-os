@@ -346,9 +346,9 @@ Cross-cutting utilities and shared components used across layers.
 ## Architecture Reference
 
 For detailed architecture documentation, see:
-- **[MasterPlan.md](architecture/MasterPlan.md)** - Complete system design and layer definitions
+- **[MasterPlan.md](architecture/MASTERPLAN.md)** - Complete system design and layer definitions
 - **[ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md)** - Architecture documentation index
-- **[Precision Diagrams](architecture/precision-diagrams.md)** - Code-verified architecture diagrams
+- **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** - Code-verified architecture diagrams
 
 ---
 

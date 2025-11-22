@@ -422,7 +422,7 @@ cargo test --test policy_gates_qwen
 ## References
 
 - [Qwen2.5-7B-Instruct Model Card](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)
-- [AdapterOS Architecture](architecture.md)
+- [AdapterOS Architecture](ARCHITECTURE.md)
 - [Security Model](AUTHENTICATION.md)
 - [Policy Framework](POLICIES.md)
 - [Metal Performance Shaders](https://developer.apple.com/metal/)

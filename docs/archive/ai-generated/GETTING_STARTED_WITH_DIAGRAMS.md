@@ -247,7 +247,7 @@ Think of them as safety rules and quality checks.
 1. ✅ **You are here** - This guide
 2. 💻 [CLAUDE.md](../CLAUDE.md) - Developer guide with code refs
 3. 📂 Browse `crates/` - Read the actual code
-4. 📊 Cross-check with [Precision Diagrams](architecture/precision-diagrams.md)
+4. 📊 Cross-check with [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
 5. 🧪 Run tests: `cargo test --workspace`
 
 **Time**: 4-6 hours for deep understanding  
@@ -446,15 +446,15 @@ Throughout our diagrams, colors have consistent meaning:
 ### Just Exploring?
 
 Continue with:
-1. [Architecture Overview](architecture.md) - High-level concepts
-2. [MasterPlan](architecture/MasterPlan.md) - Complete design
-3. [Interactive Diagrams](architecture/precision-diagrams.md) - All details
+1. [Architecture Overview](ARCHITECTURE.md) - High-level concepts
+2. [MasterPlan](architecture/MASTERPLAN.md) - Complete design
+3. [Interactive Diagrams](architecture/PRECISION-DIAGRAMS.md) - All details
 
 ### Want to Use It?
 
 Start with:
 1. [Quick Start Guide](QUICKSTART.md) - Setup in 10 minutes
-2. [API Documentation](control-plane.md) - Using the API
+2. [API Documentation](CONTROL-PLANE.md) - Using the API
 3. [Swagger UI](http://localhost:8080/swagger-ui) - Try endpoints
 
 ### Want to Contribute?
@@ -462,12 +462,12 @@ Start with:
 Begin with:
 1. [CLAUDE.md](../CLAUDE.md) - Developer guide
 2. [Contributing Guide](../CONTRIBUTING.md) - How to contribute
-3. [Precision Diagrams](architecture/precision-diagrams.md) - Code references
+3. [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md) - Code references
 
 ### Want Deep Knowledge?
 
 Study:
-1. All [Precision Diagrams](architecture/precision-diagrams.md)
+1. All [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
 2. All [Database Workflows](database-schema/workflows/)
 3. [Code Intelligence Docs](code-intelligence/)
 4. Source code in `crates/`
@@ -525,7 +525,7 @@ Create an issue: [GitHub Issues](https://github.com/your-repo/issues)
 Check: [Code Intelligence Docs](code-intelligence/)
 
 **Need visual explanation?**
-See: [Precision Diagrams](architecture/precision-diagrams.md)
+See: [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
 
 ### Technical Issues
 
@@ -533,7 +533,7 @@ See: [Precision Diagrams](architecture/precision-diagrams.md)
 Read: [Quick Start Guide](QUICKSTART.md)
 
 **API not responding?**
-Check: [Control Plane Docs](control-plane.md)
+Check: [Control Plane Docs](CONTROL-PLANE.md)
 
 **Memory issues?**
 See: [Memory Management](architecture/precision-diagrams.md#5-memory-management-system)
@@ -602,5 +602,5 @@ Your feedback helps us make better documentation for everyone!
 
 **Last Updated**: 2025-01-14  
 **For**: Beginners and non-technical readers  
-**Next**: [Quick Start Guide](QUICKSTART.md) or [Precision Diagrams](architecture/precision-diagrams.md)
+**Next**: [Quick Start Guide](QUICKSTART.md) or [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
 

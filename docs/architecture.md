@@ -1,7 +1,7 @@
 # AdapterOS Architecture
 
 **Quick Navigation**:
-- 📊 [Precision Diagrams](architecture/precision-diagrams.md) - Code-verified architecture diagrams
+- 📊 [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md) - Code-verified architecture diagrams
 - 📖 [Diagram Reference Guide](DIAGRAM_REFERENCE.md) - Quick lookup and navigation
 - 🗄️ [Database Schema](database-schema/schema-diagram.md) - Complete ERD
 - 🔄 [Workflow Diagrams](database-schema/workflows/) - Operational workflows

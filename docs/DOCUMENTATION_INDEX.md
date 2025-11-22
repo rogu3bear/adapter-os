@@ -40,11 +40,11 @@ Training infrastructure, dataset management, and job lifecycle.
 
 - [Training Lifecycle Reflection](./TRAINING_LIFECYCLE_REFLECTION.md)
 - [Training Fully Rectified](./TRAINING_FULLY_RECTIFIED.md)
-- [Training Guide](./Training.md)
+- [Training Guide](./TRAINING.md)
 
 **Related Files:**
 - [Code Ingestion Status](./CODE_INGESTION_STATUS.md)
-- [Codebase Ingestion](./codebase_ingestion.md)
+- [Codebase Ingestion](./CODEBASE_INGESTION.md)
 
 ---
 
@@ -69,7 +69,7 @@ Determinism guarantees, attestation, and verification tooling.
 
 **Related Files:**
 - [Phrase Continuity Plan](./DETERMINISM_PHRASE_CONTINUITY_PLAN.md)
-- [Kernel Weight Loading Determinism](./kernel-weight-loading-determinism.md)
+- [Kernel Weight Loading Determinism](./KERNEL-WEIGHT-LOADING-DETERMINISM.md)
 
 ---
 
@@ -84,7 +84,7 @@ Replay infrastructure, session management, and divergence analysis.
 ### `/metrics/` - System Metrics & Monitoring
 Performance monitoring, system metrics, and observability.
 
-- [System Metrics](./system-metrics.md)
+- [System Metrics](./SYSTEM-METRICS.md)
 - [Monitoring](./monitoring.md)
 - [Auth Performance](./AUTH_PERFORMANCE.md)
 
@@ -110,7 +110,7 @@ Policy enforcement, RBAC, and runtime behaviors.
 - [Policies](./POLICIES.md)
 - [Policy Enforcement](./POLICY_ENFORCEMENT.md)
 - [AOS Runtime Policy](./AOS_RUNTIME_POLICY.md)
-- [Policy Hash Watcher](./policy-hash-watcher.md)
+- [Policy Hash Watcher](./POLICY-HASH-WATCHER.md)
 
 **Related Files:**
 - [Authentication](./AUTHENTICATION.md)
@@ -122,9 +122,9 @@ Policy enforcement, RBAC, and runtime behaviors.
 Code analysis, domain adapter layer, and codebase ingestion.
 
 - [Code Ingestion Status](./CODE_INGESTION_STATUS.md)
-- [Codebase Ingestion](./codebase_ingestion.md)
+- [Codebase Ingestion](./CODEBASE_INGESTION.md)
 - [Domain Adapter Layer](./domain-adapter-layer.md)
-- [CodeGraph Spec](./codegraph-spec.md)
+- [CodeGraph Spec](./CODEGRAPH-SPEC.md)
 
 ---
 
@@ -132,15 +132,15 @@ Code analysis, domain adapter layer, and codebase ingestion.
 High-level architecture, component diagrams, and design decisions.
 
 - [Architecture Index](./ARCHITECTURE_INDEX.md)
-- [Architecture Overview](./architecture.md)
+- [Architecture Overview](./ARCHITECTURE.md)
 - [Services and Systems](./SERVICES_AND_SYSTEMS.md)
 - [Concepts](./CONCEPTS.md)
 - [Crate Index](./CRATE_INDEX.md)
 
 **Related Files:**
 - [Kernel Hotswap Architecture](./KERNEL_HOTSWAP_ARCHITECTURE.md)
-- [Hot Swap Scenarios](./hot_swap_scenarios.md)
-- [Runtime Diagrams](./runtime-diagrams.md)
+- [Hot Swap Scenarios](./HOT_SWAP_SCENARIOS.md)
+- [Runtime Diagrams](./RUNTIME-DIAGRAMS.md)
 - [Diagram Reference](./DIAGRAM_REFERENCE.md)
 
 ---
@@ -149,8 +149,8 @@ High-level architecture, component diagrams, and design decisions.
 REST API documentation, contract maps, and specifications.
 
 - [API Contract Map](./API_CONTRACT_MAP.md)
-- [API Reference](./api.md)
-- [LLM Interface Specification](./llm-interface-specification.md)
+- [API Reference](./API.md)
+- [LLM Interface Specification](./LLM-INTERFACE-SPECIFICATION.md)
 
 ---
 
@@ -164,7 +164,7 @@ Database schema documentation and migration guides.
 ### `/deployment/` - Deployment & Operations
 Deployment guides, configuration, and production readiness.
 
-- [Deployment Guide](./deployment-guide.md)
+- [Deployment Guide](./DEPLOYMENT-GUIDE.md)
 - [Deployment](./DEPLOYMENT.md)
 - [Production Readiness](./PRODUCTION_READINESS.md)
 - [Production Operations](./PRODUCTION_OPERATIONS.md)
@@ -189,7 +189,7 @@ UI integration, component hierarchy, and user flows.
 Cryptography, secure enclave, and security protocols.
 
 - [Crypto](./CRYPTO.md)
-- [Secure Enclave Integration](./secure-enclave-integration.md)
+- [Secure Enclave Integration](./SECURE-ENCLAVE-INTEGRATION.md)
 - [Signal Protocol Implementation](./signal-protocol-implementation.md)
 - [Keychain Integration](./keychain-integration.md)
 
@@ -250,16 +250,16 @@ Troubleshooting guides, runbooks, and common issues.
 - [Cursor Integration Guide](./CURSOR_INTEGRATION_GUIDE.md)
 - [Cursor Integration Implementation](./CURSOR_INTEGRATION_IMPLEMENTATION.md)
 - [MLX Integration](./MLX_INTEGRATION.md)
-- [Qwen Integration](./qwen-integration.md)
+- [Qwen Integration](./QWEN-INTEGRATION.md)
 - [Model Loading Integration](./MODEL_LOADING_INTEGRATION.md)
 - [Kernel Integration Progress](./KERNEL_INTEGRATION_PROGRESS.md)
 
 ### Specifications
-- [MPLoRA End-to-End](./mplora-e2e.md)
+- [MPLoRA End-to-End](./MPLORA-E2E.md)
 - [RCU Spec](./RCU_SPEC.md)
 - [Phase 2.4 Metal Shader Spec](./PHASE_2_4_METAL_SHADER_SPEC.md)
 - [RAG pgvector](./rag-pgvector.md)
-- [Patch Proposal System](./patch-proposal-system.md)
+- [Patch Proposal System](./PATCH-PROPOSAL-SYSTEM.md)
 - [Federation Daemon Implementation](./FEDERATION_DAEMON_IMPLEMENTATION.md)
 
 ---

@@ -10,7 +10,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## Core Architecture
 
-### [code-intelligence-architecture.md](code-intelligence-architecture.md)
+### [code-intelligence-architecture.md](code-intelligence-ARCHITECTURE.md)
 **Main architecture document**
 - System overview and goals
 - Five-tier adapter hierarchy
@@ -34,7 +34,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 
 ## Data & Indexing
 
-### [codegraph-spec.md](../codegraph-spec.md)
+### [codegraph-spec.md](../CODEGRAPH-SPEC.md)
 **CodeGraph specification**
 - Tree-sitter integration architecture
 - Graph schema (nodes, edges)
@@ -258,9 +258,9 @@ See [database-schema documentation](../database-schema/README.md) for complete d
 ## Quick Navigation
 
 ### For Architects
-1. Start: [code-intelligence-architecture.md](code-intelligence-architecture.md)
+1. Start: [code-intelligence-architecture.md](code-intelligence-ARCHITECTURE.md)
 2. Then: [code-intelligence-tiers.md](code-intelligence-tiers.md)
-3. Then: [codegraph-spec.md](../codegraph-spec.md)
+3. Then: [codegraph-spec.md](../CODEGRAPH-SPEC.md)
 
 ### For Backend Developers
 1. Start: [code-crates.md](code-crates.md)

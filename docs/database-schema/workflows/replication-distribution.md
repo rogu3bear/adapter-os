@@ -115,7 +115,7 @@ WHERE session_id = 'session-001';
 ## Related Documentation
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
-- [System Architecture](../../architecture.md) - Overall system design
+- [System Architecture](../../ARCHITECTURE.md) - Overall system design
 
 ---
 

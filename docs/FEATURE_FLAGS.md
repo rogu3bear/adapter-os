@@ -148,7 +148,7 @@ cargo build --release --features metal-backend
 
 **Status**: ✅ **Production-ready** (Fallback backend for non-ANE systems)
 
-**See Also**: [Metal Kernels Documentation](metal/phase4-metal-kernels.md)
+**See Also**: [Metal Kernels Documentation](metal/PHASE4-METAL-KERNELS.md)
 
 ---
 

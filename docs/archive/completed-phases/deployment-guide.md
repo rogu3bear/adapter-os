@@ -459,6 +459,6 @@ After successful deployment:
 5. **Backup Strategy**: Implement artifact and database backups
 
 For advanced configuration and customization, see:
-- [Architecture Documentation](architecture.md)
+- [Architecture Documentation](ARCHITECTURE.md)
 - [Policy Configuration](POLICIES.md)
-- [API Reference](control-plane.md)
+- [API Reference](CONTROL-PLANE.md)

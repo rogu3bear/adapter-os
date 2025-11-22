@@ -105,7 +105,7 @@ ps aux | grep aos
 ## Related Documentation
 
 - [Production Operations Guide](../PRODUCTION_OPERATIONS.md)
-- [Database Schema](../database-schema.md)
+- [Database Schema](../DATABASE-SCHEMA.md)
 - [Health Check API](../api/health.md)
 - [Verification Checklist](../VERIFICATION_CHECKLIST.md)
 

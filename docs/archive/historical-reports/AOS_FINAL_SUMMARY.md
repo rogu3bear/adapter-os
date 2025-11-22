@@ -60,8 +60,8 @@ $ cargo check -p adapteros-federation
 | [AOS_CURRENT_STATUS.md](AOS_CURRENT_STATUS.md) | 422 | Status review | ✅ Complete |
 | [AOS_FILETYPE_IMPLEMENTATION_PLAN.md](AOS_FILETYPE_IMPLEMENTATION_PLAN.md) | 333 | Future roadmap | ✅ Complete |
 | [AOS_FORMAT_IMPLEMENTATION_SUMMARY.md](AOS_FORMAT_IMPLEMENTATION_SUMMARY.md) | 324 | Format details | ✅ Complete |
-| [docs/training/aos_adapters.md](docs/training/aos_adapters.md) | 328 | Format spec | ✅ Complete |
-| [docs/architecture/aos_filetype_architecture.md](docs/architecture/aos_filetype_architecture.md) | 430 | Architecture | ✅ Complete |
+| [docs/training/aos_adapters.md](docs/training/AOS_ADAPTERS.md) | 328 | Format spec | ✅ Complete |
+| [docs/architecture/aos_filetype_architecture.md](docs/architecture/aos_filetype_ARCHITECTURE.md) | 430 | Architecture | ✅ Complete |
 | [docs/aos/README.md](docs/aos/README.md) | ~250 | Master index | ✅ Complete |
 | [examples/load_aos_adapter.rs](examples/load_aos_adapter.rs) | Full example | Working code | ✅ Complete |
 | **TOTAL** | **2,677+** | **Complete** | ✅ |
@@ -179,7 +179,7 @@ fn load_adapter_weights(&self, adapter_path: &PathBuf) -> Result<Vec<u8>> {
 7. [`AOS_FEATURE_COMPLETION_REPORT.md`](AOS_FEATURE_COMPLETION_REPORT.md) - Completion report
 8. [`AOS_FINAL_SUMMARY.md`](AOS_FINAL_SUMMARY.md) - This document
 9. [`docs/aos/README.md`](docs/aos/README.md) - Master index
-10. [`docs/architecture/aos_filetype_architecture.md`](docs/architecture/aos_filetype_architecture.md) - Architecture
+10. [`docs/architecture/aos_filetype_architecture.md`](docs/architecture/aos_filetype_ARCHITECTURE.md) - Architecture
 
 ---
 

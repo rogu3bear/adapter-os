@@ -277,7 +277,7 @@ When adding new diagrams:
 
 - [Mermaid.js Documentation](https://mermaid.js.org/)
 - [Mermaid Live Editor](https://mermaid.live/)
-- [AdapterOS Architecture Guide](architecture.md)
+- [AdapterOS Architecture Guide](ARCHITECTURE.md)
 
 - [AdapterOS CLAUDE.md](../CLAUDE.md)
 
@@ -287,10 +287,10 @@ When adding new diagrams:
 ---
 
 **Quick Links**:
-- [Precision Diagrams](architecture/precision-diagrams.md)
+- [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
 - [Database Schema](database-schema/schema-diagram.md)
 - [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md)
-- [System Architecture](architecture.md)
+- [System Architecture](ARCHITECTURE.md)
 
 
 

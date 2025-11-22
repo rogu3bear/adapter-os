@@ -1,4 +1,4 @@
-# Training the AdapterOS Base Code Adapter
+# Training The AdapterOS Base Code Adapter
 
 This guide describes how to curate data and train the Layer 2 “code” adapter in accordance with the MasterPlan policies.
 

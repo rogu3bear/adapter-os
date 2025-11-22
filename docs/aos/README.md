@@ -27,14 +27,14 @@
 
 ### Technical Documentation
 
-4. **[.aos Format Specification](../training/aos_adapters.md)**
+4. **[.aos Format Specification](../training/AOS_ADAPTERS.md)**
    - Complete file format details
    - ZIP structure and contents
    - Cryptographic signatures
    - Best practices
    - ~328 lines
 
-5. **[Architecture Guide](../architecture/aos_filetype_architecture.md)**
+5. **[Architecture Guide](../architecture/aos_filetype_ARCHITECTURE.md)**
    - System architecture
    - Integration points
    - Performance characteristics
@@ -99,10 +99,10 @@ let handle = loader.load_adapter(0, "my_adapter")?;
 → See: **[Example Code](../../examples/load_aos_adapter.rs)**
 
 ### "I want to understand the file format"
-→ Read: **[Format Specification](../training/aos_adapters.md)**
+→ Read: **[Format Specification](../training/AOS_ADAPTERS.md)**
 
 ### "I want to understand the architecture"
-→ Read: **[Architecture Guide](../architecture/aos_filetype_architecture.md)**
+→ Read: **[Architecture Guide](../architecture/aos_filetype_ARCHITECTURE.md)**
 
 ### "I want to implement advanced features (CAS, hot-swap)"
 → Read: **[Implementation Plan](../../AOS_FILETYPE_IMPLEMENTATION_PLAN.md)**

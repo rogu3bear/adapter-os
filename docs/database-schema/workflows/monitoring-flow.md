@@ -435,7 +435,7 @@ GROUP BY DATE_TRUNC('hour', timestamp);
 ## Related Documentation
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
-- [System Architecture](../../architecture.md) - Overall system design
+- [System Architecture](../../ARCHITECTURE.md) - Overall system design
 - [Runaway Prevention](../../runaway-prevention.md) - Safety mechanisms
 
 ## Implementation References

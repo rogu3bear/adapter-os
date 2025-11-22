@@ -658,7 +658,7 @@ cargo clean && cargo build --release
 After successful local build:
 
 1. **Run the system**: See [QUICKSTART.md](QUICKSTART.md) for deployment
-2. **Explore architecture**: See [architecture.md](architecture.md) for system design
+2. **Explore architecture**: See [architecture.md](ARCHITECTURE.md) for system design
 3. **Feature flags**: See [FEATURE_FLAGS.md](FEATURE_FLAGS.md) for detailed flag reference (if exists)
 4. **Hot-swap details**: See [HOT_SWAP.md](HOT_SWAP.md) for adapter management (if exists)
 5. **Contributing**: See [../CONTRIBUTING.md](../CONTRIBUTING.md) for PR guidelines

@@ -22,7 +22,7 @@ Safety mechanism that stops processing when too many errors occur. Prevents casc
 ### Control Plane
 The management system that coordinates everything in AdapterOS. Includes the API server, job orchestration, telemetry indexing, and policy enforcement.
 
-**See also:** [Control Plane Documentation](control-plane.md)
+**See also:** [Control Plane Documentation](CONTROL-PLANE.md)
 
 ### Control Point (CP)
 Versioned configuration snapshot for promotion and rollback. Contains deterministic execution settings, gate-checked promotion rules, and audit trail with telemetry.
@@ -95,7 +95,7 @@ Using only K adapters at a time (K=3 by default). Instead of using all available
 ### Metal
 Apple's GPU programming framework for Mac. AdapterOS uses Metal for high-performance GPU computation on Apple Silicon.
 
-**See also:** [Metal Kernels](metal/phase4-metal-kernels.md)
+**See also:** [Metal Kernels](metal/PHASE4-METAL-KERNELS.md)
 
 ### MPLoRA
 **Multi-Path LoRA** - The technical/internal name for the AdapterOS inference engine. MPLoRA refers to the core routing and adapter management system. "AdapterOS" is the user-facing name for the complete system.
@@ -172,7 +172,7 @@ Breaking text into pieces the AI can understand. The tokenizer converts human-re
 ### Worker
 A process that does the actual AI inference work. Workers run in isolated processes with unique UID/GID per tenant, communicating via UDS sockets.
 
-**See also:** [Control Plane](control-plane.md)
+**See also:** [Control Plane](CONTROL-PLANE.md)
 
 ---
 
@@ -205,8 +205,8 @@ A process that does the actual AI inference work. Workers run in isolated proces
 
 - [Getting Started Guide](GETTING_STARTED_WITH_DIAGRAMS.md) - Plain-language explanations
 - [Policy Packs](POLICIES.md) - Complete policy documentation
-- [Architecture Overview](architecture.md) - System design and components
-- [Control Plane](control-plane.md) - Management system documentation
+- [Architecture Overview](ARCHITECTURE.md) - System design and components
+- [Control Plane](CONTROL-PLANE.md) - Management system documentation
 
 ---
 

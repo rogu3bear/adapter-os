@@ -1,4 +1,4 @@
-# adapterOS TUI Fixes Summary
+# AdapterOS TUI Fixes Summary
 
 ## 📊 Navigation Audit Results
 

@@ -547,7 +547,7 @@ sqlite3 var/aos-cp.sqlite3 "VACUUM;"
 
 ## Related Documentation
 
-- [Database Schema](../database-schema.md)
+- [Database Schema](../DATABASE-SCHEMA.md)
 - [Production Operations](../PRODUCTION_OPERATIONS.md)
 
 ## Escalation Criteria

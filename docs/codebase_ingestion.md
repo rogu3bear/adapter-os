@@ -344,7 +344,7 @@ Each trained adapter includes metadata:
 ## References
 
 - [CodeGraph Documentation](./codegraph.md)
-- [MicroLoRA Trainer](./training/base_adapter.md)
+- [MicroLoRA Trainer](./training/BASE_ADAPTER.md)
 - [CLAUDE.md Developer Guide](../CLAUDE.md)
 - [Adapter Packaging Spec](../specs/adapter_format.md)
 

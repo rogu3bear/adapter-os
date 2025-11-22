@@ -1116,7 +1116,7 @@ aosctl manual <ARGS>
 
 - [CLI Guide](CLI_GUIDE.md) - Architectural overview of CLI layers
 - [Code Intelligence CLI Commands](code-intelligence/code-cli-commands.md) - Detailed code intelligence commands
-- [API Documentation](api.md) - REST API reference
+- [API Documentation](API.md) - REST API reference
 
 ---
 

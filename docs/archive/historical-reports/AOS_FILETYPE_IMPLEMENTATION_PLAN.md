@@ -22,7 +22,7 @@ Created a complete architecture for making `.aos` files first-class in the orche
 - Federation Replication - Content-addressed sync protocol
 
 **Architecture Documents Created**:
-- [`docs/architecture/aos_filetype_architecture.md`](docs/architecture/aos_filetype_architecture.md) - Complete technical architecture
+- [`docs/architecture/aos_filetype_architecture.md`](docs/architecture/aos_filetype_ARCHITECTURE.md) - Complete technical architecture
 - [`docs/architecture/AOS_FILETYPE_INTEGRATION_SUMMARY.md`](docs/architecture/AOS_FILETYPE_INTEGRATION_SUMMARY.md) - Implementation summary with examples
 
 ### 2. **Existing Foundation** ✅

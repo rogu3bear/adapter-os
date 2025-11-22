@@ -216,7 +216,7 @@ cargo test
 
 ## References
 
-- [AOS Adapter Documentation](training/aos_adapters.md)
+- [AOS Adapter Documentation](training/AOS_ADAPTERS.md)
 - [Usage Examples](../examples/aos_usage.rs)
 - [Integration Tests](../tests/aos_integration_test.rs)
 - [Implementation Plan](../COMPREHENSIVE_PATCH_PLAN.md)

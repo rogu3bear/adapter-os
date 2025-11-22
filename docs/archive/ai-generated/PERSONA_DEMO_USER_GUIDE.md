@@ -322,9 +322,9 @@ pnpm dev
 ## 📚 Related Documentation
 
 - **[Architecture Overview](../docs/architecture/)**
-- **[Security Implementation](../docs/secure-enclave-integration.md)**
-- **[API Documentation](../docs/api.md)**
-- **[Deployment Guide](../docs/architecture/production_deployment.md)**
+- **[Security Implementation](../docs/SECURE-ENCLAVE-INTEGRATION.md)**
+- **[API Documentation](../docs/API.md)**
+- **[Deployment Guide](../docs/architecture/PRODUCTION_DEPLOYMENT.md)**
 
 ---
 

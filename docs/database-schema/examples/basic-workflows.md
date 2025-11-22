@@ -168,7 +168,7 @@ VALUES ('cp-001', 'cp-pointer-001', 'user-001', '{"arr": 0.97}', CURRENT_TIMESTA
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
 - [Validation Framework](../VALIDATION.md) - Validation procedures
 - [Maintenance Guide](../MAINTENANCE.md) - Ongoing maintenance
-- [System Architecture](../../architecture.md) - Overall system design
+- [System Architecture](../../ARCHITECTURE.md) - Overall system design
 
 ## API-Based Journeys
 
@@ -194,7 +194,7 @@ sequenceDiagram
 1. **Adapter Lifecycle**: `GET /v1/journeys/adapter-lifecycle/{adapter_id}` - Fetches state history from adapters table.
 2. **Promotion Pipeline**: `GET /v1/journeys/promotion-pipeline/{plan_id}` - Promotion records from cp_pointers and promotions.
 
-See [API Docs](../../api.md) for full schema.
+See [API Docs](../../API.md) for full schema.
 
 ---
 

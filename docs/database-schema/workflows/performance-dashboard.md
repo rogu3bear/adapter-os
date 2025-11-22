@@ -77,7 +77,7 @@ graph TB
 ## Related Documentation
 
 - [Schema Diagram](../schema-diagram.md) - Complete database structure
-- [System Metrics](../../system-metrics.md) - Metrics collection
+- [System Metrics](../../SYSTEM-METRICS.md) - Metrics collection
 
 ---
 

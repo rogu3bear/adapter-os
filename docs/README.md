@@ -22,7 +22,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 
 #### **Visual Guides** ⭐
 
-- **[Precision Diagrams](architecture/precision-diagrams.md)** - Code-verified architecture diagrams
+- **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** - Code-verified architecture diagrams
   - Complete system architecture with exact crate names and file paths
   - Inference pipeline flow with step-by-step code references
   - Router scoring algorithm with feature weights and Q15 quantization
@@ -47,7 +47,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 
 #### **System Documentation**
 
-- **[System Architecture](architecture.md)** - High-level system design and component overview
+- **[System Architecture](ARCHITECTURE.md)** - High-level system design and component overview
   - Worker architecture and inference pipeline
   - Router and adapter management
   - Memory management and eviction
@@ -59,7 +59,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Repository cleanup results
   - Exact source citations
 
-- **[Control Plane](control-plane.md)** - Control plane architecture and APIs
+- **[Control Plane](CONTROL-PLANE.md)** - Control plane architecture and APIs
   - Tenant management
   - Plan building and promotion
   - Telemetry and metrics collection
@@ -78,7 +78,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Metal kernel integration
   - Performance optimization
 
-- **[Qwen Integration](qwen-integration.md)** - Qwen model support
+- **[Qwen Integration](QWEN-INTEGRATION.md)** - Qwen model support
   - Model configuration
   - Tokenizer setup
   - Chat templates
@@ -94,7 +94,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Patch generation and validation
 
 **Detailed Guides:**
-- [Architecture](code-intelligence/code-intelligence-architecture.md) - System design and components
+- [Architecture](code-intelligence/code-intelligence-ARCHITECTURE.md) - System design and components
 - [Tiers](code-intelligence/code-intelligence-tiers.md) - Feature tiers and capabilities
 - [API Reference](code-intelligence/code-api-registry.md) - REST API documentation
 - [CLI Commands](code-intelligence/code-cli-commands.md) - Command-line interface
@@ -109,7 +109,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 - **[Policy Engine Outline](policy-engine-outline.md)** - High-level policy enforcement architecture
 
 #### Metal Kernels
-- **[Metal Kernels](metal/phase4-metal-kernels.md)** - Custom Metal GPU kernels
+- **[Metal Kernels](metal/PHASE4-METAL-KERNELS.md)** - Custom Metal GPU kernels
   - Fused attention operations
   - LoRA application kernels
   - Quantization support
@@ -122,7 +122,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Determinism enforcement
   - Incident response procedures
 
-- **[Code Graph Specification](codegraph-spec.md)** - Code analysis security
+- **[Code Graph Specification](CODEGRAPH-SPEC.md)** - Code analysis security
   - Graph construction
   - Security boundaries
   - Validation rules
@@ -132,38 +132,38 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 ### For Developers
 Start here if you're building on AdapterOS or contributing to the codebase:
 1. [Quick Start Guide](QUICKSTART.md)
-2. [System Architecture](architecture.md)
+2. [System Architecture](ARCHITECTURE.md)
 3. [Code Intelligence](code-intelligence/README.md)
 4. See `examples/` in project root
 
 ### For Operators
 Start here if you're deploying and managing AdapterOS:
 1. [Quick Start Guide](QUICKSTART.md)
-2. [Control Plane](control-plane.md)
+2. [Control Plane](CONTROL-PLANE.md)
 3. [Runaway Prevention](runaway-prevention.md)
 4. [MLX Integration](MLX_INTEGRATION.md)
 
 ### For Researchers
 Start here if you're experimenting with models and adapters:
-1. [System Architecture](architecture.md)
+1. [System Architecture](ARCHITECTURE.md)
 2. [MLX Integration](MLX_INTEGRATION.md)
-3. [Qwen Integration](qwen-integration.md)
-4. [Metal Kernels](metal/phase4-metal-kernels.md)
+3. [Qwen Integration](QWEN-INTEGRATION.md)
+4. [Metal Kernels](metal/PHASE4-METAL-KERNELS.md)
 
 ### For Security Auditors
 Start here if you're evaluating AdapterOS for compliance:
 1. [Runaway Prevention](runaway-prevention.md)
-2. [Code Graph Specification](codegraph-spec.md)
+2. [Code Graph Specification](CODEGRAPH-SPEC.md)
 3. [Code Intelligence Policies](code-intelligence/code-policies.md)
 4. See policy rulesets in project workspace rules
 
 ## API Documentation
 
 ### REST API
-- Control Plane API: See [control-plane.md](control-plane.md)
+- Control Plane API: See [control-plane.md](CONTROL-PLANE.md)
 - Authentication API: See [AUTHENTICATION.md](AUTHENTICATION.md)
 - Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/code-api-registry.md)
-- OpenAPI Specification: See [api.md](api.md) (auto-generated)
+- OpenAPI Specification: See [api.md](API.md) (auto-generated)
 
 ### Rust API
 Generate and browse Rust API documentation:

@@ -608,7 +608,7 @@ let (tx, rx) = bounded(1000);  // Increase capacity if needed
 
 - [CLAUDE.md](../CLAUDE.md) - Developer guide with hot-swap overview
 - [LOCAL_BUILD.md](LOCAL_BUILD.md) - Build instructions
-- [architecture/precision-diagrams.md](architecture/precision-diagrams.md) - Visual architecture diagrams
+- [architecture/precision-diagrams.md](architecture/PRECISION-DIAGRAMS.md) - Visual architecture diagrams
 
 ---
 

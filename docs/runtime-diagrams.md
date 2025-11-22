@@ -1334,7 +1334,7 @@ All diagrams are rendered using Mermaid.js and can be embedded in documentation,
 ---
 
 **For more details, refer to:**
-- [LLM Interface Specification](./llm-interface-specification.md)
+- [LLM Interface Specification](./LLM-INTERFACE-SPECIFICATION.md)
 - [Policy Rulesets](../rulesets/)
 - [API Documentation](../api/)
 

@@ -8,12 +8,12 @@ Complete index of all architecture documentation with quick navigation.
 
 | Document | Type | Status | Purpose |
 |----------|------|--------|---------|
-| **[Precision Diagrams](architecture/precision-diagrams.md)** | Visual | ✅ Verified | Code-verified architecture diagrams |
+| **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** | Visual | ✅ Verified | Code-verified architecture diagrams |
 | **[Diagram Reference](DIAGRAM_REFERENCE.md)** | Index | ✅ Current | Quick lookup guide |
 | **[Diagram Summary](architecture/DIAGRAM_SUMMARY.md)** | Reference | ✅ Current | Diagram overview and metrics |
-| **[MasterPlan](architecture/MasterPlan.md)** | Design | ✅ Current | Complete system design |
-| **[System Architecture](architecture.md)** | Overview | ✅ Current | High-level architecture |
-| **[Control Plane](control-plane.md)** | API | ✅ Current | API documentation |
+| **[MasterPlan](architecture/MASTERPLAN.md)** | Design | ✅ Current | Complete system design |
+| **[System Architecture](ARCHITECTURE.md)** | Overview | ✅ Current | High-level architecture |
+| **[Control Plane](CONTROL-PLANE.md)** | API | ✅ Current | API documentation |
 | **[Database Schema](database-schema/README.md)** | Data | ✅ Current | Database design |
 
 ---
@@ -24,7 +24,7 @@ Complete index of all architecture documentation with quick navigation.
 
 **Goal**: Understand AdapterOS through diagrams
 
-1. **[Precision Diagrams](architecture/precision-diagrams.md)** - Complete visual guide
+1. **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** - Complete visual guide
    - System architecture
    - Request flow
    - Component details
@@ -42,11 +42,11 @@ Complete index of all architecture documentation with quick navigation.
 
 1. **[CLAUDE.md](../CLAUDE.md)** - Developer guide with code examples
    
-2. **[Precision Diagrams](architecture/precision-diagrams.md)** - Verify understanding
+2. **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** - Verify understanding
    - Cross-reference with code paths
    - Check line numbers
    
-3. **[API Documentation](api.md)** - Endpoint reference
+3. **[API Documentation](API.md)** - Endpoint reference
 
 **Time**: 3-4 hours  
 **Outcome**: Code-level understanding with visual context
@@ -55,7 +55,7 @@ Complete index of all architecture documentation with quick navigation.
 
 **Goal**: Operational knowledge for running AdapterOS
 
-1. **[Control Plane](control-plane.md)** - API and operations
+1. **[Control Plane](CONTROL-PLANE.md)** - API and operations
    
 2. **[Monitoring Flow](database-schema/workflows/monitoring-flow.md)** - Metrics
    

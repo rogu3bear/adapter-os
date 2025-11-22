@@ -49,7 +49,7 @@ Request Arrives
 
 - [ARCHITECTURE_INDEX.md](../ARCHITECTURE_INDEX.md) - Complete architecture overview
 - [CLAUDE.md](../../CLAUDE.md) - Developer guide with code patterns
-- [architecture/precision-diagrams.md](../architecture/precision-diagrams.md) - Visual system diagrams
+- [architecture/precision-diagrams.md](../architecture/PRECISION-DIAGRAMS.md) - Visual system diagrams
 
 ## Implementation Status Legend
 

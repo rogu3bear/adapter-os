@@ -128,5 +128,5 @@ Token metadata performance:
 ## Related Documentation
 
 - [AUTHENTICATION.md](AUTHENTICATION.md) - Authentication architecture
-- [API.md](api.md) - Complete API documentation
+- [API.md](API.md) - Complete API documentation
 - [PERFORMANCE.md](PERFORMANCE.md) - General performance guidelines

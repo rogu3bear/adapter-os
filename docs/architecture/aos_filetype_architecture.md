@@ -418,7 +418,7 @@ direct_loader.hot_swap("my_adapter", &new_hash).await?;
 
 ## References
 
-- [AOS Format Specification](../training/aos_adapters.md)
+- [AOS Format Specification](../training/AOS_ADAPTERS.md)
 - [Implementation Summary](../../AOS_FORMAT_IMPLEMENTATION_SUMMARY.md)
 - [Integration Tests](../../tests/integration_aos_filetype.rs)
 - [CLI Documentation](../../crates/adapteros-cli/src/commands/aos.rs)

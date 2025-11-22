@@ -622,7 +622,7 @@ kubectl get pods -n adapteros
 
 ## Air-Gapped Deployment
 
-> **Note:** For detailed air-gapped installation, see [docs/deployment-guide.md](deployment-guide.md) (archived for reference).
+> **Note:** For detailed air-gapped installation, see [docs/deployment-guide.md](DEPLOYMENT-GUIDE.md) (archived for reference).
 
 ### 1. Prepare Offline Bundle
 
@@ -849,7 +849,7 @@ warm_threshold_mins = 15
 ## References
 
 - [README.md](../README.md) - Quick start and feature overview
-- [docs/control-plane.md](control-plane.md) - API endpoints
+- [docs/control-plane.md](CONTROL-PLANE.md) - API endpoints
 - [docs/rag-pgvector.md](rag-pgvector.md) - Vector database setup
 - [docs/POLICIES.md](POLICIES.md) - 22 policy packs
 
@@ -894,7 +894,7 @@ cors_origins = [
 
 ### Deployment Issues
 
-**For detailed troubleshooting:** See archived [docs/DEPLOYMENT_AUTH.md](DEPLOYMENT_AUTH.md) for authentication-specific issues and [docs/deployment-guide.md](deployment-guide.md) for air-gapped installation details.
+**For detailed troubleshooting:** See archived [docs/DEPLOYMENT_AUTH.md](DEPLOYMENT_AUTH.md) for authentication-specific issues and [docs/deployment-guide.md](DEPLOYMENT-GUIDE.md) for air-gapped installation details.
 
 ---
 

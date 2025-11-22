@@ -35,7 +35,7 @@ Visual guide to navigating all AdapterOS documentation.
 
 **Then**:
 1. [Quick Start](QUICKSTART.md) - Get it running
-2. [Architecture Overview](architecture.md) - High-level concepts
+2. [Architecture Overview](ARCHITECTURE.md) - High-level concepts
 3. [Web UI Tour](http://localhost:3200) - Try it yourself
 
 **Time**: 1-2 hours  
@@ -51,8 +51,8 @@ Visual guide to navigating all AdapterOS documentation.
 
 **Then**:
 1. [CLAUDE.md](../CLAUDE.md) - Developer guide
-2. [Control Plane API](control-plane.md) - API reference
-3. [Precision Diagrams](architecture/precision-diagrams.md) - Architecture
+2. [Control Plane API](CONTROL-PLANE.md) - API reference
+3. [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md) - Architecture
 
 **Time**: 30 minutes  
 **Goal**: Running system, ready to develop
@@ -63,7 +63,7 @@ Visual guide to navigating all AdapterOS documentation.
 
 **You are**: Want comprehensive understanding through diagrams
 
-**Start**: [Precision Diagrams](architecture/precision-diagrams.md)
+**Start**: [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)
 
 **Path**:
 ```
@@ -136,7 +136,7 @@ Visual guide to navigating all AdapterOS documentation.
 **Time**: 3-4 hours  
 **Goal**: Operational readiness and issue resolution
 
-**Start**: [Control Plane](control-plane.md)
+**Start**: [Control Plane](CONTROL-PLANE.md)
 
 **Path**:
 ```
@@ -195,9 +195,9 @@ Visual guide to navigating all AdapterOS documentation.
 
 | Document | Type | Audience | Content |
 |----------|------|----------|---------|
-| **[Precision Diagrams](architecture/precision-diagrams.md)** | Visual | All | 8 code-verified diagrams |
-| **[MasterPlan](architecture/MasterPlan.md)** | Design | Architects | Complete system design |
-| **[Architecture](architecture.md)** | Overview | All | High-level concepts |
+| **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)** | Visual | All | 8 code-verified diagrams |
+| **[MasterPlan](architecture/MASTERPLAN.md)** | Design | Architects | Complete system design |
+| **[Architecture](ARCHITECTURE.md)** | Overview | All | High-level concepts |
 | **[Diagram Reference](DIAGRAM_REFERENCE.md)** | Index | All | Quick lookup |
 | **[Diagram Summary](architecture/DIAGRAM_SUMMARY.md)** | Reference | All | Metrics & overview |
 
@@ -205,14 +205,14 @@ Visual guide to navigating all AdapterOS documentation.
 
 | Document | Audience | Content |
 |----------|----------|---------|
-| **[Control Plane](control-plane.md)** | Operators, Developers | API docs, operations |
+| **[Control Plane](CONTROL-PLANE.md)** | Operators, Developers | API docs, operations |
 
-| **[API Spec](api.md)** | Developers | OpenAPI specification with comprehensive examples |
+| **[API Spec](API.md)** | Developers | OpenAPI specification with comprehensive examples |
 | **[Operational Runbooks](OPERATIONAL_RUNBOOKS.md)** | Operators, SREs | Step-by-step operational procedures |
 | **[Troubleshooting Guide](TROUBLESHOOTING.md)** | Operators, SREs | Common issues and solutions |
 | **[Documentation Maintenance](DOCUMENTATION_MAINTENANCE.md)** | Contributors | Processes to keep docs synchronized |
 
-| **[API Spec](api.md)** | Developers | OpenAPI specification |
+| **[API Spec](API.md)** | Developers | OpenAPI specification |
 >
 | **[Swagger UI](http://localhost:8080/swagger-ui)** | Developers | Interactive API |
 
@@ -320,10 +320,10 @@ Visual guide to navigating all AdapterOS documentation.
 | "What's the database schema?" | [Schema Diagram](database-schema/schema-diagram.md) |
 | "How do promotions work?" | [Promotion Pipeline](database-schema/workflows/promotion-pipeline.md) |
 
-| "What API endpoints exist?" | [API Spec with Examples](api.md) or [Swagger](http://localhost:8080/swagger-ui) |
+| "What API endpoints exist?" | [API Spec with Examples](API.md) or [Swagger](http://localhost:8080/swagger-ui) |
 | "How do I integrate the API?" | [API Examples](api.md#api-examples) (Python, JS, Go clients) |
 
-| "What API endpoints exist?" | [Control Plane](control-plane.md) or [Swagger](http://localhost:8080/swagger-ui) |
+| "What API endpoints exist?" | [Control Plane](CONTROL-PLANE.md) or [Swagger](http://localhost:8080/swagger-ui) |
 >
 | "How do I contribute?" | [CONTRIBUTING.md](../CONTRIBUTING.md) + [CLAUDE.md](../CLAUDE.md) |
 
@@ -347,7 +347,7 @@ Visual guide to navigating all AdapterOS documentation.
 ### By File Type
 
 **Visual Diagrams**: 
-- [Precision Diagrams](architecture/precision-diagrams.md) (8)
+- [Precision Diagrams](architecture/PRECISION-DIAGRAMS.md) (8)
 - [Database Workflows](database-schema/workflows/) (9)
 - [Schema ERD](database-schema/schema-diagram.md) (1)
 
@@ -359,7 +359,7 @@ Visual guide to navigating all AdapterOS documentation.
 **Reference Docs**:
 - [Architecture Index](ARCHITECTURE_INDEX.md)
 - [Diagram Reference](DIAGRAM_REFERENCE.md)
-- [Control Plane](control-plane.md)
+- [Control Plane](CONTROL-PLANE.md)
 
 **Code Specs**:
 - [Code Intelligence](code-intelligence/) (20 files)
@@ -469,7 +469,7 @@ Total: 5 hours
 ### Most Important
 
 - 🎓 **[START: Getting Started](GETTING_STARTED_WITH_DIAGRAMS.md)**
-- 📊 **[Precision Diagrams](architecture/precision-diagrams.md)**
+- 📊 **[Precision Diagrams](architecture/PRECISION-DIAGRAMS.md)**
 - 🚀 **[Quick Start](QUICKSTART.md)**
 - 💻 **[Developer Guide (CLAUDE.md)](../CLAUDE.md)**
 
@@ -488,9 +488,9 @@ Total: 5 hours
 
 ### Most Detailed
 
-- 📐 **[MasterPlan](architecture/MasterPlan.md)** - Complete design
+- 📐 **[MasterPlan](architecture/MASTERPLAN.md)** - Complete design
 - 📝 **[Code Intelligence](code-intelligence/)** - 20 specs
-- 🎯 **[Control Plane](control-plane.md)** - API reference
+- 🎯 **[Control Plane](CONTROL-PLANE.md)** - API reference
 - 🔬 **[Diagram Summary](architecture/DIAGRAM_SUMMARY.md)** - All metrics
 
 ---
