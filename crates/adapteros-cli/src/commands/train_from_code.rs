@@ -1,15 +1,19 @@
 //! Train adapter from codebase command
 //!
+//! TODO: Migrate to adapteros-aos v3.0 types
+//! This module is temporarily stubbed pending migration from the deleted
+//! adapteros-single-file-adapter crate.
+//!
 //! Automatically extracts knowledge from a repository and trains a LoRA adapter
 
 use adapteros_core::{AosError, Result};
-use adapteros_db::Db;
-use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
-use adapteros_orchestrator::training::TrainingConfig as OrchestratorTrainingConfig;
-use adapteros_single_file_adapter::format::WeightGroupConfig;
+// Removed: use adapteros_db::Db;
+// Removed: use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
+// Removed: use adapteros_orchestrator::training::TrainingConfig as OrchestratorTrainingConfig;
+// Removed: use adapteros_single_file_adapter::format::WeightGroupConfig;
+
 use clap::Args;
 use std::path::PathBuf;
-use tracing::{info, warn};
 
 /// Train a LoRA adapter from a codebase
 #[derive(Args, Debug)]
@@ -101,48 +105,23 @@ pub struct TrainFromCodeArgs {
 
 impl TrainFromCodeArgs {
     /// Execute the train-from-code command
+    ///
+    /// TODO: Migrate to adapteros-aos v3.0 types
     pub async fn execute(&self) -> Result<()> {
-        info!("Starting codebase ingestion and adapter training");
-        info!("Repository: {}", self.repo.display());
-        info!("Adapter ID: {}", self.adapter_id);
+        tracing::warn!(
+            "train-from-code command is temporarily disabled pending migration to v3.0 types"
+        );
 
-        // Validate inputs
-        self.validate()?;
+        // TODO: Migrate to adapteros-aos v3.0 types
+        // The original implementation used:
+        // - adapteros_single_file_adapter::format::WeightGroupConfig
+        // - adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig}
+        //
+        // These need to be replaced with types from adapteros-aos v3.0
 
-        // Build ingestion configuration
-        let ingestion_config = self.build_config()?;
-
-        // Create ingestion pipeline
-        let ingestion = CodebaseIngestion::new(ingestion_config)?;
-
-        // Run the full ingestion and training pipeline
-        info!("Starting ingestion pipeline...");
-        let result = ingestion
-            .ingest_and_train(&self.repo, &self.adapter_id, &self.output)
-            .await?;
-
-        // Print results
-        println!("\n=== Codebase Ingestion Complete ===");
-        println!("Adapter ID: {}", result.adapter_id);
-        println!("Adapter Hash (BLAKE3): {}", result.adapter_hash);
-        println!("Content Hash: {}", result.content_hash);
-        println!("Repository: {}", result.repo_path);
-        if let Some(ref commit_sha) = result.commit_sha {
-            println!("Commit SHA: {}", commit_sha);
-        }
-        println!("Symbols Extracted: {}", result.symbols_count);
-        println!("Training Examples: {}", result.examples_count);
-        println!("Final Loss: {:.6}", result.final_loss);
-        println!("Training Time: {}ms", result.training_time_ms);
-        println!("Output: {}", self.output.join(&self.adapter_id).display());
-
-        // Register in database if requested
-        if self.register {
-            self.register_adapter(&result).await?;
-        }
-
-        info!("Codebase ingestion and training completed successfully");
-        Ok(())
+        Err(AosError::Config(
+            "train-from-code: pending migration to adapteros-aos v3.0 types".to_string()
+        ))
     }
 
     /// Validate command arguments
@@ -187,77 +166,11 @@ impl TrainFromCodeArgs {
 
         Ok(())
     }
-
-    /// Build ingestion configuration from CLI arguments
-    fn build_config(&self) -> Result<IngestionConfig> {
-        let training_config = adapteros_lora_worker::training::TrainingConfig {
-            rank: self.rank,
-            alpha: self.alpha,
-            learning_rate: self.learning_rate,
-            batch_size: self.batch_size,
-            epochs: self.epochs,
-            hidden_dim: self.hidden_dim,
-            weight_group_config: WeightGroupConfig::default(),
-        };
-
-        Ok(IngestionConfig {
-            training_config,
-            tokenizer_path: self.tokenizer.clone(),
-            max_pairs_per_symbol: self.max_pairs_per_symbol,
-            include_private: self.include_private,
-            min_doc_length: self.min_doc_length,
-            generate_negative_examples: self.generate_negative,
-            base_model: self.base_model.clone(),
-        })
-    }
-
-    /// Register the trained adapter in the database
-    async fn register_adapter(
-        &self,
-        result: &adapteros_orchestrator::codebase_ingestion::IngestionResult,
-    ) -> Result<()> {
-        if let Some(ref db_path) = self.db_path {
-            info!("Registering adapter in database: {}", db_path.display());
-
-            let db = Db::connect(&db_path.to_string_lossy())
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to open database: {}", e)))?;
-
-            // Build registration parameters using AdapterRegistrationBuilder
-            use adapteros_db::adapters::AdapterRegistrationBuilder;
-
-            let params = AdapterRegistrationBuilder::new()
-                .adapter_id(&result.adapter_id)
-                .name(format!("codebase_{}", self.adapter_id))
-                .hash_b3(&result.adapter_hash)
-                .rank(self.rank as i32)
-                .tier(self.tier)
-                .category(&self.category)
-                .scope(&self.scope)
-                .repo_id(Some(&result.repo_path))
-                .commit_sha(result.commit_sha.as_deref())
-                .intent(Some("auto-generated from codebase ingestion"))
-                .build()
-                .map_err(|e| AosError::Database(format!("Failed to build registration params: {}", e)))?;
-
-            db.register_adapter_extended(params)
-                .await
-                .map_err(|e| AosError::Database(format!("Failed to register adapter: {}", e)))?;
-
-            info!("Successfully registered adapter: {}", result.adapter_id);
-            println!("\nAdapter registered in database: {}", db_path.display());
-        } else {
-            warn!("Skipping registration: no database path provided");
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -298,46 +211,6 @@ mod tests {
         };
 
         assert!(invalid_args.validate().is_err());
-    }
-
-    #[tokio::test]
-    async fn test_build_config() {
-        let temp_dir = TempDir::new().unwrap();
-
-        let args = TrainFromCodeArgs {
-            repo: temp_dir.path().to_path_buf(),
-            adapter_id: "test".to_string(),
-            output: PathBuf::from("./adapters"),
-            tokenizer: None,
-            rank: 8,
-            alpha: 32.0,
-            learning_rate: 0.001,
-            batch_size: 16,
-            epochs: 5,
-            hidden_dim: 1024,
-            max_pairs_per_symbol: 5,
-            include_private: true,
-            min_doc_length: 50,
-            generate_negative: false,
-            base_model: "custom-model".to_string(),
-            register: false,
-            db_path: None,
-            tenant_id: "default".to_string(),
-            tier: 2,
-            category: "code".to_string(),
-            scope: "codebase".to_string(),
-        };
-
-        let config = args.build_config().unwrap();
-
-        assert_eq!(config.training_config.rank, 8);
-        assert_eq!(config.training_config.alpha, 32.0);
-        assert_eq!(config.training_config.learning_rate, 0.001);
-        assert_eq!(config.max_pairs_per_symbol, 5);
-        assert_eq!(config.include_private, true);
-        assert_eq!(config.min_doc_length, 50);
-        assert_eq!(config.generate_negative_examples, false);
-        assert_eq!(config.base_model, "custom-model");
     }
 
     #[test]

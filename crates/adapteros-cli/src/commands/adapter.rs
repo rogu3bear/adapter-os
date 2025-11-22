@@ -1589,7 +1589,8 @@ mod tests {
         assert_eq!(
             get_adapter_command_name(&AdapterCommand::List {
                 json: false,
-                tenant: None
+                tenant: None,
+                pinned_only: false
             }),
             "adapter_list"
         );

@@ -3,9 +3,10 @@
 //! Validates backend determinism attestation and provides detailed report
 
 use adapteros_lora_kernel_api::FusedKernels;
-use adapteros_lora_worker::{create_backend, BackendChoice};
+use adapteros_lora_worker::{create_backend, create_backend_with_model, BackendChoice};
 use anyhow::Result;
 use clap::Args;
+use std::path::Path;
 
 /// Simple output helper for audit determinism
 pub struct Output;
@@ -51,27 +52,36 @@ pub struct AuditDeterminismArgs {
 pub fn run(args: &AuditDeterminismArgs, output: &Output) -> Result<i32> {
     output.info("🔍 Auditing Backend Determinism\n");
 
-    // Parse backend type
-    let backend_choice = match args.backend.to_lowercase().as_str() {
-        "metal" => BackendChoice::Metal,
+    // Parse backend type and create backend
+    let backend: Box<dyn FusedKernels> = match args.backend.to_lowercase().as_str() {
+        "metal" => {
+            output.verbose("Creating Metal backend...");
+            create_backend(BackendChoice::Metal)?
+        }
         "mlx" => {
             let model_path = args
                 .model_path
                 .clone()
-                .ok_or_else(|| anyhow::anyhow!("MLX backend requires --model-path argument"))?;
-            BackendChoice::Mlx {
-                model_path: model_path.to_string(),
-            }
+                .or_else(|| std::env::var("AOS_MODEL_PATH").ok())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "MLX backend requires --model-path argument or AOS_MODEL_PATH env var"
+                    )
+                })?;
+            output.verbose(&format!(
+                "Creating MLX backend with model: {}...",
+                model_path
+            ));
+            create_backend_with_model(BackendChoice::Mlx, Path::new(&model_path))?
         }
-        "coreml" => BackendChoice::CoreML { model_path: None },
+        "coreml" => {
+            output.verbose("Creating CoreML backend...");
+            create_backend(BackendChoice::CoreML)?
+        }
         other => {
             return Err(anyhow::anyhow!("Unknown backend type: {}", other));
         }
     };
-
-    // Create backend
-    output.verbose(&format!("Creating {:?} backend...", backend_choice));
-    let backend = create_backend(backend_choice)?;
 
     // Get attestation report
     output.verbose("Retrieving attestation report...");

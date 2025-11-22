@@ -139,6 +139,9 @@ impl TrainArgs {
                 batch_size: self.batch_size,
                 epochs: self.epochs,
                 hidden_dim: self.hidden_dim,
+                max_gpu_memory_mb: 0,
+                preferred_backend: None,
+                require_gpu: false,
             };
 
             info!("Using command-line training configuration");
@@ -227,6 +230,9 @@ mod tests {
             batch_size: 16,
             epochs: 5,
             hidden_dim: 1024,
+            max_gpu_memory_mb: 0,
+            preferred_backend: None,
+            require_gpu: false,
         };
 
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();

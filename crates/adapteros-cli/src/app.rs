@@ -1,5 +1,6 @@
 //! AdapterOS CLI tool (aosctl)
 
+use adapteros_config::{BackendPreference, ModelConfig};
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -43,6 +44,36 @@ pub struct Cli {
     /// Enable verbose output
     #[arg(long, short = 'v', global = true)]
     verbose: bool,
+
+    /// Model path (overrides AOS_MODEL_PATH env var)
+    #[arg(long, global = true, env = "AOS_MODEL_PATH")]
+    pub model_path: Option<String>,
+
+    /// Model backend preference (overrides AOS_MODEL_BACKEND env var)
+    /// Values: auto, coreml, metal, mlx
+    #[arg(long, global = true, env = "AOS_MODEL_BACKEND", default_value = "auto")]
+    pub model_backend: String,
+}
+
+impl Cli {
+    /// Build a ModelConfig from CLI arguments with precedence: CLI > ENV > defaults
+    pub fn get_model_config(&self) -> Result<ModelConfig> {
+        // Start with environment-based config (or defaults)
+        let mut config = ModelConfig::from_env().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        // Override with CLI args if provided
+        if let Some(ref path) = self.model_path {
+            config.path = PathBuf::from(path);
+        }
+
+        // Parse backend preference from CLI
+        config.backend = self
+            .model_backend
+            .parse::<BackendPreference>()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        Ok(config)
+    }
 }
 
 #[derive(Subcommand)]
@@ -1552,6 +1583,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             if *insecure_skip_egress_check {
                 std::env::set_var("AOS_INSECURE_SKIP_EGRESS", "1");
             }
+            // Build model config from CLI flags (precedence: CLI > ENV > defaults)
+            let model_config = cli.get_model_config().ok();
             serve::run(
                 tenant,
                 plan,
@@ -1559,6 +1592,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 backend.clone(),
                 *dry_run,
                 capture_events.as_ref(),
+                model_config.as_ref(),
                 output,
             )
             .await?;

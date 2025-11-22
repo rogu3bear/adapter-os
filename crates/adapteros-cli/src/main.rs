@@ -29,6 +29,7 @@
 #![allow(clippy::unnecessary_lazy_evaluations)]
 #![allow(clippy::single_match)]
 
+use adapteros_config::{BackendPreference, ModelConfig};
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -77,6 +78,36 @@ struct Cli {
     /// Enable verbose output
     #[arg(long, short = 'v', global = true)]
     verbose: bool,
+
+    /// Model path (overrides AOS_MODEL_PATH env var)
+    #[arg(long, global = true, env = "AOS_MODEL_PATH")]
+    pub model_path: Option<String>,
+
+    /// Model backend preference (overrides AOS_MODEL_BACKEND env var)
+    /// Values: auto, coreml, metal, mlx
+    #[arg(long, global = true, env = "AOS_MODEL_BACKEND", default_value = "auto")]
+    pub model_backend: String,
+}
+
+impl Cli {
+    /// Build a ModelConfig from CLI arguments with precedence: CLI > ENV > defaults
+    pub fn get_model_config(&self) -> Result<ModelConfig> {
+        // Start with environment-based config (or defaults)
+        let mut config = ModelConfig::from_env().map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        // Override with CLI args if provided
+        if let Some(ref path) = self.model_path {
+            config.path = PathBuf::from(path);
+        }
+
+        // Parse backend preference from CLI
+        config.backend = self
+            .model_backend
+            .parse::<BackendPreference>()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        Ok(config)
+    }
 }
 
 #[derive(Subcommand)]
@@ -785,7 +816,7 @@ Examples:
   # Audit with JSON output
   aosctl audit-determinism --format json
 
-  # Audit MLX backend (requires --features experimental-backends)
+  # Audit MLX backend (requires --features multi-backend)
   aosctl audit-determinism --backend mlx --model-path ./models/qwen2.5-7b-mlx
 ")]
     AuditDeterminism {
@@ -994,6 +1025,10 @@ Examples:
         #[arg(value_enum)]
         shell: Shell,
     },
+
+    /// Manage configuration settings
+    #[command(subcommand)]
+    Config(config::ConfigArgs),
 
     // ============================================================
     // Documentation & Help
@@ -1314,6 +1349,9 @@ enum NodeSyncMode {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load .env file first (before anything else reads env vars)
+    adapteros_config::load_dotenv();
+
     // Initialize unified logging
     init_logging()?;
 
@@ -1617,7 +1655,19 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             backend,
             dry_run,
         } => {
-            serve::run(&tenant, &plan, &socket, backend.clone(), *dry_run, &output).await?;
+            // Build model config from CLI flags (precedence: CLI > ENV > defaults)
+            let model_config = cli.get_model_config().ok();
+            serve::run(
+                tenant,
+                plan,
+                socket,
+                backend.clone(),
+                *dry_run,
+                None, // capture_events (not supported in legacy main.rs)
+                model_config.as_ref(),
+                &output,
+            )
+            .await?;
         }
         Commands::Audit { cpid, suite } => {
             audit::run(&cpid, suite.as_deref(), &output).await?;
@@ -1697,6 +1747,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             completions::generate_completions(*shell, &mut cmd)?;
+        }
+
+        // Configuration Management
+        Commands::Config(args) => {
+            config::run_config_command(args.clone(), &output).await?;
         }
 
         // Backend Status
@@ -1835,6 +1890,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Report { .. } => "report",
         Commands::Bootstrap { .. } => "bootstrap",
         Commands::Completions { .. } => "completions",
+        Commands::Config(_) => "config",
         Commands::Diag { .. } => "diag",
         Commands::Explain { .. } => "explain",
         Commands::ErrorCodes { .. } => "error-codes",

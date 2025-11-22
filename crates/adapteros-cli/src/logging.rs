@@ -202,6 +202,7 @@ pub fn log_debug(message: &str, context: &serde_json::Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::AosError;
 
     #[test]
     fn test_logging_initialization() {

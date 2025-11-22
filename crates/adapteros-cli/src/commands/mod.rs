@@ -13,6 +13,7 @@ pub mod build_plan;
 pub mod cdp_list;
 pub mod code;
 pub mod completions;
+pub mod config;
 pub mod db;
 pub mod deploy;
 pub mod diag;

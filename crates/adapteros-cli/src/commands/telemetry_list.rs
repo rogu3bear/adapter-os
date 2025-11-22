@@ -128,7 +128,7 @@ mod tests {
     async fn test_list_telemetry_basic() {
         // This test validates the function signature and basic structure
         // Actual testing requires a populated database
-        let output = OutputWriter::new(OutputMode::Human);
+        let output = OutputWriter::new(OutputMode::Text, false);
 
         // Would fail without a real database, but validates structure
         // let result = list_telemetry_events(

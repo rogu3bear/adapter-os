@@ -100,10 +100,13 @@ pub async fn emit_cli_error(
             identity,
         )
         .metadata(metadata)
-        .build();
+        .build()
+        .ok();
 
-        if let Err(e) = writer.log_event(event) {
-            tracing::warn!(error = %e, "Failed to emit CLI error event to telemetry");
+        if let Some(event) = event {
+            if let Err(e) = writer.log_event(event) {
+                tracing::warn!(error = %e, "Failed to emit CLI error event to telemetry");
+            }
         }
     } else {
         // Fallback: write to simple log file if telemetry not initialized
@@ -171,10 +174,13 @@ pub async fn emit_cli_command(command: &str, tenant: Option<&str>, success: bool
             identity,
         )
         .metadata(metadata)
-        .build();
+        .build()
+        .ok();
 
-        if let Err(e) = writer.log_event(event) {
-            tracing::warn!(error = %e, "Failed to emit CLI command event to telemetry");
+        if let Some(event) = event {
+            if let Err(e) = writer.log_event(event) {
+                tracing::warn!(error = %e, "Failed to emit CLI command event to telemetry");
+            }
         }
     } else {
         // Fallback: write to simple log file if telemetry not initialized

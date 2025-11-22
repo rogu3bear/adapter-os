@@ -10,6 +10,7 @@ name = "aosctl"
 path = "src/main.rs"
 
 [dependencies]
+adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-registry = { path = "../adapteros-registry" }
@@ -27,7 +28,8 @@ adapteros-api = { path = "../adapteros-api" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
+# Removed: adapteros-single-file-adapter (migrated to adapteros-aos v3.0)
+adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
@@ -79,7 +81,7 @@ tokenizers = "0.15"
 # =============================================================================
 # CLI FEATURE FLAGS
 # =============================================================================
-# experimental-backends: Enable MLX backend support in CLI commands
+# multi-backend: Enable MLX backend support in CLI commands
 #   - Adds MLX FFI dependency
 #   - Enables `aosctl serve --backend mlx` and related commands
 #
@@ -88,5 +90,5 @@ tokenizers = "0.15"
 #   - Enables hardware key management commands
 # =============================================================================
 
-experimental-backends = ["dep:adapteros-lora-mlx-ffi"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 secd-support = ["dep:adapteros-secd"]

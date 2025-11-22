@@ -1,5 +1,6 @@
 //! Start serving
 
+use adapteros_config::ModelConfig;
 use adapteros_policy::egress;
 use anyhow::Result;
 use std::path::Path;
@@ -77,6 +78,8 @@ pub async fn run(
     socket: &Path,
     backend: BackendType,
     dry_run: bool,
+    capture_events: Option<&std::path::PathBuf>,
+    model_config: Option<&ModelConfig>,
     output: &OutputWriter,
 ) -> Result<()> {
     output.section("Starting AdapterOS server");
@@ -175,8 +178,12 @@ pub async fn run(
 
     output.info("Initializing worker...");
 
-    // 1. Load model paths
-    let model_path = format!("./models/{}", manifest.base.model_id);
+    // 1. Load model paths (precedence: CLI/model_config > manifest)
+    let model_path = if let Some(cfg) = model_config {
+        cfg.path.display().to_string()
+    } else {
+        format!("./models/{}", manifest.base.model_id)
+    };
     let tokenizer_path = format!("{}/tokenizer.json", model_path);
 
     if !std::path::Path::new(&model_path).exists() {
@@ -184,6 +191,9 @@ pub async fn run(
     }
 
     output.success(format!("Model directory found: {}", model_path));
+    if model_config.is_some() {
+        output.verbose("Using model path from CLI/environment configuration");
+    }
 
     // 2. Initialize telemetry writer
     let telemetry_dir = std::path::PathBuf::from("./var/telemetry");
@@ -226,11 +236,11 @@ pub async fn run(
     // 4. Initialize backend based on selection
     output.info(format!("Initializing {:?} backend...", backend));
 
-    // Compile-time guard for experimental backends
-    #[cfg(feature = "experimental-backends")]
+    // Compile-time guard for multi-backend support
+    #[cfg(feature = "multi-backend")]
     {
         if !matches!(backend, BackendType::Metal) {
-            output.warning("⚠️  EXPERIMENTAL BACKENDS ENABLED - NOT FOR PRODUCTION ⚠️");
+            output.warning("⚠️  MULTI-BACKEND ENABLED - NOT FOR PRODUCTION ⚠️");
             output.warning("The selected backend may not provide deterministic execution.");
             output.warning("For production use, rebuild with default features (Metal only).");
         }
@@ -244,16 +254,16 @@ pub async fn run(
         BackendType::Mlx => {
             output.verbose("Using MLX backend (Python/MLX)");
 
-            #[cfg(not(feature = "experimental-backends"))]
+            #[cfg(not(feature = "multi-backend"))]
             {
-                output.error("MLX backend requires --features experimental-backends");
-                output.info("Rebuild with: cargo build --features experimental-backends");
+                output.error("MLX backend requires --features multi-backend");
+                output.info("Rebuild with: cargo build --features multi-backend");
                 return Err(anyhow::anyhow!(
                     "MLX backend not available in deterministic-only build"
                 ));
             }
 
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(feature = "multi-backend")]
             {
                 // Check if MLX is available
                 let mlx_available = std::process::Command::new("python3")
@@ -278,16 +288,16 @@ pub async fn run(
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
 
-            #[cfg(not(feature = "experimental-backends"))]
+            #[cfg(not(feature = "multi-backend"))]
             {
-                output.error("CoreML backend requires --features experimental-backends");
-                output.info("Rebuild with: cargo build --features experimental-backends");
+                output.error("CoreML backend requires --features multi-backend");
+                output.info("Rebuild with: cargo build --features multi-backend");
                 return Err(anyhow::anyhow!(
                     "CoreML backend not available in deterministic-only build"
                 ));
             }
 
-            #[cfg(feature = "experimental-backends")]
+            #[cfg(feature = "multi-backend")]
             {
                 // CoreML backend not yet implemented
                 output.error("CoreML backend not yet implemented");
@@ -303,7 +313,7 @@ pub async fn run(
     output.success(format!("{:?} backend initialized", backend));
 
     // Load LoRA adapters if using MLX backend
-    #[cfg(feature = "experimental-backends")]
+    #[cfg(feature = "multi-backend")]
     if matches!(backend, BackendType::Mlx) {
         output.info("Loading LoRA adapters for MLX backend...");
         let mut adapters_loaded = 0;
@@ -351,10 +361,10 @@ pub async fn run(
         output.success(format!("{} adapters loaded successfully", adapters_loaded));
     }
 
-    #[cfg(not(feature = "experimental-backends"))]
+    #[cfg(not(feature = "multi-backend"))]
     if matches!(backend, BackendType::Mlx) {
         return Err(anyhow::anyhow!(
-            "MLX backend requires 'experimental-backends' feature"
+            "MLX backend requires 'multi-backend' feature"
         ));
     }
 

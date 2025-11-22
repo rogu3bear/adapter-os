@@ -1,16 +1,18 @@
 //! `aosctl adapter train-from-code` implementation
+//!
+//! TODO: Migrate to adapteros-aos v3.0 types
+//! This module is temporarily stubbed pending migration from the deleted
+//! adapteros-single-file-adapter crate.
 
 use crate::commands::adapter::validate_adapter_id;
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
-use adapteros_lora_worker::training::TrainingConfig;
-use adapteros_orchestrator::code_ingestion::{
-    CodeDatasetConfig, CodeIngestionPipeline, CodeIngestionRequest, CodeIngestionSource,
-};
+// Removed: use adapteros_lora_worker::training::TrainingConfig;
+// Removed: use adapteros_orchestrator::code_ingestion::{...};
+// Removed: use adapteros_single_file_adapter::format::WeightGroupConfig;
+
 use clap::Args;
-use serde::Serialize;
 use std::path::{Path, PathBuf};
-use tracing::info;
 
 /// Train an adapter directly from a repository
 #[derive(Debug, Clone, Args)]
@@ -96,21 +98,6 @@ pub struct TrainFromCodeArgs {
     pub seed: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
-struct TrainFromCodeOutput {
-    adapter_id: String,
-    repo_name: String,
-    commit_sha: String,
-    short_commit_sha: String,
-    dataset_examples: usize,
-    dataset_positive_examples: usize,
-    dataset_negative_examples: usize,
-    dataset_hash: String,
-    aos_path: String,
-    aos_hash_b3: String,
-    registry_id: Option<String>,
-}
-
 pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> {
     if let Some(adapter_id) = &args.adapter_id {
         validate_adapter_id(adapter_id)?;
@@ -138,89 +125,37 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
         output.warning("--negative-weight is non-negative; abstention training may be ineffective");
     }
 
-    let source = resolve_repo_source(&args.repo)?;
-    let training_config = TrainingConfig {
-        rank: args.rank,
-        alpha: args.alpha,
-        learning_rate: args.learning_rate,
-        batch_size: args.batch_size,
-        epochs: args.epochs,
-        hidden_dim: args.hidden_dim,
-        weight_group_config: adapteros_single_file_adapter::format::WeightGroupConfig::default(),
-    };
+    output.warning("adapter train-from-code command is temporarily disabled pending migration to v3.0 types");
 
-    let dataset_cfg = CodeDatasetConfig {
-        max_symbols: args.max_symbols,
-        include_private: args.include_private,
-        positive_weight: args.positive_weight,
-        negative_weight: args.negative_weight,
-    };
+    // TODO: Migrate to adapteros-aos v3.0 types
+    // The original implementation used:
+    // - adapteros_single_file_adapter::format::WeightGroupConfig
+    // - adapteros_orchestrator::code_ingestion::{CodeDatasetConfig, CodeIngestionPipeline, ...}
+    // - adapteros_lora_worker::training::TrainingConfig
+    //
+    // These need to be replaced with types from adapteros-aos v3.0
 
-    let request = CodeIngestionRequest {
-        source,
-        tokenizer_path: args.tokenizer.clone(),
-        training_config,
-        dataset: dataset_cfg,
-        output_dir: args.output_dir.clone(),
-        adapter_id: args.adapter_id.clone(),
-        base_model: args.base_model.clone(),
-        register: !args.skip_register,
-        tier: args.tier,
-        repo_id: args.repo_id.clone(),
-        project_name: args.project_name.clone(),
-        seed: args.seed,
-    };
-
-    output.section("Training");
-    output.info("Extracting code graph and building dataset...");
-
-    let pipeline = CodeIngestionPipeline::new();
-    let result = pipeline.run(request).await?;
-
-    output.success("Adapter trained from repository");
-    output.kv("Adapter", &result.adapter_id);
-    output.kv("Repository", &result.repo_name);
-    output.kv("Commit", &result.commit_sha);
-    output.kv("Samples", &result.dataset_examples.to_string());
-    output.kv("AOS", &result.aos_path.display().to_string());
-    output.kv("AOS Hash", &result.aos_hash_b3);
-    if let Some(registry_id) = &result.registry_id {
-        output.kv("Registry ID", registry_id);
-    } else if !args.skip_register {
-        output.warning("Adapter not registered (database unavailable?)");
-    }
-
-    if output.is_json() {
-        let json = TrainFromCodeOutput {
-            adapter_id: result.adapter_id.clone(),
-            repo_name: result.repo_name.clone(),
-            commit_sha: result.commit_sha.clone(),
-            short_commit_sha: result.short_commit_sha.clone(),
-            dataset_examples: result.dataset_examples,
-            dataset_positive_examples: result.positive_examples,
-            dataset_negative_examples: result.negative_examples,
-            dataset_hash: result.dataset_hash.clone(),
-            aos_path: result.aos_path.display().to_string(),
-            aos_hash_b3: result.aos_hash_b3.clone(),
-            registry_id: result.registry_id.clone(),
-        };
-        output
-            .json(&json)
-            .map_err(|e| AosError::Io(format!("Failed to emit JSON: {}", e)))?;
-    }
-
-    info!(adapter = %result.adapter_id, "Code ingestion pipeline finished");
-    Ok(())
+    Err(AosError::Config(
+        "adapter train-from-code: pending migration to adapteros-aos v3.0 types".to_string()
+    ))
 }
 
-fn resolve_repo_source(repo: &str) -> Result<CodeIngestionSource> {
+#[allow(dead_code)]
+fn resolve_repo_source(repo: &str) -> Result<RepoSource> {
     let path_candidate = Path::new(repo);
     if path_candidate.exists() {
         let absolute = std::fs::canonicalize(path_candidate).map_err(|e| {
             AosError::Io(format!("Failed to canonicalize repo path {}: {}", repo, e))
         })?;
-        Ok(CodeIngestionSource::LocalPath(absolute))
+        Ok(RepoSource::LocalPath(absolute))
     } else {
-        Ok(CodeIngestionSource::GitUrl(repo.to_string()))
+        Ok(RepoSource::GitUrl(repo.to_string()))
     }
+}
+
+/// Stub enum for repo source (pending v3.0 migration)
+#[allow(dead_code)]
+enum RepoSource {
+    LocalPath(PathBuf),
+    GitUrl(String),
 }
