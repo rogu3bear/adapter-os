@@ -24,21 +24,25 @@ async fn create_test_adapter_fixtures() -> Result<()> {
             input: vec![1, 2, 3, 4, 5],
             target: vec![6, 7, 8, 9, 10],
             metadata: Default::default(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![11, 12, 13, 14, 15],
             target: vec![16, 17, 18, 19, 20],
             metadata: Default::default(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![21, 22, 23, 24, 25],
             target: vec![26, 27, 28, 29, 30],
             metadata: Default::default(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![31, 32, 33, 34, 35],
             target: vec![36, 37, 38, 39, 40],
             metadata: Default::default(),
+            weight: 1.0,
         },
     ];
     println!("✓ Created {} training examples", examples.len());
@@ -59,7 +63,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
     let packager = AdapterPackager::new(&output_dir);
     let packaged = packager
-        .package_aos("test_adapter", &quantized, &config)
+        .package_aos("test_adapter", &quantized, &config, "test-base-model")
         .await?;
 
     println!("      ✓ Path: {}", packaged.weights_path.display());
@@ -80,7 +84,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     let large_result = large_trainer.train(&examples).await?;
     let large_quantized = LoRAQuantizer::quantize_to_q15(&large_result.weights);
     let large_packaged = packager
-        .package_aos("large_adapter", &large_quantized, &large_config)
+        .package_aos("large_adapter", &large_quantized, &large_config, "test-base-model")
         .await?;
 
     println!("      ✓ Path: {}", large_packaged.weights_path.display());
@@ -127,7 +131,7 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         let adapter_quantized = LoRAQuantizer::quantize_to_q15(&adapter_result.weights);
         let adapter_name = format!("adapter_{}", i);
         let _adapter_packaged = packager
-            .package_aos(&adapter_name, &adapter_quantized, &adapter_config)
+            .package_aos(&adapter_name, &adapter_quantized, &adapter_config, "test-base-model")
             .await?;
 
         println!("      ✓ Created {}.aos", adapter_name);

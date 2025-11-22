@@ -29,6 +29,8 @@ pub enum BackendStrategy {
     CoreMLWithMetalFallback,
     /// Use MLX as primary (experimental)
     MlxPrimary,
+    /// Use Metal only without fallback
+    MetalOnly,
 }
 
 impl BackendStrategy {
@@ -67,6 +69,13 @@ impl BackendStrategy {
                         "MLX backend not available (requires experimental-backends feature)"
                             .to_string(),
                     ))
+                }
+            }
+            BackendStrategy::MetalOnly => {
+                if capabilities.has_metal {
+                    Ok(BackendChoice::Metal)
+                } else {
+                    Err(AosError::Config("Metal backend not available".to_string()))
                 }
             }
         }
@@ -228,13 +237,23 @@ pub fn create_backend(choice: BackendChoice) -> Result<Box<dyn FusedKernels>> {
         BackendChoice::CoreML { model_path } => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
             {
-                use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend};
+                use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend, ComputeUnits};
 
                 // Initialize CoreML runtime
                 init_coreml()?;
 
-                info!(model_path = ?model_path, "Creating CoreML kernel backend");
-                let backend = CoreMLBackend::new(model_path)?;
+                // Use CpuAndNeuralEngine for optimal ANE utilization
+                // production_mode=true requires ANE availability
+                let compute_units = ComputeUnits::CpuAndNeuralEngine;
+                let production_mode = model_path.is_none(); // Non-production if custom model path
+
+                info!(
+                    model_path = ?model_path,
+                    compute_units = ?compute_units,
+                    production_mode = production_mode,
+                    "Creating CoreML kernel backend"
+                );
+                let backend = CoreMLBackend::new(compute_units, production_mode)?;
                 Ok(Box::new(backend))
             }
             #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
@@ -410,24 +429,20 @@ pub mod capabilities {
         ]
     }
 
-    /// Print backend status report
-    pub fn print_backend_status() {
-        println!("AdapterOS Backend Status Report");
-        println!("================================");
-        println!();
+    /// Log backend status report using structured tracing
+    pub fn log_backend_status() {
+        use tracing::info;
 
         let backends = get_available_backends();
         let available_count = backends.iter().filter(|b| b.available).count();
+        let total_count = backends.len();
 
-        println!("Summary:");
-        println!(
-            "  Available backends: {}/{}",
-            available_count,
-            backends.len()
+        info!(
+            available_count = available_count,
+            total_count = total_count,
+            "AdapterOS Backend Status Report"
         );
-        println!();
 
-        println!("Backend Details:");
         for backend in backends {
             let status = if backend.available {
                 "AVAILABLE"
@@ -440,16 +455,29 @@ pub mod capabilities {
                 "non-deterministic"
             };
 
-            println!(
-                "  [{}] {} ({}) - {}",
-                status, backend.name, determinism, backend.description
-            );
-            if !backend.available {
-                println!("    Requirements: {}", backend.requirements.join(", "));
+            if backend.available {
+                info!(
+                    backend_name = %backend.name,
+                    status = status,
+                    determinism = determinism,
+                    description = %backend.description,
+                    "Backend available"
+                );
+            } else {
+                info!(
+                    backend_name = %backend.name,
+                    status = status,
+                    determinism = determinism,
+                    description = %backend.description,
+                    requirements = %backend.requirements.join(", "),
+                    "Backend not available"
+                );
             }
-            println!();
         }
 
-        println!("For more details, see docs/ADR_MULTI_BACKEND_STRATEGY.md");
+        info!(
+            docs_reference = "docs/ADR_MULTI_BACKEND_STRATEGY.md",
+            "Backend status report complete"
+        );
     }
 }

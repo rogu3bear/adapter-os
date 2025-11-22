@@ -187,6 +187,7 @@ fn depth_of(path: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_codegraph::{DirectorySymbol, DirectorySymbolKind};
 
     fn sample_analysis(path: &str) -> DirectoryAnalysis {
         DirectoryAnalysis {

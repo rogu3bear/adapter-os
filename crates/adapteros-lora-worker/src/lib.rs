@@ -71,6 +71,7 @@ pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
 pub mod router_bridge;
+pub mod services;
 pub mod signal;
 pub mod telemetry_adapter;
 pub mod telemetry_lora;
@@ -616,7 +617,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                         status: "insufficient_evidence".to_string(),
                         trace: ResponseTrace {
                             cpid: request.cpid.clone(),
-                            plan_id: "placeholder".to_string(),
+                            plan_id: self.generate_plan_id(&request.cpid),
                             evidence: evidence.clone(),
                             router_summary: RouterSummary {
                                 adapters_used: vec![],
@@ -1030,6 +1031,24 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         self.embedding_model.encode_tokens(token_ids)
     }
 
+    /// Generate a deterministic plan_id from the manifest hash and request context
+    ///
+    /// The plan_id is derived using BLAKE3 hash of:
+    /// - Base model hash from manifest (ensures reproducibility across workers)
+    /// - Request cpid (ensures uniqueness per request)
+    ///
+    /// This provides a deterministic, traceable identifier for each inference plan.
+    fn generate_plan_id(&self, cpid: &str) -> String {
+        use adapteros_core::B3Hash;
+
+        // Combine manifest model hash with cpid for deterministic plan identification
+        let combined = format!("{}:{}", self.manifest.base.model_hash, cpid);
+        let hash = B3Hash::hash(combined.as_bytes());
+
+        // Use first 16 hex chars (64 bits) for reasonable uniqueness while keeping it readable
+        format!("plan_{}", &hash.to_hex()[..16])
+    }
+
     /// Build response trace with evidence and router summary
     fn build_trace(
         &self,
@@ -1039,7 +1058,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     ) -> ResponseTrace {
         ResponseTrace {
             cpid: cpid.to_string(),
-            plan_id: format!("plan_{}", self.manifest.base.model_hash),
+            plan_id: self.generate_plan_id(cpid),
             evidence: evidence.to_vec(),
             router_summary: RouterSummary {
                 adapters_used: self

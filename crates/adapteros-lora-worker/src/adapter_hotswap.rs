@@ -1438,7 +1438,7 @@ mod tests {
             let table_clone = table_arc.clone();
             handles.push(tokio::spawn(async move {
                 // Simulate infer: snapshot, inc, hold, dec
-                let stack = table_clone.current_stack.load(Ordering::Acquire).clone();
+                let stack = table_clone.get_current_stack_handle();
                 {
                     let mut refcounts = table_clone.refcounts.lock().await;
                     for name in stack.active.keys() {
@@ -1472,7 +1472,7 @@ mod tests {
         }
 
         // Assert no panics, refcounts 0
-        let stack = table_arc.current_stack.load(Ordering::Acquire);
+        let stack = table_arc.get_current_stack_handle();
         for name in stack.active.keys() {
             let refcounts = table_arc.refcounts.lock().await;
             assert_eq!(
@@ -1500,7 +1500,8 @@ mod tests {
         table.dec_ref("test").await;
 
         // Wait for background to process (since periodic 5s, manual call for test)
-        table.process_retired_stacks::<()>(None).await.unwrap();
+        // Use MockKernels as the type parameter even though we pass None
+        table.process_retired_stacks::<adapteros_lora_kernel_api::MockKernels>(None).await.unwrap();
 
         let unload_time = start.elapsed();
         assert!(

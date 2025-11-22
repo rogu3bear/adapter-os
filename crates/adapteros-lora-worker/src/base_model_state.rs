@@ -48,6 +48,11 @@ impl BaseModelStatus {
         }
     }
 
+    /// Parse from string (convenience method for FromStr compatibility)
+    pub fn from_str(s: &str) -> Result<Self> {
+        Self::parse(s)
+    }
+
     /// Check if model is currently loaded
     pub fn is_loaded(&self) -> bool {
         matches!(self, Self::Loaded)

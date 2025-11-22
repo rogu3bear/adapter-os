@@ -32,7 +32,7 @@ impl Default for LocalLlmConfig {
 /// Local LLM backend using MLX (temporarily disabled)
 pub struct LocalLlmBackend {
     /// Configuration for local LLM (reserved for MLX backend reactivation)
-    _config: LocalLlmConfig,
+    pub config: LocalLlmConfig,
     // model: Option<adapteros_lora_mlx::MLXModel>,
 }
 
@@ -452,8 +452,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_generation() {
-        let config = LocalLlmConfig::default();
-        let backend = LocalLlmBackend::new(config).unwrap_or_else(|_| LocalLlmBackend {
+        let config_val = LocalLlmConfig::default();
+        let backend = LocalLlmBackend::new(config_val).unwrap_or_else(|_| LocalLlmBackend {
             config: LocalLlmConfig::default(),
         });
 

@@ -180,6 +180,7 @@ fn generate_weights(adapter_id: &str, rank: usize, hidden_dim: usize) -> LoRAWei
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn sample_change(path: &str) -> DetectedChange {
         DetectedChange {

@@ -531,11 +531,13 @@ mod tests {
                 input: vec![1, 2, 3],
                 target: vec![4, 5, 6],
                 metadata: HashMap::new(),
+                weight: 1.0,
             },
             TrainingExample {
                 input: vec![7, 8, 9],
                 target: vec![10, 11, 12],
                 metadata: HashMap::new(),
+                weight: 1.0,
             },
         ];
 

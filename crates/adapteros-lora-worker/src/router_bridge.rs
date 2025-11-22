@@ -197,10 +197,10 @@ mod tests {
         let ring = decision_to_router_ring(&decision, 100);
 
         assert_eq!(ring.k, 0);
-        assert_eq!(ring.active_indices(), &[]);
-        assert_eq!(ring.active_gates(), &[]);
-        assert_eq!(ring.indices, [0; 8]); // All zero-filled
-        assert_eq!(ring.gates_q15, [0; 8]);
+        assert_eq!(ring.active_indices(), &[] as &[u16]);
+        assert_eq!(ring.active_gates(), &[] as &[i16]);
+        assert_eq!(ring.indices, [0u16; 8]); // All zero-filled
+        assert_eq!(ring.gates_q15, [0i16; 8]);
     }
 
     #[test]

@@ -147,10 +147,10 @@ impl AnomalyDetector {
 
     fn median_deviation(&self, sample: f32) -> f32 {
         let mut history: Vec<f32> = self.history.iter().copied().collect();
-        history.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        history.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let median = history[history.len() / 2];
         let mut deviations: Vec<f32> = history.iter().map(|value| (value - median).abs()).collect();
-        deviations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let mad = deviations[deviations.len() / 2];
         if mad.abs() < 1e-6 {
             0.0

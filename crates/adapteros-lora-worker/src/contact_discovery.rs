@@ -39,6 +39,11 @@ impl ContactCategory {
         }
     }
 
+    /// Parse from string (convenience method for FromStr compatibility)
+    pub fn from_str(s: &str) -> Result<Self> {
+        Self::parse(s)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             ContactCategory::User => "user",
