@@ -185,7 +185,12 @@ mod e2e_workflow_tests {
 
             // Run inference
             let result = ctx.backend.run_step(&ring, &mut io);
-            assert!(result.is_ok(), "Inference step {} failed: {:?}", step, result);
+            assert!(
+                result.is_ok(),
+                "Inference step {} failed: {:?}",
+                step,
+                result
+            );
 
             // Verify output dimensions
             assert_eq!(
@@ -361,7 +366,10 @@ mod e2e_workflow_tests {
 
         // Continue with only adapter B
         let result = ctx.backend.run_step(&ring, &mut io);
-        assert!(result.is_ok(), "Inference should work after unloading unused adapter");
+        assert!(
+            result.is_ok(),
+            "Inference should work after unloading unused adapter"
+        );
 
         println!("Hot-swap workflow completed successfully");
     }
@@ -699,7 +707,11 @@ mod e2e_workflow_tests {
 
             // Verify all runs at this position are identical
             for r in 1..runs.len() {
-                assert_bit_exact(&runs[0], &runs[r], &format!("position {} run {}", position, r));
+                assert_bit_exact(
+                    &runs[0],
+                    &runs[r],
+                    &format!("position {} run {}", position, r),
+                );
             }
 
             positions_outputs.insert(position, runs);
@@ -781,18 +793,17 @@ mod e2e_workflow_tests {
 
         // Token generator function
         let mut step_counter = 0u32;
-        let generate_fn = move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<(u32, Vec<u8>)> {
-            step_counter = step_counter.wrapping_add(1);
-            // Generate mock tokens
-            let token_id = (step as u32 * 17 + 1) % 32000;
-            let token_bytes = format!("tok{}", step).into_bytes();
-            Ok((token_id, token_bytes))
-        };
+        let generate_fn =
+            move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<(u32, Vec<u8>)> {
+                step_counter = step_counter.wrapping_add(1);
+                // Generate mock tokens
+                let token_id = (step as u32 * 17 + 1) % 32000;
+                let token_bytes = format!("tok{}", step).into_bytes();
+                Ok((token_id, token_bytes))
+            };
 
         // Spawn generation task
-        let gen_handle = tokio::spawn(async move {
-            generator.generate(generate_fn, tx).await
-        });
+        let gen_handle = tokio::spawn(async move { generator.generate(generate_fn, tx).await });
 
         // Collect events
         let mut token_events = Vec::new();
@@ -875,7 +886,10 @@ mod e2e_workflow_tests {
         };
 
         let done_sse = SSEFormatter::format(&done_event);
-        assert!(done_sse.contains("[DONE]"), "Done SSE should contain [DONE]");
+        assert!(
+            done_sse.contains("[DONE]"),
+            "Done SSE should contain [DONE]"
+        );
         assert!(
             done_sse.contains("finish_reason"),
             "Done SSE should have finish_reason"
@@ -888,7 +902,10 @@ mod e2e_workflow_tests {
         };
 
         let error_sse = SSEFormatter::format(&error_event);
-        assert!(error_sse.contains("error"), "Error SSE should contain error");
+        assert!(
+            error_sse.contains("error"),
+            "Error SSE should contain error"
+        );
         assert!(
             error_sse.contains("Test error"),
             "Error SSE should contain message"
@@ -928,18 +945,17 @@ mod e2e_workflow_tests {
         let (tx, mut rx) = mpsc::channel::<StreamEvent>(100);
 
         // Generate tokens that eventually include stop sequence
-        let generate_fn = move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<(u32, Vec<u8>)> {
-            let (token_id, text) = if step == 5 {
-                (999, "STOP".to_string()) // Trigger stop sequence
-            } else {
-                (step as u32, format!("word{}", step))
+        let generate_fn =
+            move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<(u32, Vec<u8>)> {
+                let (token_id, text) = if step == 5 {
+                    (999, "STOP".to_string()) // Trigger stop sequence
+                } else {
+                    (step as u32, format!("word{}", step))
+                };
+                Ok((token_id, text.into_bytes()))
             };
-            Ok((token_id, text.into_bytes()))
-        };
 
-        let gen_handle = tokio::spawn(async move {
-            generator.generate(generate_fn, tx).await
-        });
+        let gen_handle = tokio::spawn(async move { generator.generate(generate_fn, tx).await });
 
         let mut finish_reason = None;
         while let Some(event) = rx.recv().await {
@@ -1001,8 +1017,8 @@ mod e2e_workflow_tests {
 
         // 2. Run inference with different adapter combinations
         let combinations: Vec<(Vec<u16>, Vec<i16>)> = vec![
-            (vec![0], vec![32767]),           // Single adapter
-            (vec![0, 1], vec![16384, 16384]), // Two adapters equal
+            (vec![0], vec![32767]),                            // Single adapter
+            (vec![0, 1], vec![16384, 16384]),                  // Two adapters equal
             (vec![0, 1, 2, 3], vec![8000, 12000, 6000, 6767]), // All adapters
         ];
 
@@ -1079,11 +1095,17 @@ mod e2e_workflow_tests {
 
         // Try to unload non-existent adapter (should fail)
         let result = ctx.backend.unload_adapter_runtime(999);
-        assert!(result.is_err(), "Should fail to unload non-existent adapter");
+        assert!(
+            result.is_err(),
+            "Should fail to unload non-existent adapter"
+        );
 
         // Backend should still be operational
         let health = ctx.backend.health_status();
-        assert!(health.operational, "Backend should remain operational after error");
+        assert!(
+            health.operational,
+            "Backend should remain operational after error"
+        );
 
         // Should still be able to run inference
         let result = ctx.backend.run_step(&ring, &mut io);
@@ -1125,6 +1147,9 @@ mod e2e_workflow_tests {
             "Manifest hash should be set"
         );
 
-        println!("Attestation workflow completed: deterministic={}", report.deterministic);
+        println!(
+            "Attestation workflow completed: deterministic={}",
+            report.deterministic
+        );
     }
 }

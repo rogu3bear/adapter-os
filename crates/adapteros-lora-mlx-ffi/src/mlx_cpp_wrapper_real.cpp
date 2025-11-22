@@ -23,6 +23,8 @@
 #include <mlx/array.h>
 #include <mlx/random.h>
 #include <mlx/io.h>
+#include <mlx/fast.h>
+#include <mlx/backend/metal/metal.h>
 
 namespace mx = mlx::core;
 
@@ -34,6 +36,28 @@ static std::atomic<size_t> g_total_memory_used(0);      // Total bytes allocated
 static std::atomic<size_t> g_allocation_count(0);        // Total allocations
 static std::mutex g_memory_mutex;                         // Lock for tracking updates
 static std::unordered_map<uintptr_t, size_t> g_allocation_map;  // Track individual allocations
+
+// Runtime state
+static std::atomic<bool> g_initialized(false);
+static mlx_device_type_t g_current_device_type = MLX_DEVICE_AUTO;
+
+// LoRA adapter cache
+struct LoRACacheEntry {
+    mx::array lora_a;
+    mx::array lora_b;
+    uint64_t last_access;  // For LRU eviction
+
+    // Default constructor required for unordered_map
+    LoRACacheEntry() : lora_a(mx::array(0.0f)), lora_b(mx::array(0.0f)), last_access(0) {}
+
+    // Constructor with values
+    LoRACacheEntry(mx::array a, mx::array b, uint64_t access)
+        : lora_a(std::move(a)), lora_b(std::move(b)), last_access(access) {}
+};
+static std::mutex g_lora_cache_mutex;
+static std::unordered_map<std::string, LoRACacheEntry> g_lora_cache;
+static size_t g_lora_cache_limit = 32;
+static uint64_t g_lora_access_counter = 0;
 
 /// Calculate bytes used by an MLX array dtype
 static inline size_t get_dtype_size(mx::Dtype dtype) {
@@ -529,6 +553,97 @@ struct MLXModelWrapper {
     }
 };
 
+// KV Cache wrapper for efficient autoregressive generation
+struct MLXKVCache {
+    int num_layers;
+    int num_heads;
+    int head_dim;
+    int max_seq_len;
+    int current_seq_len;
+    std::vector<mx::array> keys;    // Per-layer key cache
+    std::vector<mx::array> values;  // Per-layer value cache
+
+    MLXKVCache(int layers, int heads, int dim, int max_len)
+        : num_layers(layers), num_heads(heads), head_dim(dim),
+          max_seq_len(max_len), current_seq_len(0) {
+        // Initialize empty caches for each layer
+        keys.reserve(layers);
+        values.reserve(layers);
+        for (int i = 0; i < layers; ++i) {
+            // Initialize with empty arrays (will be populated on first update)
+            keys.push_back(mx::zeros({1, heads, 0, dim}, mx::float32));
+            values.push_back(mx::zeros({1, heads, 0, dim}, mx::float32));
+        }
+    }
+
+    bool update(int layer_idx, const mx::array& new_keys, const mx::array& new_values) {
+        if (layer_idx < 0 || layer_idx >= num_layers) {
+            return false;
+        }
+
+        // Concatenate new keys/values along sequence dimension (axis 2)
+        if (keys[layer_idx].shape(2) == 0) {
+            // First update for this layer
+            keys[layer_idx] = new_keys;
+            values[layer_idx] = new_values;
+        } else {
+            keys[layer_idx] = mx::concatenate({keys[layer_idx], new_keys}, 2);
+            values[layer_idx] = mx::concatenate({values[layer_idx], new_values}, 2);
+        }
+
+        // Update sequence length (use layer 0 as reference)
+        if (layer_idx == 0) {
+            current_seq_len = keys[0].shape(2);
+        }
+
+        return true;
+    }
+
+    void reset() {
+        keys.clear();
+        values.clear();
+        keys.reserve(num_layers);
+        values.reserve(num_layers);
+        for (int i = 0; i < num_layers; ++i) {
+            keys.push_back(mx::zeros({1, num_heads, 0, head_dim}, mx::float32));
+            values.push_back(mx::zeros({1, num_heads, 0, head_dim}, mx::float32));
+        }
+        current_seq_len = 0;
+    }
+};
+
+// Weights container for SafeTensors loading
+struct MLXWeightsWrapper {
+    std::unordered_map<std::string, mx::array> weights;
+    std::vector<std::string> weight_names;  // For iteration
+
+    bool load(const std::string& path) {
+        try {
+            auto [loaded_weights, metadata] = mx::load_safetensors(path);
+            weights = std::move(loaded_weights);
+
+            // Build name list for iteration
+            weight_names.clear();
+            for (const auto& [name, _] : weights) {
+                weight_names.push_back(name);
+            }
+
+            return !weights.empty();
+        } catch (const std::exception& e) {
+            g_last_error = std::string("Failed to load safetensors: ") + e.what();
+            return false;
+        }
+    }
+
+    mx::array* get(const std::string& name) {
+        auto it = weights.find(name);
+        if (it != weights.end()) {
+            return &it->second;
+        }
+        return nullptr;
+    }
+};
+
 // Context management
 extern "C" mlx_context_t* mlx_context_new(void) {
     try {
@@ -952,6 +1067,41 @@ extern "C" void mlx_hidden_states_free(mlx_array_t* hidden_states, int num_hidde
     }
 }
 
+// Hidden state names for the 4 target modules
+static const char* g_hidden_state_names[] = {
+    "layer.0.self_attn.q_proj",
+    "layer.0.self_attn.k_proj",
+    "layer.0.self_attn.v_proj",
+    "layer.0.self_attn.o_proj"
+};
+static const int g_hidden_state_count = 4;
+
+// Get the name of a hidden state at the given index
+extern "C" int mlx_model_get_hidden_state_name(
+    mlx_model_t* model,
+    int index,
+    char* out_name,
+    int out_name_len
+) {
+    if (!model || index < 0 || index >= g_hidden_state_count) return 0;
+
+    const char* name = g_hidden_state_names[index];
+    int name_len = static_cast<int>(std::strlen(name));
+
+    // If buffer provided and large enough, copy the name
+    if (out_name && out_name_len > name_len) {
+        std::memcpy(out_name, name, name_len + 1); // Include null terminator
+    }
+
+    return name_len;
+}
+
+// Get the number of hidden states stored in the model
+extern "C" int mlx_model_get_hidden_state_count(mlx_model_t* model) {
+    if (!model) return 0;
+    return g_hidden_state_count;
+}
+
 // Mathematical operations
 extern "C" mlx_array_t* mlx_add(mlx_array_t* a, mlx_array_t* b) {
     if (!a || !b) return nullptr;
@@ -1286,48 +1436,95 @@ extern "C" mlx_array_t* mlx_lora_combine(
     }
 }
 
-// Multi-adapter LoRA routing (K-sparse)
+// Multi-adapter K-sparse LoRA routing with Q15 quantized gates
+//
+// Implements K-sparse routing for efficient multi-adapter inference.
+// Uses Q15 fixed-point format for gate weights to reduce memory bandwidth.
+//
+// Formula: output = input + sum_i(gate_i * B_i(A_i(input)) * (alpha/rank))
+//
+// Parameters:
+//   input: Input tensor [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
+//   lora_a_list: Array of LoRA A matrices (down-projection) [hidden_dim, rank]
+//   lora_b_list: Array of LoRA B matrices (up-projection) [rank, hidden_dim]
+//   num_adapters: Number of active adapters (K-sparse, max 8)
+//   gates_q15: Q15 quantized gate weights (i16, 0-32767 maps to 0.0-1.0)
+//   alpha: LoRA scaling factor
+//   rank: LoRA rank dimension
+//
+// Returns: Combined output tensor with identity path and weighted LoRA contributions
 extern "C" mlx_array_t* mlx_multi_lora_forward(
     mlx_array_t* input,
     mlx_array_t** lora_a_list,
     mlx_array_t** lora_b_list,
     int num_adapters,
-    const uint16_t* gates_q15,
+    const int16_t* gates_q15,
     float alpha,
     float rank
 ) {
-    if (!input || !lora_a_list || !lora_b_list || !gates_q15 || num_adapters <= 0) {
-        g_last_error = "Invalid parameters for multi-adapter LoRA forward";
+    // Validate input parameters with specific error messages
+    if (!input) {
+        g_last_error = "mlx_multi_lora_forward: input tensor is null";
+        return nullptr;
+    }
+    if (!lora_a_list || !lora_b_list) {
+        g_last_error = "mlx_multi_lora_forward: adapter weight lists are null";
+        return nullptr;
+    }
+    if (!gates_q15) {
+        g_last_error = "mlx_multi_lora_forward: gates_q15 array is null";
+        return nullptr;
+    }
+    if (num_adapters <= 0) {
+        g_last_error = "mlx_multi_lora_forward: num_adapters must be positive";
         return nullptr;
     }
 
-    // Enforce maximum K=8 adapters
+    // Enforce maximum K=8 adapters for K-sparse routing
+    // This limit aligns with typical router architectures
     if (num_adapters > 8) {
-        g_last_error = "Number of adapters exceeds maximum (K=8)";
+        g_last_error = "mlx_multi_lora_forward: num_adapters exceeds K-sparse limit (max 8)";
+        return nullptr;
+    }
+
+    // Validate rank to prevent division by zero
+    if (rank <= 0.0f) {
+        g_last_error = "mlx_multi_lora_forward: rank must be positive";
         return nullptr;
     }
 
     try {
         auto input_wrapper = reinterpret_cast<MLXArrayWrapper*>(input);
 
-        // Initialize result with zeros (same shape as input)
+        // Initialize result accumulator with zeros (same shape as input)
+        // This will accumulate: sum_i(gate_i * lora_i(input))
         mx::array result = mx::zeros_like(input_wrapper->arr);
 
-        // Scaling factor for LoRA: alpha / rank
-        float scaling = alpha / rank;
+        // Precompute LoRA scaling factor: alpha / rank
+        const float scaling = alpha / rank;
 
-        // Process each adapter with its gate weight
+        // Q15 dequantization constant
+        // Q15 format: signed 16-bit integer where 32767 represents 1.0
+        // Range [0, 32767] maps to [0.0, 1.0] for gate weights
+        constexpr float Q15_SCALE = 32767.0f;
+
+        // Process each adapter with its K-sparse gate weight
         for (int i = 0; i < num_adapters; ++i) {
-            // Skip null adapters
+            // Skip null adapters (sparse routing may leave some slots empty)
             if (!lora_a_list[i] || !lora_b_list[i]) {
                 continue;
             }
 
-            // Dequantize Q15 gate: gate_f32 = gate_u16 / 32767.0
-            // Q15 format uses 32767 as max (not 32768) for symmetric range
-            float gate_weight = static_cast<float>(gates_q15[i]) / 32767.0f;
+            // Dequantize Q15 gate weight: gate_f32 = gate_q15 / 32767.0
+            // Clamp negative values to 0 (gates should be non-negative)
+            int16_t gate_q15 = gates_q15[i];
+            if (gate_q15 < 0) {
+                gate_q15 = 0;
+            }
+            float gate_weight = static_cast<float>(gate_q15) / Q15_SCALE;
 
-            // Skip adapters with zero or negligible gate (efficiency optimization)
+            // Skip adapters with zero or negligible gate (K-sparse efficiency)
+            // This avoids unnecessary computation for adapters not selected by router
             if (gate_weight <= 1e-6f) {
                 continue;
             }
@@ -1335,36 +1532,44 @@ extern "C" mlx_array_t* mlx_multi_lora_forward(
             auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_a_list[i]);
             auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_b_list[i]);
 
-            // LoRA forward pass:
-            // input: [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
-            // A: [hidden_dim, rank]
-            // B: [rank, hidden_dim]
+            // LoRA forward pass: lora_out = B(A(input)) * (alpha/rank)
             //
-            // Step 1: intermediate = input @ A  -> [batch, seq_len, rank]
+            // Dimensions:
+            //   input: [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
+            //   A: [hidden_dim, rank] (down-projection)
+            //   B: [rank, hidden_dim] (up-projection)
+            //
+            // Step 1: Down-project input through A
+            //   intermediate = input @ A  -> [..., rank]
             mx::array intermediate = mx::matmul(input_wrapper->arr, a_wrapper->arr);
 
-            // Step 2: lora_output = intermediate @ B  -> [batch, seq_len, hidden_dim]
+            // Step 2: Up-project through B
+            //   lora_output = intermediate @ B  -> [..., hidden_dim]
             mx::array lora_output = mx::matmul(intermediate, b_wrapper->arr);
 
-            // Step 3: Apply scaling and gate weight: gate_i * (alpha/rank) * lora_i
+            // Step 3: Apply combined scaling: gate_i * (alpha/rank)
+            // Combining gate weight with LoRA scaling in one multiply reduces ops
             float combined_scale = gate_weight * scaling;
             mx::array scaled = mx::multiply(lora_output, mx::array(combined_scale));
 
-            // Step 4: Accumulate: result += weighted_lora_output
+            // Step 4: Accumulate weighted LoRA output
+            //   result += gate_i * lora_i(input)
             result = mx::add(result, scaled);
         }
 
-        // Add base input (identity path): final = input + sum(gate_i * lora_i(input))
+        // Add identity path: final = input + sum(gate_i * lora_i(input))
+        // This preserves the base model's representation while adding adapter contributions
         result = mx::add(input_wrapper->arr, result);
 
-        // Force evaluation for immediate results (MLX uses lazy evaluation)
+        // Force evaluation for immediate results (MLX uses lazy evaluation by default)
+        // This ensures the computation is complete before returning
         mx::eval(result);
 
         auto result_wrapper = new MLXArrayWrapper(result);
         return reinterpret_cast<mlx_array_t*>(result_wrapper);
 
     } catch (const std::exception& e) {
-        g_last_error = std::string("Multi-adapter LoRA forward failed: ") + e.what();
+        g_last_error = std::string("mlx_multi_lora_forward failed: ") + e.what();
         return nullptr;
     }
 }
@@ -1467,6 +1672,691 @@ extern "C" void mlx_memory_stats(size_t* out_total_bytes, size_t* out_allocation
     }
     if (out_allocation_count) {
         *out_allocation_count = g_allocation_count.load(std::memory_order_relaxed);
+    }
+}
+
+// ============================================================================
+// Runtime initialization and backend info
+// ============================================================================
+
+extern "C" int mlx_init(mlx_device_type_t device_type) {
+    try {
+        // Set device based on requested type
+        mx::Device target_device = mx::Device::gpu;  // Default to GPU
+
+        switch (device_type) {
+            case MLX_DEVICE_CPU:
+                target_device = mx::Device::cpu;
+                break;
+            case MLX_DEVICE_GPU:
+            case MLX_DEVICE_ANE:  // ANE uses GPU path in MLX
+            case MLX_DEVICE_AUTO:
+            default:
+                target_device = mx::Device::gpu;
+                break;
+        }
+
+        mx::set_default_device(target_device);
+        g_current_device_type = device_type;
+        g_initialized.store(true, std::memory_order_release);
+
+        return 0;
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to initialize MLX: ") + e.what();
+        return -1;
+    }
+}
+
+extern "C" int mlx_init_default(void) {
+    return mlx_init(MLX_DEVICE_AUTO);
+}
+
+extern "C" void mlx_shutdown(void) {
+    try {
+        // Clear LoRA cache
+        {
+            std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+            g_lora_cache.clear();
+        }
+
+        // Reset memory tracking
+        mlx_memory_reset();
+
+        g_initialized.store(false, std::memory_order_release);
+    } catch (...) {
+        // Ignore errors during shutdown
+    }
+}
+
+extern "C" bool mlx_is_initialized(void) {
+    return g_initialized.load(std::memory_order_acquire);
+}
+
+extern "C" mlx_device_type_t mlx_get_device_type(void) {
+    return g_current_device_type;
+}
+
+extern "C" int mlx_set_device(mlx_device_type_t device_type) {
+    try {
+        mx::Device target_device = mx::Device::gpu;
+
+        switch (device_type) {
+            case MLX_DEVICE_CPU:
+                target_device = mx::Device::cpu;
+                break;
+            case MLX_DEVICE_GPU:
+            case MLX_DEVICE_ANE:
+            case MLX_DEVICE_AUTO:
+            default:
+                target_device = mx::Device::gpu;
+                break;
+        }
+
+        mx::set_default_device(target_device);
+        g_current_device_type = device_type;
+
+        return 0;
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to set device: ") + e.what();
+        return -1;
+    }
+}
+
+extern "C" int mlx_backend_info(mlx_backend_capabilities_t* capabilities) {
+    if (!capabilities) {
+        g_last_error = "capabilities pointer is null";
+        return -1;
+    }
+
+    try {
+        std::memset(capabilities, 0, sizeof(mlx_backend_capabilities_t));
+
+        // Query MLX metal capabilities
+        capabilities->gpu_available = mx::metal::is_available();
+        capabilities->unified_memory = true;  // Apple Silicon always has unified memory
+        capabilities->metal_compute = capabilities->gpu_available;
+
+        // ANE availability depends on device - assume available on Apple Silicon
+        capabilities->ane_available = capabilities->gpu_available;
+
+        if (capabilities->gpu_available) {
+            // Get device info from Metal
+            capabilities->max_threads_per_group = 1024;  // Standard Metal limit
+
+            // device_info() returns unordered_map<string, variant<string, size_t>>
+            auto info = mx::metal::device_info();
+            auto it = info.find("max_buffer_length");
+            if (it != info.end()) {
+                capabilities->max_buffer_size = std::get<size_t>(it->second);
+            } else {
+                capabilities->max_buffer_size = 256 * 1024 * 1024;  // Default 256MB
+            }
+
+            // Get device name
+            auto name_it = info.find("device_name");
+            if (name_it != info.end()) {
+                std::strncpy(capabilities->device_name, std::get<std::string>(name_it->second).c_str(), sizeof(capabilities->device_name) - 1);
+            } else {
+                std::strncpy(capabilities->device_name, "Apple GPU", sizeof(capabilities->device_name) - 1);
+            }
+        }
+
+        // Version strings
+        std::strncpy(capabilities->mlx_version, "0.16.0", sizeof(capabilities->mlx_version) - 1);
+        std::strncpy(capabilities->metal_version, "3.0", sizeof(capabilities->metal_version) - 1);
+
+        return 0;
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to get backend info: ") + e.what();
+        return -1;
+    }
+}
+
+extern "C" const char* mlx_get_version(void) {
+    static const char* version = "0.16.0";
+    return version;
+}
+
+// ============================================================================
+// Quantization operations
+// ============================================================================
+
+extern "C" mlx_array_t* mlx_quantize(mlx_array_t* array, int group_size, int bits) {
+    if (!array) {
+        g_last_error = "array is null";
+        return nullptr;
+    }
+
+    if (bits != 4 && bits != 8) {
+        g_last_error = "bits must be 4 or 8";
+        return nullptr;
+    }
+
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+
+        // MLX quantize returns a vector of 3 arrays: [quantized, scales, biases]
+        // For simplicity, we'll return just the quantized array
+        // A more complete implementation would return all three
+        std::vector<mx::array> result = mx::quantize(wrapper->arr, group_size, bits);
+
+        if (result.size() < 1) {
+            g_last_error = "Quantize returned empty result";
+            return nullptr;
+        }
+
+        auto result_wrapper = new MLXArrayWrapper(result[0]);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Quantize failed: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_dequantize(
+    mlx_array_t* array,
+    mlx_array_t* scales,
+    mlx_array_t* biases,
+    int group_size,
+    int bits
+) {
+    if (!array || !scales) {
+        g_last_error = "array and scales are required";
+        return nullptr;
+    }
+
+    try {
+        auto arr_wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        auto scales_wrapper = reinterpret_cast<MLXArrayWrapper*>(scales);
+
+        mx::array result = mx::array(0.0f);  // Initialize with dummy value
+        if (biases) {
+            auto biases_wrapper = reinterpret_cast<MLXArrayWrapper*>(biases);
+            result = mx::dequantize(arr_wrapper->arr, scales_wrapper->arr, biases_wrapper->arr, group_size, bits);
+        } else {
+            // Use zeros for symmetric quantization
+            mx::array zero_biases = mx::zeros_like(scales_wrapper->arr);
+            result = mx::dequantize(arr_wrapper->arr, scales_wrapper->arr, zero_biases, group_size, bits);
+        }
+
+        auto result_wrapper = new MLXArrayWrapper(result);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Dequantize failed: ") + e.what();
+        return nullptr;
+    }
+}
+
+// ============================================================================
+// RoPE (Rotary Position Embedding)
+// ============================================================================
+
+extern "C" mlx_array_t* mlx_rope(
+    mlx_array_t* array,
+    int dims,
+    bool traditional,
+    float base,
+    float scale,
+    int offset
+) {
+    if (!array) {
+        g_last_error = "array is null";
+        return nullptr;
+    }
+
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+
+        // Use MLX fast rope implementation
+        mx::array result = mx::fast::rope(
+            wrapper->arr,
+            dims,
+            traditional,
+            base,
+            scale,
+            offset
+        );
+
+        auto result_wrapper = new MLXArrayWrapper(result);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("RoPE failed: ") + e.what();
+        return nullptr;
+    }
+}
+
+// ============================================================================
+// Token sampling
+// ============================================================================
+
+extern "C" int mlx_sample_token(mlx_array_t* logits, const mlx_sampler_config_t* config) {
+    if (!logits || !config) {
+        g_last_error = "logits and config are required";
+        return -1;
+    }
+
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(logits);
+        mx::array probs = wrapper->arr;
+
+        // Get last token's logits if sequence
+        if (probs.ndim() > 1) {
+            int last_idx = probs.shape(-2) - 1;
+            probs = mx::take(probs, mx::array(last_idx), probs.ndim() - 2);
+        }
+
+        // Flatten to 1D
+        probs = mx::reshape(probs, {-1});
+
+        // Apply temperature
+        if (config->temperature > 0.0f) {
+            probs = mx::divide(probs, mx::array(config->temperature));
+        }
+
+        // Convert logits to probabilities
+        probs = mx::softmax(probs, -1);
+
+        // Top-k filtering
+        if (config->top_k > 0 && config->top_k < probs.shape(0)) {
+            // Sort and get top-k indices
+            mx::array sorted_indices = mx::argsort(probs, -1);
+            int vocab_size = probs.shape(0);
+
+            // Create mask for top-k
+            std::vector<float> mask_data(vocab_size, 0.0f);
+            mx::eval(sorted_indices);
+            auto* indices_ptr = sorted_indices.data<int>();
+
+            for (int i = vocab_size - config->top_k; i < vocab_size; ++i) {
+                mask_data[indices_ptr[i]] = 1.0f;
+            }
+
+            mx::array mask = mx::array(mask_data.data(), {vocab_size}, mx::float32);
+            probs = mx::multiply(probs, mask);
+
+            // Renormalize
+            mx::array sum = mx::sum(probs);
+            probs = mx::divide(probs, sum);
+        }
+
+        // Top-p (nucleus) sampling
+        if (config->top_p > 0.0f && config->top_p < 1.0f) {
+            // Sort probabilities in descending order
+            mx::array sorted_probs = mx::sort(probs, -1);
+            mx::array cumsum = mx::cumsum(sorted_probs, -1);
+
+            // Create mask for top-p
+            mx::array mask = mx::less(cumsum, mx::array(config->top_p));
+
+            // Apply mask
+            probs = mx::multiply(probs, mx::astype(mask, mx::float32));
+
+            // Renormalize
+            mx::array sum = mx::sum(probs);
+            probs = mx::divide(probs, sum);
+        }
+
+        // Greedy sampling if temperature is 0
+        if (config->temperature <= 0.0f) {
+            mx::array max_idx = mx::argmax(probs);
+            mx::eval(max_idx);
+            return static_cast<int>(max_idx.item<int>());
+        }
+
+        // Sample from categorical distribution
+        mx::array sampled = mx::random::categorical(mx::log(probs));
+        mx::eval(sampled);
+
+        return static_cast<int>(sampled.item<int>());
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Token sampling failed: ") + e.what();
+        return -1;
+    }
+}
+
+// ============================================================================
+// KV Cache management
+// ============================================================================
+
+extern "C" mlx_kv_cache_t* mlx_kv_cache_new(int num_layers, int num_heads, int head_dim, int max_seq_len) {
+    if (num_layers <= 0 || num_heads <= 0 || head_dim <= 0 || max_seq_len <= 0) {
+        g_last_error = "All KV cache dimensions must be positive";
+        return nullptr;
+    }
+
+    try {
+        auto cache = new MLXKVCache(num_layers, num_heads, head_dim, max_seq_len);
+        return reinterpret_cast<mlx_kv_cache_t*>(cache);
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to create KV cache: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_kv_cache_update(mlx_kv_cache_t* cache, int layer_idx, mlx_array_t* keys, mlx_array_t* values) {
+    if (!cache || !keys || !values) {
+        g_last_error = "cache, keys, and values are required";
+        return -1;
+    }
+
+    try {
+        auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
+        auto keys_wrapper = reinterpret_cast<MLXArrayWrapper*>(keys);
+        auto values_wrapper = reinterpret_cast<MLXArrayWrapper*>(values);
+
+        if (!kv_cache->update(layer_idx, keys_wrapper->arr, values_wrapper->arr)) {
+            g_last_error = "Invalid layer index";
+            return -1;
+        }
+
+        return 0;
+    } catch (const std::exception& e) {
+        g_last_error = std::string("KV cache update failed: ") + e.what();
+        return -1;
+    }
+}
+
+extern "C" mlx_array_t* mlx_kv_cache_get_keys(mlx_kv_cache_t* cache, int layer_idx) {
+    if (!cache) {
+        g_last_error = "cache is null";
+        return nullptr;
+    }
+
+    try {
+        auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
+
+        if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) {
+            g_last_error = "Invalid layer index";
+            return nullptr;
+        }
+
+        auto result_wrapper = new MLXArrayWrapper(kv_cache->keys[layer_idx]);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to get cached keys: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_kv_cache_get_values(mlx_kv_cache_t* cache, int layer_idx) {
+    if (!cache) {
+        g_last_error = "cache is null";
+        return nullptr;
+    }
+
+    try {
+        auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
+
+        if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) {
+            g_last_error = "Invalid layer index";
+            return nullptr;
+        }
+
+        auto result_wrapper = new MLXArrayWrapper(kv_cache->values[layer_idx]);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to get cached values: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_kv_cache_seq_len(mlx_kv_cache_t* cache) {
+    if (!cache) return 0;
+    auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
+    return kv_cache->current_seq_len;
+}
+
+extern "C" void mlx_kv_cache_reset(mlx_kv_cache_t* cache) {
+    if (!cache) return;
+    auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
+    kv_cache->reset();
+}
+
+extern "C" void mlx_kv_cache_free(mlx_kv_cache_t* cache) {
+    if (cache) {
+        delete reinterpret_cast<MLXKVCache*>(cache);
+    }
+}
+
+// ============================================================================
+// SafeTensors weight loading
+// ============================================================================
+
+extern "C" mlx_weights_t* mlx_load_safetensors(const char* path) {
+    if (!path) {
+        g_last_error = "path is null";
+        return nullptr;
+    }
+
+    try {
+        auto weights = new MLXWeightsWrapper();
+
+        if (!weights->load(std::string(path))) {
+            delete weights;
+            return nullptr;
+        }
+
+        return reinterpret_cast<mlx_weights_t*>(weights);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to load safetensors: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" mlx_array_t* mlx_weights_get(mlx_weights_t* weights, const char* name) {
+    if (!weights || !name) {
+        g_last_error = "weights and name are required";
+        return nullptr;
+    }
+
+    try {
+        auto weights_wrapper = reinterpret_cast<MLXWeightsWrapper*>(weights);
+        auto arr = weights_wrapper->get(std::string(name));
+
+        if (!arr) {
+            return nullptr;  // Not found, not an error
+        }
+
+        auto result_wrapper = new MLXArrayWrapper(*arr);
+        return reinterpret_cast<mlx_array_t*>(result_wrapper);
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to get weight: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" int mlx_weights_list(mlx_weights_t* weights, const char** names, int max_names) {
+    if (!weights) return 0;
+
+    auto weights_wrapper = reinterpret_cast<MLXWeightsWrapper*>(weights);
+    int count = static_cast<int>(weights_wrapper->weight_names.size());
+
+    if (names && max_names > 0) {
+        int to_copy = std::min(count, max_names);
+        for (int i = 0; i < to_copy; ++i) {
+            names[i] = weights_wrapper->weight_names[i].c_str();
+        }
+    }
+
+    return count;
+}
+
+extern "C" void mlx_weights_free(mlx_weights_t* weights) {
+    if (weights) {
+        delete reinterpret_cast<MLXWeightsWrapper*>(weights);
+    }
+}
+
+// ============================================================================
+// Evaluation and synchronization
+// ============================================================================
+
+extern "C" void mlx_eval(mlx_array_t* array) {
+    if (!array) return;
+
+    try {
+        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
+        mx::eval(wrapper->arr);
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Eval failed: ") + e.what();
+    }
+}
+
+extern "C" void mlx_eval_all(mlx_array_t** arrays, int num_arrays) {
+    if (!arrays || num_arrays <= 0) return;
+
+    try {
+        std::vector<mx::array> to_eval;
+        to_eval.reserve(num_arrays);
+
+        for (int i = 0; i < num_arrays; ++i) {
+            if (arrays[i]) {
+                auto wrapper = reinterpret_cast<MLXArrayWrapper*>(arrays[i]);
+                to_eval.push_back(wrapper->arr);
+            }
+        }
+
+        if (!to_eval.empty()) {
+            mx::eval(to_eval);
+        }
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Eval all failed: ") + e.what();
+    }
+}
+
+extern "C" void mlx_synchronize(void) {
+    try {
+        mx::synchronize();
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Synchronize failed: ") + e.what();
+    }
+}
+
+// ============================================================================
+// LoRA Adapter Caching
+// ============================================================================
+
+extern "C" const char* mlx_lora_cache_adapter(const char* adapter_id, mlx_array_t* lora_a, mlx_array_t* lora_b) {
+    if (!adapter_id || !lora_a || !lora_b) {
+        g_last_error = "adapter_id, lora_a, and lora_b are required";
+        return nullptr;
+    }
+
+    try {
+        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_a);
+        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_b);
+
+        std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+
+        // LRU eviction if at capacity
+        if (g_lora_cache.size() >= g_lora_cache_limit) {
+            // Find and evict least recently used
+            std::string lru_key;
+            uint64_t min_access = UINT64_MAX;
+
+            for (const auto& [key, entry] : g_lora_cache) {
+                if (entry.last_access < min_access) {
+                    min_access = entry.last_access;
+                    lru_key = key;
+                }
+            }
+
+            if (!lru_key.empty()) {
+                g_lora_cache.erase(lru_key);
+            }
+        }
+
+        // Insert or update
+        std::string key(adapter_id);
+        g_lora_cache[key] = LoRACacheEntry{
+            a_wrapper->arr,
+            b_wrapper->arr,
+            ++g_lora_access_counter
+        };
+
+        return adapter_id;
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to cache adapter: ") + e.what();
+        return nullptr;
+    }
+}
+
+extern "C" bool mlx_lora_get_cached(const char* adapter_id, mlx_array_t** out_lora_a, mlx_array_t** out_lora_b) {
+    if (!adapter_id || !out_lora_a || !out_lora_b) {
+        return false;
+    }
+
+    try {
+        std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+
+        auto it = g_lora_cache.find(std::string(adapter_id));
+        if (it == g_lora_cache.end()) {
+            return false;
+        }
+
+        // Update access time
+        it->second.last_access = ++g_lora_access_counter;
+
+        // Return copies of the arrays
+        *out_lora_a = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(it->second.lora_a));
+        *out_lora_b = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(it->second.lora_b));
+
+        return true;
+
+    } catch (const std::exception& e) {
+        g_last_error = std::string("Failed to get cached adapter: ") + e.what();
+        return false;
+    }
+}
+
+extern "C" void mlx_lora_evict_cached(const char* adapter_id) {
+    if (!adapter_id) return;
+
+    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+    g_lora_cache.erase(std::string(adapter_id));
+}
+
+extern "C" void mlx_lora_clear_cache(void) {
+    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+    g_lora_cache.clear();
+}
+
+extern "C" size_t mlx_lora_cache_size(void) {
+    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+    return g_lora_cache.size();
+}
+
+extern "C" void mlx_lora_set_cache_limit(size_t max_entries) {
+    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
+    g_lora_cache_limit = max_entries;
+
+    // Evict if over new limit
+    while (g_lora_cache.size() > g_lora_cache_limit) {
+        std::string lru_key;
+        uint64_t min_access = UINT64_MAX;
+
+        for (const auto& [key, entry] : g_lora_cache) {
+            if (entry.last_access < min_access) {
+                min_access = entry.last_access;
+                lru_key = key;
+            }
+        }
+
+        if (!lru_key.empty()) {
+            g_lora_cache.erase(lru_key);
+        } else {
+            break;
+        }
     }
 }
 

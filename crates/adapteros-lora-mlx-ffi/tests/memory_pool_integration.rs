@@ -9,13 +9,13 @@
 
 #[cfg(test)]
 mod memory_pool_integration_tests {
-    use adapteros_lora_mlx_ffi::{
-        MLXFFIBackend, MLXMemoryPoolConfig, MLXMemoryPool, MemoryPoolStats, MemoryPressureEvent,
-    };
     use adapteros_lora_mlx_ffi::mock::{create_mock_adapter, create_mock_config};
     use adapteros_lora_mlx_ffi::MLXFFIModel;
-    use std::sync::Arc;
+    use adapteros_lora_mlx_ffi::{
+        MLXFFIBackend, MLXMemoryPool, MLXMemoryPoolConfig, MemoryPressureEvent,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     // Helper to create a test backend
     fn create_test_backend() -> MLXFFIBackend {
@@ -33,7 +33,7 @@ mod memory_pool_integration_tests {
         assert_eq!(stats.total_allocations, 0);
         assert_eq!(stats.pool_hits, 0);
         assert_eq!(stats.pooled_buffer_count, 0);
-        assert_eq!(stats.total_adapter_memory(), 0);
+        assert_eq!(backend.get_total_adapter_memory(), 0);
     }
 
     #[test]
@@ -43,22 +43,32 @@ mod memory_pool_integration_tests {
 
         // Register first adapter
         let adapter1 = create_mock_adapter("adapter-1", 4);
-        backend.register_adapter(1, adapter1).expect("Register adapter 1");
+        backend
+            .register_adapter(1, adapter1)
+            .expect("Register adapter 1");
 
         // Verify memory is tracked
         let stats = backend.get_memory_pool_stats();
-        assert!(stats.total_active_bytes > 0, "Active memory should be tracked");
+        assert!(
+            stats.total_active_bytes > 0,
+            "Active memory should be tracked"
+        );
 
         let adapter_memory = backend.get_total_adapter_memory();
         assert!(adapter_memory > 0, "Adapter memory should be tracked");
 
         // Register second adapter
         let adapter2 = create_mock_adapter("adapter-2", 8);
-        backend.register_adapter(2, adapter2).expect("Register adapter 2");
+        backend
+            .register_adapter(2, adapter2)
+            .expect("Register adapter 2");
 
         // Verify cumulative tracking
         let new_adapter_memory = backend.get_total_adapter_memory();
-        assert!(new_adapter_memory > adapter_memory, "Total adapter memory should increase");
+        assert!(
+            new_adapter_memory > adapter_memory,
+            "Total adapter memory should increase"
+        );
     }
 
     #[test]
@@ -68,7 +78,9 @@ mod memory_pool_integration_tests {
 
         // Register an adapter
         let adapter = create_mock_adapter("adapter-test", 4);
-        backend.register_adapter(1, adapter).expect("Register adapter");
+        backend
+            .register_adapter(1, adapter)
+            .expect("Register adapter");
 
         let memory_before = backend.get_total_adapter_memory();
         assert!(memory_before > 0);
@@ -94,15 +106,24 @@ mod memory_pool_integration_tests {
         // Register adapters
         for i in 0..3 {
             let adapter = create_mock_adapter(&format!("adapter-{}", i), 4 + i * 2);
-            backend.register_adapter(i as u16, adapter).expect("Register adapter");
+            backend
+                .register_adapter(i as u16, adapter)
+                .expect("Register adapter");
         }
 
         let stats = backend.get_memory_pool_stats();
-        assert_eq!(stats.pooled_buffer_count, 0, "Adapters should not be in pool initially");
+        assert_eq!(
+            stats.pooled_buffer_count, 0,
+            "Adapters should not be in pool initially"
+        );
         assert!(stats.total_active_bytes > 0, "Should have active memory");
 
         // Verify adapter count
-        assert_eq!(backend.adapter_count(), 3, "Should have 3 adapters registered");
+        assert_eq!(
+            backend.adapter_count(),
+            3,
+            "Should have 3 adapters registered"
+        );
     }
 
     #[test]
@@ -114,9 +135,11 @@ mod memory_pool_integration_tests {
         assert_eq!(tracked_adapters_before.len(), 0);
 
         // Register adapters
-        backend.register_adapter(1, create_mock_adapter("a1", 4))
+        backend
+            .register_adapter(1, create_mock_adapter("a1", 4))
             .expect("Register adapter 1");
-        backend.register_adapter(2, create_mock_adapter("a2", 8))
+        backend
+            .register_adapter(2, create_mock_adapter("a2", 8))
             .expect("Register adapter 2");
 
         let tracked_adapters = backend.tracked_adapter_ids();
@@ -141,7 +164,9 @@ mod memory_pool_integration_tests {
         // Register adapters
         for i in 0..5 {
             let adapter = create_mock_adapter(&format!("adapter-{}", i), 4 + i as usize);
-            backend.register_adapter(i as u16, adapter).expect("Register adapter");
+            backend
+                .register_adapter(i as u16, adapter)
+                .expect("Register adapter");
         }
 
         let stats_before = backend.get_memory_pool_stats();
@@ -190,9 +215,11 @@ mod memory_pool_integration_tests {
         let backend = create_test_backend();
 
         // Register adapters
-        backend.register_adapter(1, create_mock_adapter("a1", 4))
+        backend
+            .register_adapter(1, create_mock_adapter("a1", 4))
             .expect("Register adapter 1");
-        backend.register_adapter(2, create_mock_adapter("a2", 8))
+        backend
+            .register_adapter(2, create_mock_adapter("a2", 8))
             .expect("Register adapter 2");
 
         // Clear memory pool
@@ -214,14 +241,18 @@ mod memory_pool_integration_tests {
         assert_eq!(metrics1.peak_memory_usage_mb, 0.0);
 
         // Register adapters
-        backend.register_adapter(1, create_mock_adapter("a1", 4))
+        backend
+            .register_adapter(1, create_mock_adapter("a1", 4))
             .expect("Register adapter 1");
 
         // Update metrics
         backend.update_memory_metrics();
 
         let metrics2 = &backend.performance_metrics.read().clone();
-        assert!(metrics2.peak_memory_usage_mb >= 0.0, "Peak memory should be non-negative");
+        assert!(
+            metrics2.peak_memory_usage_mb >= 0.0,
+            "Peak memory should be non-negative"
+        );
     }
 
     #[test]
@@ -249,11 +280,10 @@ mod memory_pool_integration_tests {
             // Register batch of adapters
             for i in 0..5 {
                 let adapter_id = (iteration * 5 + i) as u16;
-                let adapter = create_mock_adapter(
-                    &format!("adapter-{}", adapter_id),
-                    4 + (i as usize),
-                );
-                backend.register_adapter(adapter_id, adapter)
+                let adapter =
+                    create_mock_adapter(&format!("adapter-{}", adapter_id), 4 + (i as usize));
+                backend
+                    .register_adapter(adapter_id, adapter)
                     .expect("Register adapter");
             }
 
@@ -268,19 +298,24 @@ mod memory_pool_integration_tests {
             // Unload all adapters
             for i in 0..5 {
                 let adapter_id = (iteration * 5 + i) as u16;
-                backend.unload_adapter_runtime(adapter_id)
+                backend
+                    .unload_adapter_runtime(adapter_id)
                     .expect("Unload adapter");
             }
 
             // Verify all unloaded
-            assert_eq!(backend.adapter_count(), 0, "All adapters should be unloaded");
+            assert_eq!(
+                backend.adapter_count(),
+                0,
+                "All adapters should be unloaded"
+            );
         }
     }
 
     #[test]
     fn test_cleanup_idle_buffers() {
         // Test cleanup of idle pooled buffers
-        let backend = create_test_backend();
+        let _backend = create_test_backend();
 
         // Create a custom pool with short timeout for testing
         let mut config = MLXMemoryPoolConfig::default();
@@ -296,14 +331,19 @@ mod memory_pool_integration_tests {
         pool.return_buffer(buf2);
 
         let stats_before = pool.get_stats();
-        assert!(stats_before.pooled_buffer_count > 0, "Should have pooled buffers");
+        assert!(
+            stats_before.pooled_buffer_count > 0,
+            "Should have pooled buffers"
+        );
 
         // Clean up idle buffers
         let freed = pool.cleanup_idle();
         assert!(freed > 0, "Should have freed idle buffers");
 
         let stats_after = pool.get_stats();
-        assert!(stats_after.pooled_buffer_count < stats_before.pooled_buffer_count,
-            "Pooled buffer count should decrease");
+        assert!(
+            stats_after.pooled_buffer_count < stats_before.pooled_buffer_count,
+            "Pooled buffer count should decrease"
+        );
     }
 }

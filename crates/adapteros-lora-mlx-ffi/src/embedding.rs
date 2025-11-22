@@ -13,8 +13,8 @@ use tracing::{debug, info};
 
 use crate::{
     mlx_add, mlx_array_data, mlx_array_free, mlx_array_from_data, mlx_array_from_uints,
-    mlx_array_reshape, mlx_array_size, mlx_array_t, mlx_clear_error, mlx_divide, mlx_get_last_error,
-    mlx_mean, mlx_multiply, mlx_sqrt, mlx_sum, mlx_take,
+    mlx_array_reshape, mlx_array_size, mlx_array_t, mlx_clear_error, mlx_divide,
+    mlx_get_last_error, mlx_mean, mlx_multiply, mlx_sqrt, mlx_sum, mlx_take,
 };
 
 /// MLX embedding model configuration
@@ -471,16 +471,14 @@ impl MLXEmbeddingModel {
 
             // Reshape to [vocab_size, hidden_size]
             let emb_shape = [self.config.vocab_size as i32, hidden_size as i32];
-            let token_emb_reshaped =
-                mlx_array_reshape(token_emb_array, emb_shape.as_ptr(), 2);
+            let token_emb_reshaped = mlx_array_reshape(token_emb_array, emb_shape.as_ptr(), 2);
             mlx_array_free(token_emb_array);
             if token_emb_reshaped.is_null() {
                 return Err(self.get_mlx_error("Failed to reshape token embeddings"));
             }
 
             // Create indices array from token IDs
-            let indices_array =
-                mlx_array_from_uints(token_ids.as_ptr(), token_ids.len() as i32);
+            let indices_array = mlx_array_from_uints(token_ids.as_ptr(), token_ids.len() as i32);
             if indices_array.is_null() {
                 mlx_array_free(token_emb_reshaped);
                 return Err(self.get_mlx_error("Failed to create indices array"));
@@ -496,8 +494,7 @@ impl MLXEmbeddingModel {
 
             // Add position embeddings if available
             let hidden_states = if let Some(ref pos_emb) = self.weights.position_embeddings {
-                let pos_emb_array =
-                    mlx_array_from_data(pos_emb.as_ptr(), pos_emb.len() as i32);
+                let pos_emb_array = mlx_array_from_data(pos_emb.as_ptr(), pos_emb.len() as i32);
                 if pos_emb_array.is_null() {
                     mlx_array_free(hidden_states);
                     return Err(self.get_mlx_error("Failed to create position embeddings array"));
@@ -508,8 +505,7 @@ impl MLXEmbeddingModel {
                     self.config.max_position_embeddings as i32,
                     hidden_size as i32,
                 ];
-                let pos_emb_reshaped =
-                    mlx_array_reshape(pos_emb_array, pos_shape.as_ptr(), 2);
+                let pos_emb_reshaped = mlx_array_reshape(pos_emb_array, pos_shape.as_ptr(), 2);
                 mlx_array_free(pos_emb_array);
                 if pos_emb_reshaped.is_null() {
                     mlx_array_free(hidden_states);
@@ -673,8 +669,7 @@ impl MLXEmbeddingModel {
         }
 
         // Apply weights and bias: normalized * weights + bias
-        let weights_array =
-            mlx_array_from_data(weights.as_ptr(), weights.len() as i32);
+        let weights_array = mlx_array_from_data(weights.as_ptr(), weights.len() as i32);
         if weights_array.is_null() {
             mlx_array_free(normalized);
             return Err(self.get_mlx_error("Failed to create weights array"));
@@ -941,7 +936,12 @@ impl MLXEmbeddingModel {
         }
     }
 
-    fn apply_pooling_cpu(&self, hidden_states: &[f32], seq_len: usize, hidden_size: usize) -> Vec<f32> {
+    fn apply_pooling_cpu(
+        &self,
+        hidden_states: &[f32],
+        seq_len: usize,
+        hidden_size: usize,
+    ) -> Vec<f32> {
         match self.config.pooling_mode.as_str() {
             "mean" => {
                 let mut pooled = vec![0.0f32; hidden_size];
@@ -1008,10 +1008,7 @@ mod tests {
     fn test_mean_pooling_computation() {
         // Test mean pooling logic without requiring real tokenizer
         // Mean pooling averages embeddings across sequence dimension
-        let embeddings = vec![
-            vec![1.0, 2.0, 3.0],
-            vec![3.0, 4.0, 5.0],
-        ];
+        let embeddings = vec![vec![1.0, 2.0, 3.0], vec![3.0, 4.0, 5.0]];
 
         // Compute mean across sequence dimension
         let seq_len = embeddings.len();

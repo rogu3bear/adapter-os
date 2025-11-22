@@ -163,17 +163,29 @@ impl MLXMonitor {
             failed_requests,
             success_rate,
             current_failure_streak: health.current_failure_streak,
-            average_response_time_ms: mlx_metrics.as_ref().map(|m| m.average_latency_ms).unwrap_or(0.0),
+            average_response_time_ms: mlx_metrics
+                .as_ref()
+                .map(|m| m.average_latency_ms)
+                .unwrap_or(0.0),
             circuit_breaker_state: if health.operational {
                 "Operational"
             } else {
                 "Non-operational"
             }
             .to_string(),
-            average_inference_time_ms: mlx_metrics.as_ref().map(|m| m.average_latency_ms).unwrap_or(0.0),
-            peak_memory_usage_mb: mlx_metrics.as_ref().map(|m| m.peak_memory_usage_mb).unwrap_or(0.0),
+            average_inference_time_ms: mlx_metrics
+                .as_ref()
+                .map(|m| m.average_latency_ms)
+                .unwrap_or(0.0),
+            peak_memory_usage_mb: mlx_metrics
+                .as_ref()
+                .map(|m| m.peak_memory_usage_mb)
+                .unwrap_or(0.0),
             active_adapters: self.backend.adapters.read().len(),
-            cache_hit_rate: mlx_metrics.as_ref().map(|m| m.cache_hit_rate).unwrap_or(0.0),
+            cache_hit_rate: mlx_metrics
+                .as_ref()
+                .map(|m| m.cache_hit_rate)
+                .unwrap_or(0.0),
         };
 
         let result = HealthCheckResult {

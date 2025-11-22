@@ -175,7 +175,11 @@ mod determinism_tests {
             let seed2 = derive_seed(&manifest_hash, domain);
 
             // Same domain should produce same seed
-            assert_eq!(seed1, seed2, "Domain '{}' produced inconsistent seeds", domain);
+            assert_eq!(
+                seed1, seed2,
+                "Domain '{}' produced inconsistent seeds",
+                domain
+            );
 
             seed_map.insert(domain, seed1);
         }
@@ -236,7 +240,10 @@ mod determinism_tests {
             assert_bit_exact(&results[0], &results[i], &format!("inference run {}", i));
         }
 
-        println!("Inference determinism verified across {} runs", results.len());
+        println!(
+            "Inference determinism verified across {} runs",
+            results.len()
+        );
     }
 
     #[test]
@@ -358,7 +365,11 @@ mod determinism_tests {
 
         // All LoRA outputs must be bit-exact
         for i in 1..results.len() {
-            assert_bit_exact(&results[0], &results[i], &format!("LoRA application run {}", i));
+            assert_bit_exact(
+                &results[0],
+                &results[i],
+                &format!("LoRA application run {}", i),
+            );
         }
 
         println!(
@@ -407,7 +418,11 @@ mod determinism_tests {
 
         // Results must be bit-exact
         for i in 1..results.len() {
-            assert_bit_exact(&results[0], &results[i], &format!("multi-adapter run {}", i));
+            assert_bit_exact(
+                &results[0],
+                &results[i],
+                &format!("multi-adapter run {}", i),
+            );
         }
 
         println!(
@@ -453,7 +468,10 @@ mod determinism_tests {
             );
         }
 
-        println!("Multi-run bit-exact determinism verified across {} runs", num_runs);
+        println!(
+            "Multi-run bit-exact determinism verified across {} runs",
+            num_runs
+        );
     }
 
     #[test]
@@ -649,7 +667,10 @@ mod determinism_tests {
             tolerance * 100.0
         );
 
-        println!("Seed entropy quality verified ({:.1}% bytes within tolerance)", ratio * 100.0);
+        println!(
+            "Seed entropy quality verified ({:.1}% bytes within tolerance)",
+            ratio * 100.0
+        );
     }
 
     // =============================================================================
@@ -662,7 +683,9 @@ mod determinism_tests {
         use adapteros_lora_kernel_api::FusedKernels;
 
         let backend = create_test_backend();
-        let report = backend.attest_determinism().expect("Attestation should succeed");
+        let report = backend
+            .attest_determinism()
+            .expect("Attestation should succeed");
 
         // In stub mode, should not be deterministic
         // In real-mlx mode, should be deterministic with HKDF seeding
@@ -678,7 +701,10 @@ mod determinism_tests {
         #[cfg(feature = "real-mlx")]
         {
             // With real MLX, determinism depends on proper HKDF seeding
-            println!("Backend attestation reported deterministic={}", report.deterministic);
+            println!(
+                "Backend attestation reported deterministic={}",
+                report.deterministic
+            );
         }
     }
 
@@ -746,7 +772,11 @@ mod determinism_tests {
                 // Verify no NaN or Inf
                 for &val in &softmax {
                     assert!(!val.is_nan(), "Softmax produced NaN for case '{}'", name);
-                    assert!(!val.is_infinite(), "Softmax produced Inf for case '{}'", name);
+                    assert!(
+                        !val.is_infinite(),
+                        "Softmax produced Inf for case '{}'",
+                        name
+                    );
                 }
 
                 results.push(softmax);
@@ -754,11 +784,18 @@ mod determinism_tests {
 
             // Verify determinism
             for i in 1..results.len() {
-                assert_bit_exact(&results[0], &results[i], &format!("softmax '{}' run {}", name, i));
+                assert_bit_exact(
+                    &results[0],
+                    &results[i],
+                    &format!("softmax '{}' run {}", name, i),
+                );
             }
         }
 
-        println!("Numerical stability for softmax verified across {} test cases", num_test_cases);
+        println!(
+            "Numerical stability for softmax verified across {} test cases",
+            num_test_cases
+        );
     }
 
     #[test]

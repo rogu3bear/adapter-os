@@ -131,8 +131,9 @@ mod seeding_workflow_tests {
         // Step 3: Plan loading seed
         let plan_bytes = b"test-inference-plan";
         let plan_hash = B3Hash::hash(plan_bytes);
+        let backend_seed_hash = B3Hash::from_bytes(backend_seed);
         let plan_seed = derive_seed(
-            &backend_seed,
+            &backend_seed_hash,
             &format!("mlx-plan:{}", plan_hash.to_short_hex()),
         );
 
@@ -140,7 +141,7 @@ mod seeding_workflow_tests {
 
         // Step 4: Adapter-specific seed
         let adapter_id: u16 = 42;
-        let adapter_seed = derive_seed(&backend_seed, &format!("mlx-adapter:{}", adapter_id));
+        let adapter_seed = derive_seed(&backend_seed_hash, &format!("mlx-adapter:{}", adapter_id));
 
         assert!(mlx_set_seed_from_bytes(&adapter_seed).is_ok());
     }
@@ -335,16 +336,18 @@ mod seeding_integration_tests {
 
         // Level 3: Model-specific seed
         let model_hash = B3Hash::hash(b"/models/qwen-7b");
+        let backend_seed_hash = B3Hash::from_bytes(backend_seed);
         let model_seed = derive_seed(
-            &backend_seed,
+            &backend_seed_hash,
             &format!("model:{}", model_hash.to_short_hex()),
         );
 
         // Level 4: Inference-specific seed
-        let inference_seed = derive_seed(&model_seed, "inference:batch-0");
+        let model_seed_hash = B3Hash::from_bytes(model_seed);
+        let inference_seed = derive_seed(&model_seed_hash, "inference:batch-0");
 
         // All levels should set successfully
-        assert!(mlx_set_seed_from_bytes(&global_seed.as_bytes()).is_ok());
+        assert!(mlx_set_seed_from_bytes(global_seed.as_bytes()).is_ok());
         assert!(mlx_set_seed_from_bytes(&backend_seed).is_ok());
         assert!(mlx_set_seed_from_bytes(&model_seed).is_ok());
         assert!(mlx_set_seed_from_bytes(&inference_seed).is_ok());

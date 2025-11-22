@@ -132,7 +132,8 @@ fn assert_health_status(backend: &MLXFFIBackend, expected: &BackendHealth) {
         assert!(
             actual.total_requests >= expected.total_requests,
             "total_requests mismatch: expected at least {}, got {}",
-            expected.total_requests, actual.total_requests
+            expected.total_requests,
+            actual.total_requests
         );
     }
 }
@@ -211,8 +212,14 @@ fn test_circuit_breaker_opens() {
     // Initially should be healthy and operational
     let health = backend.health_status();
     assert!(health.operational, "Backend should start operational");
-    assert!(!health.stub_fallback_active, "Stub fallback should not be active initially");
-    assert_eq!(health.current_failure_streak, 0, "Should have no failures initially");
+    assert!(
+        !health.stub_fallback_active,
+        "Stub fallback should not be active initially"
+    );
+    assert_eq!(
+        health.current_failure_streak, 0,
+        "Should have no failures initially"
+    );
 
     // Run successful operations - stub mode always succeeds
     let mut io = create_test_io_buffers();
@@ -227,8 +234,14 @@ fn test_circuit_breaker_opens() {
 
     // Verify successful operations were tracked
     let health = backend_mut.health_status();
-    assert_eq!(health.successful_requests, 5, "Should have 5 successful requests");
-    assert_eq!(health.current_failure_streak, 0, "Should have no failure streak");
+    assert_eq!(
+        health.successful_requests, 5,
+        "Should have 5 successful requests"
+    );
+    assert_eq!(
+        health.current_failure_streak, 0,
+        "Should have no failure streak"
+    );
 
     // Note: In stub mode, we cannot actually trigger failures.
     // The circuit breaker logic is tested through the health tracking.
@@ -255,9 +268,18 @@ fn test_circuit_breaker_recovery() {
 
     // Verify healthy state after reset
     let health = backend.health_status();
-    assert!(health.operational, "Backend should be operational after reset");
-    assert_eq!(health.current_failure_streak, 0, "Failure streak should be reset");
-    assert!(!health.stub_fallback_active, "Stub fallback should be disabled after reset");
+    assert!(
+        health.operational,
+        "Backend should be operational after reset"
+    );
+    assert_eq!(
+        health.current_failure_streak, 0,
+        "Failure streak should be reset"
+    );
+    assert!(
+        !health.stub_fallback_active,
+        "Stub fallback should be disabled after reset"
+    );
 
     // Perform successful operation to confirm recovery
     let mut io = create_test_io_buffers();
@@ -269,7 +291,10 @@ fn test_circuit_breaker_recovery() {
 
     // Verify health tracking after recovery
     let health = backend_mut.health_status();
-    assert_eq!(health.successful_requests, 1, "Should have 1 successful request");
+    assert_eq!(
+        health.successful_requests, 1,
+        "Should have 1 successful request"
+    );
     assert!(health.operational, "Should remain operational");
 }
 
@@ -306,10 +331,19 @@ fn test_health_status_tracking() {
     // Verify metrics after successful operations
     let health = backend_mut.health_status();
     assert_eq!(health.total_requests, 10, "Should have 10 total requests");
-    assert_eq!(health.successful_requests, 10, "Should have 10 successful requests");
+    assert_eq!(
+        health.successful_requests, 10,
+        "Should have 10 successful requests"
+    );
     assert_eq!(health.failed_requests, 0, "Should have 0 failed requests");
-    assert_eq!(health.current_failure_streak, 0, "Should have no failure streak");
-    assert!(health.last_failure.is_none(), "Should have no last failure timestamp");
+    assert_eq!(
+        health.current_failure_streak, 0,
+        "Should have no failure streak"
+    );
+    assert!(
+        health.last_failure.is_none(),
+        "Should have no last failure timestamp"
+    );
 
     // Verify is_healthy() returns correct value
     assert!(backend_mut.is_healthy(), "Backend should be healthy");
@@ -358,7 +392,10 @@ fn test_failover_actions() {
     let failover_env_vars: std::collections::HashMap<String, String> = [
         ("BACKEND_FAILED".to_string(), "mlx".to_string()),
         ("FAILOVER_ACTIVE".to_string(), "true".to_string()),
-        ("FAILOVER_REASON".to_string(), "consecutive_failures".to_string()),
+        (
+            "FAILOVER_REASON".to_string(),
+            "consecutive_failures".to_string(),
+        ),
     ]
     .into();
 
@@ -398,7 +435,10 @@ fn test_failover_env_vars_configuration() {
 
     let mut env_vars = std::collections::HashMap::new();
     env_vars.insert("AOS_FAILOVER_BACKEND".to_string(), "metal".to_string());
-    env_vars.insert("AOS_FAILOVER_TIMESTAMP".to_string(), "2025-01-01T00:00:00Z".to_string());
+    env_vars.insert(
+        "AOS_FAILOVER_TIMESTAMP".to_string(),
+        "2025-01-01T00:00:00Z".to_string(),
+    );
     env_vars.insert("AOS_FAILOVER_SEVERITY".to_string(), "critical".to_string());
 
     let config = MLXResilienceConfig {
@@ -451,7 +491,11 @@ fn test_stub_fallback_inference() {
     assert!(result.is_ok(), "Stub inference should succeed");
 
     // Verify output is valid
-    assert_eq!(io.output_logits.len(), 32000, "Should have vocab_size logits");
+    assert_eq!(
+        io.output_logits.len(),
+        32000,
+        "Should have vocab_size logits"
+    );
     assert_eq!(io.position, 1, "Position should be incremented");
 
     // Verify logits are not all zeros (stub generates non-zero values)
@@ -492,7 +536,10 @@ fn test_stub_fallback_with_adapters() {
 
     // Verify adapters were considered (check non-zero logits)
     let non_zero_count = io.output_logits.iter().filter(|&&x| x != 0.0).count();
-    assert!(non_zero_count > 0, "Should have non-zero logits with adapters");
+    assert!(
+        non_zero_count > 0,
+        "Should have non-zero logits with adapters"
+    );
 }
 
 #[test]
@@ -552,9 +599,18 @@ fn test_reset_health() {
 
     // Verify reset state
     let health_after = backend_mut.health_status();
-    assert!(health_after.operational, "Should be operational after reset");
-    assert_eq!(health_after.current_failure_streak, 0, "Failure streak should be 0");
-    assert!(!health_after.stub_fallback_active, "Stub fallback should be inactive");
+    assert!(
+        health_after.operational,
+        "Should be operational after reset"
+    );
+    assert_eq!(
+        health_after.current_failure_streak, 0,
+        "Failure streak should be 0"
+    );
+    assert!(
+        !health_after.stub_fallback_active,
+        "Stub fallback should be inactive"
+    );
 
     // Note: total_requests and successful_requests are not reset by reset_health()
     // This is intentional - only failure state is cleared for recovery purposes
@@ -624,8 +680,15 @@ fn test_monitoring_integration() {
     assert!(health_check.is_some(), "Should have health check result");
 
     let check = health_check.unwrap();
-    assert_eq!(check.status, HealthStatus::Healthy, "Should be healthy initially");
-    assert!(check.health_score > 0.0, "Should have positive health score");
+    assert_eq!(
+        check.status,
+        HealthStatus::Healthy,
+        "Should be healthy initially"
+    );
+    assert!(
+        check.health_score > 0.0,
+        "Should have positive health score"
+    );
     assert_eq!(check.backend_name, "mlx");
 }
 
@@ -652,10 +715,22 @@ fn test_monitoring_metrics_export() {
     let metrics = backend_mut.export_metrics();
 
     // Verify Prometheus-style metrics are present
-    assert!(metrics.contains("mlx_backend_requests_total"), "Should have requests total");
-    assert!(metrics.contains("mlx_backend_requests_successful"), "Should have successful requests");
-    assert!(metrics.contains("mlx_backend_success_rate"), "Should have success rate");
-    assert!(metrics.contains("mlx_backend_health_score"), "Should have health score");
+    assert!(
+        metrics.contains("mlx_backend_requests_total"),
+        "Should have requests total"
+    );
+    assert!(
+        metrics.contains("mlx_backend_requests_successful"),
+        "Should have successful requests"
+    );
+    assert!(
+        metrics.contains("mlx_backend_success_rate"),
+        "Should have success rate"
+    );
+    assert!(
+        metrics.contains("mlx_backend_health_score"),
+        "Should have health score"
+    );
 }
 
 #[test]
@@ -688,7 +763,11 @@ fn test_monitoring_alerts() {
     // After successful operations, should still have no alerts
     let alerts_after = backend_mut.active_alerts();
     // Note: Since all operations succeed, no alerts should be generated
-    assert_eq!(alerts_after.len(), 0, "Should have no alerts after successful ops");
+    assert_eq!(
+        alerts_after.len(),
+        0,
+        "Should have no alerts after successful ops"
+    );
 }
 
 #[test]

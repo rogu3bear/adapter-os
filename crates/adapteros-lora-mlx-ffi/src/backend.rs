@@ -4,7 +4,7 @@ use crate::{LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig};
 use adapteros_core::{derive_seed, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Resilience configuration for MLX backend
@@ -95,11 +95,24 @@ pub struct BackendHealth {
 impl MLXFFIBackend {
     /// Create new MLX FFI backend with loaded model and default resilience
     pub fn new(model: MLXFFIModel) -> Self {
+        // Ensure MLX runtime is initialized
+        if let Err(e) = crate::mlx_runtime_init() {
+            tracing::warn!("MLX runtime initialization warning: {}", e);
+            // Continue - may already be initialized
+        }
+
         Self::with_resilience_config(model, MLXResilienceConfig::default())
     }
 
     /// Create new MLX FFI backend with custom resilience configuration
     pub fn with_resilience_config(model: MLXFFIModel, config: MLXResilienceConfig) -> Self {
+        // Ensure MLX runtime is initialized
+        if !crate::mlx_runtime_is_initialized() {
+            if let Err(e) = crate::mlx_runtime_init() {
+                tracing::warn!("MLX runtime init in backend: {}", e);
+            }
+        }
+
         let memory_pool_config = MLXMemoryPoolConfig::default();
         let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
 
@@ -514,271 +527,19 @@ impl FusedKernels for MLXFFIBackend {
             health.total_requests += 1;
         }
 
-        // ⚠️  MLX BACKEND STATUS: STUB IMPLEMENTATION ⚠️
-        // This backend has sophisticated stub fallback but NO real MLX integration.
-        // See BACKEND_STATUS.md for details.
-
-        // Check if we should use stub fallback
-        let use_stub_fallback = if cfg!(feature = "real-mlx") {
-            // Real MLX feature enabled - only use stub if circuit breaker is active
+        // Check circuit breaker state for stub fallback
+        let use_stub_fallback = {
             let health = self.health_status.read();
-            if health.stub_fallback_active && self.resilience_config.enable_stub_fallback {
-                tracing::debug!("Using stub fallback due to circuit breaker activation");
-                true
-            } else {
-                false
-            }
-        } else {
-            // Real MLX not enabled - always use stub
-            tracing::debug!("MLX backend using stub mode (real-mlx feature not enabled)");
-            true
+            health.stub_fallback_active && self.resilience_config.enable_stub_fallback
         };
 
         let result = if use_stub_fallback {
-            // Use stub fallback - return dummy logits but log the reason
-            tracing::warn!(
-                "MLX backend using stub fallback mode (circuit breaker or failure recovery)"
-            );
-
-            // Generate dummy logits based on vocabulary size (assume 32K tokens)
-            let vocab_size = 32000;
-            let mut logits = vec![0.0f32; vocab_size];
-
-            // Add some entropy to make it look realistic
-            for (i, logit) in logits.iter_mut().enumerate() {
-                *logit = (i as f32 * 0.01).sin() * 0.1; // Simple pattern
-            }
-
-            // Normalize to make it look like proper logits
-            let sum: f32 = logits.iter().map(|x| x.exp()).sum();
-            for logit in &mut logits {
-                *logit = (*logit).exp() / sum;
-            }
-
-            // Apply minimal LoRA effect if adapters are loaded (for consistency)
-            if !ring.indices.is_empty() {
-                let _adaptation_weight = 0.01; // Much smaller for fallback mode
-                for (i, logit) in logits.iter_mut().enumerate() {
-                    // Simple LoRA-like effect based on adapter count
-                    let adapter_effect = (ring.indices.len() as f32) * 0.001;
-                    *logit += adapter_effect * (i as f32 * 0.0001).sin();
-                }
-            }
-
-            io.output_logits.copy_from_slice(&logits);
-            io.position += 1;
-
-            tracing::debug!(
-                "MLX stub inference: position={}, active_adapters={}, logits_len={}",
-                io.position,
-                ring.indices.len(),
-                logits.len()
-            );
-
-            Ok(())
+            // Use stub fallback due to circuit breaker activation
+            tracing::warn!("MLX backend using stub fallback mode (circuit breaker active)");
+            self.run_step_stub(ring, io)
         } else {
-            // Try real MLX inference
-            #[cfg(feature = "real-mlx")]
-            {
-                tracing::debug!("Running real MLX inference");
-
-                // Convert input token IDs to MLX array
-                let token_ints: Vec<i32> = io.input_ids.iter().map(|&x| x as i32).collect();
-                let input_array = unsafe {
-                    crate::mlx_array_from_ints(token_ints.as_ptr(), token_ints.len() as i32)
-                };
-
-                if input_array.is_null() {
-                    return Err(adapteros_core::AosError::Mlx(
-                        "Failed to create input array".to_string(),
-                    ));
-                }
-
-            // Run inference with hidden states for LoRA application
-            // Performance optimization: Use stack allocation for small data
-            let mut hidden_states_ptr: *mut crate::mlx_array_t = std::ptr::null_mut();
-            let mut hidden_count: i32 = 0;
-
-            // Call MLX inference - this is the core performance-critical operation
-            let inference_start = std::time::Instant::now();
-            let output_array = unsafe {
-                crate::mlx_model_forward_with_hidden_states(
-                    self.model.model,
-                    input_array,
-                    &mut hidden_states_ptr,
-                    &mut hidden_count,
-                )
-            };
-            let inference_time = inference_start.elapsed().as_millis() as u64;
-
-                // Clean up input array
-                unsafe { crate::mlx_array_free(input_array) };
-
-                if output_array.is_null() {
-                    return Err(adapteros_core::AosError::Mlx(
-                        "MLX inference failed".to_string(),
-                    ));
-                }
-
-                // Extract logits from output array with safety checks
-                let size = unsafe { crate::mlx_array_size(output_array) };
-                let data = unsafe { crate::mlx_array_data(output_array) };
-
-                if data.is_null() {
-                    unsafe { crate::mlx_array_free(output_array) };
-                    return Err(adapteros_core::AosError::Mlx("Null array data".to_string()));
-                }
-
-                if size == 0 {
-                    unsafe { crate::mlx_array_free(output_array) };
-                    return Err(adapteros_core::AosError::Mlx(
-                        "Empty output array".to_string(),
-                    ));
-                }
-
-                // Safety: Create a copy of the data
-                let logits = unsafe { std::slice::from_raw_parts(data, size) }.to_vec();
-                unsafe { crate::mlx_array_free(output_array) };
-
-                // Apply LoRA if we have adapters (simplified)
-                let final_logits = if !ring.indices.is_empty() {
-                    let mut adapted_logits = logits.clone();
-            let adapters = self.adapters.read();
-
-                    // Apply each active adapter with matrix-aware adaptation
-                    for &adapter_idx in &ring.indices {
-                        if let Some(adapter) = adapters.get(&(adapter_idx as u16)) {
-                            // Calculate scale from alpha and rank (standard LoRA scaling)
-                            let config = adapter.config();
-                            let scale = config.alpha / config.rank as f32;
-
-                            // Real LoRA implementation: output = input + scale * LoRA(input)
-                            // We simulate this using matrix properties and learned patterns
-                            for module_name in &config.target_modules.clone() {
-                                if let (Some(lora_a), Some(lora_b)) = (
-                                    adapter.lora_a.get(module_name),
-                                    adapter.lora_b.get(module_name)
-                                ) {
-                                    // Calculate effective rank and adaptation strength
-                                    let rank = lora_a[0].len().min(lora_b.len());
-                                    let adaptation_strength = (rank as f32).sqrt() * scale * 0.001;
-
-                                    // Apply position-aware adaptation that simulates matrix operations
-                                    let logits_len = adapted_logits.len();
-                                    for (i, logit) in adapted_logits.iter_mut().enumerate() {
-                                        // Simulate LoRA projection: different positions get different adaptations
-                                        let position_factor = i as f32 / logits_len as f32;
-                                        let adapter_factor = (adapter_idx as f32 * 0.1 + module_name.len() as f32 * 0.05).sin();
-                                        let matrix_factor = (rank as f32 * 0.01 * position_factor).cos();
-
-                                        let lora_adaptation = adaptation_strength *
-                                            (position_factor * adapter_factor + matrix_factor) * 0.1;
-
-                                        *logit += lora_adaptation;
-                                    }
-
-                            tracing::trace!(
-                                        "Applied matrix-aware LoRA adapter {} to module {}: scale={}, effective_rank={}, adaptation_strength={:.6}",
-                                        adapter_idx,
-                                module_name,
-                                        scale,
-                                        rank,
-                                        adaptation_strength
-                                    );
-                                } else {
-                                    // Fallback to simple scaling if matrices not available
-                                    for (i, logit) in adapted_logits.iter_mut().enumerate() {
-                                        let adaptation = (i as f32 * 0.001 * scale).sin() * 0.01;
-                                        *logit += adaptation;
-                                    }
-                                    tracing::debug!("Applied fallback LoRA adaptation for adapter {} (matrices not loaded)", adapter_idx);
-                                }
-                            }
-                        }
-                    }
-                    adapted_logits
-                } else {
-                    logits
-                };
-
-                // Clean up hidden states array using the proper FFI function
-                if !hidden_states_ptr.is_null() && hidden_count > 0 {
-                    unsafe { crate::mlx_hidden_states_free(hidden_states_ptr, hidden_count) };
-                }
-
-                io.output_logits.copy_from_slice(&final_logits);
-                io.position += 1;
-
-                // Update performance metrics
-                {
-                    let mut metrics = self.performance_metrics.write();
-                    metrics.total_requests += 1;
-                    metrics.total_inference_time_ms += inference_time;
-
-                    if metrics.total_requests > 0 {
-                        metrics.average_latency_ms = metrics.total_inference_time_ms as f32 / metrics.total_requests as f32;
-                    }
-
-                    // Update peak memory (simplified - would use actual MLX memory tracking)
-                    let current_memory = (final_logits.len() * 4) as f32 / (1024.0 * 1024.0); // 4 bytes per f32
-                    if current_memory > metrics.peak_memory_usage_mb {
-                        metrics.peak_memory_usage_mb = current_memory;
-                    }
-                }
-
-                tracing::debug!(
-                    "Real MLX inference complete: position={}, active_adapters={}, logits_len={}, inference_time={}ms",
-                    io.position,
-                    ring.indices.len(),
-                    final_logits.len(),
-                    inference_time
-                );
-
-                Ok(())
-            }
-
-            #[cfg(not(feature = "real-mlx"))]
-            {
-                // Fall back to stub if real MLX not compiled in
-                tracing::debug!("Real MLX feature not enabled, using stub inference");
-
-                // Generate dummy logits based on vocabulary size (assume 32K tokens)
-                let vocab_size = 32000;
-                let mut logits = vec![0.0f32; vocab_size];
-
-                // Add some entropy to make it look realistic
-                for (i, logit) in logits.iter_mut().enumerate() {
-                    *logit = (i as f32 * 0.01).sin() * 0.1; // Simple pattern
-                }
-
-                // Normalize to make it look like proper logits
-                let sum: f32 = logits.iter().map(|x| x.exp()).sum();
-                for logit in &mut logits {
-                    *logit = (*logit).exp() / sum;
-                }
-
-                // Apply minimal LoRA effect if adapters are loaded (for consistency)
-                if !ring.indices.is_empty() {
-                    let _adaptation_weight = 0.01; // Much smaller for fallback mode
-                    for (i, logit) in logits.iter_mut().enumerate() {
-                        // Simple LoRA-like effect based on adapter count
-                        let adapter_effect = (ring.indices.len() as f32) * 0.001;
-                        *logit += adapter_effect * (i as f32 * 0.0001).sin();
-                    }
-        }
-
-        io.output_logits.copy_from_slice(&logits);
-        io.position += 1;
-
-        tracing::debug!(
-                    "MLX stub inference: position={}, active_adapters={}, logits_len={}",
-            io.position,
-            ring.indices.len(),
-            logits.len()
-        );
-
-        Ok(())
-            }
+            // Run real MLX inference
+            self.run_step_mlx(ring, io)
         };
 
         // Update health based on result
@@ -852,34 +613,146 @@ impl FusedKernels for MLXFFIBackend {
     ) -> Result<adapteros_lora_kernel_api::attestation::DeterminismReport> {
         use adapteros_lora_kernel_api::attestation::*;
 
-        // Determine capabilities based on compilation mode
-        #[cfg(feature = "real-mlx")]
-        let (rng_method, deterministic, float_mode) = (
-            RngSeedingMethod::HkdfSeeded,     // Real MLX uses HKDF seeding for determinism
-            true,                             // Deterministic with proper seeding
-            FloatingPointMode::Deterministic, // MLX uses standard IEEE-754 floating-point
-        );
+        // Check if backend is properly seeded with manifest hash
+        let (rng_method, deterministic) = if self.manifest_hash.is_some() {
+            // HKDF-seeded with manifest hash - deterministic
+            (RngSeedingMethod::HkdfSeeded, true)
+        } else {
+            // No manifest hash - using system entropy, not deterministic
+            (RngSeedingMethod::SystemEntropy, false)
+        };
 
-        #[cfg(not(feature = "real-mlx"))]
-        let (rng_method, deterministic, float_mode) = (
-            RngSeedingMethod::SystemEntropy, // Stub mode uses system entropy
-            false,                           // Not deterministic
-            FloatingPointMode::Unknown,
-        );
+        // Check stub fallback state
+        let is_stub_active = {
+            let health = self.health_status.read();
+            health.stub_fallback_active
+        };
 
-        Ok(DeterminismReport {
+        // MLX uses IEEE-754 floating-point (deterministic when properly seeded)
+        let float_mode = FloatingPointMode::Deterministic;
+
+        // Report actual capabilities
+        let report = DeterminismReport {
             backend_type: BackendType::Mlx,
             metallib_hash: self.manifest_hash, // Include manifest hash for content addressing
             manifest: None,                    // No Metal-style manifest
             rng_seed_method: rng_method,
             floating_point_mode: float_mode,
             compiler_flags: vec![],
-            deterministic,
-        })
+            deterministic: deterministic && !is_stub_active,
+        };
+
+        tracing::info!(
+            deterministic = report.deterministic,
+            rng_method = ?report.rng_seed_method,
+            has_manifest_hash = self.manifest_hash.is_some(),
+            stub_active = is_stub_active,
+            "MLX backend determinism attestation"
+        );
+
+        Ok(report)
     }
 
     fn device_name(&self) -> &str {
         &self.device
+    }
+
+    fn load_adapter(&mut self, id: u16, weights: &[u8]) -> Result<()> {
+        // Parse adapter weights from safetensors format
+        let tensors = safetensors::SafeTensors::deserialize(weights).map_err(|e| {
+            adapteros_core::AosError::Parse(format!("Failed to parse adapter weights: {}", e))
+        })?;
+
+        // Create LoRA config from default (can be customized via metadata)
+        let config = crate::lora::LoRAConfig::default();
+        let adapter_id_str = format!("adapter_{}", id);
+        let mut adapter = LoRAAdapter::new(adapter_id_str.clone(), config.clone());
+
+        // Extract LoRA weights for each target module
+        for module_name in &config.target_modules {
+            let lora_a_key = format!("{}.lora_A", module_name);
+            let lora_b_key = format!("{}.lora_B", module_name);
+
+            if let (Ok(lora_a_tensor), Ok(lora_b_tensor)) =
+                (tensors.tensor(&lora_a_key), tensors.tensor(&lora_b_key))
+            {
+                // Convert tensors to Vec<Vec<f32>>
+                let lora_a = Self::tensor_to_nested_vec(&lora_a_tensor)?;
+                let lora_b = Self::tensor_to_nested_vec(&lora_b_tensor)?;
+
+                adapter.add_module_weights(module_name, lora_a, lora_b);
+
+                tracing::debug!(
+                    adapter_id = id,
+                    module = %module_name,
+                    "Loaded LoRA weights for hot-swap"
+                );
+            }
+        }
+
+        // Register adapter with memory tracking
+        self.register_adapter(id, adapter)?;
+
+        tracing::info!(
+            adapter_id = id,
+            adapter_name = %adapter_id_str,
+            "Hot-swap loaded adapter via FusedKernels trait"
+        );
+
+        Ok(())
+    }
+
+    fn unload_adapter(&mut self, id: u16) -> Result<()> {
+        // Use the existing runtime unload method
+        self.unload_adapter_runtime(id)?;
+
+        tracing::info!(
+            adapter_id = id,
+            "Hot-swap unloaded adapter via FusedKernels trait"
+        );
+
+        Ok(())
+    }
+
+    fn get_metrics(&self) -> adapteros_lora_kernel_api::BackendMetrics {
+        let metrics = self.performance_metrics.read();
+        let health = self.health_status.read();
+
+        adapteros_lora_kernel_api::BackendMetrics {
+            total_operations: health.total_requests,
+            successful_operations: health.successful_requests,
+            failed_operations: health.failed_requests,
+            avg_latency: std::time::Duration::from_millis(metrics.average_latency_ms as u64),
+            memory_usage_bytes: (metrics.peak_memory_usage_mb * 1024.0 * 1024.0) as u64,
+        }
+    }
+
+    fn health_check(&self) -> Result<adapteros_lora_kernel_api::BackendHealth> {
+        let health = self.health_status.read();
+
+        if !health.operational {
+            return Ok(adapteros_lora_kernel_api::BackendHealth::Failed {
+                reason: "Backend marked non-operational after consecutive failures".to_string(),
+                recoverable: true,
+            });
+        }
+
+        if health.stub_fallback_active {
+            return Ok(adapteros_lora_kernel_api::BackendHealth::Degraded {
+                reason: "Operating in stub fallback mode due to previous failures".to_string(),
+            });
+        }
+
+        if health.current_failure_streak > 0 {
+            return Ok(adapteros_lora_kernel_api::BackendHealth::Degraded {
+                reason: format!(
+                    "Recent failures detected: {} consecutive",
+                    health.current_failure_streak
+                ),
+            });
+        }
+
+        Ok(adapteros_lora_kernel_api::BackendHealth::Healthy)
     }
 }
 
@@ -909,6 +782,322 @@ impl MLXFFIBackend {
     /// Get manifest hash
     pub fn manifest_hash(&self) -> Option<B3Hash> {
         self.manifest_hash
+    }
+
+    /// Run inference step using real MLX FFI
+    fn run_step_mlx(&self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        let inference_start = std::time::Instant::now();
+
+        // Validate input
+        if io.input_ids.is_empty() {
+            return Err(adapteros_core::AosError::Validation(
+                "Input token IDs cannot be empty".to_string(),
+            ));
+        }
+
+        // Check model health before inference
+        if !self.model.is_healthy() {
+            return Err(adapteros_core::AosError::Mlx(
+                "Model is not healthy - circuit breaker may be open".to_string(),
+            ));
+        }
+
+        // Run forward pass with hidden states through the model
+        let (base_logits, hidden_states) = self.model.forward_with_hidden_states(&io.input_ids)?;
+
+        // Validate base logits
+        if base_logits.is_empty() {
+            return Err(adapteros_core::AosError::Mlx(
+                "Model returned empty logits".to_string(),
+            ));
+        }
+
+        // Apply LoRA adapters using RouterRing decisions
+        let final_logits = if ring.k > 0 && !self.adapters.read().is_empty() {
+            self.apply_router_ring_loras(ring, &base_logits, &hidden_states)?
+        } else {
+            if ring.k > 0 {
+                tracing::debug!(
+                    k = ring.k,
+                    "RouterRing specifies {} adapters but no adapters are loaded, using base model",
+                    ring.k
+                );
+            }
+            base_logits
+        };
+
+        // Update output buffer with proper size handling
+        let output_len = final_logits.len().min(io.output_logits.len());
+        if output_len == 0 {
+            return Err(adapteros_core::AosError::Mlx(
+                "Output buffer size mismatch - cannot copy logits".to_string(),
+            ));
+        }
+        io.output_logits[..output_len].copy_from_slice(&final_logits[..output_len]);
+        io.position += 1;
+
+        // Update performance metrics
+        let inference_time = inference_start.elapsed().as_millis() as u64;
+        {
+            let mut metrics = self.performance_metrics.write();
+            metrics.total_requests += 1;
+            metrics.total_inference_time_ms += inference_time;
+
+            if metrics.total_requests > 0 {
+                metrics.average_latency_ms =
+                    metrics.total_inference_time_ms as f32 / metrics.total_requests as f32;
+            }
+
+            // Update peak memory based on actual tensor sizes
+            let logits_memory =
+                (final_logits.len() * std::mem::size_of::<f32>()) as f32 / (1024.0 * 1024.0);
+            let hidden_memory: f32 = hidden_states
+                .values()
+                .map(|v| (v.len() * std::mem::size_of::<f32>()) as f32)
+                .sum::<f32>()
+                / (1024.0 * 1024.0);
+            let current_memory = logits_memory + hidden_memory;
+
+            if current_memory > metrics.peak_memory_usage_mb {
+                metrics.peak_memory_usage_mb = current_memory;
+            }
+        }
+
+        tracing::debug!(
+            position = io.position,
+            active_adapters = ring.k,
+            logits_len = final_logits.len(),
+            hidden_states_count = hidden_states.len(),
+            inference_time_ms = inference_time,
+            "MLX inference complete"
+        );
+
+        Ok(())
+    }
+
+    /// Apply LoRA adapters based on RouterRing decisions
+    ///
+    /// This method implements the multi-adapter routing pipeline:
+    /// 1. Collects active adapters based on RouterRing indices
+    /// 2. Applies Q15 quantized gate weights for each adapter
+    /// 3. Routes hidden states through LoRA transformations
+    /// 4. Blends LoRA outputs with base model logits
+    fn apply_router_ring_loras(
+        &self,
+        ring: &RouterRing,
+        base_logits: &[f32],
+        hidden_states: &std::collections::HashMap<String, Vec<f32>>,
+    ) -> Result<Vec<f32>> {
+        let adapters = self.adapters.read();
+
+        // Collect active adapters and their gates from RouterRing
+        let mut active_adapters: Vec<&LoRAAdapter> = Vec::with_capacity(ring.k);
+        let mut gates: Vec<u16> = Vec::with_capacity(ring.k);
+        let mut total_gate_weight: f32 = 0.0;
+
+        for i in 0..ring.k {
+            let adapter_id = ring.indices[i];
+            let gate_q15 = ring.gates_q15[i];
+
+            if let Some(adapter) = adapters.get(&adapter_id) {
+                // Skip adapters with zero or negative gates
+                if gate_q15 <= 0 {
+                    tracing::trace!(
+                        adapter_id = adapter_id,
+                        gate_q15 = gate_q15,
+                        "Skipping adapter with non-positive gate"
+                    );
+                    continue;
+                }
+
+                active_adapters.push(adapter.as_ref());
+                let gate_u16 = gate_q15 as u16;
+                gates.push(gate_u16);
+                total_gate_weight += gate_u16 as f32 / 32767.0; // Q15 dequantization
+            } else {
+                tracing::warn!(
+                    adapter_id = adapter_id,
+                    "RouterRing references adapter ID {} which is not loaded",
+                    adapter_id
+                );
+            }
+        }
+
+        if active_adapters.is_empty() {
+            tracing::debug!(
+                ring_k = ring.k,
+                "No active adapters qualified for routing, using base model output"
+            );
+            return Ok(base_logits.to_vec());
+        }
+
+        // Collect all unique target modules from active adapters
+        let mut target_modules: HashSet<&str> = HashSet::new();
+        for adapter in &active_adapters {
+            for module in &adapter.config().target_modules {
+                target_modules.insert(module.as_str());
+            }
+        }
+
+        // Start with base logits
+        let mut result = base_logits.to_vec();
+        let mut modules_applied = 0;
+
+        // Apply LoRA to each target module's hidden state
+        for module_name in target_modules {
+            if let Some(hidden) = hidden_states.get(module_name) {
+                // Apply multi-LoRA routing with Q15 gates
+                let lora_output = crate::routing::apply_multi_lora(
+                    &active_adapters,
+                    &gates,
+                    module_name,
+                    hidden,
+                    &result,
+                )?;
+
+                // Calculate adaptive blend factor based on total gate weight
+                // Higher total gate weight = stronger LoRA influence
+                // Clamped to [0.05, 0.5] for stability
+                let blend_factor =
+                    (total_gate_weight / active_adapters.len() as f32).clamp(0.05, 0.5);
+
+                // Blend LoRA output with result
+                for (i, &lora_val) in lora_output.iter().enumerate() {
+                    if i < result.len() {
+                        // Linear interpolation: result = base * (1 - blend) + lora * blend
+                        result[i] = result[i] * (1.0 - blend_factor) + lora_val * blend_factor;
+                    }
+                }
+
+                modules_applied += 1;
+
+                tracing::trace!(
+                    module = module_name,
+                    blend_factor = blend_factor,
+                    "Applied LoRA to module"
+                );
+            } else {
+                tracing::trace!(
+                    module = module_name,
+                    "Hidden state not available for module, skipping"
+                );
+            }
+        }
+
+        // Update adapter count in health status
+        {
+            let mut health = self.health_status.write();
+            health.active_adapters = active_adapters.len();
+        }
+
+        tracing::debug!(
+            active_adapters = active_adapters.len(),
+            modules_applied = modules_applied,
+            total_gate_weight = %format!("{:.4}", total_gate_weight),
+            gates = ?&gates[..gates.len().min(4)],
+            "Applied RouterRing LoRA adaptations"
+        );
+
+        Ok(result)
+    }
+
+    /// Run inference step using stub fallback (for circuit breaker or testing)
+    fn run_step_stub(&self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
+        // Use model's vocab size or default
+        let vocab_size = self.model.config.vocab_size;
+        let mut logits = vec![0.0f32; vocab_size];
+
+        // Generate deterministic pattern based on position
+        for (i, logit) in logits.iter_mut().enumerate() {
+            let base = ((i + io.position) as f32 * 0.01).sin() * 0.1;
+            *logit = base;
+        }
+
+        // Normalize to softmax-like distribution
+        let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let sum: f32 = logits.iter().map(|x| (x - max_logit).exp()).sum();
+        for logit in &mut logits {
+            *logit = (*logit - max_logit).exp() / sum;
+        }
+
+        // Apply minimal LoRA effect if adapters are loaded
+        if ring.k > 0 {
+            let adapters = self.adapters.read();
+            for i in 0..ring.k {
+                let adapter_id = ring.indices[i];
+                let gate_q15 = ring.gates_q15[i];
+
+                if let Some(adapter) = adapters.get(&adapter_id) {
+                    let gate_weight = (gate_q15.max(0) as f32) / 32767.0; // Q15 dequantization
+                    let scale = adapter.config().alpha / adapter.config().rank as f32;
+
+                    // Apply scaled adaptation
+                    for (j, logit) in logits.iter_mut().enumerate() {
+                        let adaptation = ((j as f32 + adapter_id as f32) * 0.001).sin()
+                            * scale
+                            * gate_weight
+                            * 0.01;
+                        *logit += adaptation;
+                    }
+                }
+            }
+        }
+
+        // Update output buffer
+        let output_len = logits.len().min(io.output_logits.len());
+        io.output_logits[..output_len].copy_from_slice(&logits[..output_len]);
+        io.position += 1;
+
+        tracing::debug!(
+            position = io.position,
+            active_adapters = ring.k,
+            logits_len = logits.len(),
+            "MLX stub inference complete"
+        );
+
+        Ok(())
+    }
+
+    /// Helper to convert safetensors tensor to nested Vec
+    fn tensor_to_nested_vec(tensor: &safetensors::tensor::TensorView) -> Result<Vec<Vec<f32>>> {
+        let shape = tensor.shape();
+        let data = tensor.data();
+
+        if shape.len() != 2 {
+            return Err(adapteros_core::AosError::Parse(format!(
+                "Expected 2D tensor, got shape {:?}",
+                shape
+            )));
+        }
+
+        let rows = shape[0];
+        let cols = shape[1];
+
+        // Convert bytes to f32
+        let float_data: &[f32] = unsafe {
+            std::slice::from_raw_parts(
+                data.as_ptr() as *const f32,
+                data.len() / std::mem::size_of::<f32>(),
+            )
+        };
+
+        if float_data.len() != rows * cols {
+            return Err(adapteros_core::AosError::Parse(format!(
+                "Data size mismatch: expected {} elements, got {}",
+                rows * cols,
+                float_data.len()
+            )));
+        }
+
+        // Convert to nested vec
+        let mut result = Vec::with_capacity(rows);
+        for i in 0..rows {
+            let start = i * cols;
+            let end = start + cols;
+            result.push(float_data[start..end].to_vec());
+        }
+
+        Ok(result)
     }
 }
 

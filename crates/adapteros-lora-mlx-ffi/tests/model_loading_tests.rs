@@ -125,23 +125,88 @@ mod model_config_tests {
 #[cfg(test)]
 mod model_loading_tests {
     use adapteros_lora_mlx_ffi::MLXFFIModel;
-    use tempfile::TempDir;
+    use std::path::{Path, PathBuf};
 
-    #[test]
-    #[ignore] // Requires actual MLX model files (enable when MLX available)
-    fn test_model_load_from_path() {
-        // This test requires actual model files:
-        // - config.json
-        // - model weights
-        // Skipped for automated testing
-        let _ = TempDir::new();
+    /// Get path to test fixtures
+    fn fixtures_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    /// Get path to specific model fixture
+    fn fixture_model_path(model_name: &str) -> PathBuf {
+        fixtures_dir().join(model_name)
     }
 
     #[test]
-    #[ignore] // Requires actual MLX model
     fn test_model_load_invalid_path() {
         let result = MLXFFIModel::load("/nonexistent/path/to/model");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_small_model_config_loading() {
+        let small_model_path = fixture_model_path("small_model");
+        assert!(small_model_path.exists(), "Fixture directory should exist");
+
+        let config_path = small_model_path.join("config.json");
+        assert!(config_path.exists(), "config.json should exist in fixture");
+
+        let config_str =
+            std::fs::read_to_string(&config_path).expect("Should be able to read config.json");
+        let config: adapteros_lora_mlx_ffi::ModelConfig =
+            serde_json::from_str(&config_str).expect("Should parse valid config");
+
+        assert_eq!(config.hidden_size, 768);
+        assert_eq!(config.num_hidden_layers, 12);
+        assert_eq!(config.num_attention_heads, 12);
+        assert_eq!(config.num_key_value_heads, 2);
+        assert_eq!(config.intermediate_size, 3072);
+        assert_eq!(config.vocab_size, 30522);
+        assert_eq!(config.max_position_embeddings, 512);
+    }
+
+    #[test]
+    fn test_medium_model_config_loading() {
+        let medium_model_path = fixture_model_path("medium_model");
+        assert!(medium_model_path.exists(), "Fixture directory should exist");
+
+        let config_path = medium_model_path.join("config.json");
+        assert!(config_path.exists(), "config.json should exist in fixture");
+
+        let config_str =
+            std::fs::read_to_string(&config_path).expect("Should be able to read config.json");
+        let config: adapteros_lora_mlx_ffi::ModelConfig =
+            serde_json::from_str(&config_str).expect("Should parse valid config");
+
+        assert_eq!(config.hidden_size, 2048);
+        assert_eq!(config.num_hidden_layers, 24);
+        assert_eq!(config.num_attention_heads, 16);
+        assert_eq!(config.num_key_value_heads, 4);
+        assert_eq!(config.intermediate_size, 8192);
+        assert_eq!(config.vocab_size, 50000);
+        assert_eq!(config.max_position_embeddings, 16384);
+    }
+
+    #[test]
+    fn test_large_model_config_loading() {
+        let large_model_path = fixture_model_path("large_model");
+        assert!(large_model_path.exists(), "Fixture directory should exist");
+
+        let config_path = large_model_path.join("config.json");
+        assert!(config_path.exists(), "config.json should exist in fixture");
+
+        let config_str =
+            std::fs::read_to_string(&config_path).expect("Should be able to read config.json");
+        let config: adapteros_lora_mlx_ffi::ModelConfig =
+            serde_json::from_str(&config_str).expect("Should parse valid config");
+
+        assert_eq!(config.hidden_size, 4096);
+        assert_eq!(config.num_hidden_layers, 32);
+        assert_eq!(config.num_attention_heads, 32);
+        assert_eq!(config.num_key_value_heads, 8);
+        assert_eq!(config.intermediate_size, 11008);
+        assert_eq!(config.vocab_size, 32000);
+        assert_eq!(config.max_position_embeddings, 32768);
     }
 
     #[test]
@@ -155,6 +220,27 @@ mod model_loading_tests {
 
         let result = serde_json::from_str::<adapteros_lora_mlx_ffi::ModelConfig>(incomplete_json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_json_file_format() {
+        let fixtures_dir = fixtures_dir();
+        let config_files = vec!["small_model", "medium_model", "large_model"];
+
+        for model_name in config_files {
+            let config_path = fixtures_dir.join(model_name).join("config.json");
+            assert!(
+                config_path.exists(),
+                "config.json should exist for {}",
+                model_name
+            );
+
+            let content = std::fs::read_to_string(&config_path).expect("Should read config file");
+
+            // Verify it's valid JSON
+            let _: serde_json::Value =
+                serde_json::from_str(&content).expect("config.json should be valid JSON");
+        }
     }
 }
 

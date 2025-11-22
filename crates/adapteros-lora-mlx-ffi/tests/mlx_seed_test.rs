@@ -5,7 +5,7 @@
 //! 2. Seeded operations produce consistent results
 //! 3. Error handling works correctly
 
-#[cfg(feature = "experimental-backends")]
+#[cfg(test)]
 mod mlx_seed_tests {
     use adapteros_core::{derive_seed, B3Hash};
     use adapteros_lora_mlx_ffi::mlx_set_seed_from_bytes;
@@ -81,16 +81,18 @@ mod mlx_seed_tests {
         let plan_bytes = b"test-plan-data";
         let plan_hash = B3Hash::hash(plan_bytes);
         let plan_label = format!("mlx-plan:{}", plan_hash.to_short_hex());
-        let plan_seed = derive_seed(&base_seed, &plan_label);
+        let base_seed_hash = B3Hash::from_bytes(base_seed);
+        let plan_seed = derive_seed(&base_seed_hash, &plan_label);
 
         assert!(mlx_set_seed_from_bytes(&plan_seed).is_ok());
 
         // Simulate step-specific seed
-        let step_seed = derive_seed(&plan_seed, "mlx-step:0");
+        let plan_seed_hash = B3Hash::from_bytes(plan_seed);
+        let step_seed = derive_seed(&plan_seed_hash, "mlx-step:0");
         assert!(mlx_set_seed_from_bytes(&step_seed).is_ok());
 
         // Simulate next step
-        let step_seed = derive_seed(&plan_seed, "mlx-step:1");
+        let step_seed = derive_seed(&plan_seed_hash, "mlx-step:1");
         assert!(mlx_set_seed_from_bytes(&step_seed).is_ok());
     }
 
@@ -124,32 +126,25 @@ mod mlx_seed_tests {
         let plan_bytes = b"inference-plan-v1";
         let plan_hash = B3Hash::hash(plan_bytes);
         let plan_label = format!("mlx-plan:{}", plan_hash.to_short_hex());
-        let seed = derive_seed(&base_seed, &plan_label);
+        let base_seed_hash = B3Hash::from_bytes(base_seed);
+        let seed = derive_seed(&base_seed_hash, &plan_label);
 
         assert!(mlx_set_seed_from_bytes(&seed).is_ok());
 
         // 3. Adapter load (like MlxBackend::load_adapter)
         let adapter_id: u16 = 42;
         let adapter_label = format!("mlx-adapter:{}", adapter_id);
-        let adapter_seed = derive_seed(&base_seed, &adapter_label);
+        let adapter_seed = derive_seed(&base_seed_hash, &adapter_label);
 
         assert!(mlx_set_seed_from_bytes(&adapter_seed).is_ok());
 
         // 4. Multiple steps
         for position in 0..10 {
             let label = format!("mlx-step:{}", position);
-            let step_seed = derive_seed(&base_seed, &label);
+            let step_seed = derive_seed(&base_seed_hash, &label);
             assert!(mlx_set_seed_from_bytes(&step_seed).is_ok());
         }
     }
 }
 
-#[cfg(not(feature = "experimental-backends"))]
-mod mlx_seed_disabled {
-    #[test]
-    fn test_mlx_disabled() {
-        // This test passes when MLX is disabled
-        // The actual MLX seeding tests only run with experimental-backends
-        assert!(true);
-    }
-}
+// Note: The tests above run with stub implementations when real-mlx feature is disabled

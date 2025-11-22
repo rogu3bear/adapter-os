@@ -72,43 +72,17 @@ non_camel_case_types = "allow"
 non_snake_case = "allow"
 non_upper_case_globals = "allow"
 
-# Disable tests that need API refactoring
-[[test]]
-name = "backend_integration_tests"
-test = false
-
-[[test]]
-name = "deterministic_seeding_tests"
-test = false
-
-[[test]]
-name = "model_loading_tests"
-test = false
-
-[[test]]
-name = "resilience_integration_test"
-test = false
-
-[[test]]
-name = "error_handling_tests"
-test = false
-
-[[test]]
-name = "memory_tracking_tests"
-test = false
-
-[[test]]
-name = "array_operations_tests"
-test = false
-
-[[test]]
-name = "lora_operations_tests"
-test = false
-
-[[test]]
-name = "mlx_seed_test"
-test = false
+# Tests are now enabled. They can run with stub implementations and be
+# conditionally skipped if real MLX is not available using #[ignore] attributes.
 
 [[bench]]
 name = "mlx_performance"
+harness = false
+
+[[bench]]
+name = "streaming_latency"
+harness = false
+
+[[bench]]
+name = "mlx_integration_benchmark"
 harness = false

@@ -131,39 +131,43 @@ fn bench_lora_transform(c: &mut Criterion) {
         for &hidden_dim in &[128usize, 512usize, 1024usize] {
             let param = format!("rank{}_dim{}", rank, hidden_dim);
 
-            group.bench_with_input(BenchmarkId::new("transform", &param), &(rank, hidden_dim), |b, &(r, dim)| {
-                // Create LoRA adapter with proper dimensions
-                let config = LoRAConfig {
-                    rank: r,
-                    alpha: 16.0,
-                    target_modules: vec!["q_proj".to_string()],
-                    dropout: 0.0,
-                };
-                let mut adapter = LoRAAdapter::new("bench-adapter".to_string(), config);
+            group.bench_with_input(
+                BenchmarkId::new("transform", &param),
+                &(rank, hidden_dim),
+                |b, &(r, dim)| {
+                    // Create LoRA adapter with proper dimensions
+                    let config = LoRAConfig {
+                        rank: r,
+                        alpha: 16.0,
+                        target_modules: vec!["q_proj".to_string()],
+                        dropout: 0.0,
+                    };
+                    let mut adapter = LoRAAdapter::new("bench-adapter".to_string(), config);
 
-                // Create LoRA A matrix: [rank, dim]
-                let lora_a: Vec<Vec<f32>> = (0..r)
-                    .map(|_| create_random_input(dim).into_iter().take(dim).collect())
-                    .collect();
+                    // Create LoRA A matrix: [rank, dim]
+                    let lora_a: Vec<Vec<f32>> = (0..r)
+                        .map(|_| create_random_input(dim).into_iter().take(dim).collect())
+                        .collect();
 
-                // Create LoRA B matrix: [dim, rank]
-                let lora_b: Vec<Vec<f32>> = (0..dim)
-                    .map(|_| create_random_input(r).into_iter().take(r).collect())
-                    .collect();
+                    // Create LoRA B matrix: [dim, rank]
+                    let lora_b: Vec<Vec<f32>> = (0..dim)
+                        .map(|_| create_random_input(r).into_iter().take(r).collect())
+                        .collect();
 
-                adapter.add_module_weights("q_proj", lora_a, lora_b);
+                    adapter.add_module_weights("q_proj", lora_a, lora_b);
 
-                // Input data
-                let input = create_random_input(dim);
-                let base_output = vec![0.0f32; dim];
+                    // Input data
+                    let input = create_random_input(dim);
+                    let base_output = vec![0.0f32; dim];
 
-                let adapters = vec![&adapter];
-                let gates = vec![16384u16]; // 0.5 in Q15
+                    let adapters = vec![&adapter];
+                    let gates = vec![16384u16]; // 0.5 in Q15
 
-                b.iter(|| {
-                    let _ = apply_multi_lora(&adapters, &gates, "q_proj", &input, &base_output);
-                });
-            });
+                    b.iter(|| {
+                        let _ = apply_multi_lora(&adapters, &gates, "q_proj", &input, &base_output);
+                    });
+                },
+            );
         }
     }
 
@@ -214,7 +218,13 @@ fn bench_multi_adapter_routing(c: &mut Criterion) {
                     let input = create_random_input(128);
                     let base_output = vec![0.0f32; 128];
 
-                    let _ = apply_multi_lora(&selected_adapters, &gates, "q_proj", &input, &base_output);
+                    let _ = apply_multi_lora(
+                        &selected_adapters,
+                        &gates,
+                        "q_proj",
+                        &input,
+                        &base_output,
+                    );
                 });
             },
         );
@@ -235,23 +245,19 @@ fn bench_memory_allocation(c: &mut Criterion) {
         let size_kb = size / 1024;
         let param = format!("{}KB", if size_kb > 0 { size_kb } else { 1 });
 
-        group.bench_with_input(
-            BenchmarkId::new("alloc_dealloc", &param),
-            &size,
-            |b, &s| {
-                b.iter(|| {
-                    // Allocate tensor data
-                    let data = create_random_input(s);
+        group.bench_with_input(BenchmarkId::new("alloc_dealloc", &param), &size, |b, &s| {
+            b.iter(|| {
+                // Allocate tensor data
+                let data = create_random_input(s);
 
-                    // Simulate tensor creation (this measures Rust allocation overhead)
-                    // Real MLX tensor creation would go through FFI
-                    let tensor_result = MLXFFITensor::from_data(&data, vec![1, s]);
+                // Simulate tensor creation (this measures Rust allocation overhead)
+                // Real MLX tensor creation would go through FFI
+                let tensor_result = MLXFFITensor::from_data(&data, vec![1, s]);
 
-                    // Tensor is dropped at end of iteration, measuring deallocation
-                    let _ = std::hint::black_box(tensor_result);
-                });
-            },
-        );
+                // Tensor is dropped at end of iteration, measuring deallocation
+                let _ = std::hint::black_box(tensor_result);
+            });
+        });
     }
 
     // Test repeated allocation/deallocation cycles

@@ -15,7 +15,66 @@ typedef struct mlx_array mlx_array_t;
 typedef struct mlx_model mlx_model_t;
 typedef struct mlx_context mlx_context_t;
 
+// ============================================================================
+// Runtime initialization and backend info
+// ============================================================================
+
+// Device type enumeration for device selection
+typedef enum {
+    MLX_DEVICE_CPU = 0,    // CPU backend
+    MLX_DEVICE_GPU = 1,    // GPU backend (Metal on macOS)
+    MLX_DEVICE_ANE = 2,    // Apple Neural Engine (if available)
+    MLX_DEVICE_AUTO = 3    // Auto-select best available device
+} mlx_device_type_t;
+
+// Backend capabilities structure
+typedef struct {
+    bool gpu_available;           // GPU (Metal) available
+    bool ane_available;           // Apple Neural Engine available
+    bool metal_compute;           // Metal compute shaders supported
+    bool unified_memory;          // Unified memory architecture
+    int max_threads_per_group;    // Maximum threads per threadgroup
+    size_t max_buffer_size;       // Maximum buffer size in bytes
+    char device_name[256];        // GPU device name
+    char mlx_version[64];         // MLX version string
+    char metal_version[64];       // Metal version string
+} mlx_backend_capabilities_t;
+
+// Initialize MLX runtime with specified device type
+// Returns 0 on success, -1 on error (check mlx_get_last_error())
+// This should be called once before using any other MLX functions
+int mlx_init(mlx_device_type_t device_type);
+
+// Initialize MLX with default settings (auto device selection)
+// Returns 0 on success, -1 on error
+int mlx_init_default(void);
+
+// Shutdown MLX runtime and release resources
+void mlx_shutdown(void);
+
+// Check if MLX runtime is initialized
+bool mlx_is_initialized(void);
+
+// Get current device type
+mlx_device_type_t mlx_get_device_type(void);
+
+// Set device type (switch between CPU/GPU)
+// Returns 0 on success, -1 on error
+int mlx_set_device(mlx_device_type_t device_type);
+
+// Get backend capabilities and version information
+// Fills the provided structure with capability information
+// Returns 0 on success, -1 on error
+int mlx_backend_info(mlx_backend_capabilities_t* capabilities);
+
+// Get MLX version string
+// Returns pointer to static string (do not free)
+const char* mlx_get_version(void);
+
+// ============================================================================
 // Context management
+// ============================================================================
+
 mlx_context_t* mlx_context_new(void);
 void mlx_context_free(mlx_context_t* ctx);
 void mlx_set_default_context(mlx_context_t* ctx);
@@ -49,6 +108,20 @@ mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_
 void mlx_model_free(mlx_model_t* model);
 void mlx_hidden_states_free(mlx_array_t* hidden_states, int num_hidden);
 
+// Hidden states access
+// Get the name of a hidden state at the given index
+// Parameters:
+//   model: model handle
+//   index: hidden state index (0-based)
+//   out_name: output buffer for name (can be NULL to just get length)
+//   out_name_len: length of output buffer
+// Returns: length of name (excluding null terminator), or 0 if invalid index
+int mlx_model_get_hidden_state_name(mlx_model_t* model, int index, char* out_name, int out_name_len);
+
+// Get the number of hidden states stored in the model
+// Returns: number of hidden states, or 0 if model is NULL
+int mlx_model_get_hidden_state_count(mlx_model_t* model);
+
 // Core operations
 mlx_array_t* mlx_add(mlx_array_t* a, mlx_array_t* b);
 mlx_array_t* mlx_subtract(mlx_array_t* a, mlx_array_t* b);
@@ -73,23 +146,30 @@ void mlx_set_seed(const uint8_t* seed, size_t seed_len);
 mlx_array_t* mlx_lora_forward(mlx_array_t* input, mlx_array_t* lora_a, mlx_array_t* lora_b, float alpha, float rank);
 mlx_array_t* mlx_lora_combine(mlx_array_t* base_output, mlx_array_t* lora_output, float gate);
 
-// Multi-adapter LoRA routing (K-sparse)
-// Apply multiple LoRA adapters with routing gates (max K=8)
+// Multi-adapter K-sparse LoRA routing with Q15 quantized gates
+//
+// Apply multiple LoRA adapters with K-sparse routing gates (max K=8)
+// Uses Q15 fixed-point format for gate weights (i16, 0-32767 maps to 0.0-1.0)
+//
+// Formula: output = input + sum_i(gate_i * B_i(A_i(input)) * (alpha/rank))
+//
 // Parameters:
-//   input: input tensor to transform
-//   lora_a_list: array of LoRA A matrices (low-rank down-projection)
-//   lora_b_list: array of LoRA B matrices (low-rank up-projection)
-//   num_adapters: number of adapters (K)
-//   gates_q15: array of Q15 quantized gate weights (u16, 0-32767)
+//   input: Input tensor to transform [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
+//   lora_a_list: Array of LoRA A matrices (down-projection) [hidden_dim, rank]
+//   lora_b_list: Array of LoRA B matrices (up-projection) [rank, hidden_dim]
+//   num_adapters: Number of active adapters (K-sparse, max 8)
+//   gates_q15: Array of Q15 quantized gate weights (i16, 0-32767 = 0.0-1.0)
 //   alpha: LoRA scaling factor
 //   rank: LoRA rank dimension
-// Returns: combined output = base + sum(gate_i * lora_i(input))
+//
+// Returns: Combined output tensor with identity path and weighted LoRA contributions
+//          NULL on error (check mlx_get_last_error())
 mlx_array_t* mlx_multi_lora_forward(
     mlx_array_t* input,
     mlx_array_t** lora_a_list,
     mlx_array_t** lora_b_list,
     int num_adapters,
-    const uint16_t* gates_q15,
+    const int16_t* gates_q15,
     float alpha,
     float rank
 );
@@ -277,6 +357,38 @@ void mlx_eval_all(mlx_array_t** arrays, int num_arrays);
 
 // Synchronize and wait for all GPU operations to complete
 void mlx_synchronize(void);
+
+// ============================================================================
+// LoRA Adapter Caching
+// ============================================================================
+
+// Cache LoRA adapter weights for efficient reuse
+// Parameters:
+//   adapter_id: unique identifier for the adapter
+//   lora_a: LoRA A matrix (down-projection)
+//   lora_b: LoRA B matrix (up-projection)
+// Returns: adapter_id on success, NULL on failure
+const char* mlx_lora_cache_adapter(const char* adapter_id, mlx_array_t* lora_a, mlx_array_t* lora_b);
+
+// Get cached LoRA adapter
+// Parameters:
+//   adapter_id: adapter identifier
+//   out_lora_a: output pointer for LoRA A matrix
+//   out_lora_b: output pointer for LoRA B matrix
+// Returns: true if found, false otherwise
+bool mlx_lora_get_cached(const char* adapter_id, mlx_array_t** out_lora_a, mlx_array_t** out_lora_b);
+
+// Evict a specific adapter from cache
+void mlx_lora_evict_cached(const char* adapter_id);
+
+// Clear all cached adapters
+void mlx_lora_clear_cache(void);
+
+// Get number of cached adapters
+size_t mlx_lora_cache_size(void);
+
+// Set maximum number of cached adapters (default: 32)
+void mlx_lora_set_cache_limit(size_t max_entries);
 
 #ifdef __cplusplus
 }

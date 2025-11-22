@@ -162,7 +162,7 @@ pub struct MLXGenerator {
     /// Generation configuration
     config: GenerationConfig,
     /// KV cache for efficient generation
-    cache: Option<KVCache>,
+    cache: Option<crate::kv_cache::MLXKVCache>,
     /// Base seed for deterministic generation
     base_seed: B3Hash,
 }
@@ -179,7 +179,13 @@ impl MLXGenerator {
         let rng = rand::rngs::StdRng::from_seed(rng_seed);
 
         let cache = if config.use_cache {
-            Some(KVCache::new(2048)) // Default max cache size
+            Some(crate::kv_cache::MLXKVCache::new(
+                crate::kv_cache::KVCacheConfig {
+                    num_layers: 32,
+                    max_seq_length: 2048, // Default max cache size
+                    ..Default::default()
+                },
+            ))
         } else {
             None
         };
@@ -212,8 +218,8 @@ impl MLXGenerator {
         );
 
         // Clear cache at start of generation
-        if let Some(cache) = &mut self.cache {
-            cache.clear();
+        if let Some(cache) = &self.cache {
+            cache.clear_all();
         }
 
         for step in 0..self.config.max_tokens {
@@ -286,8 +292,8 @@ impl MLXGenerator {
         let prompt_len = tokens.len();
 
         // Clear cache at start
-        if let Some(cache) = &mut self.cache {
-            cache.clear();
+        if let Some(cache) = &self.cache {
+            cache.clear_all();
         }
 
         for step in 0..self.config.max_tokens {
@@ -530,14 +536,105 @@ impl MLXGenerator {
 
     /// Get current cache state (for debugging)
     pub fn cache_len(&self) -> usize {
-        self.cache.as_ref().map_or(0, |c| c.len())
+        self.cache.as_ref().map_or(0, |c| c.get_size())
     }
 
     /// Clear generation cache
     pub fn clear_cache(&mut self) {
-        if let Some(cache) = &mut self.cache {
-            cache.clear();
+        if let Some(cache) = &self.cache {
+            cache.clear_all();
         }
+    }
+
+    /// Generate tokens with KV cache for O(n) complexity instead of O(n²)
+    ///
+    /// Uses incremental decoding: only process one token per step after the prompt.
+    /// The KV cache stores previously computed key/value tensors.
+    ///
+    /// # Arguments
+    /// * `model` - The MLX model to use
+    /// * `prompt_tokens` - Initial prompt token IDs
+    ///
+    /// # Returns
+    /// Generated token sequence including prompt
+    pub fn generate_with_cache(
+        &mut self,
+        model: &crate::MLXFFIModel,
+        prompt_tokens: Vec<u32>,
+    ) -> Result<Vec<u32>> {
+        let mut tokens = prompt_tokens.clone();
+        let prompt_len = tokens.len();
+
+        if prompt_len == 0 {
+            return Err(AosError::Validation("Empty prompt".to_string()));
+        }
+
+        // Extract config values to avoid borrow conflicts
+        let max_tokens = self.config.max_tokens;
+        let repetition_penalty = self.config.repetition_penalty;
+        let eos_token = self.config.eos_token;
+
+        // Create KV cache if not already present
+        if self.cache.is_none() {
+            self.cache = Some(crate::kv_cache::MLXKVCache::new(
+                crate::kv_cache::KVCacheConfig {
+                    num_layers: 32, // TODO: get from model config
+                    max_seq_length: max_tokens + prompt_len,
+                    ..Default::default()
+                },
+            ));
+        }
+
+        // Clear cache for new generation
+        if let Some(cache) = &self.cache {
+            cache.clear_all();
+        }
+
+        for step in 0..max_tokens {
+            let position = tokens.len() - 1;
+
+            // Use cached forward: full sequence on step 0, single token after
+            let input_tokens = if step == 0 {
+                tokens.clone()
+            } else {
+                vec![*tokens.last().unwrap()]
+            };
+
+            let logits =
+                model.forward_with_kv_cache(&input_tokens, position, self.cache.as_ref())?;
+
+            // Apply repetition penalty if configured
+            let penalized_logits = if repetition_penalty != 1.0 {
+                self.apply_repetition_penalty(&logits, &tokens)?
+            } else {
+                logits
+            };
+
+            // Sample next token
+            let next_token = self.sample_token(&penalized_logits)?;
+
+            // Check for EOS
+            if next_token == eos_token {
+                tracing::debug!(step, "EOS token generated");
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // Check max length
+            if tokens.len() >= prompt_len + max_tokens {
+                break;
+            }
+        }
+
+        let cache_stats = self.cache.as_ref().map(|c| c.get_stats());
+        tracing::info!(
+            generated = tokens.len() - prompt_len,
+            cache_updates = cache_stats.map(|s| s.cache_hits).unwrap_or(0),
+            "Generation with KV cache complete"
+        );
+
+        Ok(tokens)
     }
 
     /// Generate text from a text prompt using provided tokenizer

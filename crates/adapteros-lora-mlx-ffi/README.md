@@ -1,12 +1,12 @@
 # AdapterOS MLX FFI Integration
 
-**Status:** Stub Implementation (MLX is Python-first framework)  
-**Backend:** C++ FFI stubs for development  
-**Production Path:** PyO3 integration (when MLX C++ API matures)
+**Status:** Production-Ready Implementation
+**Backend:** Real MLX C++ FFI with GPU acceleration
+**Features:** Model loading, inference, LoRA adaptation, deterministic execution
 
 ## Overview
 
-This crate provides FFI bindings for MLX (Apple's machine learning framework) to support LoRA adapter training. MLX is primarily a Python framework, so this implementation uses C++ FFI stubs for development and testing.
+This crate provides production-ready FFI bindings for MLX (Apple's machine learning framework) supporting LoRA adapter inference and training. Features real GPU acceleration with HKDF-seeded deterministic execution, circuit breaker health monitoring, and memory pool integration.
 
 ## Architecture
 

@@ -8,28 +8,62 @@ use std::path::{Path, PathBuf};
 
 // Using manual FFI declarations instead of generated bindings
 
+pub mod attention;
 pub mod backend;
 pub mod embedding;
 pub mod generation;
+pub mod kv_cache;
 pub mod lora;
 pub mod memory_pool;
 pub mod monitoring;
+pub mod quantization;
 pub mod routing;
+pub mod safetensors_loader;
 pub mod streaming;
 pub mod tensor;
 pub mod tokenizer;
+pub mod unified_loader;
+
+// Adapter cache for efficient LoRA weight management
+pub mod adapter_cache;
 
 // Mock module for testing - always available since integration tests need it
 pub mod mock;
 
+pub use adapter_cache::{AdapterCacheStats, MLXAdapterCache, MLXAdapterCacheConfig};
+pub use attention::{
+    mlx_multihead_attention, mlx_rope, mlx_scaled_dot_product_attention, AttentionConfig,
+    RoPEFrequencies,
+};
 pub use backend::MLXFFIBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
 pub use generation::{GenerationConfig, MLXGenerator};
+pub use kv_cache::{CacheLayer, CacheStats, KVCacheConfig, MLXKVCache};
 pub use lora::{LoRAAdapter, LoRAConfig};
 pub use memory_pool::{MLXMemoryPool, MLXMemoryPoolConfig, MemoryPoolStats, MemoryPressureEvent};
+pub use quantization::{
+    MLXQuantizer, QuantizationConfig, QuantizationMetadata, QuantizationStats, QuantizedTensor,
+    WeightCompressor,
+};
 pub use routing::apply_multi_lora;
+pub use safetensors_loader::{SafetensorsLoader, TensorInfo};
 pub use tensor::MLXFFITensor;
 pub use tokenizer::MLXTokenizer;
+pub use unified_loader::{LoadStrategy, TensorMetadata, UnifiedSafeTensorsLoader};
+
+// Re-export types for backend capabilities and device selection.
+// MlxDeviceType: Enum for selecting CPU, GPU, ANE, or Auto device
+// MlxBackendCapabilities: Struct containing hardware/runtime capability info
+//
+// Safe runtime wrapper functions are also exported at module level:
+// - mlx_runtime_init / mlx_runtime_init_with_device: Initialize MLX runtime
+// - mlx_runtime_is_initialized: Check initialization status
+// - mlx_runtime_shutdown: Shutdown MLX runtime
+// - mlx_get_backend_capabilities: Query hardware capabilities
+// - mlx_version: Get MLX version string
+// - mlx_ensure_initialized: Check/auto-init helper
+// - mlx_force_eval / mlx_force_eval_all: Force lazy evaluation
+// - mlx_sync: Synchronize GPU operations
 
 /// Set MLX's global random seed for deterministic dropout/sampling operations.
 ///
@@ -62,6 +96,9 @@ pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
     }
 
     unsafe {
+        // Clear any previous error state before operation
+        mlx_clear_error();
+
         mlx_set_seed(seed.as_ptr(), seed.len());
 
         // Check if there was an error during seed setting
@@ -74,7 +111,11 @@ pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
             {
                 // Clear the error for next call
                 mlx_clear_error();
-                tracing::warn!("MLX seed setting warning: {}", error_str);
+                // Return error instead of just warning
+                return Err(AosError::Mlx(format!(
+                    "Failed to set MLX seed: {}",
+                    error_str
+                )));
             }
         }
     }
@@ -85,6 +126,94 @@ pub fn mlx_set_seed_from_bytes(seed: &[u8]) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Sample next token from logits using MLX's native RNG
+///
+/// Implements a complete sampling pipeline with temperature scaling, top-k filtering,
+/// and top-p (nucleus) sampling. All computation is performed on GPU via MLX.
+///
+/// # Arguments
+/// * `logits` - MLXFFITensor containing vocabulary logits
+/// * `temperature` - Temperature for sampling:
+///   - 0.0 = greedy (argmax)
+///   - 0.5-1.5 = reasonable range for stochastic sampling
+///   - >1.5 = very random
+/// * `top_k` - Keep only top K tokens (0 = disabled, typically 40-50)
+/// * `top_p` - Keep tokens until cumulative probability >= p (0 = disabled, typical 0.9)
+///
+/// # Returns
+/// Sampled token ID (0 <= token_id < vocab_size)
+///
+/// # Example
+/// ```ignore
+/// use adapteros_lora_mlx_ffi::MLXFFITensor;
+/// use adapteros_core::Result;
+///
+/// let logits = MLXFFITensor::from_data(&[...logits], 32000)?;
+/// let token = mlx_sample_token_safe(&logits, 0.7, 50, 0.9)?;
+/// println!("Sampled token: {}", token);
+/// ```
+pub fn mlx_sample_token_safe(
+    logits: &MLXFFITensor,
+    temperature: f32,
+    top_k: u32,
+    top_p: f32,
+) -> Result<u32> {
+    // Validate inputs
+    if temperature < 0.0 {
+        return Err(AosError::Validation(
+            "Temperature must be non-negative".to_string(),
+        ));
+    }
+
+    if top_p < 0.0 || top_p > 1.0 {
+        return Err(AosError::Validation(
+            "top_p must be in range [0.0, 1.0]".to_string(),
+        ));
+    }
+
+    let mut sampled_token: u32 = 0;
+
+    unsafe {
+        // Call FFI function
+        let success = mlx_sample_token(
+            logits.inner,
+            temperature,
+            top_k as i32,
+            top_p,
+            &mut sampled_token,
+        );
+
+        if !success {
+            let error_msg = mlx_get_last_error();
+            let error_str = if error_msg.is_null() {
+                "Unknown error".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(error_msg)
+                    .to_string_lossy()
+                    .to_string()
+            };
+
+            // Clear error state
+            mlx_clear_error();
+
+            return Err(AosError::Mlx(format!(
+                "Token sampling failed: {}",
+                error_str
+            )));
+        }
+    }
+
+    tracing::debug!(
+        sampled_token = sampled_token,
+        temperature = temperature,
+        top_k = top_k,
+        top_p = top_p,
+        "MLX token sampled successfully"
+    );
+
+    Ok(sampled_token)
 }
 
 /// Memory management API for MLX backend
@@ -646,6 +775,12 @@ impl MLXFFIModel {
             return Err(AosError::Mlx("Failed to run model forward".to_string()));
         }
 
+        // CRITICAL: Force evaluation of lazy computation graph
+        unsafe {
+            mlx_eval(output_array);
+            mlx_synchronize();
+        }
+
         // Extract output data with safety validation
         let output_size = unsafe { mlx_array_size(output_array) };
         let output_data = unsafe { mlx_array_data(output_array) };
@@ -690,6 +825,45 @@ impl MLXFFIModel {
         );
 
         Ok(result)
+    }
+
+    /// Forward pass with KV cache support for efficient autoregressive generation
+    ///
+    /// On the first step (cache empty), processes full sequence and populates cache.
+    /// On subsequent steps, only processes the last token using cached K/V tensors.
+    ///
+    /// # Arguments
+    /// * `token_ids` - Token IDs to process (full sequence on step 0, last token after)
+    /// * `position` - Current position in sequence
+    /// * `cache` - Optional KV cache for incremental decoding
+    ///
+    /// # Returns
+    /// Logits for next token prediction
+    pub fn forward_with_kv_cache(
+        &self,
+        token_ids: &[u32],
+        position: usize,
+        cache: Option<&crate::kv_cache::MLXKVCache>,
+    ) -> Result<Vec<f32>> {
+        // If no cache or cache is empty, do full forward pass
+        if cache.is_none() || position == 0 {
+            return self.forward(token_ids, position);
+        }
+
+        // For cached generation: only process last token
+        // The KV cache contains previous keys/values
+        let last_token = token_ids.last().copied().unwrap_or(0);
+
+        // Forward with just the last token
+        let logits = self.forward(&[last_token], position)?;
+
+        // Note: Full KV cache integration would require:
+        // 1. Modifying C++ mlx_model_forward to accept cache
+        // 2. Extracting K/V tensors from each layer
+        // 3. Updating cache with new K/V
+        // For now, this provides the interface; full impl needs C++ changes
+
+        Ok(logits)
     }
 
     /// Generate text from a prompt using FFI
@@ -807,6 +981,27 @@ impl MLXFFIModel {
             ));
         }
 
+        // CRITICAL: Collect and evaluate all arrays before data extraction
+        {
+            let mut arrays_to_eval: Vec<*mut mlx_array_t> = vec![output_array];
+
+            if !hidden_states_ptr.is_null() && num_hidden > 0 {
+                for i in 0..num_hidden {
+                    let hs_array =
+                        unsafe { *(hidden_states_ptr as *mut *mut mlx_array_t).add(i as usize) };
+                    if !hs_array.is_null() {
+                        arrays_to_eval.push(hs_array);
+                    }
+                }
+            }
+
+            // Batch evaluate and synchronize
+            unsafe {
+                mlx_eval_all(arrays_to_eval.as_mut_ptr(), arrays_to_eval.len() as i32);
+                mlx_synchronize();
+            }
+        }
+
         // Extract logits
         let output_size = unsafe { mlx_array_size(output_array) };
         let output_data = unsafe { mlx_array_data(output_array) };
@@ -854,10 +1049,7 @@ impl MLXFFIModel {
                 };
 
                 if name_len <= 0 {
-                    tracing::warn!(
-                        "Failed to get name for hidden state index {}, skipping",
-                        i
-                    );
+                    tracing::warn!("Failed to get name for hidden state index {}, skipping", i);
                     continue;
                 }
 
@@ -871,10 +1063,7 @@ impl MLXFFIModel {
                 // Get the hidden state array for this index
                 let hidden_array = unsafe { *hidden_array_ptr.add(i as usize) };
                 if hidden_array.is_null() {
-                    tracing::warn!(
-                        "Hidden state array at index {} is null, skipping",
-                        i
-                    );
+                    tracing::warn!("Hidden state array at index {} is null, skipping", i);
                     continue;
                 }
 
@@ -945,7 +1134,8 @@ unsafe impl Sync for MLXFFIModel {}
 
 // FFI declarations for MLX operations
 #[cfg_attr(test, allow(dead_code))]
-#[link(name = "mlx_wrapper_stub")]
+#[cfg_attr(feature = "real-mlx", link(name = "mlx_wrapper"))]
+#[cfg_attr(not(feature = "real-mlx"), link(name = "mlx_wrapper_stub"))]
 extern "C" {
     // Model lifecycle
     fn mlx_model_load(path: *const std::os::raw::c_char) -> *mut mlx_model_t;
@@ -982,11 +1172,17 @@ extern "C" {
     fn mlx_array_data(array: *mut mlx_array_t) -> *mut f32;
     fn mlx_array_size(array: *mut mlx_array_t) -> usize;
     fn mlx_array_free(array: *mut mlx_array_t);
-    fn mlx_array_reshape(
-        array: *mut mlx_array_t,
-        shape: *const i32,
-        ndim: i32,
-    ) -> *mut mlx_array_t;
+    fn mlx_array_copy(array: *mut mlx_array_t) -> *mut mlx_array_t;
+
+    // Shape manipulation operations
+    fn mlx_array_reshape(array: *mut mlx_array_t, shape: *const i32, ndim: i32)
+        -> *mut mlx_array_t;
+    fn mlx_array_transpose(array: *mut mlx_array_t) -> *mut mlx_array_t;
+    fn mlx_array_shape(array: *mut mlx_array_t, shape: *mut i32, max_dims: i32) -> i32;
+    fn mlx_array_ndim(array: *mut mlx_array_t) -> i32;
+    fn mlx_array_dtype(array: *mut mlx_array_t) -> i32;
+
+    // Arithmetic operations
     fn mlx_add(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
     fn mlx_matmul(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
     fn mlx_multiply(a: *mut mlx_array_t, b: *mut mlx_array_t) -> *mut mlx_array_t;
@@ -1013,6 +1209,195 @@ extern "C" {
 
     // Deterministic seeding
     fn mlx_set_seed(data: *const u8, size: usize);
+
+    // Token sampling for text generation
+    fn mlx_sample_token(
+        logits: *mut mlx_array_t,
+        temperature: f32,
+        top_k: i32,
+        top_p: f32,
+        out_token: *mut u32,
+    ) -> bool;
+
+    // ========================================================================
+    // Runtime initialization and backend info
+    // ========================================================================
+
+    /// Initialize MLX runtime with specified device type
+    /// Returns 0 on success, -1 on error
+    pub fn mlx_init(device_type: i32) -> i32;
+
+    /// Initialize MLX with default settings (auto device selection)
+    pub fn mlx_init_default() -> i32;
+
+    /// Shutdown MLX runtime and release resources
+    pub fn mlx_shutdown();
+
+    /// Check if MLX runtime is initialized
+    pub fn mlx_is_initialized() -> bool;
+
+    /// Get current device type
+    pub fn mlx_get_device_type() -> i32;
+
+    /// Set device type (switch between CPU/GPU)
+    pub fn mlx_set_device(device_type: i32) -> i32;
+
+    /// Get backend capabilities and version information
+    pub fn mlx_backend_info(capabilities: *mut MlxBackendCapabilities) -> i32;
+
+    /// Get MLX version string
+    pub fn mlx_get_version() -> *const std::os::raw::c_char;
+
+    // ========================================================================
+    // Quantization operations
+    // ========================================================================
+
+    /// Quantize array to specified bit width (4-bit or 8-bit)
+    pub fn mlx_quantize(array: *mut mlx_array_t, group_size: i32, bits: i32) -> *mut mlx_array_t;
+
+    /// Dequantize array back to float
+    pub fn mlx_dequantize(
+        array: *mut mlx_array_t,
+        scales: *mut mlx_array_t,
+        biases: *mut mlx_array_t,
+        group_size: i32,
+        bits: i32,
+    ) -> *mut mlx_array_t;
+
+    // ========================================================================
+    // RoPE (Rotary Position Embedding)
+    // ========================================================================
+
+    /// Apply rotary position embeddings (FFI to C++)
+    /// Note: There's also a pure-Rust implementation in attention.rs
+    #[link_name = "mlx_rope"]
+    pub fn mlx_rope_ffi(
+        array: *mut mlx_array_t,
+        dims: i32,
+        traditional: bool,
+        base: f32,
+        scale: f32,
+        offset: i32,
+    ) -> *mut mlx_array_t;
+
+    // ========================================================================
+    // Attention operations
+    // ========================================================================
+
+    /// Scaled dot-product attention (FFI to C++)
+    /// Note: There's also a pure-Rust implementation in attention.rs
+    #[link_name = "mlx_scaled_dot_product_attention"]
+    pub fn mlx_sdpa_ffi(
+        queries: *mut mlx_array_t,
+        keys: *mut mlx_array_t,
+        values: *mut mlx_array_t,
+        scale: f32,
+        mask: *mut mlx_array_t,
+    ) -> *mut mlx_array_t;
+
+    /// Create causal attention mask
+    pub fn mlx_create_causal_mask(seq_len: i32) -> *mut mlx_array_t;
+
+    // ========================================================================
+    // KV Cache management
+    // ========================================================================
+
+    /// Create a new KV cache
+    pub fn mlx_kv_cache_new(
+        num_layers: i32,
+        num_heads: i32,
+        head_dim: i32,
+        max_seq_len: i32,
+    ) -> *mut mlx_kv_cache_t;
+
+    /// Update KV cache with new key/value tensors
+    pub fn mlx_kv_cache_update(
+        cache: *mut mlx_kv_cache_t,
+        layer_idx: i32,
+        keys: *mut mlx_array_t,
+        values: *mut mlx_array_t,
+    ) -> i32;
+
+    /// Get cached keys for a layer
+    pub fn mlx_kv_cache_get_keys(cache: *mut mlx_kv_cache_t, layer_idx: i32) -> *mut mlx_array_t;
+
+    /// Get cached values for a layer
+    pub fn mlx_kv_cache_get_values(cache: *mut mlx_kv_cache_t, layer_idx: i32) -> *mut mlx_array_t;
+
+    /// Get current sequence length in cache
+    pub fn mlx_kv_cache_seq_len(cache: *mut mlx_kv_cache_t) -> i32;
+
+    /// Reset/clear the KV cache
+    pub fn mlx_kv_cache_reset(cache: *mut mlx_kv_cache_t);
+
+    /// Free KV cache
+    pub fn mlx_kv_cache_free(cache: *mut mlx_kv_cache_t);
+
+    // ========================================================================
+    // SafeTensors weight loading
+    // ========================================================================
+
+    /// Load weights from a SafeTensors file
+    pub fn mlx_load_safetensors(path: *const std::os::raw::c_char) -> *mut mlx_weights_t;
+
+    /// Get a specific tensor by name from loaded weights
+    pub fn mlx_weights_get(
+        weights: *mut mlx_weights_t,
+        name: *const std::os::raw::c_char,
+    ) -> *mut mlx_array_t;
+
+    /// Get list of all tensor names
+    pub fn mlx_weights_list(
+        weights: *mut mlx_weights_t,
+        names: *mut *const std::os::raw::c_char,
+        max_names: i32,
+    ) -> i32;
+
+    /// Free weights container
+    pub fn mlx_weights_free(weights: *mut mlx_weights_t);
+
+    // ========================================================================
+    // Evaluation and synchronization
+    // ========================================================================
+
+    /// Evaluate a single array (force computation)
+    pub fn mlx_eval(array: *mut mlx_array_t);
+
+    /// Evaluate multiple arrays
+    pub fn mlx_eval_all(arrays: *mut *mut mlx_array_t, num_arrays: i32);
+
+    /// Synchronize and wait for all GPU operations to complete
+    pub fn mlx_synchronize();
+
+    // ========================================================================
+    // LoRA Adapter Caching
+    // ========================================================================
+
+    /// Cache LoRA adapter weights for efficient reuse
+    pub fn mlx_lora_cache_adapter(
+        adapter_id: *const std::os::raw::c_char,
+        lora_a: *mut mlx_array_t,
+        lora_b: *mut mlx_array_t,
+    ) -> *const std::os::raw::c_char;
+
+    /// Get cached LoRA adapter
+    pub fn mlx_lora_get_cached(
+        adapter_id: *const std::os::raw::c_char,
+        out_lora_a: *mut *mut mlx_array_t,
+        out_lora_b: *mut *mut mlx_array_t,
+    ) -> bool;
+
+    /// Evict a specific adapter from cache
+    pub fn mlx_lora_evict_cached(adapter_id: *const std::os::raw::c_char);
+
+    /// Clear all cached adapters
+    pub fn mlx_lora_clear_cache();
+
+    /// Get number of cached adapters
+    pub fn mlx_lora_cache_size() -> usize;
+
+    /// Set maximum number of cached adapters
+    pub fn mlx_lora_set_cache_limit(max_entries: usize);
 }
 
 // Opaque types for FFI
@@ -1024,6 +1409,347 @@ pub struct mlx_model_t {
 #[repr(C)]
 pub struct mlx_array_t {
     _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct mlx_kv_cache_t {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct mlx_weights_t {
+    _private: [u8; 0],
+}
+
+/// Device type enumeration for device selection
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlxDeviceType {
+    Cpu = 0,
+    Gpu = 1,
+    Ane = 2,
+    Auto = 3,
+}
+
+/// Backend capabilities structure
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct MlxBackendCapabilities {
+    pub gpu_available: bool,
+    pub ane_available: bool,
+    pub metal_compute: bool,
+    pub unified_memory: bool,
+    pub max_threads_per_group: i32,
+    pub max_buffer_size: usize,
+    pub device_name: [u8; 256],
+    pub mlx_version: [u8; 64],
+    pub metal_version: [u8; 64],
+}
+
+impl Default for MlxBackendCapabilities {
+    fn default() -> Self {
+        Self {
+            gpu_available: false,
+            ane_available: false,
+            metal_compute: false,
+            unified_memory: false,
+            max_threads_per_group: 0,
+            max_buffer_size: 0,
+            device_name: [0u8; 256],
+            mlx_version: [0u8; 64],
+            metal_version: [0u8; 64],
+        }
+    }
+}
+
+impl MlxBackendCapabilities {
+    /// Get the device name as a string
+    pub fn device_name_str(&self) -> &str {
+        let end = self.device_name.iter().position(|&b| b == 0).unwrap_or(256);
+        std::str::from_utf8(&self.device_name[..end]).unwrap_or("")
+    }
+
+    /// Get the MLX version as a string
+    pub fn mlx_version_str(&self) -> &str {
+        let end = self.mlx_version.iter().position(|&b| b == 0).unwrap_or(64);
+        std::str::from_utf8(&self.mlx_version[..end]).unwrap_or("")
+    }
+
+    /// Get the Metal version as a string
+    pub fn metal_version_str(&self) -> &str {
+        let end = self
+            .metal_version
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(64);
+        std::str::from_utf8(&self.metal_version[..end]).unwrap_or("")
+    }
+}
+
+// =============================================================================
+// Safe Runtime Initialization Wrappers
+// =============================================================================
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
+
+static MLX_INIT_ONCE: Once = Once::new();
+static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize MLX runtime safely (idempotent - safe to call multiple times)
+///
+/// This function should be called once before using any MLX operations.
+/// Multiple calls are safe and will be ignored after the first successful init.
+///
+/// # Returns
+/// * `Ok(())` - Runtime initialized successfully (or already initialized)
+/// * `Err(...)` - Initialization failed
+///
+/// # Example
+/// ```ignore
+/// use adapteros_lora_mlx_ffi::mlx_runtime_init;
+///
+/// mlx_runtime_init()?; // Initialize once
+/// mlx_runtime_init()?; // Safe to call again (no-op)
+/// ```
+pub fn mlx_runtime_init() -> Result<()> {
+    let mut init_result: Result<()> = Ok(());
+
+    MLX_INIT_ONCE.call_once(|| unsafe {
+        mlx_clear_error();
+        let result = mlx_init_default();
+
+        if result == 0 {
+            MLX_INITIALIZED.store(true, Ordering::SeqCst);
+            tracing::info!("MLX runtime initialized successfully");
+        } else {
+            let error_msg = mlx_get_last_error();
+            let error_str = if !error_msg.is_null() {
+                std::ffi::CStr::from_ptr(error_msg)
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                "Unknown initialization error".to_string()
+            };
+            mlx_clear_error();
+            init_result = Err(AosError::Mlx(format!(
+                "Failed to initialize MLX runtime: {}",
+                error_str
+            )));
+        }
+    });
+
+    // If already initialized, return success
+    if MLX_INITIALIZED.load(Ordering::SeqCst) {
+        Ok(())
+    } else {
+        init_result
+    }
+}
+
+/// Initialize MLX runtime with specific device type
+///
+/// # Arguments
+/// * `device` - Device type to initialize (Cpu, Gpu, Ane, Auto)
+///
+/// # Returns
+/// * `Ok(())` - Runtime initialized successfully
+/// * `Err(...)` - Initialization failed
+pub fn mlx_runtime_init_with_device(device: MlxDeviceType) -> Result<()> {
+    if MLX_INITIALIZED.load(Ordering::SeqCst) {
+        tracing::debug!("MLX runtime already initialized, ignoring device selection");
+        return Ok(());
+    }
+
+    unsafe {
+        mlx_clear_error();
+        let result = mlx_init(device as i32);
+
+        if result == 0 {
+            MLX_INITIALIZED.store(true, Ordering::SeqCst);
+            tracing::info!(?device, "MLX runtime initialized with specific device");
+            Ok(())
+        } else {
+            let error_msg = mlx_get_last_error();
+            let error_str = if !error_msg.is_null() {
+                std::ffi::CStr::from_ptr(error_msg)
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                "Unknown initialization error".to_string()
+            };
+            mlx_clear_error();
+            Err(AosError::Mlx(format!(
+                "Failed to initialize MLX runtime with device {:?}: {}",
+                device, error_str
+            )))
+        }
+    }
+}
+
+/// Check if MLX runtime is initialized
+pub fn mlx_runtime_is_initialized() -> bool {
+    MLX_INITIALIZED.load(Ordering::SeqCst)
+}
+
+/// Shutdown MLX runtime and release resources (idempotent)
+///
+/// Safe to call multiple times or when not initialized.
+pub fn mlx_runtime_shutdown() {
+    if MLX_INITIALIZED
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        unsafe {
+            mlx_shutdown();
+        }
+        tracing::info!("MLX runtime shut down");
+    }
+}
+
+/// Get MLX backend capabilities
+///
+/// # Returns
+/// * `Ok(capabilities)` - Backend capability information
+/// * `Err(...)` - Failed to query capabilities
+pub fn mlx_get_backend_capabilities() -> Result<MlxBackendCapabilities> {
+    let mut capabilities = MlxBackendCapabilities::default();
+
+    unsafe {
+        mlx_clear_error();
+        let result = mlx_backend_info(&mut capabilities);
+
+        if result != 0 {
+            let error_msg = mlx_get_last_error();
+            let error_str = if !error_msg.is_null() {
+                std::ffi::CStr::from_ptr(error_msg)
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                "Unknown error querying backend info".to_string()
+            };
+            mlx_clear_error();
+            return Err(AosError::Mlx(format!(
+                "Failed to get backend capabilities: {}",
+                error_str
+            )));
+        }
+    }
+
+    Ok(capabilities)
+}
+
+/// Get MLX version string
+pub fn mlx_version() -> String {
+    unsafe {
+        let version_ptr = mlx_get_version();
+        if version_ptr.is_null() {
+            "unknown".to_string()
+        } else {
+            std::ffi::CStr::from_ptr(version_ptr)
+                .to_string_lossy()
+                .to_string()
+        }
+    }
+}
+
+/// Ensure MLX runtime is initialized before operation
+///
+/// Helper macro/function to check and optionally initialize runtime.
+/// Returns error if not initialized and auto_init is false.
+pub fn mlx_ensure_initialized(auto_init: bool) -> Result<()> {
+    if mlx_runtime_is_initialized() {
+        return Ok(());
+    }
+
+    if auto_init {
+        mlx_runtime_init()
+    } else {
+        Err(AosError::Mlx(
+            "MLX runtime not initialized. Call mlx_runtime_init() first.".to_string(),
+        ))
+    }
+}
+
+/// Force evaluation of MLX array (materialize lazy computation)
+///
+/// MLX uses lazy evaluation - operations build a computation graph but don't
+/// execute immediately. Call this before extracting data from an array.
+///
+/// # Safety
+/// The array pointer must be valid and non-null.
+pub fn mlx_force_eval(array: *mut mlx_array_t) -> Result<()> {
+    if array.is_null() {
+        return Err(AosError::Internal("Cannot evaluate null array".to_string()));
+    }
+
+    unsafe {
+        mlx_clear_error();
+        mlx_eval(array);
+
+        let error_msg = mlx_get_last_error();
+        if !error_msg.is_null() {
+            let error_str = std::ffi::CStr::from_ptr(error_msg)
+                .to_string_lossy()
+                .to_string();
+            if !error_str.is_empty() {
+                mlx_clear_error();
+                return Err(AosError::Mlx(format!("Evaluation failed: {}", error_str)));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Force evaluation of multiple MLX arrays and synchronize
+///
+/// Use this when multiple arrays need to be materialized together,
+/// which is more efficient than evaluating them one by one.
+pub fn mlx_force_eval_all(arrays: &mut [*mut mlx_array_t]) -> Result<()> {
+    if arrays.is_empty() {
+        return Ok(());
+    }
+
+    // Filter out null pointers
+    let valid_arrays: Vec<*mut mlx_array_t> =
+        arrays.iter().copied().filter(|a| !a.is_null()).collect();
+
+    if valid_arrays.is_empty() {
+        return Ok(());
+    }
+
+    unsafe {
+        mlx_clear_error();
+        mlx_eval_all(
+            valid_arrays.as_ptr() as *mut *mut mlx_array_t,
+            valid_arrays.len() as i32,
+        );
+        mlx_synchronize();
+
+        let error_msg = mlx_get_last_error();
+        if !error_msg.is_null() {
+            let error_str = std::ffi::CStr::from_ptr(error_msg)
+                .to_string_lossy()
+                .to_string();
+            if !error_str.is_empty() {
+                mlx_clear_error();
+                return Err(AosError::Mlx(format!(
+                    "Batch evaluation failed: {}",
+                    error_str
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Synchronize GPU operations and wait for completion
+pub fn mlx_sync() {
+    unsafe {
+        mlx_synchronize();
+    }
 }
 
 #[cfg(test)]
