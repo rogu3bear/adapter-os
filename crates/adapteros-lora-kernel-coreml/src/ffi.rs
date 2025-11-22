@@ -40,9 +40,7 @@ impl MLTensorHandle {
         if self.rank == 0 {
             return 0;
         }
-        self.shape[..self.rank as usize]
-            .iter()
-            .product()
+        self.shape[..self.rank as usize].iter().product()
     }
 }
 
@@ -133,7 +131,8 @@ extern "C" {
     pub fn coreml_tensor_scale(tensor: MLTensorHandle, scale: f32) -> MLTensorHandle;
 
     /// Matrix multiplication of two tensors
-    pub fn coreml_tensor_matmul(tensor1: MLTensorHandle, tensor2: MLTensorHandle) -> MLTensorHandle;
+    pub fn coreml_tensor_matmul(tensor1: MLTensorHandle, tensor2: MLTensorHandle)
+        -> MLTensorHandle;
 
     /// Materialize tensor to float array
     ///

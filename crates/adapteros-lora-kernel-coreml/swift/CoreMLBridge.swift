@@ -440,12 +440,46 @@ public func swiftCoreMLTensorSoftmax(
         let result = wrapper.tensor.softmax(alongAxis: axis)
 
         // Compute result scalars manually for synchronous access
+        // Using numerically stable softmax: softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
         var resultScalars: [Float]?
         if let inputScalars = wrapper.cachedScalars {
-            // Simple softmax implementation for 1D or last axis
-            let expValues = inputScalars.map { exp($0) }
-            let sum = expValues.reduce(0, +)
-            resultScalars = expValues.map { $0 / sum }
+            let shape = wrapper.shape
+            let effectiveAxis = axis < 0 ? shape.count + axis : axis
+
+            if shape.count == 1 || (shape.count == 2 && effectiveAxis == shape.count - 1) {
+                // Handle 1D or 2D with softmax along last axis (row-wise)
+                let rowSize = shape.count == 1 ? shape[0] : shape[1]
+                let numRows = shape.count == 1 ? 1 : shape[0]
+
+                var output = [Float](repeating: 0, count: inputScalars.count)
+
+                for row in 0..<numRows {
+                    let startIdx = row * rowSize
+                    let endIdx = startIdx + rowSize
+                    let rowSlice = Array(inputScalars[startIdx..<endIdx])
+
+                    // Find max for numerical stability
+                    let maxVal = rowSlice.max() ?? 0.0
+
+                    // Compute exp(x - max) for each element
+                    let expValues = rowSlice.map { exp($0 - maxVal) }
+
+                    // Sum of exp values
+                    let sum = expValues.reduce(0, +)
+
+                    // Normalize by sum
+                    for i in 0..<rowSize {
+                        output[startIdx + i] = expValues[i] / sum
+                    }
+                }
+                resultScalars = output
+            } else {
+                // Fallback for other tensor shapes: compute over entire flattened tensor
+                let maxVal = inputScalars.max() ?? 0.0
+                let expValues = inputScalars.map { exp($0 - maxVal) }
+                let sum = expValues.reduce(0, +)
+                resultScalars = expValues.map { $0 / sum }
+            }
         }
 
         // Wrap result and retain for FFI
@@ -778,12 +812,46 @@ public func swiftCoreMLTensorSoftmaxV2(
             let axis = Int(dim)
             let result = wrapper.tensor.softmax(alongAxis: axis)
 
-            // Compute result scalars manually
+            // Compute result scalars manually using numerically stable softmax
             var resultScalars: [Float]?
             if let inputScalars = wrapper.cachedScalars {
-                let expValues = inputScalars.map { exp($0) }
-                let sum = expValues.reduce(0, +)
-                resultScalars = expValues.map { $0 / sum }
+                let shape = wrapper.shape
+                let effectiveAxis = axis < 0 ? shape.count + axis : axis
+
+                if shape.count == 1 || (shape.count == 2 && effectiveAxis == shape.count - 1) {
+                    // Handle 1D or 2D with softmax along last axis (row-wise)
+                    let rowSize = shape.count == 1 ? shape[0] : shape[1]
+                    let numRows = shape.count == 1 ? 1 : shape[0]
+
+                    var output = [Float](repeating: 0, count: inputScalars.count)
+
+                    for row in 0..<numRows {
+                        let startIdx = row * rowSize
+                        let endIdx = startIdx + rowSize
+                        let rowSlice = Array(inputScalars[startIdx..<endIdx])
+
+                        // Find max for numerical stability
+                        let maxVal = rowSlice.max() ?? 0.0
+
+                        // Compute exp(x - max) for each element
+                        let expValues = rowSlice.map { exp($0 - maxVal) }
+
+                        // Sum of exp values
+                        let sum = expValues.reduce(0, +)
+
+                        // Normalize by sum
+                        for i in 0..<rowSize {
+                            output[startIdx + i] = expValues[i] / sum
+                        }
+                    }
+                    resultScalars = output
+                } else {
+                    // Fallback for other tensor shapes
+                    let maxVal = inputScalars.max() ?? 0.0
+                    let expValues = inputScalars.map { exp($0 - maxVal) }
+                    let sum = expValues.reduce(0, +)
+                    resultScalars = expValues.map { $0 / sum }
+                }
             }
 
             let resultWrapper = TensorWrapper(result, scalars: resultScalars)

@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 /// CoreML compute unit preference
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ComputeUnits {
     /// CPU only (deterministic, slowest)
     CpuOnly,

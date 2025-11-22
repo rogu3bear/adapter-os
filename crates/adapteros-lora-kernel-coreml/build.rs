@@ -73,8 +73,10 @@ fn compile_swift_bridge() {
             "-c",
             "-O",
             "-emit-object",
-            "-module-name", "CoreMLSwiftBridge",
-            "-o", &obj_path,
+            "-module-name",
+            "CoreMLSwiftBridge",
+            "-o",
+            &obj_path,
             swift_source_str,
         ])
         .status()
@@ -109,7 +111,10 @@ fn compile_swift_bridge() {
         .unwrap_or_else(|_| "/Applications/Xcode.app/Contents/Developer".to_string());
 
     // Add rpath for Swift libraries
-    let swift_lib_path = format!("{}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx", xcode_dev_path);
+    let swift_lib_path = format!(
+        "{}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx",
+        xcode_dev_path
+    );
     println!("cargo:rustc-link-search=native={}", swift_lib_path);
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", swift_lib_path);
 

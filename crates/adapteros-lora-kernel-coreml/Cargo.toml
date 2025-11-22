@@ -42,6 +42,7 @@ tokio = { workspace = true, features = ["sync"] }
 memmap2 = { workspace = true }
 tempfile = { workspace = true }
 libc = "0.2"
+half = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = { workspace = true }

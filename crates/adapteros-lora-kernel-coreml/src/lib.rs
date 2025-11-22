@@ -18,14 +18,15 @@ use tokio::sync::{oneshot, RwLock};
 pub mod aos_loader;
 pub mod config;
 pub mod ffi;
+pub mod fusion;
 
 #[cfg(test)]
 mod test_utils;
 
 pub use config::{ComputeUnits, CoreMLConfig};
 pub use ffi::{
-    AneCheckResult, ComputeUnitPreference, CoreMLAsyncCallback, MLTensorHandle,
-    MltensorApiVersion, capabilities,
+    capabilities, AneCheckResult, ComputeUnitPreference, CoreMLAsyncCallback, MLTensorHandle,
+    MltensorApiVersion,
 };
 
 // TensorBridgeType is defined below in this module
@@ -185,11 +186,7 @@ impl MLTensor {
             // Try Swift bridge first (better performance)
             if swift_bridge_available() {
                 let swift_ptr = unsafe {
-                    ffi::swift_coreml_create_tensor_f32(
-                        data.as_ptr(),
-                        shape.as_ptr(),
-                        shape.len(),
-                    )
+                    ffi::swift_coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
                 };
                 if !swift_ptr.is_null() {
                     // Cache shape in objc_handle for shape/num_elements queries
@@ -322,9 +319,8 @@ impl MLTensor {
         {
             match self.bridge_type {
                 TensorBridgeType::Swift => {
-                    let result = unsafe {
-                        ffi::swift_coreml_tensor_softmax(self.swift_handle, dim)
-                    };
+                    let result =
+                        unsafe { ffi::swift_coreml_tensor_softmax(self.swift_handle, dim) };
                     if result.is_null() {
                         return Err(AosError::Kernel("Softmax operation failed".to_string()));
                     }
@@ -388,9 +384,8 @@ impl MLTensor {
                     })
                 }
                 TensorBridgeType::ObjCpp => {
-                    let handle = unsafe {
-                        ffi::coreml_tensor_add(self.objc_handle, other.objc_handle)
-                    };
+                    let handle =
+                        unsafe { ffi::coreml_tensor_add(self.objc_handle, other.objc_handle) };
                     if !handle.is_valid() {
                         return Err(AosError::Kernel("Tensor addition failed".to_string()));
                     }
@@ -424,9 +419,8 @@ impl MLTensor {
         {
             match self.bridge_type {
                 TensorBridgeType::Swift => {
-                    let result = unsafe {
-                        ffi::swift_coreml_tensor_scale(self.swift_handle, factor)
-                    };
+                    let result =
+                        unsafe { ffi::swift_coreml_tensor_scale(self.swift_handle, factor) };
                     if result.is_null() {
                         return Err(AosError::Kernel("Tensor scaling failed".to_string()));
                     }
@@ -480,9 +474,7 @@ impl MLTensor {
                         ffi::swift_coreml_tensor_matmul(self.swift_handle, other.swift_handle)
                     };
                     if result.is_null() {
-                        return Err(AosError::Kernel(
-                            "Matrix multiplication failed".to_string(),
-                        ));
+                        return Err(AosError::Kernel("Matrix multiplication failed".to_string()));
                     }
                     // Compute result shape for matmul: [M, K] x [K, N] = [M, N]
                     // For 2D: result shape is [self.shape[0], other.shape[1]]
@@ -497,7 +489,8 @@ impl MLTensor {
                         }
                         // Result dims: M from self, N from other
                         result_handle.shape[self_rank - 2] = self.objc_handle.shape[self_rank - 2];
-                        result_handle.shape[self_rank - 1] = other.objc_handle.shape[other_rank - 1];
+                        result_handle.shape[self_rank - 1] =
+                            other.objc_handle.shape[other_rank - 1];
                     }
                     Ok(Self {
                         swift_handle: result,
@@ -506,13 +499,10 @@ impl MLTensor {
                     })
                 }
                 TensorBridgeType::ObjCpp => {
-                    let handle = unsafe {
-                        ffi::coreml_tensor_matmul(self.objc_handle, other.objc_handle)
-                    };
+                    let handle =
+                        unsafe { ffi::coreml_tensor_matmul(self.objc_handle, other.objc_handle) };
                     if !handle.is_valid() {
-                        return Err(AosError::Kernel(
-                            "Matrix multiplication failed".to_string(),
-                        ));
+                        return Err(AosError::Kernel("Matrix multiplication failed".to_string()));
                     }
                     Ok(Self {
                         swift_handle: std::ptr::null_mut(),
@@ -567,9 +557,7 @@ impl MLTensor {
                         )
                     };
                     if result.is_null() {
-                        return Err(AosError::Kernel(
-                            "Matrix multiplication failed".to_string(),
-                        ));
+                        return Err(AosError::Kernel("Matrix multiplication failed".to_string()));
                     }
                     // Compute result shape for matmul
                     let mut result_handle = ffi::MLTensorHandle::default();
@@ -581,7 +569,8 @@ impl MLTensor {
                             result_handle.shape[i] = self.objc_handle.shape[i];
                         }
                         result_handle.shape[self_rank - 2] = self.objc_handle.shape[self_rank - 2];
-                        result_handle.shape[self_rank - 1] = other.objc_handle.shape[other_rank - 1];
+                        result_handle.shape[self_rank - 1] =
+                            other.objc_handle.shape[other_rank - 1];
                     }
                     Ok(Self {
                         swift_handle: result,
@@ -805,12 +794,20 @@ impl MemoryBaseline {
     }
 
     fn stddev(&self) -> f64 {
-        if self.count < 2 { 0.0 } else { (self.m2 / (self.count - 1) as f64).sqrt() }
+        if self.count < 2 {
+            0.0
+        } else {
+            (self.m2 / (self.count - 1) as f64).sqrt()
+        }
     }
 
     fn z_score(&self, value: f64) -> f64 {
         let std = self.stddev();
-        if std == 0.0 { 0.0 } else { (value - self.mean) / std }
+        if std == 0.0 {
+            0.0
+        } else {
+            (value - self.mean) / std
+        }
     }
 }
 
@@ -930,13 +927,17 @@ impl CoreMLBackend {
             // In production mode, require ANE to be available
             if production_mode && !ane_status.available {
                 return Err(AosError::Kernel(
-                    "Production mode requires ANE to be available for guaranteed determinism".to_string(),
+                    "Production mode requires ANE to be available for guaranteed determinism"
+                        .to_string(),
                 ));
             }
 
             // In production mode, enforce ANE-only compute units
             let effective_compute_units = if production_mode {
-                if !matches!(compute_units, ComputeUnits::CpuAndNeuralEngine | ComputeUnits::CpuOnly) {
+                if !matches!(
+                    compute_units,
+                    ComputeUnits::CpuAndNeuralEngine | ComputeUnits::CpuOnly
+                ) {
                     tracing::warn!(
                         requested = ?compute_units,
                         enforced = ?ComputeUnits::CpuAndNeuralEngine,
@@ -1126,7 +1127,9 @@ impl CoreMLBackend {
                     let output_slice = unsafe { std::slice::from_raw_parts(output, output_len) };
                     let result = output_slice.to_vec();
                     // Free the malloc'd buffer from C (allocated in coreml_bridge.mm)
-                    unsafe { libc::free(output as *mut std::ffi::c_void); }
+                    unsafe {
+                        libc::free(output as *mut std::ffi::c_void);
+                    }
                     Ok(result)
                 }
             } else {
@@ -1169,12 +1172,7 @@ impl CoreMLBackend {
     /// through CoreML's optimized tensor operations. On macOS 26+ (Tahoe), uses
     /// enhanced APIs with compute unit preference for ANE acceleration.
     #[cfg(target_os = "macos")]
-    fn run_step_mltensor(
-        &self,
-        io: &mut IoBuffers,
-        indices: &[u16],
-        gates: &[i16],
-    ) -> Result<i32> {
+    fn run_step_mltensor(&self, io: &mut IoBuffers, indices: &[u16], gates: &[i16]) -> Result<i32> {
         // Step 1: Run base model inference to get initial logits
         let base_result = unsafe {
             ffi::coreml_run_inference(
@@ -1386,7 +1384,8 @@ impl CoreMLBackend {
         let indices = ring.active_indices();
         let gates = ring.active_gates();
 
-        for (adapter_slot, (&adapter_idx, &gate_q15)) in indices.iter().zip(gates.iter()).enumerate()
+        for (adapter_slot, (&adapter_idx, &gate_q15)) in
+            indices.iter().zip(gates.iter()).enumerate()
         {
             // Skip inactive adapters (zero gate)
             if gate_q15 == 0 {
@@ -1467,7 +1466,11 @@ impl CoreMLBackend {
 
         tracing::debug!(
             position = io.position,
-            active_adapters = indices.iter().zip(gates.iter()).filter(|(_, &g)| g != 0).count(),
+            active_adapters = indices
+                .iter()
+                .zip(gates.iter())
+                .filter(|(_, &g)| g != 0)
+                .count(),
             vocab_size = vocab_size,
             "CoreML stub mode: inference step complete"
         );
@@ -1550,9 +1553,8 @@ impl FusedKernels for CoreMLBackend {
             ComputeUnits::CpuAndNeuralEngine | ComputeUnits::CpuOnly
         );
 
-        let deterministic = self.ane_status.available
-            && self.ane_status.deterministic
-            && using_ane_only;
+        let deterministic =
+            self.ane_status.available && self.ane_status.deterministic && using_ane_only;
 
         let rng_seed_method = if deterministic {
             attestation::RngSeedingMethod::HkdfSeeded
@@ -1690,7 +1692,6 @@ pub fn is_neural_engine_available() -> bool {
     #[cfg(not(target_os = "macos"))]
     false
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1915,15 +1916,13 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![2usize, 2];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(
-                data.as_ptr(),
-                shape.as_ptr(),
-                shape.len(),
-            )
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
 
-        assert!(handle.is_valid(), "Failed to create tensor via Swift bridge");
+        assert!(
+            handle.is_valid(),
+            "Failed to create tensor via Swift bridge"
+        );
         assert_eq!(handle.rank, 2);
         assert_eq!(handle.shape[0], 2);
         assert_eq!(handle.shape[1], 2);
@@ -1945,13 +1944,8 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![1usize, 4];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(
-                data.as_ptr(),
-                shape.as_ptr(),
-                shape.len(),
-            )
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(handle.is_valid(), "Failed to create tensor");
 
         let softmax_handle = unsafe { ffi::coreml_tensor_softmax(handle, -1) };
@@ -1962,11 +1956,22 @@ mod tests {
         let result = unsafe {
             ffi::coreml_tensor_to_floats(softmax_handle, output.as_mut_ptr(), output.len())
         };
-        assert!(result >= 0, "Failed to materialize tensor: error code {}", result);
+        assert!(
+            result >= 0,
+            "Failed to materialize tensor: error code {}",
+            result
+        );
 
         let sum: f32 = output.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-5, "Softmax sum was {} (expected ~1.0)", sum);
-        assert!(output.iter().all(|&x| x > 0.0), "Softmax values should be positive");
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "Softmax sum was {} (expected ~1.0)",
+            sum
+        );
+        assert!(
+            output.iter().all(|&x| x > 0.0),
+            "Softmax values should be positive"
+        );
 
         // Clean up
         unsafe {
@@ -1987,22 +1992,22 @@ mod tests {
         let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
         let shape = vec![2usize, 2];
 
-        let handle1 = unsafe {
-            ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len())
-        };
-        let handle2 = unsafe {
-            ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle1 =
+            unsafe { ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len()) };
+        let handle2 =
+            unsafe { ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len()) };
 
-        assert!(handle1.is_valid() && handle2.is_valid(), "Failed to create tensors");
+        assert!(
+            handle1.is_valid() && handle2.is_valid(),
+            "Failed to create tensors"
+        );
 
         let sum_handle = unsafe { ffi::coreml_tensor_add(handle1, handle2) };
         assert!(sum_handle.is_valid(), "Add operation failed");
 
         let mut output = vec![0.0f32; 4];
-        let result = unsafe {
-            ffi::coreml_tensor_to_floats(sum_handle, output.as_mut_ptr(), output.len())
-        };
+        let result =
+            unsafe { ffi::coreml_tensor_to_floats(sum_handle, output.as_mut_ptr(), output.len()) };
         assert!(result >= 0, "Failed to materialize tensor");
 
         assert_eq!(output, vec![6.0, 8.0, 10.0, 12.0], "Add result incorrect");
@@ -2026,9 +2031,8 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![2usize, 2];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(handle.is_valid(), "Failed to create tensor");
 
         let scaled_handle = unsafe { ffi::coreml_tensor_scale(handle, 2.5) };
@@ -2063,14 +2067,15 @@ mod tests {
         let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
         let shape = vec![2usize, 2];
 
-        let handle1 = unsafe {
-            ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len())
-        };
-        let handle2 = unsafe {
-            ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle1 =
+            unsafe { ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len()) };
+        let handle2 =
+            unsafe { ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len()) };
 
-        assert!(handle1.is_valid() && handle2.is_valid(), "Failed to create tensors");
+        assert!(
+            handle1.is_valid() && handle2.is_valid(),
+            "Failed to create tensors"
+        );
 
         let product_handle = unsafe { ffi::coreml_tensor_matmul(handle1, handle2) };
         assert!(product_handle.is_valid(), "Matmul operation failed");
@@ -2081,7 +2086,11 @@ mod tests {
         };
         assert!(result >= 0, "Failed to materialize tensor");
 
-        assert_eq!(output, vec![19.0, 22.0, 43.0, 50.0], "Matmul result incorrect");
+        assert_eq!(
+            output,
+            vec![19.0, 22.0, 43.0, 50.0],
+            "Matmul result incorrect"
+        );
 
         // Clean up
         unsafe {
@@ -2128,17 +2137,15 @@ mod tests {
         let data: Vec<f32> = (0..size).map(|i| i as f32).collect();
         let shape = vec![32usize, 32];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(handle.is_valid(), "Failed to create large tensor");
         assert_eq!(handle.num_elements(), size);
 
         // Materialize and verify
         let mut output = vec![0.0f32; size];
-        let result = unsafe {
-            ffi::coreml_tensor_to_floats(handle, output.as_mut_ptr(), output.len())
-        };
+        let result =
+            unsafe { ffi::coreml_tensor_to_floats(handle, output.as_mut_ptr(), output.len()) };
         assert!(result >= 0, "Failed to materialize large tensor");
         assert_eq!(output, data, "Large tensor data mismatch");
 
@@ -2156,9 +2163,8 @@ mod tests {
         let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
         let shape = vec![2usize, 3, 4];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(handle.is_valid(), "Failed to create 3D tensor");
         assert_eq!(handle.rank, 3);
         assert_eq!(handle.shape[0], 2);
@@ -2167,9 +2173,8 @@ mod tests {
         assert_eq!(handle.num_elements(), 24);
 
         let mut output = vec![0.0f32; 24];
-        let result = unsafe {
-            ffi::coreml_tensor_to_floats(handle, output.as_mut_ptr(), output.len())
-        };
+        let result =
+            unsafe { ffi::coreml_tensor_to_floats(handle, output.as_mut_ptr(), output.len()) };
         assert!(result >= 0, "Failed to materialize 3D tensor");
         assert_eq!(output, data);
 
@@ -2214,9 +2219,8 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![1usize, 4];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(handle.is_valid());
 
         // Scale by 0.5
@@ -2233,13 +2237,16 @@ mod tests {
 
         // Materialize and verify
         let mut output = vec![0.0f32; 4];
-        let result = unsafe {
-            ffi::coreml_tensor_to_floats(softmax, output.as_mut_ptr(), output.len())
-        };
+        let result =
+            unsafe { ffi::coreml_tensor_to_floats(softmax, output.as_mut_ptr(), output.len()) };
         assert!(result >= 0, "Materialize failed");
 
         let total: f32 = output.iter().sum();
-        assert!((total - 1.0).abs() < 1e-5, "Softmax should sum to 1, got {}", total);
+        assert!(
+            (total - 1.0).abs() < 1e-5,
+            "Softmax should sum to 1, got {}",
+            total
+        );
 
         // Clean up all handles
         unsafe {
@@ -2269,25 +2276,47 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
         let shape = vec![2usize, 3];
 
-        let handle = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let handle =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
 
         // Verify handle is valid
-        assert!(handle.is_valid(), "ObjC++ tensor creation failed - handle is invalid");
+        assert!(
+            handle.is_valid(),
+            "ObjC++ tensor creation failed - handle is invalid"
+        );
         assert_eq!(handle.rank, 2, "Expected rank 2, got {}", handle.rank);
-        assert_eq!(handle.shape[0], 2, "Expected shape[0]=2, got {}", handle.shape[0]);
-        assert_eq!(handle.shape[1], 3, "Expected shape[1]=3, got {}", handle.shape[1]);
-        assert_eq!(handle.num_elements(), 6, "Expected 6 elements, got {}", handle.num_elements());
+        assert_eq!(
+            handle.shape[0], 2,
+            "Expected shape[0]=2, got {}",
+            handle.shape[0]
+        );
+        assert_eq!(
+            handle.shape[1], 3,
+            "Expected shape[1]=3, got {}",
+            handle.shape[1]
+        );
+        assert_eq!(
+            handle.num_elements(),
+            6,
+            "Expected 6 elements, got {}",
+            handle.num_elements()
+        );
 
         // Read data back via ObjC++ path
         let mut output = vec![0.0f32; 6];
-        let result = unsafe {
-            ffi::coreml_tensor_to_floats(handle, output.as_mut_ptr(), output.len())
-        };
+        let result =
+            unsafe { ffi::coreml_tensor_to_floats(handle, output.as_mut_ptr(), output.len()) };
 
-        assert!(result >= 0, "ObjC++ tensor read failed with error code {}", result);
-        assert_eq!(output, data, "Data mismatch: expected {:?}, got {:?}", data, output);
+        assert!(
+            result >= 0,
+            "ObjC++ tensor read failed with error code {}",
+            result
+        );
+        assert_eq!(
+            output, data,
+            "Data mismatch: expected {:?}, got {:?}",
+            data, output
+        );
 
         println!("ObjC++ direct path: create and read test PASSED");
 
@@ -2307,21 +2336,27 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![1usize, 4];
 
-        let input = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let input =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(input.is_valid(), "Failed to create input tensor");
 
         // Apply softmax via ObjC++ path
         let softmax_result = unsafe { ffi::coreml_tensor_softmax(input, -1) };
-        assert!(softmax_result.is_valid(), "ObjC++ softmax failed - returned invalid handle");
+        assert!(
+            softmax_result.is_valid(),
+            "ObjC++ softmax failed - returned invalid handle"
+        );
 
         // Read result
         let mut output = vec![0.0f32; 4];
         let read_result = unsafe {
             ffi::coreml_tensor_to_floats(softmax_result, output.as_mut_ptr(), output.len())
         };
-        assert!(read_result >= 0, "Failed to read softmax result: error {}", read_result);
+        assert!(
+            read_result >= 0,
+            "Failed to read softmax result: error {}",
+            read_result
+        );
 
         // Verify softmax properties
         let sum: f32 = output.iter().sum();
@@ -2344,7 +2379,10 @@ mod tests {
             );
         }
 
-        println!("ObjC++ direct path: softmax test PASSED - output {:?}", output);
+        println!(
+            "ObjC++ direct path: softmax test PASSED - output {:?}",
+            output
+        );
 
         unsafe {
             ffi::coreml_tensor_free(input);
@@ -2364,28 +2402,36 @@ mod tests {
         let data2 = vec![10.0f32, 20.0, 30.0, 40.0];
         let shape = vec![2usize, 2];
 
-        let tensor1 = unsafe {
-            ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len())
-        };
-        let tensor2 = unsafe {
-            ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let tensor1 =
+            unsafe { ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len()) };
+        let tensor2 =
+            unsafe { ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len()) };
 
         assert!(tensor1.is_valid(), "Failed to create tensor1");
         assert!(tensor2.is_valid(), "Failed to create tensor2");
 
         // Add via ObjC++ path
         let sum = unsafe { ffi::coreml_tensor_add(tensor1, tensor2) };
-        assert!(sum.is_valid(), "ObjC++ add failed - returned invalid handle");
+        assert!(
+            sum.is_valid(),
+            "ObjC++ add failed - returned invalid handle"
+        );
 
         let mut output = vec![0.0f32; 4];
-        let read_result = unsafe {
-            ffi::coreml_tensor_to_floats(sum, output.as_mut_ptr(), output.len())
-        };
-        assert!(read_result >= 0, "Failed to read add result: error {}", read_result);
+        let read_result =
+            unsafe { ffi::coreml_tensor_to_floats(sum, output.as_mut_ptr(), output.len()) };
+        assert!(
+            read_result >= 0,
+            "Failed to read add result: error {}",
+            read_result
+        );
 
         let expected = vec![11.0f32, 22.0, 33.0, 44.0];
-        assert_eq!(output, expected, "ObjC++ add result mismatch: expected {:?}, got {:?}", expected, output);
+        assert_eq!(
+            output, expected,
+            "ObjC++ add result mismatch: expected {:?}, got {:?}",
+            expected, output
+        );
 
         println!("ObjC++ direct path: add test PASSED");
 
@@ -2407,23 +2453,32 @@ mod tests {
         let data = vec![2.0f32, 4.0, 6.0, 8.0];
         let shape = vec![4usize];
 
-        let tensor = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let tensor =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(tensor.is_valid(), "Failed to create tensor");
 
         // Scale by 0.5 via ObjC++ path
         let scaled = unsafe { ffi::coreml_tensor_scale(tensor, 0.5) };
-        assert!(scaled.is_valid(), "ObjC++ scale failed - returned invalid handle");
+        assert!(
+            scaled.is_valid(),
+            "ObjC++ scale failed - returned invalid handle"
+        );
 
         let mut output = vec![0.0f32; 4];
-        let read_result = unsafe {
-            ffi::coreml_tensor_to_floats(scaled, output.as_mut_ptr(), output.len())
-        };
-        assert!(read_result >= 0, "Failed to read scale result: error {}", read_result);
+        let read_result =
+            unsafe { ffi::coreml_tensor_to_floats(scaled, output.as_mut_ptr(), output.len()) };
+        assert!(
+            read_result >= 0,
+            "Failed to read scale result: error {}",
+            read_result
+        );
 
         let expected = vec![1.0f32, 2.0, 3.0, 4.0];
-        assert_eq!(output, expected, "ObjC++ scale result mismatch: expected {:?}, got {:?}", expected, output);
+        assert_eq!(
+            output, expected,
+            "ObjC++ scale result mismatch: expected {:?}, got {:?}",
+            expected, output
+        );
 
         println!("ObjC++ direct path: scale test PASSED");
 
@@ -2448,28 +2503,36 @@ mod tests {
         let data2 = vec![5.0f32, 6.0, 7.0, 8.0];
         let shape = vec![2usize, 2];
 
-        let tensor1 = unsafe {
-            ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len())
-        };
-        let tensor2 = unsafe {
-            ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let tensor1 =
+            unsafe { ffi::coreml_create_tensor_f32(data1.as_ptr(), shape.as_ptr(), shape.len()) };
+        let tensor2 =
+            unsafe { ffi::coreml_create_tensor_f32(data2.as_ptr(), shape.as_ptr(), shape.len()) };
 
         assert!(tensor1.is_valid(), "Failed to create tensor1");
         assert!(tensor2.is_valid(), "Failed to create tensor2");
 
         // Matmul via ObjC++ path
         let product = unsafe { ffi::coreml_tensor_matmul(tensor1, tensor2) };
-        assert!(product.is_valid(), "ObjC++ matmul failed - returned invalid handle");
+        assert!(
+            product.is_valid(),
+            "ObjC++ matmul failed - returned invalid handle"
+        );
 
         let mut output = vec![0.0f32; 4];
-        let read_result = unsafe {
-            ffi::coreml_tensor_to_floats(product, output.as_mut_ptr(), output.len())
-        };
-        assert!(read_result >= 0, "Failed to read matmul result: error {}", read_result);
+        let read_result =
+            unsafe { ffi::coreml_tensor_to_floats(product, output.as_mut_ptr(), output.len()) };
+        assert!(
+            read_result >= 0,
+            "Failed to read matmul result: error {}",
+            read_result
+        );
 
         let expected = vec![19.0f32, 22.0, 43.0, 50.0];
-        assert_eq!(output, expected, "ObjC++ matmul result mismatch: expected {:?}, got {:?}", expected, output);
+        assert_eq!(
+            output, expected,
+            "ObjC++ matmul result mismatch: expected {:?}, got {:?}",
+            expected, output
+        );
 
         println!("ObjC++ direct path: matmul test PASSED");
 
@@ -2492,9 +2555,8 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
         let shape = vec![2usize, 2];
 
-        let original = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let original =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(original.is_valid(), "Failed to create original tensor");
 
         // Scale by 2.0
@@ -2507,14 +2569,21 @@ mod tests {
 
         // Read final result
         let mut output = vec![0.0f32; 4];
-        let read_result = unsafe {
-            ffi::coreml_tensor_to_floats(sum, output.as_mut_ptr(), output.len())
-        };
-        assert!(read_result >= 0, "Failed to read chained result: error {}", read_result);
+        let read_result =
+            unsafe { ffi::coreml_tensor_to_floats(sum, output.as_mut_ptr(), output.len()) };
+        assert!(
+            read_result >= 0,
+            "Failed to read chained result: error {}",
+            read_result
+        );
 
         // original + 2*original = 3*original
         let expected = vec![3.0f32, 6.0, 9.0, 12.0];
-        assert_eq!(output, expected, "ObjC++ chained ops result mismatch: expected {:?}, got {:?}", expected, output);
+        assert_eq!(
+            output, expected,
+            "ObjC++ chained ops result mismatch: expected {:?}, got {:?}",
+            expected, output
+        );
 
         println!("ObjC++ direct path: chained operations test PASSED");
 
@@ -2537,9 +2606,8 @@ mod tests {
         let data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0];
         let shape = vec![5usize];
 
-        let tensor = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let tensor =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
 
         assert!(tensor.is_valid(), "Failed to create 1D tensor");
         assert_eq!(tensor.rank, 1, "Expected rank 1 for 1D tensor");
@@ -2547,9 +2615,8 @@ mod tests {
         assert_eq!(tensor.num_elements(), 5, "Expected 5 elements");
 
         let mut output = vec![0.0f32; 5];
-        let read_result = unsafe {
-            ffi::coreml_tensor_to_floats(tensor, output.as_mut_ptr(), output.len())
-        };
+        let read_result =
+            unsafe { ffi::coreml_tensor_to_floats(tensor, output.as_mut_ptr(), output.len()) };
         assert!(read_result >= 0, "Failed to read 1D tensor");
         assert_eq!(output, data);
 
@@ -2570,9 +2637,8 @@ mod tests {
         let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
         let shape = vec![2usize, 3, 4];
 
-        let tensor = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let tensor =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
 
         assert!(tensor.is_valid(), "Failed to create 3D tensor");
         assert_eq!(tensor.rank, 3, "Expected rank 3 for 3D tensor");
@@ -2582,9 +2648,8 @@ mod tests {
         assert_eq!(tensor.num_elements(), 24, "Expected 24 elements");
 
         let mut output = vec![0.0f32; 24];
-        let read_result = unsafe {
-            ffi::coreml_tensor_to_floats(tensor, output.as_mut_ptr(), output.len())
-        };
+        let read_result =
+            unsafe { ffi::coreml_tensor_to_floats(tensor, output.as_mut_ptr(), output.len()) };
         assert!(read_result >= 0, "Failed to read 3D tensor");
         assert_eq!(output, data);
 
@@ -2612,14 +2677,21 @@ mod tests {
             let tensor = unsafe {
                 ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
             };
-            assert!(tensor.is_valid(), "Failed to create tensor at iteration {}", iteration);
+            assert!(
+                tensor.is_valid(),
+                "Failed to create tensor at iteration {}",
+                iteration
+            );
 
             // Verify data
             let mut output = vec![0.0f32; size];
-            let read_result = unsafe {
-                ffi::coreml_tensor_to_floats(tensor, output.as_mut_ptr(), output.len())
-            };
-            assert!(read_result >= 0, "Failed to read tensor at iteration {}", iteration);
+            let read_result =
+                unsafe { ffi::coreml_tensor_to_floats(tensor, output.as_mut_ptr(), output.len()) };
+            assert!(
+                read_result >= 0,
+                "Failed to read tensor at iteration {}",
+                iteration
+            );
             assert_eq!(output, data, "Data mismatch at iteration {}", iteration);
 
             // Free immediately
@@ -2650,9 +2722,8 @@ mod tests {
         let shape = vec![2usize, 2];
 
         // Create via ObjC++
-        let objc_tensor = unsafe {
-            ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len())
-        };
+        let objc_tensor =
+            unsafe { ffi::coreml_create_tensor_f32(data.as_ptr(), shape.as_ptr(), shape.len()) };
         assert!(objc_tensor.is_valid(), "ObjC++ tensor creation failed");
 
         // Create via Swift
@@ -2676,7 +2747,11 @@ mod tests {
             ffi::coreml_tensor_to_floats(objc_scaled, objc_output.as_mut_ptr(), objc_output.len())
         };
         let swift_read = unsafe {
-            ffi::swift_coreml_tensor_to_floats(swift_scaled, swift_output.as_mut_ptr(), swift_output.len())
+            ffi::swift_coreml_tensor_to_floats(
+                swift_scaled,
+                swift_output.as_mut_ptr(),
+                swift_output.len(),
+            )
         };
 
         assert!(objc_read >= 0, "ObjC++ read failed");
@@ -2686,7 +2761,10 @@ mod tests {
         let expected = vec![2.5f32, 5.0, 7.5, 10.0];
         assert_eq!(objc_output, expected, "ObjC++ output mismatch");
         assert_eq!(swift_output, expected, "Swift output mismatch");
-        assert_eq!(objc_output, swift_output, "ObjC++ and Swift outputs differ!");
+        assert_eq!(
+            objc_output, swift_output,
+            "ObjC++ and Swift outputs differ!"
+        );
 
         println!("ObjC++ vs Swift comparison: BOTH MATCH - {:?}", objc_output);
 
@@ -2943,7 +3021,11 @@ mod tests {
 
         // Output logits should be normalized (sum to ~1.0)
         let sum: f32 = io.output_logits.iter().sum();
-        assert!((sum - 1.0).abs() < 0.001, "Logits not normalized: sum = {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 0.001,
+            "Logits not normalized: sum = {}",
+            sum
+        );
 
         // Metrics should be updated
         let metrics = backend.get_metrics();
@@ -2971,14 +3053,22 @@ mod tests {
 
         // Run step should succeed
         let result = backend.run_step(&ring, &mut io);
-        assert!(result.is_ok(), "run_step with adapters failed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "run_step with adapters failed: {:?}",
+            result
+        );
 
         // Position should be incremented
         assert_eq!(io.position, 1);
 
         // Logits should still be normalized
         let sum: f32 = io.output_logits.iter().sum();
-        assert!((sum - 1.0).abs() < 0.001, "Logits not normalized: sum = {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 0.001,
+            "Logits not normalized: sum = {}",
+            sum
+        );
     }
 
     #[test]
@@ -3003,11 +3093,18 @@ mod tests {
         backend2.run_step(&ring2, &mut io2).unwrap();
 
         // Results should be identical (deterministic)
-        for (i, (l1, l2)) in io1.output_logits.iter().zip(io2.output_logits.iter()).enumerate() {
+        for (i, (l1, l2)) in io1
+            .output_logits
+            .iter()
+            .zip(io2.output_logits.iter())
+            .enumerate()
+        {
             assert!(
                 (l1 - l2).abs() < 1e-6,
                 "Non-deterministic output at index {}: {} vs {}",
-                i, l1, l2
+                i,
+                l1,
+                l2
             );
         }
     }
@@ -3047,11 +3144,16 @@ mod tests {
                 }
 
                 // Verify consistency
-                assert_eq!(ane_available, ane_status.available,
-                    "ANE availability mismatch between detection functions");
+                assert_eq!(
+                    ane_available, ane_status.available,
+                    "ANE availability mismatch between detection functions"
+                );
             }
             Err(e) => {
-                println!("Note: Failed to create backend (expected on unsupported systems): {}", e);
+                println!(
+                    "Note: Failed to create backend (expected on unsupported systems): {}",
+                    e
+                );
             }
         }
     }
@@ -3061,8 +3163,14 @@ mod tests {
         // On non-macOS, these should return false
         #[cfg(not(target_os = "macos"))]
         {
-            assert!(!has_neural_engine(), "ANE should not be available on non-macOS");
-            assert!(!is_neural_engine_available(), "Neural engine should not be available on non-macOS");
+            assert!(
+                !has_neural_engine(),
+                "ANE should not be available on non-macOS"
+            );
+            assert!(
+                !is_neural_engine_available(),
+                "Neural engine should not be available on non-macOS"
+            );
         }
     }
 }

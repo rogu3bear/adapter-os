@@ -109,8 +109,14 @@ impl LoraTarget {
             LoraTarget::DownProj => "down_proj",
         };
         (
-            format!("model.layers.{}.self_attn.{}.lora_A.weight", layer_idx, base),
-            format!("model.layers.{}.self_attn.{}.lora_B.weight", layer_idx, base),
+            format!(
+                "model.layers.{}.self_attn.{}.lora_A.weight",
+                layer_idx, base
+            ),
+            format!(
+                "model.layers.{}.self_attn.{}.lora_B.weight",
+                layer_idx, base
+            ),
         )
     }
 }
@@ -196,15 +202,13 @@ fn parse_tensor_name(name: &str) -> Option<(LoraTarget, usize, bool)> {
     }
 
     // Extract layer index
-    let layer_idx = name
-        .split('.')
-        .find_map(|part| {
-            if part.chars().all(|c| c.is_ascii_digit()) {
-                part.parse().ok()
-            } else {
-                None
-            }
-        })?;
+    let layer_idx = name.split('.').find_map(|part| {
+        if part.chars().all(|c| c.is_ascii_digit()) {
+            part.parse().ok()
+        } else {
+            None
+        }
+    })?;
 
     // Extract target
     let target = if name.contains("q_proj") {
@@ -279,22 +283,68 @@ pub struct FusionResult {
     pub total_params_modified: usize,
 }
 
+/// Fused weights for a single layer target
+#[derive(Debug, Clone)]
+pub struct FusedLayerWeights {
+    /// Target module (q_proj, k_proj, etc.)
+    pub target: LoraTarget,
+    /// Layer index
+    pub layer_idx: usize,
+    /// Fused weight matrix [out_dim, in_dim]
+    pub weights: Vec<f32>,
+    /// Output dimension
+    pub out_dim: usize,
+    /// Input dimension
+    pub in_dim: usize,
+}
+
+/// Complete fused model weights
+#[derive(Debug)]
+pub struct FusedModelWeights {
+    /// All fused layer weights
+    pub layers: Vec<FusedLayerWeights>,
+    /// Total number of layers in the model
+    pub num_layers: usize,
+    /// Statistics about the fusion
+    pub stats: FusionStats,
+}
+
+/// Statistics about a fusion operation
+#[derive(Debug, Clone, Default)]
+pub struct FusionStats {
+    /// Number of layers where fusion was applied
+    pub layers_fused: usize,
+    /// Number of weight matrices fused per layer
+    pub weights_per_layer: usize,
+    /// Total number of parameters modified
+    pub total_params_modified: usize,
+    /// Adapters that were fused
+    pub adapters_fused: usize,
+}
+
 /// Fuse LoRA adapters into a CoreML model
 ///
-/// This function requires `coremltools` Python package to be available.
-/// It creates a fused model where LoRA weights are merged into base weights.
-///
-/// # Requirements
-/// - Python 3.8+
-/// - coremltools >= 7.0
-/// - numpy
+/// This is a pure Rust implementation that fuses LoRA adapter weights into
+/// base model weights. It operates on safetensors format weights.
 ///
 /// # Process
-/// 1. Load base model specification using coremltools
+/// 1. Load base model weights from safetensors
 /// 2. Load LoRA adapter weights from safetensors
 /// 3. For each target layer, compute: W_fused = W_base + sum(gate_i * alpha_i/rank_i * B_i @ A_i)
-/// 4. Update model specification with fused weights
-/// 5. Compile to .mlmodelc with specified compute units
+/// 4. Return fused weights (caller is responsible for CoreML model creation)
+///
+/// # Formula
+/// ```text
+/// W_fused = W_base + sum_i(gate_i * alpha_i / rank_i * B_i @ A_i)
+/// ```
+///
+/// Where:
+/// - `W_base`: Original base model weights [out_dim, in_dim]
+/// - `gate_i`: Q15 gate weight from router (0.0 to 1.0)
+/// - `alpha_i`: LoRA alpha scaling factor
+/// - `rank_i`: LoRA rank (dimension of low-rank decomposition)
+/// - `A_i`: LoRA down-projection [rank, in_dim]
+/// - `B_i`: LoRA up-projection [out_dim, rank]
 pub fn fuse_lora_into_model(config: &LoraFusionConfig) -> Result<FusionResult> {
     // Validate inputs
     if !config.base_model_path.exists() {
@@ -311,7 +361,7 @@ pub fn fuse_lora_into_model(config: &LoraFusionConfig) -> Result<FusionResult> {
     }
 
     // Load all adapter weights
-    let mut all_weights = Vec::new();
+    let mut all_adapter_weights = Vec::new();
     for adapter in &config.adapters {
         if !adapter.weights_path.exists() {
             return Err(AosError::NotFound(format!(
@@ -321,258 +371,531 @@ pub fn fuse_lora_into_model(config: &LoraFusionConfig) -> Result<FusionResult> {
         }
 
         let weights = load_lora_weights(&adapter.weights_path)?;
-        all_weights.push((adapter, weights));
+        all_adapter_weights.push((adapter.clone(), weights));
     }
 
-    // Generate Python script for fusion
-    let script = generate_fusion_script(config, &all_weights)?;
+    // Perform the fusion
+    let fused = fuse_adapters_to_weights(&config.base_model_path, &all_adapter_weights)?;
 
-    // Write script to temp file
-    let script_path = std::env::temp_dir().join("aos_lora_fusion.py");
-    std::fs::write(&script_path, &script)
-        .map_err(|e| AosError::Io(format!("Failed to write fusion script: {}", e)))?;
-
-    // Execute Python script
-    let output = std::process::Command::new("python3")
-        .arg(&script_path)
-        .output()
-        .map_err(|e| AosError::Kernel(format!("Failed to execute fusion script: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AosError::Kernel(format!(
-            "LoRA fusion failed: {}",
-            stderr
-        )));
-    }
-
-    // Parse output for statistics
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let (layers_fused, weights_per_layer, total_params) = parse_fusion_output(&stdout)?;
-
-    // Clean up
-    let _ = std::fs::remove_file(&script_path);
+    // Write fused weights to output path
+    write_fused_weights(&config.output_path, &fused)?;
 
     tracing::info!(
         output = %config.output_path.display(),
-        layers = layers_fused,
-        params = total_params,
-        "Successfully fused LoRA adapters into CoreML model"
+        layers = fused.stats.layers_fused,
+        params = fused.stats.total_params_modified,
+        adapters = fused.stats.adapters_fused,
+        "Successfully fused LoRA adapters"
     );
 
     Ok(FusionResult {
         output_path: config.output_path.clone(),
-        layers_fused,
-        weights_per_layer,
-        total_params_modified: total_params,
+        layers_fused: fused.stats.layers_fused,
+        weights_per_layer: fused.stats.weights_per_layer,
+        total_params_modified: fused.stats.total_params_modified,
     })
 }
 
-/// Generate Python script for LoRA fusion using coremltools
-fn generate_fusion_script(
-    config: &LoraFusionConfig,
-    all_weights: &[(&AdapterFusionSpec, ParsedLoraWeights)],
-) -> Result<String> {
-    let mut script = String::new();
+/// Fuse multiple adapters into base model weights (in-memory)
+///
+/// This is the core fusion algorithm that computes:
+/// W_fused = W_base + sum_i(gate_i * alpha_i / rank_i * B_i @ A_i)
+pub fn fuse_adapters_to_weights(
+    base_weights_path: &PathBuf,
+    adapters: &[(AdapterFusionSpec, ParsedLoraWeights)],
+) -> Result<FusedModelWeights> {
+    // Load base model weights
+    let base_file_data = std::fs::read(base_weights_path)
+        .map_err(|e| AosError::Io(format!("Failed to read base weights: {}", e)))?;
 
-    // Imports and setup
-    script.push_str(r#"#!/usr/bin/env python3
-"""
-AdapterOS LoRA Fusion Script
-Generated by adapteros-lora-kernel-coreml
+    let base_tensors = safetensors::SafeTensors::deserialize(&base_file_data)
+        .map_err(|e| AosError::Kernel(format!("Failed to parse base safetensors: {}", e)))?;
 
-This script fuses LoRA adapter weights into a CoreML model's base weights.
-Formula: W_fused = W_base + sum(gate_i * alpha_i/rank_i * B_i @ A_i)
-"""
+    // Detect number of layers from base model
+    let num_layers = detect_num_layers(&base_tensors)?;
 
-import coremltools as ct
-import numpy as np
-from safetensors import safe_open
-import sys
+    let mut fused_layers = Vec::new();
+    let mut stats = FusionStats {
+        adapters_fused: adapters.len(),
+        ..Default::default()
+    };
 
-def main():
-    try:
-        # Load base model
-"#);
+    // Iterate through each layer and target
+    for layer_idx in 0..num_layers {
+        let mut layer_fused = false;
 
-    script.push_str(&format!(
-        "        model = ct.models.MLModel('{}')\n",
-        config.base_model_path.display()
-    ));
+        for target in LoraTarget::all() {
+            // Find base weight tensor for this target
+            let base_key = get_base_weight_key(layer_idx, *target);
 
-    script.push_str(r#"        spec = model.get_spec()
+            let base_tensor = match base_tensors.tensor(&base_key) {
+                Ok(t) => t,
+                Err(_) => {
+                    // Try alternative key patterns
+                    match find_base_tensor_alternative(&base_tensors, layer_idx, *target) {
+                        Some(t) => t,
+                        None => continue, // Skip if not found
+                    }
+                }
+            };
 
-        # Track statistics
-        layers_fused = 0
-        weights_per_layer = 0
-        total_params = 0
+            // Parse base tensor shape and data
+            let shape = base_tensor.shape();
+            if shape.len() != 2 {
+                tracing::warn!(
+                    layer = layer_idx,
+                    target = ?target,
+                    shape = ?shape,
+                    "Skipping non-2D weight tensor"
+                );
+                continue;
+            }
 
-        # Target weight patterns in CoreML spec
-        # Maps from LoRA target to CoreML weight names
-        weight_patterns = {
-            'q_proj': ['self_attn.q_proj.weight', 'self_attn_q_proj_weight'],
-            'k_proj': ['self_attn.k_proj.weight', 'self_attn_k_proj_weight'],
-            'v_proj': ['self_attn.v_proj.weight', 'self_attn_v_proj_weight'],
-            'o_proj': ['self_attn.o_proj.weight', 'self_attn_o_proj_weight'],
-            'gate_proj': ['mlp.gate_proj.weight', 'mlp_gate_proj_weight'],
-            'up_proj': ['mlp.up_proj.weight', 'mlp_up_proj_weight'],
-            'down_proj': ['mlp.down_proj.weight', 'mlp_down_proj_weight'],
+            let out_dim = shape[0];
+            let in_dim = shape[1];
+
+            // Convert base tensor data to f32
+            let mut fused_weights = tensor_to_f32_vec(base_tensor)?;
+
+            // Apply each adapter's contribution
+            for (adapter_spec, lora_weights) in adapters {
+                // Get LoRA A and B matrices for this layer/target
+                let a_matrices = match lora_weights.a_matrices.get(target) {
+                    Some(m) => m,
+                    None => continue,
+                };
+                let b_matrices = match lora_weights.b_matrices.get(target) {
+                    Some(m) => m,
+                    None => continue,
+                };
+
+                let lora_a = match a_matrices.get(&layer_idx) {
+                    Some(a) => a,
+                    None => continue,
+                };
+                let lora_b = match b_matrices.get(&layer_idx) {
+                    Some(b) => b,
+                    None => continue,
+                };
+
+                // Compute scale factor: gate * alpha / rank
+                let rank = adapter_spec.rank;
+                if rank == 0 {
+                    return Err(AosError::Validation("LoRA rank cannot be zero".to_string()));
+                }
+
+                let scale = adapter_spec.gate_weight * adapter_spec.alpha / (rank as f32);
+
+                // Validate dimensions
+                // A: [rank, in_dim], B: [out_dim, rank]
+                let expected_a_len = rank * in_dim;
+                let expected_b_len = out_dim * rank;
+
+                if lora_a.len() != expected_a_len {
+                    tracing::warn!(
+                        layer = layer_idx,
+                        target = ?target,
+                        expected = expected_a_len,
+                        got = lora_a.len(),
+                        "LoRA A dimension mismatch, skipping"
+                    );
+                    continue;
+                }
+
+                if lora_b.len() != expected_b_len {
+                    tracing::warn!(
+                        layer = layer_idx,
+                        target = ?target,
+                        expected = expected_b_len,
+                        got = lora_b.len(),
+                        "LoRA B dimension mismatch, skipping"
+                    );
+                    continue;
+                }
+
+                // Compute B @ A and add to fused weights
+                // This is the core LoRA fusion: W_fused += scale * (B @ A)
+                fuse_weights_inplace(
+                    &mut fused_weights,
+                    lora_a,
+                    lora_b,
+                    out_dim,
+                    in_dim,
+                    rank,
+                    scale,
+                );
+
+                layer_fused = true;
+            }
+
+            // Store fused layer
+            fused_layers.push(FusedLayerWeights {
+                target: *target,
+                layer_idx,
+                weights: fused_weights,
+                out_dim,
+                in_dim,
+            });
+
+            stats.total_params_modified += out_dim * in_dim;
         }
 
-        # Load all LoRA adapter weights
-        adapters = []
-"#);
+        if layer_fused {
+            stats.layers_fused += 1;
+        }
+    }
 
-    // Add adapter loading
-    for (adapter, weights) in all_weights {
-        script.push_str(&format!(
-            r#"        adapters.append({{
-            'path': '{}',
-            'gate': {},
-            'alpha': {},
-            'rank': {},
-        }})
-"#,
-            adapter.weights_path.display(),
-            adapter.gate_weight,
-            adapter.alpha,
-            weights.rank
+    // Calculate weights per layer
+    if stats.layers_fused > 0 {
+        stats.weights_per_layer = fused_layers.len() / stats.layers_fused;
+    }
+
+    Ok(FusedModelWeights {
+        layers: fused_layers,
+        num_layers,
+        stats,
+    })
+}
+
+/// Fuse weights in-place: fused += scale * (B @ A)
+///
+/// This modifies `fused` directly, adding the scaled LoRA contribution.
+///
+/// # Arguments
+/// * `fused` - Mutable base weights to modify [out_dim * in_dim]
+/// * `lora_a` - LoRA A matrix [rank, in_dim] (row-major)
+/// * `lora_b` - LoRA B matrix [out_dim, rank] (row-major)
+/// * `out_dim` - Output dimension
+/// * `in_dim` - Input dimension
+/// * `rank` - LoRA rank
+/// * `scale` - Combined scale factor (gate * alpha / rank)
+fn fuse_weights_inplace(
+    fused: &mut [f32],
+    lora_a: &[f32],
+    lora_b: &[f32],
+    out_dim: usize,
+    in_dim: usize,
+    rank: usize,
+    scale: f32,
+) {
+    // Compute B @ A and add to fused weights
+    // B: [out_dim, rank], A: [rank, in_dim]
+    // Result: [out_dim, in_dim]
+    for i in 0..out_dim {
+        for j in 0..in_dim {
+            let mut delta = 0.0f32;
+            for r in 0..rank {
+                // B[i, r] * A[r, j]
+                delta += lora_b[i * rank + r] * lora_a[r * in_dim + j];
+            }
+            fused[i * in_dim + j] += scale * delta;
+        }
+    }
+}
+
+/// Detect number of layers in the model from tensor names
+fn detect_num_layers(tensors: &safetensors::SafeTensors) -> Result<usize> {
+    let mut max_layer = 0;
+    let mut found_any = false;
+
+    for name in tensors.names() {
+        // Look for patterns like "model.layers.N." or "layers.N."
+        for part in name.split('.') {
+            if let Ok(n) = part.parse::<usize>() {
+                max_layer = max_layer.max(n);
+                found_any = true;
+            }
+        }
+    }
+
+    if !found_any {
+        return Err(AosError::Kernel(
+            "Could not detect number of layers in base model".to_string(),
         ));
     }
 
-    script.push_str(r#"
-        # Load adapter weights from safetensors
-        adapter_weights = []
-        for adapter_info in adapters:
-            with safe_open(adapter_info['path'], framework='numpy') as f:
-                weights = {}
-                for key in f.keys():
-                    weights[key] = f.get_tensor(key)
-                adapter_weights.append({
-                    'weights': weights,
-                    'gate': adapter_info['gate'],
-                    'alpha': adapter_info['alpha'],
-                    'rank': adapter_info['rank'],
-                })
-
-        # Find and update weights in the model spec
-        # This handles both neural network and ML program formats
-
-        def find_and_fuse_weights(spec, layer_idx, target_name, adapter_weights):
-            nonlocal total_params
-
-            # Look for weight in different CoreML formats
-            patterns = weight_patterns.get(target_name, [])
-
-            for pattern in patterns:
-                full_name = f'layers.{layer_idx}.{pattern}'
-
-                # Try to find in neural network weights
-                for layer in getattr(spec, 'neuralNetwork', spec).layers:
-                    for weight_param in getattr(layer, 'weights', []):
-                        if pattern in str(weight_param):
-                            # Get base weights
-                            base_weights = np.array(weight_param.floatValue).reshape(
-                                weight_param.quantization.numberOfBits if hasattr(weight_param, 'quantization')
-                                else (len(weight_param.floatValue),)
-                            )
-
-                            # Fuse LoRA contributions
-                            for adapter in adapter_weights:
-                                a_key = f'model.layers.{layer_idx}.self_attn.{target_name}.lora_A.weight'
-                                b_key = f'model.layers.{layer_idx}.self_attn.{target_name}.lora_B.weight'
-
-                                if a_key in adapter['weights'] and b_key in adapter['weights']:
-                                    lora_a = adapter['weights'][a_key]
-                                    lora_b = adapter['weights'][b_key]
-                                    scale = adapter['gate'] * adapter['alpha'] / adapter['rank']
-
-                                    # Compute B @ A
-                                    delta = np.matmul(lora_b, lora_a)
-
-                                    # Add to base weights
-                                    if base_weights.shape == delta.shape:
-                                        base_weights += scale * delta
-                                        total_params += base_weights.size
-
-                            # Update weights
-                            weight_param.floatValue[:] = base_weights.flatten().tolist()
-                            return True
-
-            return False
-
-        # Iterate through layers
-        num_layers = 32  # Typical for 7B models, adjust as needed
-        for layer_idx in range(num_layers):
-            layer_fused = False
-            for target in ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']:
-                if find_and_fuse_weights(spec, layer_idx, target, adapter_weights):
-                    layer_fused = True
-                    weights_per_layer += 1
-
-            if layer_fused:
-                layers_fused += 1
-
-        # Set compute units
-"#);
-
-    let compute_units = match config.compute_units {
-        crate::ComputeUnits::CpuOnly => "ct.ComputeUnit.CPU_ONLY",
-        crate::ComputeUnits::CpuAndGpu => "ct.ComputeUnit.CPU_AND_GPU",
-        crate::ComputeUnits::CpuAndNeuralEngine => "ct.ComputeUnit.CPU_AND_NE",
-        crate::ComputeUnits::All => "ct.ComputeUnit.ALL",
-    };
-
-    script.push_str(&format!(
-        r#"        # Compile fused model
-        fused_model = ct.models.MLModel(spec, compute_units={})
-        fused_model.save('{}')
-
-        # Output statistics
-        print(f'FUSION_STATS:layers={layers_fused},weights_per_layer={weights_per_layer},total_params={total_params}')
-        print('Fusion completed successfully')
-
-    except Exception as e:
-        print(f'Error: {{e}}', file=sys.stderr)
-        sys.exit(1)
-
-if __name__ == '__main__':
-    main()
-"#,
-        compute_units,
-        config.output_path.display()
-    ));
-
-    Ok(script)
+    Ok(max_layer + 1)
 }
 
-/// Parse fusion script output for statistics
-fn parse_fusion_output(output: &str) -> Result<(usize, usize, usize)> {
-    for line in output.lines() {
-        if line.starts_with("FUSION_STATS:") {
-            let stats = line.trim_start_matches("FUSION_STATS:");
-            let mut layers = 0;
-            let mut weights = 0;
-            let mut params = 0;
+/// Get the expected key for base model weights
+fn get_base_weight_key(layer_idx: usize, target: LoraTarget) -> String {
+    let target_name = match target {
+        LoraTarget::QProj => "q_proj",
+        LoraTarget::KProj => "k_proj",
+        LoraTarget::VProj => "v_proj",
+        LoraTarget::OProj => "o_proj",
+        LoraTarget::GateProj => "gate_proj",
+        LoraTarget::UpProj => "up_proj",
+        LoraTarget::DownProj => "down_proj",
+    };
 
-            for part in stats.split(',') {
-                let kv: Vec<&str> = part.split('=').collect();
-                if kv.len() == 2 {
-                    match kv[0] {
-                        "layers" => layers = kv[1].parse().unwrap_or(0),
-                        "weights_per_layer" => weights = kv[1].parse().unwrap_or(0),
-                        "total_params" => params = kv[1].parse().unwrap_or(0),
-                        _ => {}
-                    }
-                }
-            }
+    // Common Llama/Mistral format
+    format!(
+        "model.layers.{}.self_attn.{}.weight",
+        layer_idx, target_name
+    )
+}
 
-            return Ok((layers, weights, params));
+/// Try alternative key patterns for finding base tensors
+fn find_base_tensor_alternative<'a>(
+    tensors: &'a safetensors::SafeTensors<'a>,
+    layer_idx: usize,
+    target: LoraTarget,
+) -> Option<safetensors::tensor::TensorView<'a>> {
+    let target_name = match target {
+        LoraTarget::QProj => "q_proj",
+        LoraTarget::KProj => "k_proj",
+        LoraTarget::VProj => "v_proj",
+        LoraTarget::OProj => "o_proj",
+        LoraTarget::GateProj => "gate_proj",
+        LoraTarget::UpProj => "up_proj",
+        LoraTarget::DownProj => "down_proj",
+    };
+
+    // Alternative patterns used by different model formats
+    let patterns = [
+        // MLP projections
+        format!("model.layers.{}.mlp.{}.weight", layer_idx, target_name),
+        // Without model prefix
+        format!("layers.{}.self_attn.{}.weight", layer_idx, target_name),
+        format!("layers.{}.mlp.{}.weight", layer_idx, target_name),
+        // Transformer prefix
+        format!("transformer.h.{}.attn.{}.weight", layer_idx, target_name),
+        format!("transformer.h.{}.mlp.{}.weight", layer_idx, target_name),
+        // GPT-NeoX style
+        format!(
+            "gpt_neox.layers.{}.attention.{}.weight",
+            layer_idx, target_name
+        ),
+    ];
+
+    for pattern in &patterns {
+        if let Ok(tensor) = tensors.tensor(pattern) {
+            return Some(tensor);
         }
     }
 
-    // Default values if parsing fails
-    Ok((0, 0, 0))
+    None
+}
+
+/// Convert a safetensors TensorView to Vec<f32>
+fn tensor_to_f32_vec(tensor: safetensors::tensor::TensorView) -> Result<Vec<f32>> {
+    let dtype = tensor.dtype();
+    let data = tensor.data();
+
+    match dtype {
+        safetensors::Dtype::F32 => Ok(data
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect()),
+        safetensors::Dtype::F16 => {
+            // Convert f16 to f32
+            Ok(data
+                .chunks_exact(2)
+                .map(|b| {
+                    let bits = u16::from_le_bytes([b[0], b[1]]);
+                    half::f16::from_bits(bits).to_f32()
+                })
+                .collect())
+        }
+        safetensors::Dtype::BF16 => {
+            // Convert bf16 to f32
+            Ok(data
+                .chunks_exact(2)
+                .map(|b| {
+                    let bits = u16::from_le_bytes([b[0], b[1]]);
+                    half::bf16::from_bits(bits).to_f32()
+                })
+                .collect())
+        }
+        other => Err(AosError::Kernel(format!(
+            "Unsupported tensor dtype: {:?}",
+            other
+        ))),
+    }
+}
+
+/// Write fused weights to a safetensors file
+fn write_fused_weights(output_path: &PathBuf, fused: &FusedModelWeights) -> Result<()> {
+    // Create output directory if needed
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
+    }
+
+    // Build tensor data - collect byte representations
+    let byte_tensors: Vec<(String, Vec<u8>, Vec<usize>)> = fused
+        .layers
+        .iter()
+        .map(|layer| {
+            let key = get_base_weight_key(layer.layer_idx, layer.target);
+            let shape = vec![layer.out_dim, layer.in_dim];
+            let bytes: Vec<u8> = layer.weights.iter().flat_map(|f| f.to_le_bytes()).collect();
+            (key, bytes, shape)
+        })
+        .collect();
+
+    // Create tensor views that reference the byte data
+    let tensor_views: Vec<(&str, safetensors::tensor::TensorView)> = byte_tensors
+        .iter()
+        .filter_map(|(name, bytes, shape)| {
+            safetensors::tensor::TensorView::new(safetensors::Dtype::F32, shape.clone(), bytes)
+                .ok()
+                .map(|tv| (name.as_str(), tv))
+        })
+        .collect();
+
+    // Serialize using safetensors
+    let serialized = safetensors::serialize(tensor_views.into_iter(), &None)
+        .map_err(|e| AosError::Kernel(format!("Failed to serialize fused weights: {}", e)))?;
+
+    std::fs::write(output_path, serialized)
+        .map_err(|e| AosError::Io(format!("Failed to write fused weights: {}", e)))?;
+
+    Ok(())
+}
+
+/// Fuse LoRA weights directly into base weights in memory (no file I/O)
+///
+/// This is a convenience function for fusing a single adapter into base weights
+/// without writing to disk.
+///
+/// # Arguments
+/// * `base_weights` - Mutable base weights to modify in-place
+/// * `adapter` - Adapter specification with gate weight, alpha, and rank
+/// * `lora_weights` - Parsed LoRA weights
+/// * `target` - Target module (q_proj, k_proj, etc.)
+/// * `layer_idx` - Layer index
+/// * `out_dim` - Output dimension
+/// * `in_dim` - Input dimension
+///
+/// # Returns
+/// `true` if fusion was applied, `false` if LoRA weights were not found for this target/layer
+pub fn fuse_single_adapter_inplace(
+    base_weights: &mut [f32],
+    adapter: &AdapterFusionSpec,
+    lora_weights: &ParsedLoraWeights,
+    target: LoraTarget,
+    layer_idx: usize,
+    out_dim: usize,
+    in_dim: usize,
+) -> Result<bool> {
+    // Get LoRA A and B matrices for this layer/target
+    let a_matrices = match lora_weights.a_matrices.get(&target) {
+        Some(m) => m,
+        None => return Ok(false),
+    };
+    let b_matrices = match lora_weights.b_matrices.get(&target) {
+        Some(m) => m,
+        None => return Ok(false),
+    };
+
+    let lora_a = match a_matrices.get(&layer_idx) {
+        Some(a) => a,
+        None => return Ok(false),
+    };
+    let lora_b = match b_matrices.get(&layer_idx) {
+        Some(b) => b,
+        None => return Ok(false),
+    };
+
+    // Compute scale factor: gate * alpha / rank
+    let rank = adapter.rank;
+    if rank == 0 {
+        return Err(AosError::Validation("LoRA rank cannot be zero".to_string()));
+    }
+
+    let scale = adapter.gate_weight * adapter.alpha / (rank as f32);
+
+    // Validate dimensions
+    let expected_a_len = rank * in_dim;
+    let expected_b_len = out_dim * rank;
+
+    if lora_a.len() != expected_a_len || lora_b.len() != expected_b_len {
+        return Err(AosError::Kernel(format!(
+            "LoRA dimension mismatch: A expected {}, got {}; B expected {}, got {}",
+            expected_a_len,
+            lora_a.len(),
+            expected_b_len,
+            lora_b.len()
+        )));
+    }
+
+    // Apply fusion
+    fuse_weights_inplace(base_weights, lora_a, lora_b, out_dim, in_dim, rank, scale);
+
+    Ok(true)
+}
+
+/// Batch fuse multiple adapters into base weights
+///
+/// This is optimized for fusing multiple adapters at once, computing the
+/// combined delta matrix once rather than applying each adapter sequentially.
+///
+/// # Arguments
+/// * `base_weights` - Base weights [out_dim, in_dim]
+/// * `adapters` - List of (adapter_spec, lora_weights) pairs
+/// * `target` - Target module
+/// * `layer_idx` - Layer index
+/// * `out_dim` - Output dimension
+/// * `in_dim` - Input dimension
+///
+/// # Returns
+/// Fused weights as a new vector
+pub fn fuse_multiple_adapters(
+    base_weights: &[f32],
+    adapters: &[(AdapterFusionSpec, ParsedLoraWeights)],
+    target: LoraTarget,
+    layer_idx: usize,
+    out_dim: usize,
+    in_dim: usize,
+) -> Result<Vec<f32>> {
+    let mut fused = base_weights.to_vec();
+
+    for (adapter_spec, lora_weights) in adapters {
+        // Get LoRA A and B matrices
+        let a_matrices = match lora_weights.a_matrices.get(&target) {
+            Some(m) => m,
+            None => continue,
+        };
+        let b_matrices = match lora_weights.b_matrices.get(&target) {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let lora_a = match a_matrices.get(&layer_idx) {
+            Some(a) => a,
+            None => continue,
+        };
+        let lora_b = match b_matrices.get(&layer_idx) {
+            Some(b) => b,
+            None => continue,
+        };
+
+        let rank = adapter_spec.rank;
+        if rank == 0 {
+            return Err(AosError::Validation("LoRA rank cannot be zero".to_string()));
+        }
+
+        let scale = adapter_spec.gate_weight * adapter_spec.alpha / (rank as f32);
+
+        // Validate dimensions
+        let expected_a_len = rank * in_dim;
+        let expected_b_len = out_dim * rank;
+
+        if lora_a.len() != expected_a_len || lora_b.len() != expected_b_len {
+            tracing::warn!(
+                layer = layer_idx,
+                target = ?target,
+                "Skipping adapter due to dimension mismatch"
+            );
+            continue;
+        }
+
+        fuse_weights_inplace(&mut fused, lora_a, lora_b, out_dim, in_dim, rank, scale);
+    }
+
+    Ok(fused)
 }
 
 /// Cached fused model manager
@@ -696,19 +1019,39 @@ mod tests {
 
     #[test]
     fn test_parse_tensor_name() {
-        let (target, layer, is_a) = parse_tensor_name(
-            "model.layers.5.self_attn.q_proj.lora_A.weight"
-        ).unwrap();
+        let (target, layer, is_a) =
+            parse_tensor_name("model.layers.5.self_attn.q_proj.lora_A.weight").unwrap();
         assert_eq!(target, LoraTarget::QProj);
         assert_eq!(layer, 5);
         assert!(is_a);
 
-        let (target, layer, is_a) = parse_tensor_name(
-            "base_model.model.layers.12.self_attn.v_proj.lora_B.weight"
-        ).unwrap();
+        let (target, layer, is_a) =
+            parse_tensor_name("base_model.model.layers.12.self_attn.v_proj.lora_B.weight").unwrap();
         assert_eq!(target, LoraTarget::VProj);
         assert_eq!(layer, 12);
         assert!(!is_a);
+    }
+
+    #[test]
+    fn test_parse_tensor_name_all_targets() {
+        // Test all target types
+        let targets = [
+            ("q_proj", LoraTarget::QProj),
+            ("k_proj", LoraTarget::KProj),
+            ("v_proj", LoraTarget::VProj),
+            ("o_proj", LoraTarget::OProj),
+            ("gate_proj", LoraTarget::GateProj),
+            ("up_proj", LoraTarget::UpProj),
+            ("down_proj", LoraTarget::DownProj),
+        ];
+
+        for (name, expected_target) in targets {
+            let tensor_name = format!("model.layers.0.self_attn.{}.lora_A.weight", name);
+            let (target, layer, is_a) = parse_tensor_name(&tensor_name).unwrap();
+            assert_eq!(target, expected_target);
+            assert_eq!(layer, 0);
+            assert!(is_a);
+        }
     }
 
     #[test]
@@ -729,23 +1072,243 @@ mod tests {
     }
 
     #[test]
+    fn test_fuse_weights_inplace() {
+        // Test in-place fusion
+        let mut base = vec![1.0, 2.0, 3.0, 4.0];
+        let lora_a = vec![0.5, 0.5]; // [1, 2] - rank 1
+        let lora_b = vec![1.0, 2.0]; // [2, 1]
+
+        fuse_weights_inplace(&mut base, &lora_a, &lora_b, 2, 2, 1, 1.0);
+
+        assert!((base[0] - 1.5).abs() < 1e-6);
+        assert!((base[1] - 2.5).abs() < 1e-6);
+        assert!((base[2] - 4.0).abs() < 1e-6);
+        assert!((base[3] - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_fuse_weights_with_scaling() {
+        // Test with alpha scaling (typical LoRA usage: alpha=32, rank=16 -> scale=2)
+        let base = vec![1.0, 2.0, 3.0, 4.0];
+        let lora_a = vec![0.5, 0.5]; // [1, 2] - rank 1
+        let lora_b = vec![1.0, 2.0]; // [2, 1]
+
+        // B @ A = [[0.5, 0.5], [1.0, 1.0]]
+        // With scale 2.0: base + 2 * [[0.5, 0.5], [1.0, 1.0]] = [[2.0, 3.0], [5.0, 6.0]]
+        let fused = fuse_weights(&base, &lora_a, &lora_b, 2, 2, 1, 2.0);
+
+        assert!((fused[0] - 2.0).abs() < 1e-6);
+        assert!((fused[1] - 3.0).abs() < 1e-6);
+        assert!((fused[2] - 5.0).abs() < 1e-6);
+        assert!((fused[3] - 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_fuse_weights_rank2() {
+        // Test with rank 2
+        // base: 2x3 matrix
+        let base = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        // A: [2, 3] - rank 2, in_dim 3
+        let lora_a = vec![
+            1.0, 0.0, 0.0, // rank 0
+            0.0, 1.0, 0.0, // rank 1
+        ];
+        // B: [2, 2] - out_dim 2, rank 2
+        let lora_b = vec![
+            1.0, 2.0, // out 0
+            3.0, 4.0, // out 1
+        ];
+
+        // B @ A:
+        // [1*1 + 2*0, 1*0 + 2*1, 1*0 + 2*0] = [1, 2, 0]
+        // [3*1 + 4*0, 3*0 + 4*1, 3*0 + 4*0] = [3, 4, 0]
+        // Result with scale 1.0:
+        // base + [[1, 2, 0], [3, 4, 0]] = [[2, 4, 3], [7, 9, 6]]
+        let fused = fuse_weights(&base, &lora_a, &lora_b, 2, 3, 2, 1.0);
+
+        assert!((fused[0] - 2.0).abs() < 1e-6);
+        assert!((fused[1] - 4.0).abs() < 1e-6);
+        assert!((fused[2] - 3.0).abs() < 1e-6);
+        assert!((fused[3] - 7.0).abs() < 1e-6);
+        assert!((fused[4] - 9.0).abs() < 1e-6);
+        assert!((fused[5] - 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_fuse_weights_gate_blending() {
+        // Test Q15 gate weight blending (simulating router output)
+        let base = vec![1.0, 2.0, 3.0, 4.0];
+        let lora_a = vec![1.0, 1.0]; // [1, 2] - rank 1
+        let lora_b = vec![1.0, 1.0]; // [2, 1]
+
+        // B @ A = [[1, 1], [1, 1]]
+        // With gate=0.5, alpha=2, rank=1 -> scale = 0.5 * 2 / 1 = 1.0
+        // Result: base + 1.0 * [[1, 1], [1, 1]] = [[2, 3], [4, 5]]
+        let scale = 0.5 * 2.0 / 1.0;
+        let fused = fuse_weights(&base, &lora_a, &lora_b, 2, 2, 1, scale);
+
+        assert!((fused[0] - 2.0).abs() < 1e-6);
+        assert!((fused[1] - 3.0).abs() < 1e-6);
+        assert!((fused[2] - 4.0).abs() < 1e-6);
+        assert!((fused[3] - 5.0).abs() < 1e-6);
+
+        // Test with lower gate (0.25)
+        let scale_low = 0.25 * 2.0 / 1.0;
+        let fused_low = fuse_weights(&base, &lora_a, &lora_b, 2, 2, 1, scale_low);
+
+        assert!((fused_low[0] - 1.5).abs() < 1e-6);
+        assert!((fused_low[1] - 2.5).abs() < 1e-6);
+        assert!((fused_low[2] - 3.5).abs() < 1e-6);
+        assert!((fused_low[3] - 4.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_lora_target_all() {
+        let targets = LoraTarget::all();
+        assert_eq!(targets.len(), 7);
+        assert!(targets.contains(&LoraTarget::QProj));
+        assert!(targets.contains(&LoraTarget::KProj));
+        assert!(targets.contains(&LoraTarget::VProj));
+        assert!(targets.contains(&LoraTarget::OProj));
+        assert!(targets.contains(&LoraTarget::GateProj));
+        assert!(targets.contains(&LoraTarget::UpProj));
+        assert!(targets.contains(&LoraTarget::DownProj));
+    }
+
+    #[test]
+    fn test_lora_target_to_pattern() {
+        let (a_key, b_key) = LoraTarget::QProj.to_safetensor_pattern(5);
+        assert_eq!(a_key, "model.layers.5.self_attn.q_proj.lora_A.weight");
+        assert_eq!(b_key, "model.layers.5.self_attn.q_proj.lora_B.weight");
+
+        let (a_key, b_key) = LoraTarget::DownProj.to_safetensor_pattern(10);
+        assert_eq!(a_key, "model.layers.10.self_attn.down_proj.lora_A.weight");
+        assert_eq!(b_key, "model.layers.10.self_attn.down_proj.lora_B.weight");
+    }
+
+    #[test]
+    fn test_get_base_weight_key() {
+        assert_eq!(
+            get_base_weight_key(0, LoraTarget::QProj),
+            "model.layers.0.self_attn.q_proj.weight"
+        );
+        assert_eq!(
+            get_base_weight_key(5, LoraTarget::VProj),
+            "model.layers.5.self_attn.v_proj.weight"
+        );
+        assert_eq!(
+            get_base_weight_key(31, LoraTarget::DownProj),
+            "model.layers.31.self_attn.down_proj.weight"
+        );
+    }
+
+    #[test]
+    fn test_fusion_stats_default() {
+        let stats = FusionStats::default();
+        assert_eq!(stats.layers_fused, 0);
+        assert_eq!(stats.weights_per_layer, 0);
+        assert_eq!(stats.total_params_modified, 0);
+        assert_eq!(stats.adapters_fused, 0);
+    }
+
+    #[test]
     fn test_cache_key_stability() {
         let config = LoraFusionConfig {
             base_model_path: "/path/to/model.mlpackage".into(),
             output_path: "/path/to/output.mlmodelc".into(),
-            adapters: vec![
-                AdapterFusionSpec {
-                    weights_path: "/path/to/adapter.safetensors".into(),
-                    gate_weight: 0.5,
-                    alpha: 32.0,
-                    rank: 16,
-                },
-            ],
+            adapters: vec![AdapterFusionSpec {
+                weights_path: "/path/to/adapter.safetensors".into(),
+                gate_weight: 0.5,
+                alpha: 32.0,
+                rank: 16,
+            }],
             compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
         };
 
         let key1 = FusedModelCache::cache_key(&config);
         let key2 = FusedModelCache::cache_key(&config);
         assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn test_cache_key_changes_with_config() {
+        let config1 = LoraFusionConfig {
+            base_model_path: "/path/to/model.mlpackage".into(),
+            output_path: "/path/to/output.mlmodelc".into(),
+            adapters: vec![AdapterFusionSpec {
+                weights_path: "/path/to/adapter.safetensors".into(),
+                gate_weight: 0.5,
+                alpha: 32.0,
+                rank: 16,
+            }],
+            compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+        };
+
+        let config2 = LoraFusionConfig {
+            base_model_path: "/path/to/model.mlpackage".into(),
+            output_path: "/path/to/output.mlmodelc".into(),
+            adapters: vec![AdapterFusionSpec {
+                weights_path: "/path/to/adapter.safetensors".into(),
+                gate_weight: 0.7, // Different gate weight
+                alpha: 32.0,
+                rank: 16,
+            }],
+            compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+        };
+
+        let key1 = FusedModelCache::cache_key(&config1);
+        let key2 = FusedModelCache::cache_key(&config2);
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_validation_empty_adapters() {
+        // Create a temporary file for base model path (so we don't get NotFound error)
+        let temp_dir = std::env::temp_dir();
+        let temp_base = temp_dir.join("test_base_model.safetensors");
+
+        // Create empty file (doesn't need to be valid safetensors for this validation test)
+        std::fs::write(&temp_base, b"").unwrap();
+
+        let config = LoraFusionConfig {
+            base_model_path: temp_base.clone(),
+            output_path: temp_dir.join("test_output.safetensors"),
+            adapters: vec![],
+            compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
+        };
+
+        let result = fuse_lora_into_model(&config);
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_base);
+
+        assert!(result.is_err());
+        match result {
+            Err(AosError::Validation(msg)) => {
+                assert!(msg.contains("adapter"));
+            }
+            _ => panic!("Expected Validation error, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_multiple_adapters_accumulate() {
+        // Test that multiple adapters contribute additively
+        let base = vec![1.0, 2.0, 3.0, 4.0];
+        let lora_a = vec![1.0, 1.0]; // [1, 2] - rank 1
+        let lora_b = vec![1.0, 1.0]; // [2, 1]
+
+        // First adapter: scale 1.0
+        let mut fused = base.clone();
+        fuse_weights_inplace(&mut fused, &lora_a, &lora_b, 2, 2, 1, 1.0);
+
+        // Second adapter: scale 1.0 (same contribution)
+        fuse_weights_inplace(&mut fused, &lora_a, &lora_b, 2, 2, 1, 1.0);
+
+        // Should be base + 2 * [[1, 1], [1, 1]] = [[3, 4], [5, 6]]
+        assert!((fused[0] - 3.0).abs() < 1e-6);
+        assert!((fused[1] - 4.0).abs() < 1e-6);
+        assert!((fused[2] - 5.0).abs() < 1e-6);
+        assert!((fused[3] - 6.0).abs() < 1e-6);
     }
 }
