@@ -94,7 +94,10 @@ impl MemoryTelemetryWriter {
                 PressureLevel::Critical => "error",
             };
 
-            writer.emit_event(&format!("memory.pressure.{}", level), serde_json::to_value(&event).unwrap());
+            writer.emit_event(
+                &format!("memory.pressure.{}", level),
+                serde_json::to_value(&event).unwrap(),
+            );
 
             match report.pressure_level {
                 PressureLevel::Critical => warn!(
@@ -169,7 +172,10 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.buffer_pool.stats", serde_json::to_value(&event).unwrap());
+            writer.emit_event(
+                "memory.buffer_pool.stats",
+                serde_json::to_value(&event).unwrap(),
+            );
         }
     }
 
@@ -188,7 +194,10 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.fingerprint.verification", serde_json::to_value(&event).unwrap());
+            writer.emit_event(
+                "memory.fingerprint.verification",
+                serde_json::to_value(&event).unwrap(),
+            );
 
             if !verified {
                 warn!(
@@ -217,7 +226,10 @@ impl MemoryTelemetryWriter {
                 timestamp: current_timestamp(),
             };
 
-            writer.emit_event("memory.footprint.anomaly", serde_json::to_value(&event).unwrap());
+            writer.emit_event(
+                "memory.footprint.anomaly",
+                serde_json::to_value(&event).unwrap(),
+            );
 
             if !within_tolerance {
                 warn!(

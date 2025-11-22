@@ -33,9 +33,14 @@
 
 pub mod buffer_pool;
 pub mod buffer_relocation;
+pub mod ffi_wrapper;
 pub mod heap_observer;
+pub mod k_reduction_integration;
+pub mod k_reduction_protocol;
 pub mod memory_map;
+pub mod model_cache;
 pub mod optimization;
+pub mod page_migration_iokit;
 pub mod pointer_canonicalizer;
 pub mod pressure_manager;
 pub mod replay_integration;
@@ -47,9 +52,32 @@ pub mod watchdog;
 
 pub use buffer_pool::{BufferPool, BufferPoolConfig, BufferPoolStats, TensorFormat};
 pub use buffer_relocation::BufferRelocationDetector;
-pub use heap_observer::MetalHeapObserver;
+pub use ffi_wrapper::{
+    FragmentationReport, HeapObserverHandle, HeapObserverStats, HeapSnapshot, MigrationEventReport,
+};
+pub use heap_observer::{
+    FFIFragmentationMetrics, FFIHeapAllocation, FFIHeapState, FFIMetalMemoryMetrics,
+    FFIPageMigrationEvent, FragmentationMetrics, FragmentationType, HeapAllocation, HeapState,
+    MemoryStats as HeapObserverMemoryStats, MetalHeapObserver,
+};
+pub use k_reduction_integration::{
+    KReductionChannelConfig, KReductionChannelManager, KReductionChannelStats,
+    KReductionRequestReceiver, KReductionRequestSender, RecvError, SendError,
+};
+pub use k_reduction_protocol::{
+    DefaultKReductionDecisionMaker, KReductionCoordinator, KReductionDecision,
+    KReductionDecisionMaker, KReductionRequest, KReductionResponse, KReductionStats,
+    KReductionStatus, KReductionTimeoutConfig, LockOrderingContext,
+};
 pub use memory_map::MemoryMapHasher;
+pub use model_cache::{ModelCache, ModelCacheConfig, ModelCacheMetrics, ModelEntry};
 pub use optimization::{MemoryOptimizationPlan, MemoryOptimizer, MemoryPressureReport};
+pub use page_migration_iokit::{
+    current_timestamp, DetailedMemoryStats, FFIMachVMRegion, FFIPageMigrationInfo,
+    FFIUnifiedMemoryInfo, FFIVMStats, MemoryPressureLevel as IoKitMemoryPressureLevel,
+    PageMigrationEvent, PageMigrationTracker, PageMigrationType, UnifiedMemoryInfo, VMRegionInfo,
+    VMStatistics,
+};
 pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use pressure_manager::{EvictedAdapter, MemoryPressureManager, MemoryStats};
 pub use replay_integration::ReplayMemoryLogger;

@@ -2,7 +2,17 @@
 //!
 //! Implements memory pressure detection and coordinated eviction across backends.
 //! Enforces 15% headroom policy and provides deterministic eviction ordering.
+//! Integrates with K reduction protocol for lifecycle-aware memory management.
+//!
+//! # K Reduction Integration
+//!
+//! When memory pressure reaches a threshold requiring adapter count reduction,
+//! this manager sends `KReductionRequest` messages through a tokio mpsc channel.
+//! The lifecycle manager consumes these requests and coordinates the actual
+//! adapter unloading.
 
+use crate::k_reduction_integration::{KReductionRequestSender, SendError};
+use crate::k_reduction_protocol::{KReductionCoordinator, KReductionRequest};
 use crate::unified_tracker::{
     BackendType, EvictionStrategy, MemoryLimits, PressureLevel, UnifiedMemoryTracker,
 };
@@ -10,7 +20,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Memory pressure manager
 pub struct MemoryPressureManager {
@@ -18,6 +28,10 @@ pub struct MemoryPressureManager {
     tracker: Arc<UnifiedMemoryTracker>,
     /// Pinned adapters (never evict)
     pinned_adapters: Arc<parking_lot::RwLock<HashSet<u32>>>,
+    /// K reduction channel sender (for lifecycle manager integration)
+    k_reduction_sender: Option<KReductionRequestSender>,
+    /// K reduction coordinator (optional, for synchronous protocol)
+    k_reduction_coordinator: Option<Arc<KReductionCoordinator>>,
 }
 
 impl MemoryPressureManager {
@@ -26,7 +40,45 @@ impl MemoryPressureManager {
         Self {
             tracker,
             pinned_adapters: Arc::new(parking_lot::RwLock::new(HashSet::new())),
+            k_reduction_sender: None,
+            k_reduction_coordinator: None,
         }
+    }
+
+    /// Create a new memory pressure manager with K reduction channel sender
+    pub fn with_channel_sender(
+        tracker: Arc<UnifiedMemoryTracker>,
+        sender: KReductionRequestSender,
+    ) -> Self {
+        Self {
+            tracker,
+            pinned_adapters: Arc::new(parking_lot::RwLock::new(HashSet::new())),
+            k_reduction_sender: Some(sender),
+            k_reduction_coordinator: None,
+        }
+    }
+
+    /// Create a new memory pressure manager with K reduction coordinator
+    pub fn with_coordinator(
+        tracker: Arc<UnifiedMemoryTracker>,
+        coordinator: Arc<KReductionCoordinator>,
+    ) -> Self {
+        Self {
+            tracker,
+            pinned_adapters: Arc::new(parking_lot::RwLock::new(HashSet::new())),
+            k_reduction_sender: None,
+            k_reduction_coordinator: Some(coordinator),
+        }
+    }
+
+    /// Set the K reduction channel sender
+    pub fn set_channel_sender(&mut self, sender: KReductionRequestSender) {
+        self.k_reduction_sender = Some(sender);
+    }
+
+    /// Set the K reduction coordinator
+    pub fn set_coordinator(&mut self, coordinator: Arc<KReductionCoordinator>) {
+        self.k_reduction_coordinator = Some(coordinator);
     }
 
     /// Pin an adapter (prevent eviction)
@@ -61,19 +113,136 @@ impl MemoryPressureManager {
             }),
             EvictionStrategy::EvictLowPriority => self.evict_low_priority(pressure.bytes_to_free),
             EvictionStrategy::EvictCrossBackend => self.evict_cross_backend(pressure.bytes_to_free),
-            EvictionStrategy::ReduceK => {
-                // K reduction is handled by lifecycle manager
-                Ok(MemoryPressureReport {
-                    pressure_level: pressure.level,
-                    action_taken: EvictionStrategy::ReduceK,
-                    adapters_evicted: vec![],
-                    bytes_freed: 0,
-                    headroom_before: pressure.headroom_pct,
-                    headroom_after: pressure.headroom_pct,
-                })
-            }
+            EvictionStrategy::ReduceK => self.request_k_reduction(pressure),
             EvictionStrategy::EmergencyEvict => self.emergency_evict(pressure.bytes_to_free),
         }
+    }
+
+    /// Request K reduction through channel or coordinator (if available)
+    fn request_k_reduction(
+        &self,
+        pressure: crate::unified_tracker::MemoryPressure,
+    ) -> Result<MemoryPressureReport> {
+        // Convert pressure to normalized level (0-1)
+        let pressure_level = match pressure.level {
+            PressureLevel::Low => 0.25,
+            PressureLevel::Medium => 0.50,
+            PressureLevel::High => 0.75,
+            PressureLevel::Critical => 1.0,
+        };
+
+        // Create K reduction request
+        let request = KReductionRequest::new(
+            1, // Minimal target K for emergency
+            8, // Current K (placeholder, should come from lifecycle manager)
+            pressure_level,
+            pressure.bytes_to_free,
+            pressure.headroom_pct,
+            "Memory pressure threshold exceeded".to_string(),
+        );
+
+        debug!(
+            request_id = %request.request_id,
+            target_k = request.target_k,
+            pressure_level = pressure_level,
+            bytes_to_free = pressure.bytes_to_free,
+            "Initiating K reduction request"
+        );
+
+        // Try channel sender first (preferred, async)
+        if let Some(sender) = &self.k_reduction_sender {
+            // Spawn async task to send request to avoid blocking
+            let sender_clone = sender.clone();
+            let request_clone = request.clone();
+
+            tokio::spawn(async move {
+                match sender_clone.send(request_clone.clone()).await {
+                    Ok(()) => {
+                        info!(
+                            request_id = %request_clone.request_id,
+                            target_k = request_clone.target_k,
+                            "K reduction request sent through channel"
+                        );
+                    }
+                    Err(SendError::ChannelFull) => {
+                        warn!(
+                            request_id = %request_clone.request_id,
+                            "K reduction channel buffer full, request dropped"
+                        );
+                    }
+                    Err(SendError::ChannelClosed) => {
+                        error!(
+                            request_id = %request_clone.request_id,
+                            "K reduction channel closed, lifecycle manager not available"
+                        );
+                    }
+                    Err(SendError::SendTimeout) => {
+                        warn!(
+                            request_id = %request_clone.request_id,
+                            "K reduction channel send timed out"
+                        );
+                    }
+                }
+            });
+
+            return Ok(MemoryPressureReport {
+                pressure_level: pressure.level,
+                action_taken: EvictionStrategy::ReduceK,
+                adapters_evicted: vec![],
+                bytes_freed: 0,
+                headroom_before: pressure.headroom_pct,
+                headroom_after: pressure.headroom_pct,
+            });
+        }
+
+        // Fall back to synchronous coordinator
+        if let Some(coordinator) = &self.k_reduction_coordinator {
+            debug!(
+                request_id = %request.request_id,
+                "Using synchronous K reduction coordinator"
+            );
+
+            // Process through coordinator
+            let response = coordinator.process_request(request);
+
+            if response.approved {
+                info!(
+                    request_id = %response.request_id,
+                    new_k = response.new_k,
+                    "K reduction request approved"
+                );
+            } else {
+                warn!(
+                    request_id = %response.request_id,
+                    reason = %response.reason,
+                    "K reduction request rejected"
+                );
+            }
+
+            return Ok(MemoryPressureReport {
+                pressure_level: pressure.level,
+                action_taken: EvictionStrategy::ReduceK,
+                adapters_evicted: vec![],
+                bytes_freed: 0,
+                headroom_before: pressure.headroom_pct,
+                headroom_after: pressure.headroom_pct,
+            });
+        }
+
+        // No K reduction mechanism available
+        warn!(
+            request_id = %request.request_id,
+            "K reduction requested but no sender or coordinator available"
+        );
+
+        Ok(MemoryPressureReport {
+            pressure_level: pressure.level,
+            action_taken: EvictionStrategy::ReduceK,
+            adapters_evicted: vec![],
+            bytes_freed: 0,
+            headroom_before: pressure.headroom_pct,
+            headroom_after: pressure.headroom_pct,
+        })
     }
 
     /// Evict low priority adapters (LRU, unpinned)

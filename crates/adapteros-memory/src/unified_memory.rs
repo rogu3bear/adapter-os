@@ -51,13 +51,13 @@ pub struct MemoryBlock {
 #[derive(Debug)]
 pub struct AllocationRequest {
     /// Requested size
-    size: usize,
+    pub size: usize,
     /// Backend type
-    backend: String,
+    pub backend: String,
     /// Alignment requirements
-    alignment: usize,
+    pub alignment: usize,
     /// Memory type hint
-    memory_type: MemoryType,
+    pub memory_type: MemoryType,
 }
 
 /// Memory type hints for optimization
