@@ -42,7 +42,7 @@ event: telemetry
 data: {"id":"abc123","timestamp":"2025-11-19T12:00:00Z","event_type":"inference_complete","level":"Info","message":"Inference completed","component":"worker","identity":{"tenant_id":"tenant1","workspace_id":"ws1"},"metadata":{}}
 ```
 
-### 2. `/api/logs/stream` - Filtered Log Stream
+### 2. `/v1/logs/stream` - Filtered Log Stream
 
 Streams telemetry events filtered by log criteria.
 
@@ -63,7 +63,7 @@ Streams telemetry events filtered by log criteria.
 
 **Example Request**:
 ```
-GET /api/logs/stream?level=error&component=worker
+GET /v1/logs/stream?level=error&component=worker
 ```
 
 ### 3. `/v1/metrics/stream` - Metrics Stream
@@ -173,7 +173,7 @@ curl -N -H "Authorization: Bearer $TOKEN" \
 
 # Stream filtered logs
 curl -N -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:3000/api/logs/stream?level=error&component=worker"
+  "http://localhost:3000/v1/logs/stream?level=error&component=worker"
 
 # Stream metrics only
 curl -N -H "Authorization: Bearer $TOKEN" \

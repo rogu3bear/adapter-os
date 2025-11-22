@@ -19,9 +19,23 @@ This directory contains archived documentation that is no longer actively mainta
 
 ## Structure
 
+- `ai-generated/` - **158 files** (2025-11-21) - AI-generated temporary docs, implementation reports, reconciliation summaries, and agent outputs. Moved during documentation cleanup to reduce noise.
 - `completed-phases/` - ⚠️ Documentation from supposedly completed phases (verify claims)
 - `deprecated/` - Deprecated documentation that has been superseded
 - `temp/` - Temporary documentation files
+
+## AI-Generated Archive (2025-11-21)
+
+The `ai-generated/` directory contains documentation that was automatically produced by AI agents during development. These files include:
+
+- **Agent reports** (AGENT_*.md) - Task summaries from automated agents
+- **Implementation summaries** (*_IMPLEMENTATION*.md, *_SUMMARY.md)
+- **Reconciliation/rectification reports** (*_RECONCILIATION*.md, *_RECTIFICATION*.md)
+- **Patch plans and checklists** (PATCH_*.md, *_CHECKLIST.md)
+- **AI slop cleanup artifacts** (AI_SLOP_*.md)
+- **Verification/analysis reports** (*_VERIFICATION.md, *_ANALYSIS.md)
+
+**These documents should not be referenced for current implementation details.** Consult the active documentation in `/docs/` and `CLAUDE.md` instead.
 
 ## Archive Policy
 
@@ -32,4 +46,5 @@ This directory contains archived documentation that is no longer actively mainta
 
 ## Last Updated
 
-2024-12-19 - Initial archive structure created during documentation cleanup
+- 2025-11-21 - Moved 158 AI-generated docs to `ai-generated/` directory
+- 2024-12-19 - Initial archive structure created during documentation cleanup

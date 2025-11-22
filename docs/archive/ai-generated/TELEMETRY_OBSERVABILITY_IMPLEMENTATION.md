@@ -206,10 +206,10 @@ let metadata = CompressedBundleMetadata::new(
 The telemetry system integrates with `adapteros-server-api`:
 
 **Endpoints:**
-- `GET /api/logs/query` - Query logs with filters
-- `GET /api/logs/stream` - SSE stream of logs
-- `GET /api/metrics/snapshot` - Current metrics
-- `GET /api/metrics/series` - Time series data
+- `GET /v1/logs/query` - Query logs with filters
+- `GET /v1/logs/stream` - SSE stream of logs
+- `GET /v1/metrics/snapshot` - Current metrics
+- `GET /v1/metrics/series` - Time series data
 - `GET /v1/traces/search` - Search traces
 - `GET /v1/traces/{trace_id}` - Get specific trace
 
