@@ -118,8 +118,8 @@ export class ServiceRegistry {
       dependents: ['ui-frontend'],
       startCommand: 'cargo run --bin adapteros-server -- --port 8080 --host 0.0.0.0',
       stopCommand: 'pkill -f "adapteros-server.*8080"',
-      statusCommand: 'pgrep -f "adapteros-server.*8080" && curl -f http://localhost:8080/api/health || exit 1',
-      healthCommand: 'curl -f http://localhost:8080/api/health',
+      statusCommand: 'pgrep -f "adapteros-server.*8080" && curl -f http://localhost:8080/healthz || exit 1',
+      healthCommand: 'curl -f http://localhost:8080/healthz',
       lifecycle: {
         hooks: [
           {
@@ -155,7 +155,7 @@ export class ServiceRegistry {
         healthChecks: [
           {
             type: 'http',
-            endpoint: 'http://localhost:8080/api/health',
+            endpoint: 'http://localhost:8080/healthz',
             interval: 15000, // 15 seconds
             timeout: 5000,
             retries: 3,
@@ -227,7 +227,7 @@ export class ServiceRegistry {
             preStart: async (service) => {
               // Check if backend is accessible
               try {
-                const response = await fetch('http://localhost:8080/api/health');
+                const response = await fetch('http://localhost:8080/healthz');
                 if (!response.ok) {
                   throw new Error('Backend not healthy');
                 }

@@ -458,49 +458,50 @@ function PromotionWorkflowInner({ goldenRunId, onComplete, onCancel }: Promotion
   const loadPromotionStatus = async () => {
     setIsLoading(true);
     try {
-      // Mock data - replace with actual API call
-      // const response = await apiClient.request(`/v1/golden/${goldenRunId}/promotion-status`);
+      // Fetch real promotion status from API
+      const response = await apiClient.getGoldenPromotionStatus(goldenRunId);
 
-      const mockStages: PromotionStage[] = [
-        {
-          id: 'dev',
-          name: 'Development',
-          description: 'Initial development environment',
-          status: 'passed',
-          approver: 'dev@example.com',
-          approved_at: new Date(Date.now() - 86400000).toISOString(),
-          notes: 'All tests passing',
-          gates: [
-            { id: 'unit-tests', name: 'Unit Tests', description: 'All unit tests must pass', status: 'passed', required: true },
-            { id: 'code-review', name: 'Code Review', description: 'Peer review completed', status: 'passed', required: true }
-          ]
-        },
-        {
-          id: 'staging',
-          name: 'Staging',
-          description: 'Pre-production staging environment',
-          status: 'in_progress',
-          gates: [
-            { id: 'integration-tests', name: 'Integration Tests', description: 'Integration tests must pass', status: 'passed', required: true },
-            { id: 'security-scan', name: 'Security Scan', description: 'No critical vulnerabilities', status: 'passed', required: true },
-            { id: 'performance-tests', name: 'Performance Tests', description: 'Performance benchmarks met', status: 'pending', required: false }
-          ]
-        },
-        {
-          id: 'production',
-          name: 'Production',
-          description: 'Live production environment',
-          status: 'pending',
-          gates: [
-            { id: 'final-approval', name: 'Final Approval', description: 'Senior engineer approval required', status: 'pending', required: true },
-            { id: 'rollback-plan', name: 'Rollback Plan', description: 'Emergency rollback procedures documented', status: 'pending', required: true },
-            { id: 'monitoring', name: 'Monitoring Setup', description: 'Production monitoring configured', status: 'pending', required: true }
-          ]
-        }
-      ];
+      // Transform API response to component's stage format
+      // Note: If the API returns different structure, adjust mapping accordingly
+      const apiStages: PromotionStage[] = response.stages?.map((stage: {
+        id: string;
+        name: string;
+        description?: string;
+        status: string;
+        approver?: string;
+        approved_at?: string;
+        notes?: string;
+        gates?: Array<{
+          id: string;
+          name: string;
+          description?: string;
+          status: string;
+          required?: boolean;
+        }>;
+      }) => ({
+        id: stage.id,
+        name: stage.name,
+        description: stage.description || '',
+        status: stage.status as 'pending' | 'in_progress' | 'passed' | 'failed',
+        approver: stage.approver,
+        approved_at: stage.approved_at,
+        notes: stage.notes,
+        gates: stage.gates?.map(g => ({
+          id: g.id,
+          name: g.name,
+          description: g.description || '',
+          status: g.status as 'pending' | 'passed' | 'failed',
+          required: g.required ?? true
+        })) || []
+      })) || [];
 
-      setStages(mockStages);
-      setCurrentStageIdx(mockStages.findIndex(s => s.status === 'in_progress'));
+      if (apiStages.length === 0) {
+        // No promotion data yet - show empty state
+        toast.info('No promotion workflow configured for this golden run');
+      }
+
+      setStages(apiStages);
+      setCurrentStageIdx(apiStages.findIndex(s => s.status === 'in_progress'));
     } catch (error) {
       logger.error('Failed to load promotion status', {
         component: 'PromotionWorkflow',
@@ -515,31 +516,11 @@ function PromotionWorkflowInner({ goldenRunId, onComplete, onCancel }: Promotion
 
   const handleApprove = async (stageIdx: number, notes: string) => {
     try {
-      // API call to approve stage
-      // await apiClient.request(`/v1/golden/${goldenRunId}/promotion/approve`, {
-      //   method: 'POST',
-      //   body: JSON.stringify({ stage_id: stages[stageIdx].id, notes })
-      // });
+      // Real API call to approve stage
+      await apiClient.approveGoldenPromotion(goldenRunId, stages[stageIdx].id, notes);
 
-      const updatedStages = [...stages];
-      updatedStages[stageIdx] = {
-        ...updatedStages[stageIdx],
-        status: 'passed',
-        approver: 'current-user@example.com',
-        approved_at: new Date().toISOString(),
-        notes
-      };
-
-      // Move to next stage
-      if (stageIdx < stages.length - 1) {
-        updatedStages[stageIdx + 1] = {
-          ...updatedStages[stageIdx + 1],
-          status: 'in_progress'
-        };
-        setCurrentStageIdx(stageIdx + 1);
-      }
-
-      setStages(updatedStages);
+      // Reload status from server to get accurate state
+      await loadPromotionStatus();
       toast.success(`Stage ${stages[stageIdx].name} approved`);
     } catch (error) {
       logger.error('Failed to approve stage', {
@@ -553,20 +534,11 @@ function PromotionWorkflowInner({ goldenRunId, onComplete, onCancel }: Promotion
 
   const handleReject = async (stageIdx: number, reason: string) => {
     try {
-      // API call to reject stage
-      // await apiClient.request(`/v1/golden/${goldenRunId}/promotion/reject`, {
-      //   method: 'POST',
-      //   body: JSON.stringify({ stage_id: stages[stageIdx].id, reason })
-      // });
+      // Real API call to reject stage
+      await apiClient.rejectGoldenPromotion(goldenRunId, stages[stageIdx].id, reason);
 
-      const updatedStages = [...stages];
-      updatedStages[stageIdx] = {
-        ...updatedStages[stageIdx],
-        status: 'failed',
-        notes: reason
-      };
-
-      setStages(updatedStages);
+      // Reload status from server to get accurate state
+      await loadPromotionStatus();
       toast.error(`Stage ${stages[stageIdx].name} rejected`);
     } catch (error) {
       logger.error('Failed to reject stage', {
@@ -581,11 +553,9 @@ function PromotionWorkflowInner({ goldenRunId, onComplete, onCancel }: Promotion
   const handleExecutePromotion = async () => {
     if (currentStageIdx >= stages.length - 1 && stages[stages.length - 1].status === 'passed') {
       try {
-        // API call to execute promotion
-        // await apiClient.request(`/v1/golden/${goldenRunId}/promotion/execute`, {
-        //   method: 'POST',
-        //   body: JSON.stringify({ rollback_plan: rollbackPlan })
-        // });
+        // Real API call to request promotion to production
+        await apiClient.requestGoldenPromotion(goldenRunId, 'production');
+        await loadPromotionStatus();
 
         toast.success('Promotion executed successfully');
         onComplete?.();
@@ -601,13 +571,11 @@ function PromotionWorkflowInner({ goldenRunId, onComplete, onCancel }: Promotion
 
   const handleRollback = async () => {
     try {
-      // API call to rollback promotion
-      // await apiClient.request(`/v1/golden/${goldenRunId}/promotion/rollback`, {
-      //   method: 'POST'
-      // });
-
+      // Real API call to rollback promotion
+      const currentStage = stages[currentStageIdx]?.id || 'production';
+      await apiClient.rollbackGoldenPromotion(currentStage);
+      await loadPromotionStatus();
       toast.success('Rollback initiated');
-      loadPromotionStatus();
     } catch (error) {
       logger.error('Failed to rollback promotion', {
         component: 'PromotionWorkflow',

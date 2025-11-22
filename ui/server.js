@@ -660,7 +660,7 @@ app.use('/api', async (req, res, next) => {
 });
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/healthz', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -696,6 +696,6 @@ process.on('SIGTERM', () => {
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Service Management Panel running on http://0.0.0.0:${PORT}`);
-  console.log(`📊 Health check: http://0.0.0.0:${PORT}/api/health`);
+  console.log(`📊 Health check: http://0.0.0.0:${PORT}/healthz`);
   console.log(`🎛️  Available services: ${Object.keys(serviceConfigs).join(', ')}`);
 });

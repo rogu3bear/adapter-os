@@ -33,7 +33,7 @@ export function LogStream() {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // SSE stream for live logs
-  const { data: streamData } = useSSE<LogEvent>('/api/logs/stream');
+  const { data: streamData } = useSSE<LogEvent>('/v1/logs/stream');
 
   useEffect(() => {
     if (!streamData) return;

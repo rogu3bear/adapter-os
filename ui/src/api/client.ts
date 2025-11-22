@@ -631,6 +631,42 @@ class ApiClient {
     });
   }
 
+  // Golden run promotion workflow
+  async requestGoldenPromotion(runId: string, targetStage: string): Promise<types.PromotionResponse> {
+    return this.request<types.PromotionResponse>(`/v1/golden/${encodeURIComponent(runId)}/promote`, {
+      method: 'POST',
+      body: JSON.stringify({ target_stage: targetStage }),
+    });
+  }
+
+  async getGoldenPromotionStatus(runId: string): Promise<types.PromotionStatusResponse> {
+    return this.request<types.PromotionStatusResponse>(`/v1/golden/${encodeURIComponent(runId)}/promotion`);
+  }
+
+  async approveGoldenPromotion(runId: string, stageId: string, notes: string): Promise<types.ApproveResponse> {
+    return this.request<types.ApproveResponse>(`/v1/golden/${encodeURIComponent(runId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ stage_id: stageId, approved: true, notes }),
+    });
+  }
+
+  async rejectGoldenPromotion(runId: string, stageId: string, notes: string): Promise<types.ApproveResponse> {
+    return this.request<types.ApproveResponse>(`/v1/golden/${encodeURIComponent(runId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ stage_id: stageId, approved: false, notes }),
+    });
+  }
+
+  async getGoldenGateStatus(runId: string): Promise<types.GateStatus[]> {
+    return this.request<types.GateStatus[]>(`/v1/golden/${encodeURIComponent(runId)}/gates`);
+  }
+
+  async rollbackGoldenPromotion(stage: string): Promise<types.RollbackResponse> {
+    return this.request<types.RollbackResponse>(`/v1/golden/${encodeURIComponent(stage)}/rollback`, {
+      method: 'POST',
+    });
+  }
+
   // (removed duplicate listAdapters without parameters)
 
   async getAdapter(adapterId: string): Promise<types.Adapter> {
@@ -1430,12 +1466,12 @@ class ApiClient {
     if (filters?.trace_id) params.append('trace_id', filters.trace_id);
 
     const queryString = params.toString();
-    return this.request<types.UnifiedTelemetryEvent[]>(`/api/logs/query${queryString ? `?${queryString}` : ''}`);
+    return this.request<types.UnifiedTelemetryEvent[]>(`/v1/logs/query${queryString ? `?${queryString}` : ''}`);
   }
 
   // Metrics API methods
   async getMetricsSnapshot(): Promise<types.MetricsSnapshotResponse> {
-    return this.request<types.MetricsSnapshotResponse>('/api/metrics/snapshot');
+    return this.request<types.MetricsSnapshotResponse>('/v1/metrics/snapshot');
   }
 
   async getMetricsSeries(params?: {
@@ -1449,7 +1485,7 @@ class ApiClient {
     if (params?.end_ms) queryParams.append('end_ms', params.end_ms.toString());
 
     const queryString = queryParams.toString();
-    return this.request<types.MetricsSeriesResponse[]>(`/api/metrics/series${queryString ? `?${queryString}` : ''}`);
+    return this.request<types.MetricsSeriesResponse[]>(`/v1/metrics/series${queryString ? `?${queryString}` : ''}`);
   }
 
   // Traces API methods
@@ -1899,8 +1935,8 @@ class ApiClient {
   subscribeToMetrics(callback: (metrics: SystemMetrics | null) => void): () => void {
     // With cookie-based auth, cookies are sent automatically with credentials: 'include'
     const sseUrl = import.meta.env.VITE_SSE_URL
-      ? `ws://${import.meta.env.VITE_SSE_URL}/metrics`
-      : `${import.meta.env.VITE_API_URL}/stream/metrics`;
+      ? `ws://${import.meta.env.VITE_SSE_URL}/v1/stream/metrics`
+      : `${import.meta.env.VITE_API_URL}/v1/stream/metrics`;
 
     let eventSource: EventSource | null = null;
     let reconnectAttempts = 0;

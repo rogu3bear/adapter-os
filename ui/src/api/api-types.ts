@@ -342,6 +342,59 @@ export interface PromotionGate {
   result?: Record<string, unknown>;
 }
 
+// Golden run promotion types
+export interface PromotionResponse {
+  request_id: string;
+  run_id: string;
+  target_stage: string;
+  status: 'pending' | 'in_progress' | 'approved' | 'rejected';
+  created_at: string;
+}
+
+export interface PromotionStatusResponse {
+  run_id: string;
+  current_stage: string;
+  stages: PromotionStageStatus[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PromotionStageStatus {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'passed' | 'failed';
+  approver?: string;
+  approved_at?: string;
+  notes?: string;
+  gates?: GateStatus[];
+}
+
+export interface GateStatus {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'pending' | 'passed' | 'failed';
+  required: boolean;
+  result?: Record<string, unknown>;
+}
+
+export interface ApproveResponse {
+  run_id: string;
+  stage_id: string;
+  approved: boolean;
+  approver: string;
+  approved_at: string;
+  notes?: string;
+}
+
+export interface RollbackResponse {
+  stage: string;
+  status: 'initiated' | 'completed' | 'failed';
+  message: string;
+  rolled_back_at: string;
+}
+
 // Git/Repository types
 export interface Repository {
   id: string;
