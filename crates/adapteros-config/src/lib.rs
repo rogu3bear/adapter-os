@@ -24,7 +24,10 @@ pub mod types;
 
 pub use guards::{ConfigGuards, FeatureFlags};
 pub use loader::ConfigLoader;
-pub use model::{load_dotenv, BackendPreference, ModelConfig};
+pub use model::{
+    get_model_path_optional, get_model_path_with_fallback, is_model_path_configured, load_dotenv,
+    BackendPreference, ModelConfig,
+};
 pub use precedence::DeterministicConfig;
 pub use schema::{
     default_schema, parse_bool, validate_value, ConfigSchema, ConfigType, ConfigVariable,

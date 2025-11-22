@@ -28,7 +28,7 @@ adapteros-api = { path = "../adapteros-api" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
-# Removed: adapteros-single-file-adapter (migrated to adapteros-aos v3.0)
+# Removed: adapteros-single-file-adapter (migrated to adapteros-aos)
 adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }

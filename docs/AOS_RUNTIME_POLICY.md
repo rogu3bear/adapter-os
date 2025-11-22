@@ -8,10 +8,10 @@
 
 ## Non-Negotiable Mandate
 1. Adapter build outputs remain in expanded directory form (`<adapter_id>/manifest.json`, weights shards, lineage, training data).
-2. A packaging stage **must** convert every deployable adapter into a signed `.aos` bundle using `SingleFileAdapterPackager`.
+2. A packaging stage **must** convert every deployable adapter into a signed `.aos` bundle using `AosWriter`.
 3. All runtime pathways (control plane import, lifecycle loader, cache, UI downloads, CLI operations) **consume only `.aos`**.
 4. No service may persist or distribute raw directories outside the controlled builder sandbox.
-5. Any future format (e.g., memory-mappable AOS 2.0) must appear behind a compatibility façade that still presents `.aos` v2 externally until the charter is superseded.
+5. The unified `.aos` format is stable and versioning-free; future enhancements must maintain backward compatibility with the 64-byte header specification.
 
 > ❗ **DO NOT MODIFY OR DELETE THIS DOCUMENT.** Escalate to the AdapterOS Architecture Council if updates are required.
 

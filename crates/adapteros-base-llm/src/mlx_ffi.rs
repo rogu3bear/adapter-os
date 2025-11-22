@@ -1,5 +1,5 @@
 use crate::{BaseLLM, BaseLLMMetadata, ModelState};
-use adapteros_config::ModelConfig;
+use adapteros_config::get_model_path_with_fallback;
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_lora_mlx_ffi::MLXFFIModel;
@@ -26,23 +26,10 @@ impl QwenMlxFfi {
 
 impl BaseLLM for QwenMlxFfi {
     fn load(&mut self, _executor: &mut DeterministicExecutor) -> Result<()> {
-        // Load model path from unified config (loads .env automatically)
-        // Also supports legacy AOS_MLX_FFI_MODEL for backward compatibility
-        let model_config = ModelConfig::from_env()?;
-        let model_path = if model_config.path.to_string_lossy() != "./models/qwen2.5-7b" {
-            // User explicitly set AOS_MODEL_PATH
-            model_config.path.to_string_lossy().to_string()
-        } else {
-            // Fall back to legacy env var for backward compatibility
-            std::env::var("AOS_MLX_FFI_MODEL").map_err(|_| {
-                AosError::Config(
-                    "Model path not configured. Set AOS_MODEL_PATH in .env or environment"
-                        .to_string(),
-                )
-            })?
-        };
+        // Use unified model path helper with automatic legacy fallback
+        let model_path = get_model_path_with_fallback()?;
 
-        let model = MLXFFIModel::load(&model_path)?;
+        let model = MLXFFIModel::load(model_path.to_string_lossy().as_ref())?;
         self.model = Some(model);
         Ok(())
     }

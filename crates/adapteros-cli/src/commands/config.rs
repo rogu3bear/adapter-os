@@ -18,6 +18,7 @@
 //! - 4: User cancelled (interactive mode)
 
 use crate::output::OutputWriter;
+use adapteros_config::schema::{default_schema, validate_value, ConfigSchema, ConfigType};
 use adapteros_core::{AosError, Result};
 use chrono::Utc;
 use clap::{Args, Subcommand, ValueEnum};
@@ -26,7 +27,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tracing::info;
+
+/// Lazily initialized global schema
+static SCHEMA: OnceLock<ConfigSchema> = OnceLock::new();
+
+fn get_schema() -> &'static ConfigSchema {
+    SCHEMA.get_or_init(default_schema)
+}
 
 // ============================================================================
 // Constants
@@ -490,20 +499,28 @@ pub async fn validate(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
 }
 
 fn validate_variable(name: &str, value: &str, source: ConfigSource) -> ValidationResult {
-    let is_sensitive = SENSITIVE_VARS.contains(&name);
+    let schema = get_schema();
+
+    // Check if variable is in our schema
+    let schema_var = schema.get_variable(name);
+
+    // Determine display value (redact if sensitive)
+    let is_sensitive = schema_var.map(|v| v.sensitive).unwrap_or(false)
+        || SENSITIVE_VARS.contains(&name);
     let display_value = if is_sensitive {
         "***REDACTED***".to_string()
     } else {
         value.to_string()
     };
 
+    // Check for deprecated variables (legacy -> new mapping)
     if let Some((_, new_name)) = MIGRATION_MAP.iter().find(|(legacy, _)| *legacy == name) {
         return ValidationResult {
             name: name.to_string(),
             value: display_value,
             status: ValidationStatus::Deprecated,
             source,
-            var_type: None,
+            var_type: schema_var.map(|v| config_type_to_string(&v.config_type)),
             replacement: Some(new_name.to_string()),
             removal_version: Some(REMOVAL_VERSION.to_string()),
             error: None,
@@ -511,45 +528,30 @@ fn validate_variable(name: &str, value: &str, source: ConfigSource) -> Validatio
         };
     }
 
-    let validation_result = match name {
-        "AOS_MODEL_PATH" => validate_path(value, true),
-        "AOS_MODEL_BACKEND" => validate_enum(value, &["auto", "coreml", "metal", "mlx"]),
-        "AOS_MODEL_ARCHITECTURE" => Ok(()),
-        "AOS_SERVER_HOST" | "ADAPTEROS_SERVER_HOST" => Ok(()),
-        "AOS_SERVER_PORT" | "ADAPTEROS_SERVER_PORT" => validate_port(value),
-        "AOS_SERVER_WORKERS" => validate_integer(value, 1, 1024),
-        "AOS_SERVER_TIMEOUT" => validate_duration(value),
-        "AOS_SERVER_UDS_SOCKET" => validate_path(value, false),
-        "AOS_DATABASE_URL" | "DATABASE_URL" | "ADAPTEROS_DATABASE_URL" => {
-            validate_database_url(value)
+    // Also check schema's deprecation info
+    if let Some(var) = schema_var {
+        if let Some(ref dep_info) = var.deprecated {
+            return ValidationResult {
+                name: name.to_string(),
+                value: display_value,
+                status: ValidationStatus::Deprecated,
+                source,
+                var_type: Some(config_type_to_string(&var.config_type)),
+                replacement: Some(dep_info.replacement.clone()),
+                removal_version: Some(dep_info.removal_version.clone()),
+                error: None,
+                validation: None,
+            };
         }
-        "AOS_DATABASE_POOL_SIZE" => validate_integer(value, 1, 100),
-        "AOS_DATABASE_TIMEOUT" => validate_duration(value),
-        "AOS_SECURITY_JWT_SECRET" => validate_jwt_secret(value),
-        "AOS_SECURITY_JWT_MODE" => validate_enum(value, &["eddsa", "hs256", "rs256"]),
-        "AOS_SECURITY_PF_DENY" => validate_bool(value),
-        "AOS_LOG_LEVEL" | "RUST_LOG" => Ok(()),
-        "AOS_LOG_FORMAT" => validate_enum(value, &["json", "text", "pretty"]),
-        "AOS_LOG_FILE" => validate_path(value, false),
-        "AOS_MEMORY_HEADROOM_PCT" => validate_float(value, 0.0, 1.0),
-        "AOS_MEMORY_EVICTION_THRESHOLD" => validate_float(value, 0.0, 1.0),
-        "AOS_BACKEND_COREML_ENABLED" | "AOS_BACKEND_METAL_ENABLED" | "AOS_BACKEND_MLX_ENABLED" => {
-            validate_bool(value)
-        }
-        "AOS_BACKEND_GPU_INDEX" | "AOS_GPU_INDEX" => validate_integer(value, 0, 16),
-        "AOS_DEBUG_DETERMINISTIC" | "AOS_DETERMINISTIC_DEBUG" => validate_bool(value),
-        "AOS_DEBUG_TRACE_FFI" | "AOS_DEBUG_VERBOSE" => validate_bool(value),
-        "AOS_DEBUG_SKIP_KERNEL_SIG" | "AOS_SKIP_KERNEL_SIGNATURE_VERIFY" => validate_bool(value),
-        "AOS_ENVIRONMENT" | "ADAPTEROS_ENV" => {
-            validate_enum(value, &["development", "staging", "production"])
-        }
-        "AOS_FEDERATION_ENABLED" => validate_bool(value),
-        "AOS_FEDERATION_PEERS" => Ok(()),
-        "AOS_TELEMETRY_ENABLED" => validate_bool(value),
-        "AOS_TELEMETRY_ENDPOINT" => validate_url(value),
-        "AOS_MLX_PATH" | "MLX_PATH" => validate_path(value, true),
-        "AOS_KEYCHAIN_FALLBACK" | "ADAPTEROS_KEYCHAIN_FALLBACK" => Ok(()),
-        _ => Ok(()),
+    }
+
+    // Use schema validation if variable is known
+    let validation_result = if let Some(var) = schema_var {
+        validate_value(var, value)
+            .map_err(|e| e.message)
+    } else {
+        // Fallback to heuristic validation for unknown variables
+        validate_unknown_variable(name, value)
     };
 
     match validation_result {
@@ -558,7 +560,9 @@ fn validate_variable(name: &str, value: &str, source: ConfigSource) -> Validatio
             value: display_value,
             status: ValidationStatus::Valid,
             source,
-            var_type: Some(get_var_type(name)),
+            var_type: schema_var
+                .map(|v| config_type_to_string(&v.config_type))
+                .or_else(|| Some(get_var_type(name))),
             replacement: None,
             removal_version: None,
             error: None,
@@ -569,13 +573,55 @@ fn validate_variable(name: &str, value: &str, source: ConfigSource) -> Validatio
             value: display_value,
             status: ValidationStatus::Error,
             source,
-            var_type: Some(get_var_type(name)),
+            var_type: schema_var
+                .map(|v| config_type_to_string(&v.config_type))
+                .or_else(|| Some(get_var_type(name))),
             replacement: None,
             removal_version: None,
             error: Some(error_msg),
             validation: None,
         },
     }
+}
+
+/// Convert ConfigType to display string
+fn config_type_to_string(ct: &ConfigType) -> String {
+    match ct {
+        ConfigType::String => "string".to_string(),
+        ConfigType::Path { .. } => "path".to_string(),
+        ConfigType::Url => "url".to_string(),
+        ConfigType::Integer { .. } => "integer".to_string(),
+        ConfigType::Float { .. } => "float".to_string(),
+        ConfigType::Bool => "bool".to_string(),
+        ConfigType::Enum { values } => format!("enum({})", values.join("|")),
+        ConfigType::Duration => "duration".to_string(),
+        ConfigType::ByteSize => "byte_size".to_string(),
+    }
+}
+
+/// Fallback validation for variables not in schema (uses heuristics)
+fn validate_unknown_variable(name: &str, value: &str) -> std::result::Result<(), String> {
+    // Apply heuristic validation based on variable name patterns
+    if name.ends_with("_PATH") || name.ends_with("_FILE") || name.ends_with("_DIR") {
+        return validate_path(value, false); // Don't require existence for unknown vars
+    }
+    if name.ends_with("_PORT") {
+        return validate_port(value);
+    }
+    if name.ends_with("_ENABLED") || name.ends_with("_DENY") || name.starts_with("AOS_DEBUG_") {
+        return validate_bool(value);
+    }
+    if name.ends_with("_PCT") || name.ends_with("_THRESHOLD") {
+        return validate_float(value, 0.0, 1.0);
+    }
+    if name.ends_with("_URL") || name.ends_with("_ENDPOINT") {
+        return validate_url(value);
+    }
+    if name.ends_with("_TIMEOUT") || name.ends_with("_INTERVAL") {
+        return validate_duration(value);
+    }
+    // Default: accept any value for unknown variables
+    Ok(())
 }
 
 fn validate_production_requirements(vars: &HashMap<String, String>) -> Vec<ValidationResult> {
@@ -1069,21 +1115,23 @@ pub async fn migrate(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
         .collect();
 
     for (legacy, new) in MIGRATION_MAP {
-        let legacy_exists = existing_vars.contains_key(*legacy);
+        let legacy_value_opt = existing_vars.get(*legacy);
         let new_exists = existing_vars.contains_key(*new);
 
-        if legacy_exists && new_exists {
-            conflicts.push(MigrationResult {
-                from: legacy.to_string(),
-                to: new.to_string(),
-                value: redact_if_sensitive(legacy, existing_vars.get(*legacy).unwrap()),
-                status: MigrationStatus::Conflict,
-            });
-            continue;
-        }
+        // Handle conflict: both legacy and new exist
+        if let Some(legacy_val) = legacy_value_opt {
+            if new_exists {
+                conflicts.push(MigrationResult {
+                    from: legacy.to_string(),
+                    to: new.to_string(),
+                    value: redact_if_sensitive(legacy, legacy_val),
+                    status: MigrationStatus::Conflict,
+                });
+                continue;
+            }
 
-        if legacy_exists {
-            let legacy_value = existing_vars.get(*legacy).unwrap();
+            // Legacy exists, new doesn't - process migration
+            let legacy_value = legacy_val;
 
             if args.interactive {
                 let action = prompt_migration_action(legacy, new, legacy_value)?;

@@ -63,7 +63,7 @@ tests/ui_integration.rs
 **Status:** Documented as experimental, excluded from CI/tests  
 **Reference:** `2c59a24` - Phase 2 Complete: MLX FFI Resolution  
 **Policy:** Egress Ruleset #1, Determinism Ruleset #2  
-**Note:** Can be enabled with `--features multi-backend`
+**Note:** Can be enabled with `--features experimental-backends`
 
 ### 3. `staging-migration-conflicts`
 **Commit:** `c3cfa60`  

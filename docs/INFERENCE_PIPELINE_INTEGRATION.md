@@ -15,11 +15,11 @@ UI (React) → REST API (/v1/infer) → Router (K-sparse) → Backend (MLX/CoreM
 
 ## Verified Components
 
-### 1. Adapter File Format (.aos)
+### 1. Unified Adapter File Format (.aos)
 
 **Status:** WORKING
 
-The `.aos` files use a custom archive format:
+The `.aos` files use a unified archive format (no version variants):
 
 ```
 [0-3]   manifest_offset (u32 LE)
@@ -30,17 +30,17 @@ The `.aos` files use a custom archive format:
 
 **Implementation:** `crates/adapteros-aos/src/aos2_writer.rs`
 
-**Parser Example:**
+**Loading Example:**
 ```rust
-fn parse_aos_file(data: &[u8]) -> Option<(serde_json::Value, &[u8])> {
-    let manifest_offset = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
-    let manifest_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
-    let weights_data = &data[8..manifest_offset];
-    let manifest_data = &data[manifest_offset..manifest_offset + manifest_len];
-    let manifest: serde_json::Value = serde_json::from_slice(manifest_data).ok()?;
-    Some((manifest, weights_data))
-}
+use adapteros_aos::AosFile;
+
+// Load and parse .aos file directly
+let aos = AosFile::load_from_path("adapter.aos")?;
+let manifest = aos.manifest();
+let weights = aos.weights_bytes();
 ```
+
+All adapters are loaded using the unified `adapteros-aos` crate with no format detection or compatibility layer required.
 
 ### 2. Adapter Files
 
@@ -168,7 +168,7 @@ cargo test --test mlx_inference_e2e -- --nocapture
 
 **Coverage:**
 - Adapter file existence
-- .aos format parsing
+- Unified .aos format loading
 - Manifest validation
 - Safetensors weight loading
 - LoRA structure verification
@@ -195,8 +195,8 @@ AOS_RUN_HARDWARE_TESTS=1 cargo test --test mlx_inference_e2e -- --nocapture
 | `tests/mlx_inference_e2e.rs` | Integration test suite |
 | `adapters/catalog.json` | Adapter catalog |
 | `adapters/*.aos` | Adapter archives |
-| `crates/adapteros-aos/src/aos2_writer.rs` | .aos format writer |
-| `crates/adapteros-single-file-adapter/src/format.rs` | .aos format reader |
+| `crates/adapteros-aos/src/aos2_writer.rs` | .aos format implementation |
+| `crates/adapteros-aos/src/lib.rs` | AosFile loader and API |
 | `crates/adapteros-lora-kernel-api/src/lib.rs` | RouterRing, IoBuffers |
 | `crates/adapteros-lora-worker/src/backend_factory.rs` | Backend creation |
 | `crates/adapteros-lora-mlx-ffi/src/lib.rs` | MLX backend |

@@ -1,7 +1,16 @@
 # Dependency Consolidation & Duplicate Export Resolution
 
 **Generated:** 2025-11-21
+**Updated:** 2025-11-22
 **Commit Reference:** 2a1bd063 (main)
+
+## Changes & Consolidation Status
+
+**Completed Consolidations (2025-11-22):**
+- `adapteros-single-file-adapter` crate deleted and consolidated into `adapteros-aos`
+- All AOS format handling now unified in `adapteros-aos` crate
+- Format specification simplified: single unified, versionless AOS format
+- Updated references throughout documentation to reflect unified archive format
 
 ## Executive Summary
 
@@ -105,7 +114,7 @@ Analysis identified **16 duplicate type definitions**, **6 dependency version mi
 | `adapteros-lora-worker/src/patch_validator.rs:25` | `PatchValidationResult` |
 | `adapteros-error-recovery/src/validation.rs:18` | `RecoveryValidationResult` |
 | `adapteros-server-api/src/validation/response_schemas.rs:29` | `SchemaValidationResult` |
-| `adapteros-single-file-adapter/src/validator.rs:88` | `AdapterValidationResult` |
+| `adapteros-aos/src/aos2_writer.rs:42` | `AdapterValidationResult` |
 | `adapteros-cli/src/commands/datasets.rs:355` | `DatasetValidationResult` |
 
 ---
@@ -185,7 +194,7 @@ Convert from `tokio = { version = "1.0", ... }` to `tokio = { workspace = true, 
 | `adapteros-patch` | `version = "1.0"` | `workspace = true` |
 | `adapteros-temp` | `version = "1.0"` | `workspace = true` |
 | `adapteros-lint` | `version = "1.0"` | `workspace = true` |
-| `adapteros-single-file-adapter` | `version = "1.0"` | `workspace = true` |
+| `adapteros-aos` | `version = "1.0"` | `workspace = true` |
 | `adapteros-server-api` | `version = "1.0"` | `workspace = true` |
 | `adapteros-service-supervisor` | `version = "1.0"` | `workspace = true` |
 | `deprecated/adapteros-experimental` | `version = "1.0"` | `workspace = true` |

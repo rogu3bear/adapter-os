@@ -9,33 +9,28 @@ use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-/// Magic bytes identifying an AOS v3.0 archive (8 bytes)
-pub const AOS3_MAGIC: [u8; 8] = *b"AOS3\x00\x00\x00\x00";
-
-/// Current format version
-pub const AOS_VERSION: u32 = 3;
+/// Magic bytes identifying an AOS archive (4 bytes)
+pub const AOS_MAGIC: [u8; 4] = *b"AOS\x00";
 
 /// Header size in bytes (64-byte aligned for cache efficiency)
 pub const HEADER_SIZE: usize = 64;
 
 /// AOS Format Loader
 ///
-/// Loads memory-mappable AOS v3.0 format with zero-copy GPU transfer.
+/// Loads memory-mappable AOS format with zero-copy GPU transfer.
 ///
 /// ## Format Specification (64-byte header)
 ///
 /// ```text
 /// | Offset | Size | Field                              |
 /// |--------|------|------------------------------------|
-/// | 0      | 8    | Magic: "AOS3\x00\x00\x00\x00"      |
-/// | 8      | 4    | Version (u32 LE) = 3               |
-/// | 12     | 4    | Flags (u32 LE, reserved)           |
-/// | 16     | 8    | Total file size (u64 LE)           |
-/// | 24     | 8    | Weights offset (u64 LE)            |
-/// | 32     | 8    | Weights size (u64 LE)              |
-/// | 40     | 8    | Manifest offset (u64 LE)           |
-/// | 48     | 8    | Manifest size (u64 LE)             |
-/// | 56     | 8    | Reserved (padding)                 |
+/// | 0      | 4    | Magic: "AOS\x00"                   |
+/// | 4      | 4    | Flags (u32 LE, reserved)           |
+/// | 8      | 8    | Weights offset (u64 LE)            |
+/// | 16     | 8    | Weights size (u64 LE)              |
+/// | 24     | 8    | Manifest offset (u64 LE)           |
+/// | 32     | 8    | Manifest size (u64 LE)             |
+/// | 40     | 24   | Reserved (padding)                 |
 /// ```
 ///
 /// # Features
@@ -93,33 +88,23 @@ impl AosLoader {
             )));
         }
 
-        // 2. Validate magic bytes (8 bytes at offset 0)
-        if &mmap[0..8] != &AOS3_MAGIC {
+        // 2. Validate magic bytes (4 bytes at offset 0)
+        if &mmap[0..4] != &AOS_MAGIC {
             return Err(AosError::Validation(format!(
                 "Invalid AOS magic bytes: expected {:?}, got {:?}",
-                AOS3_MAGIC,
-                &mmap[0..8]
+                AOS_MAGIC,
+                &mmap[0..4]
             )));
         }
 
-        // 3. Read and validate version (bytes 8-12)
-        let version = u32::from_le_bytes(mmap[8..12].try_into().unwrap());
-        if version != AOS_VERSION {
-            return Err(AosError::Validation(format!(
-                "Unsupported AOS version: expected {}, got {}",
-                AOS_VERSION, version
-            )));
-        }
+        // 3. Read header fields
+        // let flags = u32::from_le_bytes(mmap[4..8].try_into().unwrap()); // Reserved
+        let weights_offset = u64::from_le_bytes(mmap[8..16].try_into().unwrap()) as usize;
+        let weights_size = u64::from_le_bytes(mmap[16..24].try_into().unwrap()) as usize;
+        let manifest_offset = u64::from_le_bytes(mmap[24..32].try_into().unwrap()) as usize;
+        let manifest_size = u64::from_le_bytes(mmap[32..40].try_into().unwrap()) as usize;
 
-        // 4. Read header fields
-        // let flags = u32::from_le_bytes(mmap[12..16].try_into().unwrap()); // Reserved
-        // let total_size = u64::from_le_bytes(mmap[16..24].try_into().unwrap());
-        let weights_offset = u64::from_le_bytes(mmap[24..32].try_into().unwrap()) as usize;
-        let weights_size = u64::from_le_bytes(mmap[32..40].try_into().unwrap()) as usize;
-        let manifest_offset = u64::from_le_bytes(mmap[40..48].try_into().unwrap()) as usize;
-        let manifest_size = u64::from_le_bytes(mmap[48..56].try_into().unwrap()) as usize;
-
-        // 5. Validate offsets and sizes
+        // 4. Validate offsets and sizes
         if manifest_offset + manifest_size > mmap.len() {
             return Err(AosError::Validation(format!(
                 "Manifest extends beyond file: offset {} + size {} > file size {}",
@@ -137,18 +122,18 @@ impl AosLoader {
             )));
         }
 
-        // 6. Parse manifest JSON
+        // 5. Parse manifest JSON
         let manifest_bytes = &mmap[manifest_offset..manifest_offset + manifest_size];
         let manifest: AosManifest = serde_json::from_slice(manifest_bytes)?;
 
-        // 7. Parse safetensors weights
+        // 6. Parse safetensors weights
         let weights_data = &mmap[weights_offset..weights_offset + weights_size];
         let safetensors = SafeTensors::deserialize(weights_data)
             .map_err(|e| AosError::Validation(format!("Invalid safetensors: {}", e)))?;
 
         let mut buffers: HashMap<String, metal::Buffer> = HashMap::new();
 
-        // 4. Transfer tensor data to Metal buffers
+        // 7. Transfer tensor data to Metal buffers
         for (name, tensor) in safetensors.tensors() {
             let data = tensor.data();
             let buffer = self.device.new_buffer_with_data(
@@ -161,7 +146,7 @@ impl AosLoader {
             buffers.insert(name.to_string(), buffer);
         }
 
-        // 5. Deterministic post-load with HKDF-seeded RNG
+        // 8. Deterministic post-load with HKDF-seeded RNG
         let loader_seed = derive_seed(&self.global_seed, "aos_loader");
         let _rng = ChaCha20Rng::from_seed(loader_seed);
 
@@ -182,13 +167,11 @@ pub struct LoadedAdapter {
     pub buffers: HashMap<String, metal::Buffer>,
 }
 
-/// AOS Manifest Structure (v3.0)
+/// AOS Manifest Structure
 ///
 /// Matches the JSON schema defined in docs/AOS_FORMAT.md
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AosManifest {
-    /// Format version (must be 3 for v3.0)
-    pub format_version: u32,
     /// Semantic adapter ID: `{tenant}/{domain}/{purpose}/{revision}`
     pub adapter_id: String,
     /// Human-readable display name
@@ -219,25 +202,54 @@ pub struct AosManifest {
     /// Training hyperparameters
     #[serde(default)]
     pub training_config: Option<TrainingConfigManifest>,
-    /// Additional key-value metadata
-    #[serde(default)]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
-/// Training configuration stored in manifest
+/// Inline Training Configuration
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct TrainingConfigManifest {
-    /// LoRA rank used during training
-    pub rank: u32,
-    /// LoRA alpha scaling factor
-    pub alpha: f32,
-    /// Learning rate
-    pub learning_rate: f32,
-    /// Batch size
-    pub batch_size: u32,
-    /// Number of training epochs
-    pub epochs: u32,
-    /// Model hidden dimension
-    #[serde(default)]
-    pub hidden_dim: Option<u32>,
+    pub learning_rate: Option<f32>,
+    pub batch_size: Option<u32>,
+    pub epochs: Option<u32>,
+    pub warmup_steps: Option<u32>,
+    pub weight_decay: Option<f32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_header_constants() {
+        assert_eq!(AOS_MAGIC, *b"AOS\x00");
+        assert_eq!(HEADER_SIZE, 64);
+    }
+
+    #[tokio::test]
+    async fn test_validation_too_small() {
+        let loader = AosLoader::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
+
+        // Write file smaller than header
+        std::fs::write(temp_file.path(), b"TINY").unwrap();
+
+        let result = loader.load_from_path(temp_file.path()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too small"));
+    }
+
+    #[tokio::test]
+    async fn test_validation_bad_magic() {
+        let loader = AosLoader::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
+
+        // Write header with bad magic
+        let mut header = vec![0u8; HEADER_SIZE];
+        header[0..4].copy_from_slice(b"BADM");
+        std::fs::write(temp_file.path(), header).unwrap();
+
+        let result = loader.load_from_path(temp_file.path()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid AOS magic"));
+    }
 }

@@ -402,4 +402,4 @@ fn bench_multi_lora_forward_k8_unique() {
 
 **Author:** Claude Code (Anthropic)
 **Review Status:** Pending human review
-**Deployment:** Development (multi-backend feature flag required)
+**Deployment:** Development (experimental-backends feature flag required)

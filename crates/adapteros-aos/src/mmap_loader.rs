@@ -1,6 +1,6 @@
 //! Memory-mapped .aos file loader
 //!
-//! TODO: Migrate to adapteros-aos v3.0 types
+//! TODO: Complete migration to proper AOS types
 //! This module is temporarily stubbed pending migration from the deleted
 //! adapteros-single-file-adapter crate.
 
@@ -12,17 +12,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-// Temporary stub types until migration to v3.0 types is complete
-// TODO: Replace with crate::AosManifest or proper v3.0 types
+// Temporary stub types until migration to proper types is complete
+// TODO: Replace with crate::AosManifest or proper types
 
-/// Stub manifest for mmap loader (pending v3.0 migration)
+/// Stub manifest for mmap loader (pending migration)
 #[derive(Debug, Clone, Default)]
 pub struct AdapterManifest {
     pub adapter_id: String,
     pub version: String,
 }
 
-/// Stub adapter for mmap loader (pending v3.0 migration)
+/// Stub adapter for mmap loader (pending migration)
 #[derive(Debug, Clone, Default)]
 pub struct SingleFileAdapter {
     pub manifest: AdapterManifest,
@@ -32,7 +32,7 @@ pub struct SingleFileAdapter {
 impl SingleFileAdapter {
     /// Stub verification - always succeeds
     pub fn verify_signature(&self) -> std::result::Result<(), String> {
-        // TODO: Implement proper signature verification with v3.0 types
+        // TODO: Implement proper signature verification with AOS types
         Ok(())
     }
 }
@@ -203,14 +203,14 @@ impl MmapAdapterLoader {
 
     /// Load adapter via temporary file (workaround for ZIP requiring seekable input)
     ///
-    /// TODO: Migrate to adapteros-aos v3.0 types - implement proper .aos parsing
+    /// TODO: Implement proper .aos parsing
     async fn load_via_tempfile(&self, _mmap: &Mmap) -> Result<SingleFileAdapter> {
         // Removed: use adapteros_single_file_adapter::SingleFileAdapterLoader;
-        // TODO: Implement proper .aos loading with v3.0 types
+        // TODO: Implement proper .aos loading with AOS types
         // For now, return a stub adapter
 
         Err(AosError::Internal(
-            "MmapAdapterLoader::load_via_tempfile not yet migrated to v3.0 types".to_string(),
+            "MmapAdapterLoader::load_via_tempfile not yet migrated to AOS types".to_string(),
         ))
     }
 

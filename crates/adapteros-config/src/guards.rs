@@ -257,6 +257,77 @@ impl ConfigGuards {
         state.stack_traces = enabled;
         Ok(())
     }
+
+    /// Safe environment variable access that respects freeze state
+    ///
+    /// This function should be used instead of `std::env::var` throughout the codebase.
+    /// After configuration is frozen, this will:
+    /// - In permissive mode: log a warning and return the value
+    /// - In strict mode: return an error
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use adapteros_config::ConfigGuards;
+    ///
+    /// // Before freeze - works normally
+    /// let value = ConfigGuards::safe_env_var("AOS_MODEL_PATH")?;
+    ///
+    /// // After freeze - logs warning or errors depending on mode
+    /// ConfigGuards::freeze()?;
+    /// let value = ConfigGuards::safe_env_var("AOS_MODEL_PATH")?; // Warning logged
+    /// ```
+    pub fn safe_env_var(key: &str) -> Result<String> {
+        if Self::is_frozen() {
+            let _ = Self::record_violation(
+                "env_var_access",
+                &format!("Attempted to read {} after freeze", key),
+            );
+
+            // In permissive mode, still return the value but log warning
+            tracing::warn!(
+                key = %key,
+                "Environment variable accessed after configuration freeze. \
+                 This should be read during initialization."
+            );
+        }
+
+        std::env::var(key).map_err(|_| {
+            AosError::Config(format!("Environment variable {} not set", key))
+        })
+    }
+
+    /// Safe environment variable access with default fallback
+    ///
+    /// Like `safe_env_var` but returns a default value if the variable is not set.
+    pub fn safe_env_var_or(key: &str, default: &str) -> String {
+        Self::safe_env_var(key).unwrap_or_else(|_| default.to_string())
+    }
+
+    /// Check if an environment variable is set (freeze-aware)
+    pub fn env_var_exists(key: &str) -> bool {
+        if Self::is_frozen() {
+            let _ = Self::record_violation(
+                "env_var_check",
+                &format!("Checked existence of {} after freeze", key),
+            );
+            tracing::warn!(key = %key, "Environment variable check after freeze");
+        }
+        std::env::var(key).is_ok()
+    }
+
+    /// Reset guards for testing (clears frozen state and violations)
+    #[cfg(test)]
+    pub fn reset_for_testing() -> Result<()> {
+        if let Some(guard_state) = GUARD_STATE.get() {
+            let mut state = guard_state
+                .write()
+                .map_err(|_| AosError::Config("Failed to acquire guard state lock".to_string()))?;
+            state.frozen = false;
+            state.violations.clear();
+        }
+        Ok(())
+    }
 }
 
 /// Feature flag management for runtime feature detection

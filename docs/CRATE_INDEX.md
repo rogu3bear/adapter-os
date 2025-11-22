@@ -1,8 +1,8 @@
 # AdapterOS Crate Index
 
-**Purpose:** Comprehensive mapping of all workspace crates to architectural layers  
-**Last Updated:** 2025-01-15  
-**Total Crates:** 58
+**Purpose:** Comprehensive mapping of all workspace crates to architectural layers
+**Last Updated:** 2025-11-22
+**Total Crates:** 57
 
 ---
 
@@ -64,7 +64,6 @@
 | `adapteros-federation` | Shared | Cross-host federation signatures for telemetry bundles |
 | `adapteros-sbom` | Shared | SBOM (Software Bill of Materials) generation and validation |
 | `adapteros-aos` | Shared | Memory-mapped .aos file loading with LRU caching |
-| `adapteros-single-file-adapter` | Shared | Single-file adapter format (.aos) implementation |
 | `adapteros-api-types` | Shared | API type definitions and schemas |
 | `adapteros-node` | Shared | Node.js integration utilities |
 | `adapteros-autograd` | Shared | Rust autograd system for tensor operations |
@@ -152,8 +151,8 @@ Components for LLM inference and adapter execution.
 **README:** None
 
 #### `adapteros-lora-lifecycle`
-**Purpose:** LoRA adapter loader and lifecycle management  
-**Key Dependencies:** `adapteros-core`, `adapteros-single-file-adapter`  
+**Purpose:** LoRA adapter loader and lifecycle management
+**Key Dependencies:** `adapteros-core`, `adapteros-aos`
 **README:** None
 
 #### `adapteros-lora-kernel-api`
@@ -321,9 +320,8 @@ Cross-cutting utilities and shared components used across layers.
 - **`adapteros-temp`**: Temporary file management with guaranteed cleanup
 
 ### Adapter Format & Loading
-- **`adapteros-aos`**: Memory-mapped .aos file loading with LRU caching and hot-swap support  
+- **`adapteros-aos`**: Memory-mapped .aos file loading with LRU caching and hot-swap support (primary .aos implementation)
   - **README:** `crates/adapteros-aos/README.md`
-- **`adapteros-single-file-adapter`**: Single-file adapter format (.aos) implementation
 
 ### Domain & Numerics
 - **`adapteros-domain`**: Domain-specific adapter layer (text, vision, telemetry) with deterministic execution

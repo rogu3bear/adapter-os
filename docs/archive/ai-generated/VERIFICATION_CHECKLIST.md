@@ -158,7 +158,7 @@ This checklist tracks what needs to be tested and verified to ensure documentati
 
 - [ ] Verify `mlx-backend` fails as documented
   - **Status**: ⏳ Untested
-  - **Test**: `cargo build --features multi-backend`
+  - **Test**: `cargo build --features experimental-backends`
   - **Expected**: PyO3 linker errors
   - **Documented in**: docs/FEATURE_FLAGS.md:647
 

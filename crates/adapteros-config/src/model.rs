@@ -418,6 +418,92 @@ impl ModelConfig {
     }
 }
 
+// ============================================================================
+// Legacy Environment Variable Support
+// ============================================================================
+
+/// Legacy environment variable names that map to AOS_MODEL_PATH
+const LEGACY_MODEL_PATH_VARS: &[&str] = &["AOS_MLX_FFI_MODEL", "MLX_PATH"];
+
+/// Get model path with legacy fallback support
+///
+/// This function provides a clean migration path from legacy environment variables
+/// to the unified `AOS_MODEL_PATH` configuration. It checks variables in order:
+///
+/// 1. `AOS_MODEL_PATH` (primary, preferred)
+/// 2. `AOS_MLX_FFI_MODEL` (legacy, deprecated)
+/// 3. `MLX_PATH` (legacy, deprecated)
+///
+/// If a legacy variable is used, a warning is logged to encourage migration.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use adapteros_config::model::get_model_path_with_fallback;
+///
+/// let path = get_model_path_with_fallback()?;
+/// println!("Using model at: {}", path.display());
+/// ```
+pub fn get_model_path_with_fallback() -> Result<PathBuf> {
+    load_dotenv();
+
+    // Try primary env var first
+    if let Ok(path) = std::env::var("AOS_MODEL_PATH") {
+        if !path.is_empty() {
+            return Ok(PathBuf::from(path));
+        }
+    }
+
+    // Try legacy env vars with deprecation warning
+    for legacy_var in LEGACY_MODEL_PATH_VARS {
+        if let Ok(path) = std::env::var(legacy_var) {
+            if !path.is_empty() {
+                tracing::warn!(
+                    legacy_var = %legacy_var,
+                    "Using deprecated environment variable. Please migrate to AOS_MODEL_PATH"
+                );
+                return Ok(PathBuf::from(path));
+            }
+        }
+    }
+
+    Err(AosError::Config(
+        "Model path not configured. Set AOS_MODEL_PATH in .env or environment. \
+        Run 'aosctl config migrate' to migrate from legacy variables."
+            .to_string(),
+    ))
+}
+
+/// Get model path with fallback, returning None instead of error if not set
+///
+/// Useful when model path is optional or has a default fallback.
+pub fn get_model_path_optional() -> Option<PathBuf> {
+    get_model_path_with_fallback().ok()
+}
+
+/// Check if model path is configured (via any supported variable)
+pub fn is_model_path_configured() -> bool {
+    load_dotenv();
+
+    if std::env::var("AOS_MODEL_PATH")
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    for legacy_var in LEGACY_MODEL_PATH_VARS {
+        if std::env::var(legacy_var)
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

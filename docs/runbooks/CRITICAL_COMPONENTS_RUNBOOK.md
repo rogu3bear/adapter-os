@@ -1100,6 +1100,8 @@ sqlite3 var/aos-cp.sqlite3 "SELECT COUNT(*) FROM adapters;"
 
 ## 4. Content Addressing
 
+**Implementation Note:** The `.aos` archive format (adapter packages) is handled by `crates/adapteros-aos/src/`. All adapter registration, verification, and packing operations route through this crate. Previously handled by `adapteros-single-file-adapter` (now deleted).
+
 ### 4.1 Hash Mismatch Investigation
 
 **Severity:** SEV2 (data integrity concern)
@@ -1194,6 +1196,7 @@ aosctl aos-pack --weights /tmp/recovered.weights --manifest <manifest.json> --ou
 **Related Files:**
 - `crates/adapteros-core/src/hash.rs` - B3Hash implementation
 - `crates/adapteros-artifacts/src/lib.rs` - CAS implementation
+- `crates/adapteros-aos/src/` - .aos archive format handling
 
 ---
 

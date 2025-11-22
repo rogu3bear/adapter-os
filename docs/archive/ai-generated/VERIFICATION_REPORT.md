@@ -36,7 +36,7 @@ The following crates fail compilation because they depend on intentionally exclu
 This is **EXPECTED AND CORRECT** - these crates are excluded from the stable workspace to maintain compilation stability.
 
 ### Configuration Warnings
-- `multi-backend` feature references (warnings only)
+- `experimental-backends` feature references (warnings only)
 - `postgres` feature references (warnings only)
 
 These are harmless warnings from conditional compilation that don't affect functionality.

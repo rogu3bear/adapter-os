@@ -50,13 +50,14 @@ The `experimental-backends` feature flag was originally named to indicate MLX su
 | `REAL_BACKEND_CODE_REFERENCE.md` | root | ~5 |
 | `REAL_BACKEND_INTEGRATION.md` | root | ~5 |
 
-**Archive files (lower priority):**
-| File | Location |
-|------|----------|
-| `OPTIMIZATION_SUMMARY.md` | docs/archive/ai-generated/crates/ |
-| `VERIFICATION_CHECKLIST.md` | docs/archive/ai-generated/ |
-| `VERIFICATION_REPORT.md` | docs/archive/ai-generated/ |
-| `CODEBASE_AUDIT_REPORT.md` | docs/archive/historical-reports/ |
+**Archive files (PRESERVED - not updated per best practice):**
+| File | Location | Reason |
+|------|----------|--------|
+| `OPTIMIZATION_SUMMARY.md` | docs/archive/ai-generated/crates/ | Historical snapshot |
+| `VERIFICATION_CHECKLIST.md` | docs/archive/ai-generated/ | Historical snapshot |
+| `VERIFICATION_REPORT.md` | docs/archive/ai-generated/ | Historical snapshot |
+| `CODEBASE_AUDIT_REPORT.md` | docs/archive/historical-reports/ | Historical report |
+| `lora_worker_errors.txt` | docs/archive/ai-generated/ | Compiler output log |
 
 ## Acceptance Criteria
 

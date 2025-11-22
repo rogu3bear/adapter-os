@@ -27,17 +27,19 @@ The `.aos` format provides a self-contained adapter package that includes:
 - Cryptographic signatures (Ed25519)
 - Weight-group metadata (manifest + disk info)
 
-## Format Versions
+## Format Specification
 
-AdapterOS supports multiple `.aos` format versions for backwards compatibility:
+The `.aos` format uses a unified 64-byte header with cache-aligned layout for optimal zero-copy loading:
 
-| Version | Header Size | Magic | Primary Use Case |
-| ------- | ----------- | ----- | ---------------- |
-| **v3 (Current)** | 64 bytes | `AOS3` | Production: 64-byte cache-aligned header, u64 offsets |
-| **v2 (Legacy)** | 268 bytes | `AOS2` | Legacy: Larger header with extended fields |
-| **v1 (Legacy)** | 8 bytes | None | Legacy: Simple manifest_offset/manifest_len header |
-
-All versions share the `.aos` extension. Loaders auto-detect the format via magic bytes or header structure.
+| Offset | Size | Field | Purpose |
+| ------ | ---- | ----- | ------- |
+| 0-7 | 8 bytes | Magic: `AOS3\x00\x00\x00\x00` | Format identifier |
+| 8-23 | 16 bytes | Reserved | Future extensibility |
+| 24-31 | 8 bytes | Weights offset | Position of weight data (u64 LE) |
+| 32-39 | 8 bytes | Weights size | Size of weight data (u64 LE) |
+| 40-47 | 8 bytes | Manifest offset | Position of manifest JSON (u64 LE) |
+| 48-55 | 8 bytes | Manifest size | Size of manifest JSON (u64 LE) |
+| 56-63 | 8 bytes | Reserved | Padding/future use |
 
 ## Benefits
 
@@ -82,7 +84,7 @@ cargo xtask train-base-adapter \
 ```rust
 use std::io::Write;
 
-const AOS3_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
+const AOS_MAGIC: &[u8; 8] = b"AOS3\x00\x00\x00\x00";
 const HEADER_SIZE: u64 = 64;
 
 fn create_aos_file(
@@ -96,13 +98,10 @@ fn create_aos_file(
     let weights_size = weights_data.len() as u64;
     let manifest_offset = weights_offset + weights_size;
     let manifest_size = manifest_json.len() as u64;
-    let total_size = manifest_offset + manifest_size;
 
-    // Write 64-byte header
-    file.write_all(AOS3_MAGIC)?;                           // 0-7: magic
-    file.write_all(&3u32.to_le_bytes())?;                  // 8-11: version
-    file.write_all(&0u32.to_le_bytes())?;                  // 12-15: flags
-    file.write_all(&total_size.to_le_bytes())?;            // 16-23: total_size
+    // Write 64-byte header (cache-aligned)
+    file.write_all(AOS_MAGIC)?;                            // 0-7: magic
+    file.write_all(&[0u8; 16])?;                           // 8-23: reserved
     file.write_all(&weights_offset.to_le_bytes())?;        // 24-31: weights_offset
     file.write_all(&weights_size.to_le_bytes())?;          // 32-39: weights_size
     file.write_all(&manifest_offset.to_le_bytes())?;       // 40-47: manifest_offset
@@ -145,16 +144,13 @@ lifecycle.load_aos_adapter(0, "code_lang_v1.aos").await?;
 ### Direct Loader API
 
 ```rust
-use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
+use adapteros_aos::AosLoader;
 
-let options = LoadOptions {
-    skip_verification: false,
-    skip_signature_check: false,
-    use_mmap: true,
-};
+let adapter = AosLoader::load(path)
+    .await?;
 
-let adapter = SingleFileAdapterLoader::load_with_options(path, options).await?;
-println!("Loaded format v{}", adapter.manifest.format_version);
+println!("Adapter: {}", adapter.manifest.adapter_id);
+println!("Weights size: {} bytes", adapter.weights.len());
 ```
 
 ## Verifying .aos Files
@@ -172,14 +168,15 @@ aosctl adapter validate adapter.aos --format json
 ### Programmatic
 
 ```rust
-use adapteros_single_file_adapter::SingleFileAdapterValidator;
+use adapteros_aos::AosLoader;
 
-let result = SingleFileAdapterValidator::validate("adapter.aos").await?;
-if result.is_valid {
-    println!("Adapter is valid");
-} else {
-    for error in result.errors {
-        println!("Error: {}", error);
+match AosLoader::load("adapter.aos").await {
+    Ok(adapter) => {
+        println!("Adapter is valid");
+        println!("ID: {}", adapter.manifest.adapter_id);
+    }
+    Err(e) => {
+        println!("Error: {}", e);
     }
 }
 ```
