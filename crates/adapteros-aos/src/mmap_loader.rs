@@ -1,12 +1,41 @@
 //! Memory-mapped .aos file loader
+//!
+//! TODO: Migrate to adapteros-aos v3.0 types
+//! This module is temporarily stubbed pending migration from the deleted
+//! adapteros-single-file-adapter crate.
 
 use adapteros_core::{AosError, Result};
-use adapteros_single_file_adapter::{AdapterManifest, SingleFileAdapter};
+// Removed: use adapteros_single_file_adapter::{AdapterManifest, SingleFileAdapter};
 use memmap2::Mmap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
+
+// Temporary stub types until migration to v3.0 types is complete
+// TODO: Replace with crate::AosManifest or proper v3.0 types
+
+/// Stub manifest for mmap loader (pending v3.0 migration)
+#[derive(Debug, Clone, Default)]
+pub struct AdapterManifest {
+    pub adapter_id: String,
+    pub version: String,
+}
+
+/// Stub adapter for mmap loader (pending v3.0 migration)
+#[derive(Debug, Clone, Default)]
+pub struct SingleFileAdapter {
+    pub manifest: AdapterManifest,
+    pub signature: Option<Vec<u8>>,
+}
+
+impl SingleFileAdapter {
+    /// Stub verification - always succeeds
+    pub fn verify_signature(&self) -> std::result::Result<(), String> {
+        // TODO: Implement proper signature verification with v3.0 types
+        Ok(())
+    }
+}
 
 /// Memory-mapped adapter wrapper
 ///
@@ -173,30 +202,16 @@ impl MmapAdapterLoader {
     }
 
     /// Load adapter via temporary file (workaround for ZIP requiring seekable input)
-    async fn load_via_tempfile(&self, mmap: &Mmap) -> Result<SingleFileAdapter> {
-        use adapteros_single_file_adapter::SingleFileAdapterLoader;
-        use std::io::Write;
+    ///
+    /// TODO: Migrate to adapteros-aos v3.0 types - implement proper .aos parsing
+    async fn load_via_tempfile(&self, _mmap: &Mmap) -> Result<SingleFileAdapter> {
+        // Removed: use adapteros_single_file_adapter::SingleFileAdapterLoader;
+        // TODO: Implement proper .aos loading with v3.0 types
+        // For now, return a stub adapter
 
-        let temp_path = {
-            let mut temp_file = tempfile::NamedTempFile::new()
-                .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
-
-            temp_file
-                .write_all(mmap)
-                .map_err(|e| AosError::Io(format!("Failed to write to temp file: {}", e)))?;
-
-            temp_file
-                .flush()
-                .map_err(|e| AosError::Io(format!("Failed to flush temp file: {}", e)))?;
-
-            // Keep temp file alive by persisting it
-            temp_file.into_temp_path()
-        };
-
-        // Load using standard loader
-        let adapter = SingleFileAdapterLoader::load(&temp_path).await?;
-
-        Ok(adapter)
+        Err(AosError::Internal(
+            "MmapAdapterLoader::load_via_tempfile not yet migrated to v3.0 types".to_string(),
+        ))
     }
 
     /// Verify adapter signature

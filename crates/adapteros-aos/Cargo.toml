@@ -34,8 +34,7 @@ anyhow = { workspace = true }
 lru = { version = "0.12", optional = true }
 parking_lot = { version = "0.12", optional = true }
 
-# File adapters
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
+# File adapters - Removed: adapteros-single-file-adapter (migrated to adapteros-aos v3.0)
 tempfile = { workspace = true }
 
 # Unix signal handling (Unix-only)
