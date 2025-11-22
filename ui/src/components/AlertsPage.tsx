@@ -317,11 +317,17 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
   const handleToggleRule = async (ruleId: string) => {
     try {
-      // For now, just update local state since backend doesn't have update endpoint
-      // TODO: Implement backend endpoint for updating alert rules
+      const rule = alertRules.find(r => r.id === ruleId);
+      if (!rule) return;
+
+      await apiClient.updateMonitoringRule(ruleId, {
+        enabled: !rule.enabled,
+      });
+
+      // Update local state after successful API call
       setAlertRules(prev =>
-        prev.map(rule =>
-          rule.id === ruleId ? { ...rule, enabled: !rule.enabled } : rule
+        prev.map(r =>
+          r.id === ruleId ? { ...r, enabled: !r.enabled } : r
         )
       );
       toast.success('Alert rule updated');
@@ -337,8 +343,7 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
 
   const handleDeleteRule = async (ruleId: string) => {
     try {
-      // For now, just update local state since backend doesn't have delete endpoint
-      // TODO: Implement backend endpoint for deleting alert rules
+      await apiClient.deleteMonitoringRule(ruleId);
       setAlertRules(prev => prev.filter(rule => rule.id !== ruleId));
       toast.success('Alert rule deleted');
     } catch (error) {
@@ -380,8 +385,17 @@ export function AlertsPage({ selectedTenant: tenantProp }: AlertsPageProps) {
         // Reload rules from backend
         await loadAlertRules();
       } else {
-        // For now, just update local state since backend doesn't have update endpoint
-        // TODO: Implement backend endpoint for updating alert rules
+        // Map severity to API-compatible format (API doesn't support 'info')
+        const apiSeverity = rule.severity === 'info' ? 'low' : rule.severity as 'low' | 'medium' | 'high' | 'critical';
+
+        await apiClient.updateMonitoringRule(rule.id, {
+          name: rule.name,
+          description: rule.description,
+          enabled: rule.enabled,
+          severity: apiSeverity,
+        });
+
+        // Update local state after successful API call
         setAlertRules(prev =>
           prev.map(r => (r.id === rule.id ? rule : r))
         );

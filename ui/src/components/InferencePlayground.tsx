@@ -642,10 +642,41 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   };
 
   const handleReplay = async (bundleId: string) => {
-    // TODO: Implement replay functionality when API client supports it
-    logger.info('Replay requested', { bundleId });
-    // const trace = await apiClient.getReplayBundle(bundleId);
-    // setTrace(trace.data); // Display bundle
+    try {
+      logger.info('Replay requested', {
+        component: 'InferencePlayground',
+        operation: 'handleReplay',
+        bundleId
+      });
+
+      const session = await apiClient.getReplaySession(bundleId);
+
+      if (session) {
+        // Restore prompt from session
+        setPrompt(session.prompt || '');
+        setConfigA(prev => ({
+          ...prev,
+          prompt: session.prompt || '',
+          max_tokens: session.config?.max_tokens || prev.max_tokens,
+          temperature: session.config?.temperature || prev.temperature,
+        }));
+
+        toast.success('Session restored from replay');
+        logger.info('Replay session loaded', {
+          component: 'InferencePlayground',
+          operation: 'handleReplay',
+          sessionId: session.id
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load replay session';
+      logger.error('Replay failed', {
+        component: 'InferencePlayground',
+        operation: 'handleReplay',
+        bundleId
+      }, error instanceof Error ? error : new Error(errorMessage));
+      toast.error(`Failed to load replay: ${errorMessage}`);
+    }
   };
 
   const renderAdvancedOptions = (config: InferenceConfig, setConfig: (c: InferenceConfig) => void) => (
