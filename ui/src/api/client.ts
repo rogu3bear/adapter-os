@@ -312,7 +312,7 @@ class ApiClient {
     // Cookie is cleared by server
   }
 
-  async devBypass(): Promise<{ message: string; token: string; user: { email: string; role: string } }> {
+  async devBypass(): Promise<authTypes.LoginResponse> {
     return this.request('/v1/auth/dev-bypass', { method: 'POST' });
   }
 
