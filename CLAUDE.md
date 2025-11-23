@@ -1,3 +1,9 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
 # AdapterOS Developer Guide
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
@@ -59,6 +65,48 @@
 
 ---
 
+## Critical Development Rules
+
+### Compilation Quality
+**IMPORTANT:** Do not confuse "make it compile" with "make it work." If code compiles but the architecture is incompatible with a feature or service, this is worse than compilation errors because:
+- Compilation errors block progress visibly
+- Runtime panics create silent failures that ship to production
+- Always verify runtime correctness, not just compilation success
+
+### Duplication Prevention
+**CRITICAL:** Always prevent code duplication - this is a core codebase requirement.
+
+**Before writing code:**
+1. Search for existing patterns in the codebase
+2. Look for existing utilities/services/components
+3. Prefer reusing over creating new code
+
+**Extract proactively if:**
+- Code appears 3+ times
+- String literal >50 chars used 2+ times
+- Function logic >10 lines duplicated
+- Similar validation logic in multiple handlers
+- Test setup code duplicated across test files
+
+**Common extraction locations:**
+- Rust services: `crates/*/src/services/`
+- Test utilities: `tests/common/`
+
+**Before committing:**
+```bash
+make dup  # Run duplication check
+# Extract any detected duplicates
+# Verify reduction with another make dup
+```
+
+All code extractions require citations: `【YYYY-MM-DD†category†identifier】` (see CITATIONS.md)
+
+**References:**
+- [docs/DUPLICATION_PREVENTION_GUIDE.md](docs/DUPLICATION_PREVENTION_GUIDE.md)
+- [CITATIONS.md](CITATIONS.md)
+
+---
+
 ## Current Implementation Status (v0.3-alpha)
 
 ### ✅ **Implemented Features**
@@ -75,6 +123,8 @@
 - Federation system for cross-node synchronization
 - Advanced UI with real-time monitoring
 - Production deployment hardening
+
+**Completion Plan:** See [docs/PRD-COMPLETION-V03-ALPHA.md](docs/PRD-COMPLETION-V03-ALPHA.md) for the comprehensive 12-week plan to complete all features (70 tasks, 6-7 teams, 15-19 engineers)
 
 ### 📊 **Architecture Scale**
 - 69 crates in workspace

@@ -334,6 +334,8 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 - **Advanced UI**: Web dashboard with real-time monitoring
 - **Production Deployment**: Kubernetes operators, service mesh integration
 
+**📋 Completion Roadmap**: See [docs/PRD-COMPLETION-V03-ALPHA.md](docs/PRD-COMPLETION-V03-ALPHA.md) for the comprehensive plan to complete all features (12 weeks, 70 tasks, 6-7 agent teams)
+
 ### 🎯 **Architecture Highlights**
 - **Zero Network Egress**: Air-gapped inference with Unix domain sockets
 - **Memory Management**: Intelligent eviction with ≥15% headroom maintenance
@@ -490,6 +492,7 @@ AdapterOS v0.3-alpha includes:
 - **[System Architecture](docs/architecture.md)** - High-level design and components
 - **[Policy Registry](docs/POLICIES.md)** - 28 canonical policy packs
 - **[Adapter Taxonomy](docs/ADAPTER_TAXONOMY.md)** - Semantic naming and lineage tracking
+- **[Completion PRD](docs/PRD-COMPLETION-V03-ALPHA.md)** - 12-week plan to finish v0.3-alpha (70 tasks, 6-7 teams)
 
 ### Key Topics
 - **Environment Setup**: [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md) - Configuration profiles and variable reference
