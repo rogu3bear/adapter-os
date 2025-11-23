@@ -1,12 +1,19 @@
 //! Cryptographic primitives for AdapterOS
 
+pub mod audit;
 pub mod bundle_sign;
 pub mod envelope;
 pub mod key_provider;
+pub mod policy_enforcement;
 pub mod providers;
+pub mod rotation_daemon;
 pub mod secret;
+pub mod sep_attestation;
 pub mod signature;
 
+pub use audit::{
+    CryptoAuditEntry, CryptoAuditLogger, CryptoOperation, OperationResult,
+};
 pub use bundle_sign::{
     compute_key_id, generate_signing_key, load_signing_key, sign_and_save_bundle, sign_bundle,
     verify_bundle_from_file, BundleSignature,
@@ -16,8 +23,19 @@ pub use key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, KeyProviderMode, ProviderAttestation,
     RotationReceipt,
 };
+pub use policy_enforcement::{
+    CryptoPolicy, CryptoPolicyEnforcer, PolicyViolation, ViolationType,
+};
 pub use providers::keychain::KeychainProvider;
+pub use rotation_daemon::{
+    RotationDaemon, RotationHistoryEntry, RotationPolicy, RotationReason,
+};
 pub use secret::{KeyMaterial, SecretKey, SensitiveData};
+pub use sep_attestation::{
+    check_sep_availability, detect_chip_generation, generate_sep_key_with_attestation,
+    get_key_creation_date, verify_attestation_chain, SepAttestation, SepAvailability,
+    SepChipGeneration,
+};
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
 
 // Re-export ed25519-dalek types for node agent
