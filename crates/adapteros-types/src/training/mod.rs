@@ -354,6 +354,40 @@ pub struct TrainingConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub weight_group_config: Option<serde_json::Value>,
+
+    /// Learning rate schedule type (constant, linear, cosine)
+    #[serde(rename = "lr_schedule", skip_serializing_if = "Option::is_none")]
+    pub lr_schedule: Option<String>,
+
+    /// Final learning rate for decay schedules
+    #[serde(rename = "final_lr", skip_serializing_if = "Option::is_none")]
+    pub final_lr: Option<f32>,
+
+    /// Enable early stopping
+    #[serde(rename = "early_stopping", skip_serializing_if = "Option::is_none")]
+    pub early_stopping: Option<bool>,
+
+    /// Early stopping patience (epochs to wait)
+    #[serde(rename = "patience", skip_serializing_if = "Option::is_none")]
+    pub patience: Option<u32>,
+
+    /// Minimum delta for early stopping improvement
+    #[serde(rename = "min_delta", skip_serializing_if = "Option::is_none")]
+    pub min_delta: Option<f32>,
+
+    /// Save checkpoints every N epochs
+    #[serde(
+        rename = "checkpoint_frequency",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub checkpoint_frequency: Option<u32>,
+
+    /// Maximum number of checkpoints to keep
+    #[serde(
+        rename = "max_checkpoints",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_checkpoints: Option<u32>,
 }
 
 impl TrainingConfig {
@@ -378,6 +412,13 @@ impl TrainingConfig {
             max_seq_length: Some(2048),
             gradient_accumulation_steps: Some(4),
             weight_group_config: None,
+            lr_schedule: Some("cosine".to_string()),
+            final_lr: Some(0.0001),
+            early_stopping: Some(false),
+            patience: Some(5),
+            min_delta: Some(0.001),
+            checkpoint_frequency: Some(5),
+            max_checkpoints: Some(3),
         }
     }
 
@@ -399,6 +440,13 @@ impl TrainingConfig {
             max_seq_length: Some(2048),
             gradient_accumulation_steps: None,
             weight_group_config: None,
+            lr_schedule: Some("constant".to_string()),
+            final_lr: None,
+            early_stopping: Some(false),
+            patience: None,
+            min_delta: None,
+            checkpoint_frequency: None,
+            max_checkpoints: None,
         }
     }
 
@@ -425,6 +473,13 @@ impl TrainingConfig {
             max_seq_length: Some(4096),
             gradient_accumulation_steps: Some(8),
             weight_group_config: None,
+            lr_schedule: Some("linear".to_string()),
+            final_lr: Some(0.00001),
+            early_stopping: Some(true),
+            patience: Some(10),
+            min_delta: Some(0.0001),
+            checkpoint_frequency: Some(2),
+            max_checkpoints: Some(5),
         }
     }
 }
