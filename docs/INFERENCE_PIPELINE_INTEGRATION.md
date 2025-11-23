@@ -109,7 +109,7 @@ let io = IoBuffers {
 | Backend | Status | Use Case |
 |---------|--------|----------|
 | CoreML | Implemented | ANE acceleration (production) |
-| MLX | Implemented | Research, training |
+| MLX | Implemented | Production inference, training |
 | Metal | Building | Legacy fallback |
 
 **Implementation:** `crates/adapteros-lora-worker/src/backend_factory.rs`

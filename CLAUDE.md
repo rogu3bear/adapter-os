@@ -114,7 +114,7 @@ log_success(&db, &claims, actions::ADAPTER_REGISTER, resources::ADAPTER, Some(&i
 | **K-Sparse Routing** | `adapteros-lora-router` | Top-K adapters via Q15 gates |
 | **Multi-Backend** | `adapteros-lora-worker/backend_factory.rs` | Metal/CoreML/MLX backends via `FusedKernels` trait |
 | **CoreML Backend** | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
-| **MLX Backend** | `adapteros-lora-mlx-ffi` | Research, training (active) |
+| **MLX Backend** | `adapteros-lora-mlx-ffi` | Production inference, training (active) |
 | **Metal Kernels** | `adapteros-lora-kernel-mtl` | Precompiled deterministic Metal kernels (fallback) |
 | **Configuration** | `adapteros-config` | Precedence: CLI > Env > File > Defaults |
 | **Memory Mgmt** | `adapteros-memory` | Auto-eviction maintains ≥15% headroom |
@@ -386,12 +386,12 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 
 ## Multi-Backend Architecture
 
-**Strategy:** CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)
+**Strategy:** CoreML-first (ANE production), MLX-active (production), Metal-fallback (deterministic)
 
 | Backend | Status | Determinism | Use Case | Crate |
 |---------|--------|-------------|----------|-------|
 | **CoreML** | **Implemented** (model loading, inference, Swift bridge with runtime dispatch) | **Guaranteed (ANE)** | ANE acceleration, production | `adapteros-lora-kernel-coreml` |
-| **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Research, training | `adapteros-lora-mlx-ffi` |
+| **MLX** | **Implemented** (model loading, forward passes, hidden states, text generation) | **HKDF-seeded** | Production inference, training | `adapteros-lora-mlx-ffi` |
 | **Metal** | **Implemented** (precompiled Metal kernels, GPU acceleration) | **Guaranteed** | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
 
 **Implementation Status:**
@@ -406,9 +406,9 @@ use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend};
 // Production: CoreML (ANE acceleration, guaranteed determinism)
 let backend = create_backend(BackendChoice::CoreML { model_path: None })?;
 
-// Research/Training: MLX (HKDF-seeded determinism)
+// Production: MLX (HKDF-seeded determinism, enterprise resilience)
 // Note: Requires --features real-mlx and MLX C++ library for GPU acceleration
-// Falls back to software implementation if MLX not available
+// Falls back to stub implementation for testing if MLX not available
 let backend = create_backend(BackendChoice::Mlx { model_path })?;
 
 // Fallback: Metal (legacy, non-ANE systems)
@@ -449,7 +449,7 @@ xcode-select --install  # If swiftc not found
 
 ### MLX Backend Details
 
-The MLX backend is fully implemented for research and training workloads with enterprise-grade resilience:
+The MLX backend is fully implemented and production-ready with enterprise-grade resilience:
 
 **Features:**
 - Model loading from directory or pre-serialized buffer
@@ -498,7 +498,7 @@ See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start a
 | Router | `adapteros-lora-router` | K-sparse adapter selection |
 | Backend Factory | `adapteros-lora-worker/backend_factory.rs` | Multi-backend creation & attestation |
 | CoreML Backend | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
-| MLX Backend | `adapteros-lora-mlx-ffi` | Research, training (active) |
+| MLX Backend | `adapteros-lora-mlx-ffi` | Production inference, training (active) |
 | Metal Kernels | `adapteros-lora-kernel-mtl` | Deterministic GPU kernels (fallback) |
 | Policy Engine | `adapteros-policy` | 23-pack policy enforcement |
 | Memory Mgmt | `adapteros-memory` | Auto-eviction, headroom maintenance |

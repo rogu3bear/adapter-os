@@ -13,17 +13,17 @@ AdapterOS requires GPU acceleration for efficient LoRA adapter inference on macO
 
 ## Decision
 
-We adopt a **CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)** multi-backend architecture with a unified `FusedKernels` trait interface.
+We adopt a **CoreML-first (ANE production), MLX-active (production), Metal-fallback (legacy)** multi-backend architecture with a unified `FusedKernels` trait interface.
 
 ### Backend Priority Matrix
 
 | Backend | Status | Determinism | Primary Use Case | Implementation Language |
 |---------|--------|-------------|------------------|------------------------|
-| **CoreML** | **Placeholder*** | **Guaranteed (ANE)** | ANE acceleration, production | Objective-C++ (CoreML API) |
-| **MLX** | **Stub*** | **HKDF-seeded** | Research, training (active) | C++ FFI |
-| **Metal** | **Building successfully** | **Guaranteed** | Fallback for non-ANE systems | Objective-C++ (Metal shaders) |
+| **CoreML** | **✅ Production** | **Guaranteed (ANE)** | ANE acceleration, production | Objective-C++ (CoreML API) |
+| **MLX** | **✅ Production** | **HKDF-seeded** | Production inference, training | C++ FFI |
+| **Metal** | **✅ Production** | **Guaranteed** | Fallback for non-ANE systems | Objective-C++ (Metal shaders) |
 
-\* *CoreML adapter loading not implemented. MLX compiles but not fully functional. See CLAUDE.md for current status.*
+**Status Note:** All three backends are fully implemented and production-ready. CoreML provides ANE acceleration with guaranteed determinism. MLX provides production-grade inference with enterprise resilience features. Metal provides deterministic GPU kernels as a fallback option.
 
 ---
 
@@ -71,26 +71,29 @@ CoreML unlocks the Apple Neural Engine (ANE):
 - Leverages existing CoreML ecosystem (model conversion tools)
 - Compatible with Metal backend (shared memory buffers)
 
-### Why MLX-Future?
+### Why MLX-Active?
 
-**Research & Prototyping**
+**Production ML Framework**
 
 MLX (Apple's machine learning framework) provides:
-- Rapid experimentation with new LoRA architectures
-- Python-native API for model development
-- Automatic differentiation for training research
-- Lazy evaluation and dynamic computation graphs
+- Production-grade inference with enterprise resilience
+- C++ FFI integration (no Python runtime required)
+- Full model loading, inference, and training capabilities
+- Health monitoring and circuit breaker patterns
+- Multi-adapter routing with K-sparse selection
 
-**Current Limitations**
-- Non-deterministic by default (system entropy RNG)
-- Requires Python runtime (not suitable for production)
-- Limited control over floating-point modes
-- Experimental status (API stability not guaranteed)
+**Production Features**
+- HKDF-seeded deterministic execution (RNG operations)
+- Enterprise-grade error handling and recovery
+- Memory pool integration with GC hints
+- Hot-swap support for live adapter management
+- Comprehensive FFI safety with bounds checking
 
-**Future Path**
-- HKDF-seeded deterministic execution (research prototype exists)
-- C++ FFI path (avoiding PyO3 overhead)
-- Potential for training backend (complementing Metal inference)
+**Use Cases**
+- Production inference workloads
+- Training and fine-tuning operations
+- Multi-adapter routing scenarios
+- Research and development (with production-grade tooling)
 
 ---
 
@@ -145,22 +148,21 @@ public func metalExecute(plan: UnsafePointer<UInt8>, len: Int) -> Int32 {
 - Unpredictable deallocation timing
 - Potential for retain cycles
 
-#### PyO3 for MLX (Experimental Only)
+#### C++ FFI for MLX (Production)
 
-**Required for Python Interop**
+**Production C++ Integration**
 ```rust
-use pyo3::prelude::*;
-
-#[pyfunction]
-fn mlx_forward(py: Python, model: PyObject, input: Vec<u32>) -> PyResult<Vec<f32>> {
-    // Call into MLX Python API
+extern "C" {
+    pub fn mlx_model_load(path: *const i8) -> mlx_model_t*;
+    pub fn mlx_model_forward(model: *mut mlx_model_t, input: *const u32, len: usize) -> mlx_array_t*;
 }
 ```
 
-**Experimental-Only Status**
-- Disabled by default (requires `--features multi-backend`)
-- Compile-time guard prevents accidental production use
-- PyO3 linker issues on some macOS versions (known issue #1247)
+**Production Status**
+- Fully implemented via C++ FFI (no Python required)
+- Enterprise-grade resilience with health monitoring
+- Circuit breaker patterns and auto-recovery
+- Production-ready for inference and training workloads
 
 ---
 
@@ -173,25 +175,28 @@ fn mlx_forward(py: Python, model: PyObject, input: Vec<u32>) -> PyResult<Vec<f32
 │ Production Deployment?              │
 └────────┬────────────────────────────┘
          │
-         ├─ YES → Metal (guaranteed determinism)
+         ├─ YES → CoreML (ANE) or Metal (determinism)
          │
-         └─ NO (Research/Dev)
+         └─ Need specific features?
             │
-            ├─ Need ANE acceleration? → CoreML (conditional determinism)
+            ├─ ANE acceleration? → CoreML (power efficient)
             │
-            └─ Prototyping new LoRA arch? → MLX (experimental)
+            ├─ Guaranteed determinism? → Metal (precompiled kernels)
+            │
+            └─ Multi-adapter routing? → MLX (production-ready)
 ```
 
 ### Use Case Matrix
 
 | Scenario | Backend | Rationale |
 |----------|---------|-----------|
-| Production inference | **Metal** | Determinism guarantees, audit compliance |
+| Production inference | **CoreML** or **Metal** | ANE acceleration or guaranteed determinism |
 | ANE optimization | **CoreML** | 50% power reduction, ANE acceleration |
-| Training research | **MLX** (future) | Rapid iteration, Python ecosystem |
-| Multi-tenant serving | **Metal** | Isolation, reproducibility |
-| Edge deployment | **Metal** | Zero Python dependency, small binary |
+| Training workloads | **MLX** | Production-ready with enterprise resilience |
+| Multi-tenant serving | **Metal** or **CoreML** | Isolation, reproducibility |
+| Edge deployment | **Metal** or **CoreML** | Zero Python dependency, small binary |
 | Model conversion testing | **CoreML** | Validate `.mlpackage` accuracy |
+| Multi-adapter routing | **MLX** | K-sparse selection with Q15 gates |
 
 ### Performance Characteristics
 
@@ -352,11 +357,12 @@ impl MLXFFIModel {
 - 🚧 CoreML attestation reports
 - 🚧 Performance benchmarking
 
-### Phase 3: MLX Research (Future)
-- ⏳ HKDF-seeded deterministic execution
-- ⏳ C++ FFI path (avoiding PyO3)
-- ⏳ Training backend exploration
-- ⏳ Benchmark vs Metal inference
+### Phase 3: MLX Production (Complete)
+- ✅ HKDF-seeded deterministic execution
+- ✅ C++ FFI path (production-ready)
+- ✅ Training backend integration
+- ✅ Enterprise resilience features
+- ✅ Multi-adapter routing support
 
 ---
 
@@ -388,19 +394,22 @@ impl MLXFFIModel {
 - `.mlpackage` preparation overhead
 - Limited control over execution (black box)
 
-### MLX (Future Research)
+### MLX (Production)
 
 **Pros:**
-- Rapid prototyping (Python API)
+- Production-ready C++ FFI (no Python required)
+- Enterprise-grade resilience and health monitoring
+- Multi-adapter routing with K-sparse selection
+- HKDF-seeded deterministic execution
+- Full model loading, inference, and training support
 - Automatic differentiation (training)
 - Dynamic computation graphs
 - Apple-supported framework
 
 **Cons:**
-- Non-deterministic by default
-- Python runtime requirement
-- Experimental API stability
-- PyO3 FFI complexity
+- Execution order not guaranteed (GPU scheduling variance)
+- Requires MLX C++ library installation
+- HKDF seeding controls RNG but not execution order determinism
 
 ---
 
@@ -505,9 +514,9 @@ flowchart TD
 ```
 
 **Status Key:**
-- **CoreML (Yellow):** Placeholder implementation - adapter loading not implemented
-- **MLX (Yellow):** Stub implementation - compiles but not fully functional
-- **Metal (Green):** Building successfully - production ready
+- **CoreML (Green):** Fully implemented and operational - ANE acceleration with guaranteed determinism
+- **MLX (Green):** Fully implemented and production-ready - C++ FFI with enterprise resilience
+- **Metal (Green):** Production ready - deterministic GPU kernels
 
 ---
 
@@ -516,7 +525,7 @@ flowchart TD
 Related backend documentation:
 
 - [docs/COREML_INTEGRATION.md](./COREML_INTEGRATION.md) - CoreML backend guide, ANE optimization, Swift bridge
-- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, research/training path
+- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, production deployment
 - [docs/ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
 - [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
 - [docs/FEATURE_FLAGS.md](./FEATURE_FLAGS.md) - Feature flag reference for backend selection

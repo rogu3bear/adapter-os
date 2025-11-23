@@ -300,7 +300,7 @@ cargo bench --bench kernel_performance -- --baseline main
 
 1. **ANE tests require Apple Silicon** - Graceful fallback on Intel
 2. **Metal tests are macOS only** - Mock backend for cross-platform
-3. **MLX tests are experimental** - Not yet integrated
+3. **MLX tests are production-ready** - Fully integrated with enterprise resilience
 4. **Benchmark variability** - System load affects results
 
 ## Future Work

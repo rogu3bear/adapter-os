@@ -164,11 +164,11 @@ graph TD
 **Backend Status:**
 | Backend | Status | Determinism | Use Case |
 |---------|--------|-------------|----------|
-| **CoreML** | Placeholder | Guaranteed (ANE) | Production, ANE acceleration |
-| **MLX** | Stub | HKDF-seeded | Research, training |
-| **Metal** | Building | Guaranteed | Legacy, non-ANE systems |
+| **CoreML** | ✅ Production | Guaranteed (ANE) | Production, ANE acceleration |
+| **MLX** | ✅ Production | HKDF-seeded | Production inference, training |
+| **Metal** | ✅ Production | Guaranteed | Fallback, deterministic kernels |
 
-**Selection Strategy:** CoreML-first (ANE production), MLX-active (research/training), Metal-fallback (legacy)
+**Selection Strategy:** CoreML-first (ANE production), MLX-active (production), Metal-fallback (deterministic)
 
 ---
 

@@ -126,8 +126,8 @@ cd adapter-os
 cargo build --release
 
 # Note: CoreML backend is the primary production backend (ANE acceleration)
-# MLX backend is available for research/training
-# Metal backend serves as fallback for legacy systems
+# MLX backend is production-ready for inference and training workloads
+# Metal backend serves as fallback for deterministic GPU kernels
 ```
 
 ### Database Initialization
@@ -398,6 +398,7 @@ AdapterOS v0.1.0 includes:
 - **[Adapter Taxonomy](docs/ADAPTER_TAXONOMY.md)** - Semantic naming and lineage tracking
 
 ### Key Topics
+- **Environment Setup**: [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md) - Configuration profiles and variable reference
 - **Control Plane**: [docs/control-plane.md](docs/control-plane.md)
 - **Configuration**: [docs/CONFIG_PRECEDENCE.md](docs/CONFIG_PRECEDENCE.md)
 - **Metal Kernels**: [docs/metal/phase4-metal-kernels.md](docs/metal/phase4-metal-kernels.md)

@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document describes the deterministic RNG seeding implementation for the MLX experimental backend using HKDF-derived seeds. Unlike the Metal backend (guaranteed deterministic), the MLX backend uses HKDF seeding to control operations that depend on randomness (dropout, sampling) while acknowledging that execution order itself is not deterministic.
+This document describes the deterministic RNG seeding implementation for the MLX production backend using HKDF-derived seeds. Unlike the Metal backend (guaranteed deterministic), the MLX backend uses HKDF seeding to control operations that depend on randomness (dropout, sampling) while acknowledging that execution order itself is not deterministic due to GPU scheduling variance.
 
 ---
 
@@ -362,17 +362,17 @@ Memory layout changes can affect cache behavior and results.
 | **RNG Seeding** | Via global seed | Via global seed | Via HKDF |
 | **Execution Order** | ✓ Fused kernels | ~ Conditional | ✗ Async |
 | **Float Rounding** | ✓ Controlled | ~ Depends on backend | ✗ Uncontrolled |
-| **Use Case** | Production | Power-efficient | Research |
+| **Use Case** | Production | Power-efficient | Production inference, training |
 | **Policy Attestation** | `deterministic: true` | `deterministic: ane_available` | `deterministic: false` |
 
 ---
 
 ## Usage Guidelines
 
-### ✓ Good: Research & Development
+### ✓ Good: Production Inference & Training
 
 ```rust
-// MLX is ideal for research with HKDF seeding
+// MLX is production-ready with HKDF seeding
 let mlx_backend = create_backend(BackendChoice::Mlx {
     model_path: PathBuf::from("models/qwen2.5-7b-mlx"),
 })?;

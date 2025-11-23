@@ -115,6 +115,18 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Quantization support
   - Performance optimization
 
+#### Foreign Function Interface (FFI)
+- **[FFI Guide](FFI_GUIDE.md)** - Complete guide to FFI in AdapterOS
+  - What FFI is and why it's used
+  - Architecture and performance characteristics
+  - Security model and best practices
+  - Quick reference for all FFI types
+- **[Objective-C++ FFI Patterns](OBJECTIVE_CPP_FFI_PATTERNS.md)** - Detailed ObjC++ patterns
+  - Memory safety principles
+  - Buffer transfer patterns
+  - Object lifetime management
+  - Metal and CoreML-specific patterns
+
 ### 🔒 Safety & Security
 - **[Runaway Prevention](RUNAWAY-PREVENTION.md)** - Safety mechanisms
   - Memory pressure handling
@@ -160,6 +172,18 @@ Start here if you're evaluating AdapterOS for compliance:
 ## API Documentation
 
 ### REST API
+- **[Routes Reference](ROUTES_REFERENCE.md)** - Complete API endpoint documentation
+  - All frontend and backend routes
+  - Route-to-API mappings
+  - Authentication requirements
+  - Developer guide for adding routes
+- **[Route Map Diagrams](ROUTE_MAP_DIAGRAM.md)** - Visual route architecture
+  - Frontend route hierarchy
+  - API endpoint categories
+  - Data flow diagrams
+  - Authentication and RBAC flows
+- **[Routes Improvements](ROUTES_IMPROVEMENTS.md)** - Identified issues and recommendations
+- **[Postman Collection](postman/AdapterOS_API.postman_collection.json)** - API testing collection
 - Control Plane API: See [control-plane.md](CONTROL-PLANE.md)
 - Authentication API: See [AUTHENTICATION.md](AUTHENTICATION.md)
 - Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/CODE-API-REGISTRY.md)

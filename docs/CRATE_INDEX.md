@@ -26,7 +26,7 @@
 | `adapteros-lora-kernel-mtl` | Runtime (Inference) | Metal-optimized fused kernels (attention + MLP + LoRA) |
 | `adapteros-lora-kernel-prof` | Runtime (Inference) | Kernel profiling and performance measurement |
 | `adapteros-lora-quant` | Runtime (Inference) | Quantization API for LoRA adapters |
-| `adapteros-lora-mlx-ffi` | Runtime (Inference) | MLX backend FFI (experimental, PyO3) |
+| `adapteros-lora-mlx-ffi` | Runtime (Inference) | MLX backend FFI (production, C++) |
 | `adapteros-lora-rag` | Runtime (Data) | RAG engine with vector search for evidence retrieval |
 | `adapteros-memory` | Runtime (Data) | Unified Memory Watchdog - monitors page-outs and OS memory |
 | `adapteros-telemetry` | Runtime (Observability) | Telemetry system with bundle store and canonical JSON |
@@ -176,10 +176,10 @@ Components for LLM inference and adapter execution.
 **README:** None
 
 #### `adapteros-lora-mlx-ffi`
-**Purpose:** MLX backend FFI (experimental, requires PyO3)  
-**Key Dependencies:** `adapteros-lora-kernel-api`, `pyo3`  
+**Purpose:** MLX backend FFI (production, C++ FFI)  
+**Key Dependencies:** `adapteros-lora-kernel-api`  
 **README:** `crates/adapteros-lora-mlx-ffi/README.md`  
-**Note:** Experimental backend, excluded from tests by default
+**Note:** Production-ready backend with enterprise resilience features
 
 ### 3.3 Data Services
 

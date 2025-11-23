@@ -24,9 +24,10 @@ Complete GPU training integration enabling automatic backend selection and accel
    - Fallback for systems without ANE
    - Requires: macOS with Metal-capable GPU
 
-3. **MLX Backend** (experimental, `multi-backend` feature)
-   - Research and training focused
+3. **MLX Backend** (production, `multi-backend` feature)
+   - Production inference and training
    - HKDF-seeded determinism
+   - Enterprise resilience features
    - Requires: Apple Silicon
 
 4. **CPU** (always available)
@@ -39,7 +40,7 @@ Complete GPU training integration enabling automatic backend selection and accel
 ```rust
 pub enum TrainingBackend {
     CoreML,  // ANE acceleration
-    Mlx,     // Research/training
+    Mlx,     // Production inference/training
     Metal,   // GPU fallback
     Cpu,     // Universal fallback
 }
@@ -362,7 +363,7 @@ impl TrainingConfig {
 
 1. **CoreML/ANE** - Best power efficiency, production-ready
 2. **Metal** - Universal GPU support, deterministic
-3. **MLX** - Research focused, HKDF-seeded
+3. **MLX** - Production-ready, HKDF-seeded, enterprise resilience
 4. **CPU** - Fallback for all cases
 
 ### Error Handling Strategy

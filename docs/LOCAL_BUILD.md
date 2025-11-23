@@ -193,7 +193,7 @@ cargo build --release --features full
 # Metal backend only
 cargo build --release --features metal-backend
 
-# Experimental MLX backend (currently disabled due to PyO3 linker issues)
+# MLX backend (production C++ FFI)
 cargo build --release --features multi-backend
 ```
 
@@ -234,7 +234,7 @@ AdapterOS uses feature flags to control compilation and enable/disable platform-
 |--------------|---------|----------|--------|
 | `deterministic-only` | **Default**: Core deterministic execution (no backends) | All | ✅ Stable |
 | `metal-backend` | Metal GPU acceleration | macOS only | ✅ Stable |
-| `mlx-backend` | MLX Python backend via PyO3 | macOS | ⚠️ Experimental (disabled) |
+| `mlx-backend` | MLX backend via C++ FFI | macOS | ✅ Production |
 | `telemetry` | Structured event logging | All | ✅ Stable |
 | `metrics` | Performance metrics collection | All | ✅ Stable |
 | `replay` | Deterministic replay for debugging | All | ✅ Stable |
@@ -680,7 +680,7 @@ After successful local build:
 - [FEATURE_FLAGS.md](FEATURE_FLAGS.md) - Feature flag reference
 - [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision
 - [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
-- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend for research/training
+- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend production deployment guide
 - [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
 - [../CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution guidelines
 

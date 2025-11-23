@@ -20,7 +20,7 @@
 
 ## Overview
 
-The MLX backend is a production-ready GPU acceleration layer for AdapterOS supporting research and training workloads on Apple Silicon. It integrates seamlessly with the multi-backend architecture and includes enterprise-grade resilience, health monitoring, and deterministic seeding.
+The MLX backend is a production-ready GPU acceleration layer for AdapterOS supporting production inference and training workloads on Apple Silicon. It integrates seamlessly with the multi-backend architecture and includes enterprise-grade resilience, health monitoring, and deterministic seeding.
 
 ### Key Features
 
@@ -39,7 +39,7 @@ The MLX backend is a production-ready GPU acceleration layer for AdapterOS suppo
 ```
 AdapterOS Multi-Backend Strategy
 ├── CoreML (ANE acceleration) - Primary/Production
-├── MLX (GPU acceleration) - Research/Training ← You are here
+├── MLX (GPU acceleration) - Production ← You are here
 └── Metal (Fallback) - Legacy support
 ```
 

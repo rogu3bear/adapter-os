@@ -70,13 +70,14 @@ assert_eq!(report.backend_type, BackendType::Metal);
 assert!(report.metallib_hash.is_some());
 ```
 
-### MLX Backend (Non-Deterministic)
+### MLX Backend (HKDF-Seeded Determinism)
 
-The MLX backend is experimental and non-deterministic:
+The MLX backend is production-ready with HKDF-seeded determinism:
 
 - **Requires**: `--features multi-backend`
-- **Use Case**: Development and experimentation only
-- **NOT FOR PRODUCTION**: Cannot guarantee reproducible outputs
+- **Use Case**: Production inference and training workloads
+- **Determinism**: HKDF-seeded RNG for reproducible dropout/sampling operations
+- **Note**: Execution order may vary due to GPU scheduling, but RNG operations are deterministic
 
 ### Mock Backend (Testing)
 

@@ -42,7 +42,7 @@ The CoreML backend enables **Apple Neural Engine (ANE)** acceleration for LoRA i
 | Production inference (audit trail) | **CoreML** | Guaranteed determinism with ANE |
 | Power-constrained deployment | **CoreML** | 50% power savings with ANE |
 | M1+ devices with ANE available | **CoreML** | Maximum TOPS/watt |
-| Research and training | **MLX** | Flexible, HKDF-seeded determinism |
+| Production inference and training | **MLX** | Flexible, HKDF-seeded determinism, enterprise resilience |
 | Legacy/non-ANE systems | **Metal** | Fallback for pre-M1 hardware |
 
 ---
@@ -1894,7 +1894,7 @@ flowchart TD
     B -->|MLX| D[MLX Backend]
     B -->|Metal| E[Metal Backend]
     C -->|Status: Operational| F[ANE Production]
-    D -->|Status: Operational| G[Research/Training]
+    D -->|Status: Operational| G[Production Inference/Training]
     E -->|Status: Building| H[Legacy Fallback]
 
     style C fill:#d4edda
@@ -1914,7 +1914,7 @@ flowchart TD
 Related backend documentation:
 
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
-- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, research/training path
+- [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide, C++ FFI, production deployment
 - [docs/ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
 - [docs/OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
 - [docs/FEATURE_FLAGS.md](./FEATURE_FLAGS.md) - Feature flag reference for backend selection

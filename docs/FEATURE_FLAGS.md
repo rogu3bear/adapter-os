@@ -154,48 +154,47 @@ cargo build --release --features metal-backend
 
 #### `mlx-backend`
 
-**Purpose**: Experimental Apple MLX framework integration via C++ FFI stubs.
+**Purpose**: Production Apple MLX framework integration via C++ FFI.
 
 **Includes**:
-- MLX C++ FFI stub implementation
-- Placeholder kernel implementations
-- Development/testing infrastructure
-- Future MLX integration framework
+- MLX C++ FFI implementation
+- Production kernel implementations
+- Enterprise resilience features
+- Health monitoring and circuit breakers
 
-**Platform**: macOS (experimental)
+**Platform**: macOS (production)
 
 **Requirements**:
 - macOS 13.0+
 - Xcode Command Line Tools
-- MLX framework (when available)
+- MLX C++ library (with `real-mlx` feature)
 
 **Usage**:
 ```bash
-# Enable MLX backend (stub implementation)
+# Enable MLX backend (production implementation)
 cargo build --release --features mlx-backend
 ```
 
 **Compilation behavior**:
-- ✅ Compiles successfully (stub implementation)
-- ⚠️ No actual MLX functionality (stubs only)
-- Crate `adapteros-lora-mlx-ffi` uses C++ FFI stubs
+- ✅ Compiles successfully
+- ✅ Full MLX functionality (with `real-mlx` feature)
+- ✅ Stub fallback for testing (without `real-mlx`)
 
-**Status**: ⚠️ **Experimental / Stub Implementation**
+**Status**: ✅ **Production-Ready**
 
-**Roadmap**: Complete C++ wrapper when MLX C++ API is stable
-
-**Recommendation**: Use `coreml-backend` for production.
+**Recommendation**: Use alongside CoreML and Metal for multi-backend support.
 
 ---
 
 #### `real-mlx`
 
-**Purpose**: Enable real MLX library integration (vs stub implementation).
+**Purpose**: Enable real MLX library integration (vs stub implementation for testing).
 
 **Includes**:
-- Real MLX C++ FFI bindings
+- Production MLX C++ FFI bindings
 - GPU-accelerated tensor operations
-- Actual model inference (not stubs)
+- Full model inference capabilities
+- Enterprise resilience features
 
 **Platform**: macOS (requires MLX C++ library)
 
@@ -210,10 +209,10 @@ cargo build --release --features mlx-backend
 cargo build --release --features real-mlx
 ```
 
-**Status**: ⚠️ **Experimental** (requires external MLX installation)
+**Status**: ✅ **Production-Ready** (requires external MLX C++ library installation)
 
 **Note**: Without this feature, `adapteros-lora-mlx-ffi` uses stub implementations
-that simulate inference for testing purposes.
+for testing purposes. With this feature, full production MLX functionality is enabled.
 
 ---
 
@@ -791,7 +790,7 @@ coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 
 - [ADR_MULTI_BACKEND_STRATEGY.md](ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
 - [COREML_INTEGRATION.md](COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
-- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend for research/training
+- [MLX_INTEGRATION.md](MLX_INTEGRATION.md) - MLX backend production deployment guide
 - [ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
 - [crates/adapteros-lora-kernel-coreml/README.md](../crates/adapteros-lora-kernel-coreml/README.md) - CoreML crate documentation
 - [crates/adapteros-lora-mlx-ffi/README.md](../crates/adapteros-lora-mlx-ffi/README.md) - MLX FFI crate documentation

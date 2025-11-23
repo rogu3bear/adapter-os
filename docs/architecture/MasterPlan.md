@@ -354,12 +354,12 @@ Unified Memory Architecture (UMA) combined with Apple Silicon compute backends p
 | Priority | Backend | Engine | Use Case | Determinism |
 |----------|---------|--------|----------|-------------|
 | **Primary** | CoreML | ANE | Production inference, power-efficient | Guaranteed on ANE |
-| **Secondary** | MLX | GPU/CPU | Research, training, prototyping | HKDF-seeded |
+| **Secondary** | MLX | GPU/CPU | Production inference, training | HKDF-seeded |
 | **Fallback** | Metal | GPU | Legacy systems, non-ANE hardware | Guaranteed |
 
 **Selection Rationale:**
 - **CoreML/ANE** — Primary for production: 50% power reduction, deterministic on Neural Engine, optimized for sustained inference workloads
-- **MLX** — Secondary for research: flexible, rapid iteration, training support, cross-platform potential
+- **MLX** — Secondary for production: flexible, enterprise resilience, training support, multi-adapter routing
 - **Metal** — Fallback for compatibility: guaranteed determinism, supports older Apple Silicon without ANE optimization
 
 This allows treating GPU/ANE compute as a privileged subsystem, a hallmark of OS design.
@@ -420,7 +420,7 @@ Mediates all client communication.
 #### **Inference Engine**
 - **Base LLM** — `Qwen2.5-7B-Instruct` (int4, CoreML/ANE for power efficiency)
 - **Adapter Loader** — Loads LoRA deltas from registry, verifies BLAKE3 signatures
-- **Compute Backends** — CoreML (primary, ANE), MLX (research/training), Metal (fallback)
+- **Compute Backends** — CoreML (primary, ANE), MLX (production, training), Metal (fallback)
 - **Kernel Pipeline** — Fused operations (matmul, layernorm, softmax) for identical results across runs  
 
 #### **Data Services**

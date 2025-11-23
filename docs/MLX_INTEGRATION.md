@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document describes the complete MLX (Apple Machine Learning Framework) backend integration into AdapterOS, featuring enterprise-grade resilience, health monitoring, deterministic seeding, and multi-adapter routing for research and training workloads on Apple Silicon.
+This document describes the complete MLX (Apple Machine Learning Framework) backend integration into AdapterOS, featuring enterprise-grade resilience, health monitoring, deterministic seeding, and multi-adapter routing for production inference and training workloads on Apple Silicon.
 
 ### Current Status: Fully Implemented ✅
 
@@ -37,7 +37,7 @@ MLX operates as a **fully-capable production backend** in our multi-backend ecos
 |---------|--------|----------|-------------|------------|
 | **Metal** | Production | GPU acceleration | Guaranteed | Full |
 | **CoreML** | Production | ANE acceleration | Conditional | Full |
-| **MLX** | **Production** | Research/ML tasks | **Feature-gated** | **Enterprise-grade** |
+| **MLX** | **Production** | Production inference, training | **Feature-gated** | **Enterprise-grade** |
 
 See [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) for the complete multi-backend strategy.
 
@@ -555,7 +555,7 @@ flowchart TD
     B -->|MLX| D[MLX Backend]
     B -->|Metal| E[Metal Backend]
     C -->|Status: Implemented| F[ANE Acceleration]
-    D -->|Status: Fully Implemented| G[Research/Training]
+    D -->|Status: Fully Implemented| G[Production Inference/Training]
     E -->|Status: Implemented| H[GPU Fallback]
 
     style C fill:#d4edda
@@ -565,7 +565,7 @@ flowchart TD
 
 **Backend Capabilities:**
 - **CoreML:** ANE-accelerated inference on modern Apple hardware
-- **MLX:** GPU-accelerated inference with deterministic seeding, research-focused
+- **MLX:** GPU-accelerated inference with deterministic seeding, production-ready
 - **Metal:** Direct GPU shader execution, legacy/fallback support
 
 ---

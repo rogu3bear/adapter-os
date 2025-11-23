@@ -726,7 +726,7 @@ Critical (<10%)  ← EmergencyEvict or ReduceK
 
 **Eviction Order:**
 1. Metal adapters (preserve ANE)
-2. MLX adapters (research)
+2. MLX adapters (production)
 3. CoreML adapters (last resort)
 
 ---

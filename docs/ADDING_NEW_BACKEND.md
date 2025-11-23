@@ -632,7 +632,7 @@ fn create_backend_internal(choice: BackendChoice) -> Result<Box<dyn FusedKernels
 |---------|--------|-------------|------------------|
 | **Metal** | **Production** | **Guaranteed** | M1/M2/M3/M4 GPU |
 | **CoreML** | **Active** | **Conditional** | ANE acceleration |
-| **MLX** | **Future** | **Experimental** | Research |
+| **MLX** | **Production** | **HKDF-seeded** | Production inference, training |
 | **MyBackend** | **Experimental** | **Guaranteed** | Custom accelerator |
 ```
 

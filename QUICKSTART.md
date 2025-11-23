@@ -69,6 +69,10 @@ mkdir -p var/artifacts var/bundles var/alerts
 # Copy environment template
 cp .env.example .env
 
+# (Optional) Review/edit environment configuration
+# See docs/ENVIRONMENT_SETUP.md for detailed configuration guide
+# vim .env
+
 # Run database migrations
 cargo run --release -p adapteros-orchestrator -- db migrate
 
