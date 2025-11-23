@@ -6,7 +6,7 @@ const cors = require('cors');
 
 const app = express();
 const PORT = 3301;
-const API_PROXY_TARGET = process.env.API_PROXY_TARGET || 'http://localhost:3300';
+const API_PROXY_TARGET = process.env.API_PROXY_TARGET || 'http://localhost:8080';
 
 // Compute project root as parent of ui/ directory
 // This allows the server to work from any location where the project is cloned
@@ -81,11 +81,11 @@ const serviceConfigs = {
   },
   'backend-server': {
     name: 'Backend Server',
-    startCommand: `cd "${PROJECT_ROOT}" && cargo run -p adapteros-server --bin adapteros-server -- --config configs/cp.toml --skip-pf-check --single-writer`,
-    stopCommand: 'pkill -f "adapteros-server.*configs/cp.toml"',
-    statusCommand: 'pgrep -f "adapteros-server.*configs/cp.toml" >/dev/null && echo "running" || echo "stopped"',
-    healthCommand: 'curl -f http://localhost:3300/healthz >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
-    port: 3300,
+    startCommand: `cd "${PROJECT_ROOT}" && cargo run -p adapteros-server-api --release 2>&1 | head -100`,
+    stopCommand: 'pkill -f "adapteros-server-api"',
+    statusCommand: 'pgrep -f "adapteros-server-api" >/dev/null && echo "running" || echo "stopped"',
+    healthCommand: 'curl -f http://localhost:8080/healthz >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
+    port: 8080,
     category: 'core',
     essential: true,
     dependencies: [],
