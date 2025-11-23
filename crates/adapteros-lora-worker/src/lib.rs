@@ -62,6 +62,7 @@ pub mod filter_engine;
 pub mod framework_adapters;
 pub mod generation;
 pub mod health;
+pub mod inference_metrics;
 pub mod inference_pipeline;
 pub mod kvcache;
 pub mod launcher;
@@ -112,6 +113,9 @@ pub use filter_engine::{FilterConfig, FilterEngine, FilterKind};
 pub use framework_adapters::{FrameworkAdapterManager, FrameworkAdapterSpec};
 pub use generation::Generator;
 pub use health::{HealthConfig, HealthMonitor, ProcessHealthStatus as HealthStatus};
+pub use inference_metrics::{
+    AdapterStats, InferenceMeasurement, InferenceMetrics, InferenceMetricsCollector,
+};
 pub use kvcache::KvCache;
 pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits};
 pub use linter_runner::{
