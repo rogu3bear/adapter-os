@@ -129,7 +129,10 @@ mod tests {
         });
         manager.extend_ttl("a", 200);
         let record = manager.records.get("a").unwrap();
-        assert!(record.expires_at <= now + Duration::hours(72));
+        let after = Utc::now();
+        // Cap should be 72 hours from when extend_ttl was called
+        assert!(record.expires_at >= after - Duration::seconds(1) + Duration::hours(72) - Duration::seconds(2));
+        assert!(record.expires_at <= after + Duration::hours(72) + Duration::seconds(2));
         assert!(record.last_extension.is_some());
     }
 }

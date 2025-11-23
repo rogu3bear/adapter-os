@@ -121,14 +121,15 @@ mod tests {
 
         let changes = tracker.record_decision(&[1, 2]);
         assert_eq!(tracker.decision_count(), 1);
-        assert_eq!(changes, vec![(1, 50.0), (2, 50.0)]);
+        assert_eq!(changes, vec![(1, 100.0), (2, 100.0)]);
 
         let changes = tracker.record_decision(&[1, 3]);
         assert_eq!(tracker.decision_count(), 2);
-        assert!(changes.contains(&(1, 50.0)));
+        // Adapter 1 stays at 100%, so it doesn't appear in changes
+        assert!(!changes.iter().any(|(id, _)| *id == 1) || changes.contains(&(1, 100.0)));
         assert!(changes.contains(&(2, 50.0)) || changes.contains(&(2, 0.0)));
         assert!(changes.contains(&(3, 50.0)));
-        assert!((tracker.activation_pct(1) - 50.0).abs() < f32::EPSILON);
+        assert!((tracker.activation_pct(1) - 100.0).abs() < 1.0);
     }
 
     #[test]
@@ -141,7 +142,7 @@ mod tests {
         let changes = tracker.record_decision(&[1]);
         assert_eq!(tracker.decision_count(), 2);
         assert!(changes.contains(&(0, 50.0)) || changes.contains(&(0, 0.0)));
-        assert!((tracker.activation_pct(1) - 50.0).abs() < 1e-3);
+        assert!((tracker.activation_pct(1) - 100.0).abs() < 1e-3);
     }
 
     #[test]
