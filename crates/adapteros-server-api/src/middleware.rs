@@ -22,9 +22,9 @@ pub async fn client_ip_middleware(
     next: Next,
 ) -> Response {
     // Extract and inject client IP into request extensions
-    if let Some(ip) = extract_client_ip(req.headers()) {
-        req.extensions_mut().insert(ClientIp(ip));
-    }
+    // Always insert a ClientIp - use extracted IP or fallback to "unknown"
+    let ip = extract_client_ip(req.headers()).unwrap_or_else(|| "127.0.0.1".to_string());
+    req.extensions_mut().insert(ClientIp(ip));
     next.run(req).await
 }
 

@@ -357,7 +357,7 @@ pub async fn login_handler(
         )
     })?;
 
-    // Create session with user agent for audit tracking
+    // Create session with user agent for audit tracking (critical - must succeed)
     let expires_at = Utc::now() + Duration::hours(8);
     create_session(
         &state.db,
@@ -369,14 +369,20 @@ pub async fn login_handler(
         user_agent.as_deref(),
     )
     .await
-    .ok();
+    .map_err(|e| {
+        warn!(error = %e, user_id = %user.id, "Failed to create session - login aborted");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
+        )
+    })?;
 
-    // Track successful auth
+    // Track successful auth (best effort, doesn't fail login)
     track_auth_attempt(&state.db, &req.email, &client_ip.0, true, None)
         .await
         .ok();
 
-    // Log audit
+    // Log audit (best effort, doesn't fail login)
     state
         .db
         .log_audit(
@@ -514,7 +520,7 @@ pub async fn refresh_token_handler(
     .await
     .ok();
 
-    // Create new session
+    // Create new session (critical - must succeed)
     create_session(
         &state.db,
         &new_claims.jti,
@@ -525,7 +531,13 @@ pub async fn refresh_token_handler(
         None,
     )
     .await
-    .ok();
+    .map_err(|e| {
+        warn!(error = %e, user_id = %claims.sub, "Failed to create refreshed session - refresh aborted");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
+        )
+    })?;
 
     info!(
         user_id = %claims.sub,
@@ -651,7 +663,7 @@ pub async fn revoke_session_handler(
 }
 
 /// Development bypass handler - creates admin user session
-/// Only available in debug builds
+/// Only available in debug builds - generates proper JWT even in dev mode
 #[utoipa::path(
     post,
     path = "/v1/auth/dev-bypass",
@@ -691,7 +703,7 @@ pub async fn dev_bypass_handler(
     let role = "admin".to_string();
     let tenant_id = "system".to_string();
 
-    // Generate JWT token (same as login handler)
+    // Generate proper JWT token (same as login handler, not hardcoded)
     let token = if state.use_ed25519 {
         generate_token_ed25519(
             &user_id,
@@ -738,7 +750,7 @@ pub async fn dev_bypass_handler(
         )
     })?;
 
-    // Create session with user agent for audit tracking
+    // Create session with user agent for audit tracking (critical - must succeed)
     let expires_at = Utc::now() + Duration::hours(8);
     create_session(
         &state.db,
@@ -750,9 +762,15 @@ pub async fn dev_bypass_handler(
         user_agent.as_deref(),
     )
     .await
-    .ok();
+    .map_err(|e| {
+        warn!(error = %e, user_id = %user_id, "Failed to create dev bypass session - aborted");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("session creation failed").with_code("SESSION_ERROR")),
+        )
+    })?;
 
-    // Log audit
+    // Log audit (best effort, doesn't fail dev bypass)
     state
         .db
         .log_audit(
@@ -783,6 +801,6 @@ pub async fn dev_bypass_handler(
         user_id,
         tenant_id,
         role,
-        expires_in: claims.exp as u64,
+        expires_in: (claims.exp - Utc::now().timestamp()) as u64,
     }))
 }

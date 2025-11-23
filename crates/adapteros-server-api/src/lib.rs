@@ -36,3 +36,6 @@ pub use telemetry::{
 pub use telemetry_ext::StackMetadataExt;
 pub use types::*;
 pub use uds_client::{UdsClient, UdsClientError};
+
+// Export the router builder function
+pub use routes::build as create_app;

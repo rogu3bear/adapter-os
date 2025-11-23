@@ -855,10 +855,17 @@ async fn main() -> Result<()> {
         let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+
+        // Environment variable takes precedence over config file
+        let server_port = std::env::var("AOS_SERVER_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(cfg.server.port);
+
         (
             cfg.server.production_mode,
             cfg.server.uds_socket.clone(),
-            cfg.server.port,
+            server_port,
         )
     };
 

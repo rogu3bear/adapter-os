@@ -97,6 +97,17 @@ pub struct LifecycleHook {
     pub callback: Arc<dyn Fn(&LifecycleContext) + Send + Sync>,
 }
 
+impl std::fmt::Debug for LifecycleHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LifecycleHook")
+            .field("id", &self.id)
+            .field("component", &self.component)
+            .field("phase", &self.phase)
+            .field("callback", &"<callback>")
+            .finish()
+    }
+}
+
 /// Context provided to lifecycle hooks
 #[derive(Debug, Clone)]
 pub struct LifecycleContext {
@@ -124,10 +135,10 @@ impl LifecycleHookRegistry {
 
     /// Register a lifecycle hook
     pub fn register(&self, hook: LifecycleHook) {
-        let mut hooks = self.hooks.write();
-        hooks.push(hook);
         debug!("Registered lifecycle hook: {} (component: {}, phase: {:?})",
                hook.id, hook.component, hook.phase);
+        let mut hooks = self.hooks.write();
+        hooks.push(hook);
     }
 
     /// Get all hooks for a specific phase
@@ -279,7 +290,6 @@ pub enum ShutdownStatus {
 /// - **Network Sockets**: UDS socket cleanup via Drop trait
 /// - **FFI Resources**: MLX runtime cleanup, IOKit FFI cleanup via Drop impls
 /// - **Telemetry**: Final bundle flush and signature before exit
-#[derive(Debug)]
 pub struct ShutdownCoordinator {
     shutdown_tx: broadcast::Sender<()>,
     background_handles: Vec<DeterministicJoinHandle>,
@@ -290,6 +300,21 @@ pub struct ShutdownCoordinator {
     uds_metrics_handle: Option<JoinHandle<()>>,
     git_daemon_handle: Option<JoinHandle<()>>,
     config: ShutdownConfig,
+}
+
+impl std::fmt::Debug for ShutdownCoordinator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShutdownCoordinator")
+            .field("background_handles_count", &self.background_handles.len())
+            .field("telemetry_handle", &self.telemetry_handle.is_some())
+            .field("federation_handle", &self.federation_handle.is_some())
+            .field("alert_handle", &self.alert_handle.is_some())
+            .field("policy_watcher_handle", &self.policy_watcher_handle.is_some())
+            .field("uds_metrics_handle", &self.uds_metrics_handle.is_some())
+            .field("git_daemon_handle", &self.git_daemon_handle.is_some())
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 impl ShutdownCoordinator {
