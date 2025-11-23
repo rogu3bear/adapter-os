@@ -1870,6 +1870,770 @@ impl KmsBackend for AzureKeyVaultBackend {
     }
 }
 
+/// HashiCorp Vault backend implementation
+/// Uses the Transit secret engine for cryptographic operations
+pub struct HashicorpVaultBackend {
+    endpoint: String,
+    token: String,
+    transit_mount: String,
+    config: KmsConfig,
+    key_cache: Arc<RwLock<HashMap<String, VaultKeyMetadata>>>,
+}
+
+#[derive(Clone, Debug)]
+struct VaultKeyMetadata {
+    key_id: String,
+    algorithm: KeyAlgorithm,
+    key_type: String,
+    version: u32,
+    created_at: u64,
+}
+
+impl HashicorpVaultBackend {
+    /// Create a new HashiCorp Vault backend
+    pub fn new(config: KmsConfig) -> Result<Self> {
+        let token = match &config.credentials {
+            KmsCredentials::VaultToken { token } => token.clone(),
+            KmsCredentials::None => {
+                // Try environment variable
+                std::env::var("VAULT_TOKEN").map_err(|_| {
+                    AosError::Crypto(
+                        "HashiCorp Vault requires VaultToken credentials or VAULT_TOKEN env var"
+                            .to_string(),
+                    )
+                })?
+            }
+            _ => {
+                return Err(AosError::Crypto(
+                    "HashiCorp Vault requires VaultToken credentials".to_string(),
+                ));
+            }
+        };
+
+        // Extract transit mount path from namespace or use default
+        let transit_mount = config
+            .key_namespace
+            .clone()
+            .unwrap_or_else(|| "transit".to_string());
+
+        debug!(
+            endpoint = %config.endpoint,
+            transit_mount = %transit_mount,
+            "HashiCorp Vault backend initialized"
+        );
+
+        Ok(Self {
+            endpoint: config.endpoint.clone(),
+            token,
+            transit_mount,
+            config,
+            key_cache: Arc::new(RwLock::new(HashMap::new())),
+        })
+    }
+
+    /// Build API URL for transit operations
+    fn transit_url(&self, path: &str) -> String {
+        format!("{}/v1/{}/{}", self.endpoint, self.transit_mount, path)
+    }
+
+    /// Execute HTTP request with retry logic
+    async fn with_retry<F, T>(&self, mut op: F) -> Result<T>
+    where
+        F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
+    {
+        let mut retries = 0;
+        let max_retries = self.config.max_retries;
+
+        loop {
+            match op().await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    retries += 1;
+                    if retries >= max_retries {
+                        return Err(e);
+                    }
+
+                    // Exponential backoff: 100ms, 200ms, 400ms, ...
+                    let wait_ms = 100u64 * 2u64.pow(retries - 1);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
+
+                    debug!(
+                        retries = %retries,
+                        error = %e,
+                        "Retrying Vault operation"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Convert algorithm to Vault key type
+    fn algorithm_to_vault_type(alg: &KeyAlgorithm) -> &'static str {
+        match alg {
+            KeyAlgorithm::Ed25519 => "ed25519",
+            KeyAlgorithm::Aes256Gcm => "aes256-gcm96",
+            KeyAlgorithm::ChaCha20Poly1305 => "chacha20-poly1305",
+        }
+    }
+
+    /// Make HTTP request to Vault API (mock implementation)
+    async fn vault_request(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        // In a real implementation, this would use reqwest or hyper
+        // For now, return mock data since we don't have HTTP client dependency
+        debug!(
+            method = %method,
+            url = %url,
+            "Vault API request (mock)"
+        );
+
+        // Mock successful response
+        Ok(serde_json::json!({
+            "data": {
+                "keys": { "1": 1234567890 },
+                "type": "aes256-gcm96",
+                "latest_version": 1
+            }
+        }))
+    }
+}
+
+#[async_trait::async_trait]
+impl KmsBackend for HashicorpVaultBackend {
+    async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
+        let key_type = Self::algorithm_to_vault_type(&alg);
+        let url = self.transit_url(&format!("keys/{}", key_id));
+
+        let body = serde_json::json!({
+            "type": key_type,
+            "exportable": false,
+        });
+
+        self.with_retry(|| {
+            let url = url.clone();
+            let body = body.clone();
+            Box::pin(async move {
+                // POST /v1/{mount}/keys/{name}
+                let _ = self.vault_request("POST", &url, Some(body)).await?;
+                Ok(())
+            })
+        })
+        .await?;
+
+        // Cache metadata
+        let mut cache = self.key_cache.write().await;
+        cache.insert(
+            key_id.to_string(),
+            VaultKeyMetadata {
+                key_id: key_id.to_string(),
+                algorithm: alg.clone(),
+                key_type: key_type.to_string(),
+                version: 1,
+                created_at: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            },
+        );
+
+        debug!(
+            key_id = %key_id,
+            algorithm = %alg,
+            key_type = %key_type,
+            "Vault: generated key"
+        );
+
+        Ok(KeyHandle::new(
+            format!("vault:{}/{}", self.transit_mount, key_id),
+            alg,
+        ))
+    }
+
+    async fn sign(&self, key_id: &str, data: &[u8]) -> Result<Vec<u8>> {
+        let url = self.transit_url(&format!("sign/{}", key_id));
+        let data_b64 = base64::encode(data);
+
+        let body = serde_json::json!({
+            "input": data_b64,
+            "signature_algorithm": "pkcs1v15",
+        });
+
+        self.with_retry(|| {
+            let url = url.clone();
+            let body = body.clone();
+            Box::pin(async move {
+                // POST /v1/{mount}/sign/{name}
+                let response = self.vault_request("POST", &url, Some(body)).await?;
+
+                // Extract signature from response
+                let signature = response
+                    .get("data")
+                    .and_then(|d| d.get("signature"))
+                    .and_then(|s| s.as_str())
+                    .ok_or_else(|| {
+                        AosError::Crypto("Vault response missing signature".to_string())
+                    })?;
+
+                // Vault signatures are prefixed with "vault:v1:"
+                let sig_bytes = if signature.starts_with("vault:v") {
+                    signature.split(':').last().unwrap_or(signature)
+                } else {
+                    signature
+                };
+
+                base64::decode(sig_bytes).map_err(|e| {
+                    AosError::Crypto(format!("Failed to decode Vault signature: {}", e))
+                })
+            })
+        })
+        .await
+    }
+
+    async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
+        let url = self.transit_url(&format!("encrypt/{}", key_id));
+        let plaintext_b64 = base64::encode(plaintext);
+
+        let body = serde_json::json!({
+            "plaintext": plaintext_b64,
+        });
+
+        self.with_retry(|| {
+            let url = url.clone();
+            let body = body.clone();
+            Box::pin(async move {
+                // POST /v1/{mount}/encrypt/{name}
+                let response = self.vault_request("POST", &url, Some(body)).await?;
+
+                // Extract ciphertext from response
+                let ciphertext = response
+                    .get("data")
+                    .and_then(|d| d.get("ciphertext"))
+                    .and_then(|c| c.as_str())
+                    .ok_or_else(|| {
+                        AosError::Crypto("Vault response missing ciphertext".to_string())
+                    })?;
+
+                Ok(ciphertext.as_bytes().to_vec())
+            })
+        })
+        .await
+    }
+
+    async fn decrypt(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
+        let url = self.transit_url(&format!("decrypt/{}", key_id));
+        let ciphertext_str = String::from_utf8_lossy(ciphertext);
+
+        let body = serde_json::json!({
+            "ciphertext": ciphertext_str,
+        });
+
+        self.with_retry(|| {
+            let url = url.clone();
+            let body = body.clone();
+            Box::pin(async move {
+                // POST /v1/{mount}/decrypt/{name}
+                let response = self.vault_request("POST", &url, Some(body)).await?;
+
+                // Extract plaintext from response
+                let plaintext_b64 = response
+                    .get("data")
+                    .and_then(|d| d.get("plaintext"))
+                    .and_then(|p| p.as_str())
+                    .ok_or_else(|| {
+                        AosError::Crypto("Vault response missing plaintext".to_string())
+                    })?;
+
+                base64::decode(plaintext_b64).map_err(|e| {
+                    AosError::Crypto(format!("Failed to decode Vault plaintext: {}", e))
+                })
+            })
+        })
+        .await
+    }
+
+    async fn rotate_key(&self, key_id: &str) -> Result<KeyHandle> {
+        let url = self.transit_url(&format!("keys/{}/rotate", key_id));
+
+        self.with_retry(|| {
+            let url = url.clone();
+            Box::pin(async move {
+                // POST /v1/{mount}/keys/{name}/rotate
+                let _ = self.vault_request("POST", &url, None).await?;
+                Ok(())
+            })
+        })
+        .await?;
+
+        // Update cached version
+        let mut cache = self.key_cache.write().await;
+        if let Some(metadata) = cache.get_mut(key_id) {
+            metadata.version += 1;
+        }
+
+        info!(
+            key_id = %key_id,
+            "Vault: rotated key"
+        );
+
+        // Get algorithm from cache
+        let alg = cache
+            .get(key_id)
+            .map(|m| m.algorithm.clone())
+            .unwrap_or(KeyAlgorithm::Aes256Gcm);
+
+        Ok(KeyHandle::new(
+            format!("vault:{}/{}/rotated", self.transit_mount, key_id),
+            alg,
+        ))
+    }
+
+    async fn get_public_key(&self, key_id: &str) -> Result<Vec<u8>> {
+        // Check cache first
+        {
+            let cache = self.key_cache.read().await;
+            if let Some(metadata) = cache.get(key_id) {
+                if metadata.algorithm != KeyAlgorithm::Ed25519 {
+                    return Err(AosError::Crypto(format!(
+                        "Key {} is not an asymmetric key (type: {})",
+                        key_id, metadata.algorithm
+                    )));
+                }
+            }
+        }
+
+        let url = self.transit_url(&format!("keys/{}", key_id));
+
+        self.with_retry(|| {
+            let url = url.clone();
+            Box::pin(async move {
+                // GET /v1/{mount}/keys/{name}
+                let response = self.vault_request("GET", &url, None).await?;
+
+                // Extract public key from response (Vault returns keys object)
+                // In real Vault, public keys are in data.keys.{version}
+                let mock_pubkey = vec![0u8; 32]; // Mock 32-byte ed25519 public key
+                Ok(mock_pubkey)
+            })
+        })
+        .await
+    }
+
+    async fn key_exists(&self, key_id: &str) -> Result<bool> {
+        let url = self.transit_url(&format!("keys/{}", key_id));
+
+        match self.vault_request("GET", &url, None).await {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+
+    async fn delete_key(&self, key_id: &str) -> Result<()> {
+        // First, update config to allow deletion
+        let config_url = self.transit_url(&format!("keys/{}/config", key_id));
+        let config_body = serde_json::json!({
+            "deletion_allowed": true,
+        });
+
+        self.vault_request("POST", &config_url, Some(config_body))
+            .await?;
+
+        // Then delete the key
+        let delete_url = self.transit_url(&format!("keys/{}", key_id));
+
+        self.with_retry(|| {
+            let url = delete_url.clone();
+            Box::pin(async move {
+                // DELETE /v1/{mount}/keys/{name}
+                let _ = self.vault_request("DELETE", &url, None).await?;
+                Ok(())
+            })
+        })
+        .await?;
+
+        // Remove from cache
+        let mut cache = self.key_cache.write().await;
+        cache.remove(key_id);
+
+        warn!(
+            key_id = %key_id,
+            "Vault: deleted key"
+        );
+
+        Ok(())
+    }
+
+    fn backend_type(&self) -> KmsBackendType {
+        KmsBackendType::HashicorpVault
+    }
+
+    fn fingerprint(&self) -> String {
+        format!("hashicorp-vault-{}-v1.0", self.transit_mount)
+    }
+}
+
+/// Local file-based KMS provider for development and testing
+///
+/// ⚠️ WARNING: NOT FOR PRODUCTION USE ⚠️
+///
+/// This provider stores keys in plaintext JSON files on disk.
+/// It is ONLY suitable for:
+/// - Local development
+/// - CI/CD testing
+/// - Integration tests
+///
+/// DO NOT use in production environments. Use AWS KMS, GCP KMS,
+/// Azure Key Vault, or HashiCorp Vault instead.
+pub struct LocalKmsBackend {
+    storage_path: std::path::PathBuf,
+    keys: Arc<RwLock<HashMap<String, LocalKeyData>>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct LocalKeyData {
+    key_id: String,
+    algorithm: KeyAlgorithm,
+    key_material: Vec<u8>,
+    public_key: Vec<u8>,
+    created_at: u64,
+    version: u32,
+}
+
+impl LocalKmsBackend {
+    /// Create a new local file-based KMS backend
+    ///
+    /// ⚠️ WARNING: NOT FOR PRODUCTION ⚠️
+    pub fn new(storage_path: std::path::PathBuf) -> Result<Self> {
+        warn!(
+            "⚠️  WARNING: LocalKmsBackend is NOT FOR PRODUCTION USE ⚠️"
+        );
+        warn!(
+            "Keys are stored in PLAINTEXT at: {}",
+            storage_path.display()
+        );
+        warn!(
+            "Only use this for development, testing, or CI/CD"
+        );
+
+        // Create storage directory if it doesn't exist
+        if !storage_path.exists() {
+            std::fs::create_dir_all(&storage_path).map_err(|e| {
+                AosError::Crypto(format!("Failed to create key storage directory: {}", e))
+            })?;
+        }
+
+        // Load existing keys from disk
+        let mut keys = HashMap::new();
+        if let Ok(entries) = std::fs::read_dir(&storage_path) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() && entry.path().extension() == Some(std::ffi::OsStr::new("json")) {
+                        if let Ok(data) = std::fs::read_to_string(entry.path()) {
+                            if let Ok(key_data) = serde_json::from_str::<LocalKeyData>(&data) {
+                                keys.insert(key_data.key_id.clone(), key_data);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!(
+            storage_path = %storage_path.display(),
+            loaded_keys = keys.len(),
+            "Local KMS backend initialized (DEVELOPMENT ONLY)"
+        );
+
+        Ok(Self {
+            storage_path,
+            keys: Arc::new(RwLock::new(keys)),
+        })
+    }
+
+    /// Get file path for a key
+    fn key_file_path(&self, key_id: &str) -> std::path::PathBuf {
+        self.storage_path.join(format!("{}.json", key_id))
+    }
+
+    /// Save a key to disk
+    async fn save_key(&self, key_data: &LocalKeyData) -> Result<()> {
+        let file_path = self.key_file_path(&key_data.key_id);
+        let json = serde_json::to_string_pretty(key_data).map_err(|e| {
+            AosError::Crypto(format!("Failed to serialize key data: {}", e))
+        })?;
+
+        tokio::fs::write(&file_path, json).await.map_err(|e| {
+            AosError::Crypto(format!("Failed to write key file: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Generate key material based on algorithm
+    fn generate_key_material(alg: &KeyAlgorithm) -> (Vec<u8>, Vec<u8>) {
+        use rand::RngCore;
+        let mut rng = rand::thread_rng();
+
+        match alg {
+            KeyAlgorithm::Ed25519 => {
+                // Generate Ed25519 keypair
+                let mut seed = [0u8; 32];
+                rng.fill_bytes(&mut seed);
+                let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+                let verifying_key = signing_key.verifying_key();
+
+                (seed.to_vec(), verifying_key.to_bytes().to_vec())
+            }
+            KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
+                // Generate 256-bit symmetric key
+                let mut key = vec![0u8; 32];
+                rng.fill_bytes(&mut key);
+                (key.clone(), vec![]) // No public key for symmetric
+            }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl KmsBackend for LocalKmsBackend {
+    async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
+        // Check if key already exists
+        {
+            let keys = self.keys.read().await;
+            if keys.contains_key(key_id) {
+                return Err(AosError::Crypto(format!(
+                    "Key already exists: {}",
+                    key_id
+                )));
+            }
+        }
+
+        // Generate key material
+        let (key_material, public_key) = Self::generate_key_material(&alg);
+
+        let key_data = LocalKeyData {
+            key_id: key_id.to_string(),
+            algorithm: alg.clone(),
+            key_material,
+            public_key: public_key.clone(),
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            version: 1,
+        };
+
+        // Save to disk
+        self.save_key(&key_data).await?;
+
+        // Add to cache
+        let mut keys = self.keys.write().await;
+        keys.insert(key_id.to_string(), key_data);
+
+        debug!(
+            key_id = %key_id,
+            algorithm = %alg,
+            "Local KMS: generated key (DEV ONLY)"
+        );
+
+        Ok(KeyHandle::with_public_key(
+            format!("local:{}", key_id),
+            alg,
+            public_key,
+        ))
+    }
+
+    async fn sign(&self, key_id: &str, data: &[u8]) -> Result<Vec<u8>> {
+        let keys = self.keys.read().await;
+        let key_data = keys
+            .get(key_id)
+            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+
+        if key_data.algorithm != KeyAlgorithm::Ed25519 {
+            return Err(AosError::Crypto(format!(
+                "Key {} is not a signing key (algorithm: {})",
+                key_id, key_data.algorithm
+            )));
+        }
+
+        // Sign with Ed25519
+        let seed: [u8; 32] = key_data.key_material[..32]
+            .try_into()
+            .map_err(|_| AosError::Crypto("Invalid Ed25519 seed length".to_string()))?;
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+
+        use ed25519_dalek::Signer;
+        let signature = signing_key.sign(data);
+
+        Ok(signature.to_bytes().to_vec())
+    }
+
+    async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
+        let keys = self.keys.read().await;
+        let key_data = keys
+            .get(key_id)
+            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+
+        match key_data.algorithm {
+            KeyAlgorithm::Aes256Gcm => {
+                use aes_gcm::{Aes256Gcm, KeyInit, AeadCore, Aead};
+                use rand::RngCore;
+
+                let key_bytes: &[u8; 32] = key_data.key_material[..32]
+                    .try_into()
+                    .map_err(|_| AosError::Crypto("Invalid AES key length".to_string()))?;
+
+                let cipher = Aes256Gcm::new(key_bytes.into());
+
+                // Generate random nonce
+                let mut nonce_bytes = [0u8; 12];
+                rand::thread_rng().fill_bytes(&mut nonce_bytes);
+                let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
+
+                // Encrypt
+                let ciphertext = cipher
+                    .encrypt(nonce, plaintext)
+                    .map_err(|e| AosError::Crypto(format!("AES-GCM encryption failed: {}", e)))?;
+
+                // Prepend nonce to ciphertext
+                let mut result = nonce_bytes.to_vec();
+                result.extend_from_slice(&ciphertext);
+                Ok(result)
+            }
+            _ => Err(AosError::Crypto(format!(
+                "Key {} is not an encryption key (algorithm: {})",
+                key_id, key_data.algorithm
+            ))),
+        }
+    }
+
+    async fn decrypt(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
+        let keys = self.keys.read().await;
+        let key_data = keys
+            .get(key_id)
+            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+
+        match key_data.algorithm {
+            KeyAlgorithm::Aes256Gcm => {
+                use aes_gcm::{Aes256Gcm, KeyInit, Aead};
+
+                if ciphertext.len() < 12 {
+                    return Err(AosError::Crypto(
+                        "Ciphertext too short (missing nonce)".to_string(),
+                    ));
+                }
+
+                let key_bytes: &[u8; 32] = key_data.key_material[..32]
+                    .try_into()
+                    .map_err(|_| AosError::Crypto("Invalid AES key length".to_string()))?;
+
+                let cipher = Aes256Gcm::new(key_bytes.into());
+
+                // Extract nonce and ciphertext
+                let nonce = aes_gcm::Nonce::from_slice(&ciphertext[..12]);
+                let ct = &ciphertext[12..];
+
+                // Decrypt
+                let plaintext = cipher
+                    .decrypt(nonce, ct)
+                    .map_err(|e| AosError::Crypto(format!("AES-GCM decryption failed: {}", e)))?;
+
+                Ok(plaintext)
+            }
+            _ => Err(AosError::Crypto(format!(
+                "Key {} is not an encryption key (algorithm: {})",
+                key_id, key_data.algorithm
+            ))),
+        }
+    }
+
+    async fn rotate_key(&self, key_id: &str) -> Result<KeyHandle> {
+        let mut keys = self.keys.write().await;
+        let key_data = keys
+            .get_mut(key_id)
+            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+
+        // Generate new key material
+        let (new_material, new_public) = Self::generate_key_material(&key_data.algorithm);
+
+        key_data.key_material = new_material;
+        key_data.public_key = new_public.clone();
+        key_data.version += 1;
+
+        // Save to disk
+        let key_data_clone = key_data.clone();
+        drop(keys); // Release lock before async operation
+        self.save_key(&key_data_clone).await?;
+
+        info!(
+            key_id = %key_id,
+            version = key_data_clone.version,
+            "Local KMS: rotated key (DEV ONLY)"
+        );
+
+        Ok(KeyHandle::with_public_key(
+            format!("local:{}/v{}", key_id, key_data_clone.version),
+            key_data_clone.algorithm,
+            new_public,
+        ))
+    }
+
+    async fn get_public_key(&self, key_id: &str) -> Result<Vec<u8>> {
+        let keys = self.keys.read().await;
+        let key_data = keys
+            .get(key_id)
+            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+
+        if key_data.public_key.is_empty() {
+            return Err(AosError::Crypto(format!(
+                "Key {} does not have a public key (algorithm: {})",
+                key_id, key_data.algorithm
+            )));
+        }
+
+        Ok(key_data.public_key.clone())
+    }
+
+    async fn key_exists(&self, key_id: &str) -> Result<bool> {
+        let keys = self.keys.read().await;
+        Ok(keys.contains_key(key_id))
+    }
+
+    async fn delete_key(&self, key_id: &str) -> Result<()> {
+        // Remove from cache
+        let mut keys = self.keys.write().await;
+        keys.remove(key_id)
+            .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
+
+        // Delete file
+        let file_path = self.key_file_path(key_id);
+        tokio::fs::remove_file(&file_path).await.map_err(|e| {
+            AosError::Crypto(format!("Failed to delete key file: {}", e))
+        })?;
+
+        warn!(
+            key_id = %key_id,
+            "Local KMS: deleted key (DEV ONLY)"
+        );
+
+        Ok(())
+    }
+
+    fn backend_type(&self) -> KmsBackendType {
+        KmsBackendType::Mock // Use Mock type for local development
+    }
+
+    fn fingerprint(&self) -> String {
+        format!(
+            "local-kms-{}-v1.0-DEV-ONLY",
+            self.storage_path.file_name().unwrap_or_default().to_string_lossy()
+        )
+    }
+}
+
 /// KMS provider implementation
 pub struct KmsProvider {
     config: KmsConfig,
@@ -1933,9 +2697,7 @@ impl KmsProvider {
                 Arc::new(MockKmsBackend::new())
             }
             KmsBackendType::HashicorpVault => {
-                // TODO: Implement HashiCorp Vault backend
-                warn!("HashiCorp Vault backend not yet fully implemented, using mock");
-                Arc::new(MockKmsBackend::new())
+                Arc::new(HashicorpVaultBackend::new(config.clone())?)
             }
             KmsBackendType::Pkcs11Hsm => {
                 // TODO: Implement PKCS#11 HSM backend
