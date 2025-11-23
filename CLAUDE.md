@@ -6,11 +6,13 @@
 **Last Updated:** 2025-11-23 (Cursor AI integration rules added, repository metadata enhancements, v0.3-alpha status updates)
 **Maintained by:** James KC Auchterlonie
 
-**AI Assistant Integration:** Cursor AI must reference this guide before all code changes. See [.cursor/claude-integration-rules.md](.cursor/claude-integration-rules.md)
+**AI Assistant Integration:** This file (CLAUDE.md) serves as the single source of truth for both human developers and AI assistants. No separate rule files exist - all standards and protocols are documented here.
 
 ---
 
 ## AI Assistant Integration Protocol
+
+**🚨 SINGLE SOURCE OF TRUTH:** This CLAUDE.md file contains ALL standards, protocols, and requirements for AI assistants. No external rule files exist. AI assistants must reference this file exclusively for all development work.
 
 ### Cursor AI Workflow Requirements
 
