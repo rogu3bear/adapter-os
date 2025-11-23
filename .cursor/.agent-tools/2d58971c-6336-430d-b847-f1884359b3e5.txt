@@ -1,0 +1,1068 @@
+[Terminal output truncated: ~1364KB dropped from beginning]
+rkRule {
+    |        ------------- field in this struct
+...
+277 |     keywords: &'static [&'static str],
+    |     ^^^^^^^^
+    |
+    = note: `FrameworkRule` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: field `go_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/go.rs:17:5
+   |
+13 | pub struct GoParser {
+   |            -------- field in this struct
+...
+17 |     go_lang: TSLanguage,
+   |     ^^^^^^^
+
+warning: field `javascript_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/javascript.rs:17:5
+   |
+13 | pub struct JavaScriptParser {
+   |            ---------------- field in this struct
+...
+17 |     javascript_lang: TSLanguage,
+   |     ^^^^^^^^^^^^^^^
+
+warning: field `python_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/python.rs:17:5
+   |
+13 | pub struct PythonParser {
+   |            ------------ field in this struct
+...
+17 |     python_lang: TSLanguage,
+   |     ^^^^^^^^^^^
+
+warning: field `rust_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/rust.rs:30:5
+   |
+26 | pub struct RustParser {
+   |            ---------- field in this struct
+...
+30 |     rust_lang: TSLanguage,
+   |     ^^^^^^^^^
+
+warning: field `typescript_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/typescript.rs:17:5
+   |
+13 | pub struct TypeScriptParser {
+   |            ---------------- field in this struct
+...
+17 |     typescript_lang: TSLanguage,
+   |     ^^^^^^^^^^^^^^^
+
+warning: `adapteros-codegraph` (lib) generated 6 warnings
+warning: unused import: `sqlx::Row`
+ --> crates/adapteros-db/src/training_datasets.rs:6:5
+  |
+6 | use sqlx::Row;
+  |     ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `sqlx::Row`
+ --> crates/adapteros-db/src/repositories.rs:4:5
+  |
+4 | use sqlx::Row;
+  |     ^^^^^^^^^
+
+   Compiling adapteros-profiler v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-profiler)
+   Compiling adapteros-lora-router v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-router)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_profiler --edition=2021 crates/adapteros-profiler/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=90a08251da23bca8 -C extra-filename=-dbe991e499c924eb --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_lora_router --edition=2021 crates/adapteros-lora-router/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=02a690a3878bcfad -C extra-filename=-ff28a561b2cbe32d --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern rand_core=/Users/star/Dev/adapter-os/target/debug/deps/librand_core-836ab64b2d2f8be8.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern smallvec=/Users/star/Dev/adapter-os/target/debug/deps/libsmallvec-33cdddc3c756747b.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_lora_kernel_mtl --edition=2021 crates/adapteros-lora-kernel-mtl/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=b6217218fcf385e4 -C extra-filename=-eac18f3f4684ba59 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_lora_kernel_api=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_kernel_api-0d81e693a236b879.rmeta --extern adapteros_numerics=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_numerics-93107e0efbb359cc.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern base64=/Users/star/Dev/adapter-os/target/debug/deps/libbase64-4dc8d6678d9af736.rmeta --extern bincode=/Users/star/Dev/adapter-os/target/debug/deps/libbincode-89a62e7d88085524.rmeta --extern cocoa=/Users/star/Dev/adapter-os/target/debug/deps/libcocoa-e21318b27d541899.rmeta --extern core_foundation=/Users/star/Dev/adapter-os/target/debug/deps/libcore_foundation-0f807f62ad260dee.rmeta --extern half=/Users/star/Dev/adapter-os/target/debug/deps/libhalf-95a1117f40030061.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern metal=/Users/star/Dev/adapter-os/target/debug/deps/libmetal-ffbc3eae7b381b4c.rmeta --extern objc=/Users/star/Dev/adapter-os/target/debug/deps/libobjc-8c4dd5f8604caf9d.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_derive=/Users/star/Dev/adapter-os/target/debug/deps/libserde_derive-a6311d10aec44675.dylib --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/usr/lib`
+warning: `adapteros-telemetry` (lib) generated 1 warning (run `cargo fix --lib -p adapteros-telemetry` to apply 1 suggestion)
+warning: fields `input_buffers` and `output_buffers` are never read
+  --> crates/adapteros-lora-kernel-mtl/src/ane_acceleration.rs:80:5
+   |
+74 | pub struct ANESession {
+   |            ---------- fields in this struct
+...
+80 |     input_buffers: Vec<ANEBuffer>,
+   |     ^^^^^^^^^^^^^
+81 |     /// Output buffers
+82 |     output_buffers: Vec<ANEBuffer>,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `ANESession` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `id` and `layout` are never read
+   --> crates/adapteros-lora-kernel-mtl/src/ane_acceleration.rs:141:5
+    |
+139 | pub struct ANEBuffer {
+    |            --------- fields in this struct
+140 |     /// Buffer identifier
+141 |     id: String,
+    |     ^^
+...
+149 |     layout: ANEMemoryLayout,
+    |     ^^^^^^
+    |
+    = note: `ANEBuffer` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+   Compiling adapteros-lora-rag v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-rag)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_lora_rag --edition=2021 crates/adapteros-lora-rag/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --cfg 'feature="default"' --cfg 'feature="fts5"' --cfg 'feature="pgvector"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("default", "fts5", "pgvector", "rag-pgvector"))' -C metadata=5fbc9068f72ffd8a -C extra-filename=-e7ecd86fc4de69f1 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_codegraph=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_codegraph-dc22fe61c91997f8.rmeta --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern hnsw_rs=/Users/star/Dev/adapter-os/target/debug/deps/libhnsw_rs-92ea8c363a2d98fd.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern tantivy=/Users/star/Dev/adapter-os/target/debug/deps/libtantivy-c5933d5547b75219.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern walkdir=/Users/star/Dev/adapter-os/target/debug/deps/libwalkdir-1b5794ffeb985c1c.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+warning: `adapteros-lora-kernel-mtl` (lib) generated 2 warnings
+warning: unused variable: `repo_id`
+   --> crates/adapteros-lora-rag/src/evidence_manager.rs:141:9
+    |
+141 |         repo_id: Option<&str>,
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_repo_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+   Compiling adapteros-deterministic-exec v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-deterministic-exec)
+   Compiling adapteros-metrics-exporter v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-metrics-exporter)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_metrics_exporter --edition=2021 crates/adapteros-metrics-exporter/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=22bc0e4f7b19c5f0 -C extra-filename=-e087e94e55d2d46d --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern prometheus=/Users/star/Dev/adapter-os/target/debug/deps/libprometheus-e1b7860412fcf54b.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_deterministic_exec --edition=2021 crates/adapteros-deterministic-exec/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=c98e142c5ddf98a2 -C extra-filename=-1f1556db29237a1e --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern blake3=/Users/star/Dev/adapter-os/target/debug/deps/libblake3-62cb90cde14dc62e.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern futures=/Users/star/Dev/adapter-os/target/debug/deps/libfutures-f21b6af17425580a.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern hkdf=/Users/star/Dev/adapter-os/target/debug/deps/libhkdf-05eb32c900699a31.rmeta --extern libc=/Users/star/Dev/adapter-os/target/debug/deps/liblibc-b09bfd7a873348a0.rmeta --extern num_cpus=/Users/star/Dev/adapter-os/target/debug/deps/libnum_cpus-f6337e73f4f6a5da.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern rand_chacha=/Users/star/Dev/adapter-os/target/debug/deps/librand_chacha-aa7dc25ee020730c.rmeta --extern rand_core=/Users/star/Dev/adapter-os/target/debug/deps/librand_core-836ab64b2d2f8be8.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sha2=/Users/star/Dev/adapter-os/target/debug/deps/libsha2-a667fa4bd890c98c.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+warning: `adapteros-db` (lib) generated 2 warnings
+warning: field `tenant_id` is never read
+  --> crates/adapteros-lora-rag/src/evidence_manager.rs:85:5
+   |
+84 | pub struct EvidenceIndexManager {
+   |            -------------------- field in this struct
+85 |     tenant_id: String,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+   Compiling adapteros-policy v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-policy)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_policy --edition=2021 crates/adapteros-policy/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=123dd1166d13d22f -C extra-filename=-acdb3c28e9a160d6 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_lora_kernel_api=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_kernel_api-0d81e693a236b879.rmeta --extern adapteros_lora_rag=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_rag-e7ecd86fc4de69f1.rmeta --extern adapteros_manifest=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_manifest-c7b6f1722b5209e3.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern once_cell=/Users/star/Dev/adapter-os/target/debug/deps/libonce_cell-bf2a956ef9840f2a.rmeta --extern regex=/Users/star/Dev/adapter-os/target/debug/deps/libregex-22696e17983259a2.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern tempfile=/Users/star/Dev/adapter-os/target/debug/deps/libtempfile-36ae98ca794931d8.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+warning: `adapteros-lora-rag` (lib) generated 2 warnings
+warning: field `cause` is never read
+  --> crates/adapteros-deterministic-exec/src/lib.rs:81:5
+   |
+80 | pub struct CancelToken {
+   |            ----------- field in this struct
+81 |     cause: String,
+   |     ^^^^^
+   |
+   = note: `CancelToken` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `executor` is never read
+   --> crates/adapteros-deterministic-exec/src/lib.rs:183:5
+    |
+181 | pub struct DeterministicJoinHandle {
+    |            ----------------------- field in this struct
+182 |     task_id: TaskId,
+183 |     executor: Arc<DeterministicExecutor>,
+    |     ^^^^^^^^
+
+warning: field `task_id` is never read
+   --> crates/adapteros-deterministic-exec/src/lib.rs:289:5
+    |
+287 | pub struct TickTimeout {
+    |            ----------- field in this struct
+288 |     /// Task ID this timeout belongs to
+289 |     task_id: TaskId,
+    |     ^^^^^^^
+    |
+    = note: `TickTimeout` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `agent_ids` is never read
+  --> crates/adapteros-deterministic-exec/src/multi_agent.rs:39:5
+   |
+37 | pub struct AgentBarrier {
+   |            ------------ field in this struct
+38 |     /// Expected agent IDs
+39 |     agent_ids: Vec<String>,
+   |     ^^^^^^^^^
+   |
+   = note: `AgentBarrier` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+   Compiling adapteros-secd v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-secd)
+   Compiling adapteros-lora-lifecycle v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-lifecycle)
+   Compiling adapteros-git v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-git)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_secd --edition=2021 crates/adapteros-secd/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=6484002d0cea1a94 -C extra-filename=-552cf85a8400bf43 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_deterministic_exec=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_deterministic_exec-1f1556db29237a1e.rmeta --extern base64=/Users/star/Dev/adapter-os/target/debug/deps/libbase64-4dc8d6678d9af736.rmeta --extern blake3=/Users/star/Dev/adapter-os/target/debug/deps/libblake3-62cb90cde14dc62e.rmeta --extern chacha20poly1305=/Users/star/Dev/adapter-os/target/debug/deps/libchacha20poly1305-e692bbe3e378132b.rmeta --extern clap=/Users/star/Dev/adapter-os/target/debug/deps/libclap-b3c62ac1c22c4d64.rmeta --extern core_foundation=/Users/star/Dev/adapter-os/target/debug/deps/libcore_foundation-0f807f62ad260dee.rmeta --extern ed25519_dalek=/Users/star/Dev/adapter-os/target/debug/deps/libed25519_dalek-dfbb961228c04240.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern hkdf=/Users/star/Dev/adapter-os/target/debug/deps/libhkdf-05eb32c900699a31.rmeta --extern nix=/Users/star/Dev/adapter-os/target/debug/deps/libnix-f2f5571c914e7dac.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern security_framework=/Users/star/Dev/adapter-os/target/debug/deps/libsecurity_framework-a548d363403d7314.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sha2=/Users/star/Dev/adapter-os/target/debug/deps/libsha2-a667fa4bd890c98c.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern tracing_subscriber=/Users/star/Dev/adapter-os/target/debug/deps/libtracing_subscriber-8a17894ce7d9c659.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_git --edition=2021 crates/adapteros-git/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=63af326fa3357c1f -C extra-filename=-5b7cd213aa8307fc --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_deterministic_exec=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_deterministic_exec-1f1556db29237a1e.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern crossbeam_channel=/Users/star/Dev/adapter-os/target/debug/deps/libcrossbeam_channel-2f62e8f3f1d01416.rmeta --extern futures_util=/Users/star/Dev/adapter-os/target/debug/deps/libfutures_util-9329b5c8abc0aba5.rmeta --extern git2=/Users/star/Dev/adapter-os/target/debug/deps/libgit2-dabb544af20af624.rmeta --extern notify=/Users/star/Dev/adapter-os/target/debug/deps/libnotify-48653e7c905194ce.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tokio_stream=/Users/star/Dev/adapter-os/target/debug/deps/libtokio_stream-3848c4145e28d884.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_lora_lifecycle --edition=2021 crates/adapteros-lora-lifecycle/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=1dd31f1ad63ebb7e -C extra-filename=-1e83f716a24ffe9f --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_deterministic_exec=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_deterministic_exec-1f1556db29237a1e.rmeta --extern adapteros_manifest=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_manifest-c7b6f1722b5209e3.rmeta --extern adapteros_profiler=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_profiler-dbe991e499c924eb.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+warning: `adapteros-deterministic-exec` (lib) generated 4 warnings
+warning: unused `Result` that must be used
+   --> crates/adapteros-lora-lifecycle/src/lib.rs:182:17
+    |
+182 | /                 spawn_deterministic("Activation pct update".to_string(), async move {
+183 | |                     if let Err(e) = sqlx::query(
+184 | |                         "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
+185 | |                          WHERE adapter_id = ?",
+...   |
+194 | |                 });
+    | |__________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+182 |                 let _ = spawn_deterministic("Activation pct update".to_string(), async move {
+    |                 +++++++
+
+   Compiling adapteros-federation v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-federation)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_federation --edition=2021 crates/adapteros-federation/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=8d5a3e99e4fb5721 -C extra-filename=-68a5414e00195da2 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_secd=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_secd-552cf85a8400bf43.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern base64=/Users/star/Dev/adapter-os/target/debug/deps/libbase64-4dc8d6678d9af736.rmeta --extern blake3=/Users/star/Dev/adapter-os/target/debug/deps/libblake3-62cb90cde14dc62e.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern hostname=/Users/star/Dev/adapter-os/target/debug/deps/libhostname-b9313e2dbe7735c3.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/usr/lib`
+warning: `adapteros-lora-lifecycle` (lib) generated 1 warning
+   Compiling adapteros-verify v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-verify)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_verify --edition=2021 crates/adapteros-verify/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("clap"))' -C metadata=78457aff3130f3e3 -C extra-filename=-3d370abbd9eded06 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_federation=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_federation-68a5414e00195da2.rmeta --extern adapteros_numerics=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_numerics-93107e0efbb359cc.rmeta --extern adapteros_secd=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_secd-552cf85a8400bf43.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern blake3=/Users/star/Dev/adapter-os/target/debug/deps/libblake3-62cb90cde14dc62e.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern metal=/Users/star/Dev/adapter-os/target/debug/deps/libmetal-68e25627809abb07.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/usr/lib`
+warning: field `config` is never read
+   --> crates/adapteros-policy/src/policy_packs.rs:790:5
+    |
+789 | pub struct EgressValidator {
+    |            --------------- field in this struct
+790 |     config: serde_json::Value,
+    |     ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: field `config` is never read
+   --> crates/adapteros-policy/src/policy_packs.rs:873:5
+    |
+872 | pub struct DeterminismValidator {
+    |            -------------------- field in this struct
+873 |     config: serde_json::Value,
+    |     ^^^^^^
+
+warning: field `config` is never read
+   --> crates/adapteros-policy/src/policy_packs.rs:950:5
+    |
+949 | pub struct RouterValidator {
+    |            --------------- field in this struct
+950 |     config: serde_json::Value,
+    |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1033:5
+     |
+1032 | pub struct EvidenceValidator {
+     |            ----------------- field in this struct
+1033 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1101:5
+     |
+1100 | pub struct RefusalValidator {
+     |            ---------------- field in this struct
+1101 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1167:5
+     |
+1166 | pub struct NumericUnitsValidator {
+     |            --------------------- field in this struct
+1167 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1238:5
+     |
+1237 | pub struct RagIndexValidator {
+     |            ----------------- field in this struct
+1238 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1305:5
+     |
+1304 | pub struct IsolationValidator {
+     |            ------------------ field in this struct
+1305 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1369:5
+     |
+1368 | pub struct TelemetryValidator {
+     |            ------------------ field in this struct
+1369 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1435:5
+     |
+1434 | pub struct RetentionValidator {
+     |            ------------------ field in this struct
+1435 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1499:5
+     |
+1498 | pub struct PerformanceValidator {
+     |            -------------------- field in this struct
+1499 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1566:5
+     |
+1565 | pub struct MemoryValidator {
+     |            --------------- field in this struct
+1566 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1633:5
+     |
+1632 | pub struct ArtifactsValidator {
+     |            ------------------ field in this struct
+1633 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1698:5
+     |
+1697 | pub struct SecretsValidator {
+     |            ---------------- field in this struct
+1698 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1769:5
+     |
+1768 | pub struct BuildReleaseValidator {
+     |            --------------------- field in this struct
+1769 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1835:5
+     |
+1834 | pub struct ComplianceValidator {
+     |            ------------------- field in this struct
+1835 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:1900:5
+     |
+1899 | pub struct IncidentValidator {
+     |            ----------------- field in this struct
+1900 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:2061:5
+     |
+2060 | pub struct AdapterLifecycleValidator {
+     |            ------------------------- field in this struct
+2061 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: field `config` is never read
+    --> crates/adapteros-policy/src/policy_packs.rs:2124:5
+     |
+2123 | pub struct FullPackValidator {
+     |            ----------------- field in this struct
+2124 |     config: serde_json::Value,
+     |     ^^^^^^
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-policy/src/unified_enforcement.rs:18:5
+   |
+18 |     async fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+   = note: `#[warn(async_fn_in_trait)]` on by default
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+18 -     async fn validate_request(&self, request: &PolicyRequest) -> Result<PolicyValidationResult>;
+18 +     fn validate_request(&self, request: &PolicyRequest) -> impl std::future::Future<Output = Result<PolicyValidationResult>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-policy/src/unified_enforcement.rs:21:5
+   |
+21 |     async fn is_operation_allowed(&self, operation: &Operation) -> Result<bool>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+21 -     async fn is_operation_allowed(&self, operation: &Operation) -> Result<bool>;
+21 +     fn is_operation_allowed(&self, operation: &Operation) -> impl std::future::Future<Output = Result<bool>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-policy/src/unified_enforcement.rs:24:5
+   |
+24 |     async fn get_violations(&self, operation: &Operation) -> Result<Vec<PolicyViolation>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+24 -     async fn get_violations(&self, operation: &Operation) -> Result<Vec<PolicyViolation>>;
+24 +     fn get_violations(&self, operation: &Operation) -> impl std::future::Future<Output = Result<Vec<PolicyViolation>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-policy/src/unified_enforcement.rs:27:5
+   |
+27 |     async fn enforce_policy(&self, operation: &Operation) -> Result<PolicyEnforcementResult>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+27 -     async fn enforce_policy(&self, operation: &Operation) -> Result<PolicyEnforcementResult>;
+27 +     fn enforce_policy(&self, operation: &Operation) -> impl std::future::Future<Output = Result<PolicyEnforcementResult>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-policy/src/unified_enforcement.rs:30:5
+   |
+30 |     async fn get_compliance_report(&self) -> Result<PolicyComplianceReport>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+30 -     async fn get_compliance_report(&self) -> Result<PolicyComplianceReport>;
+30 +     fn get_compliance_report(&self) -> impl std::future::Future<Output = Result<PolicyComplianceReport>> + Send;
+   |
+
+   Compiling adapteros-lora-worker v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-worker)
+   Compiling adapteros-system-metrics v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-system-metrics)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_lora_worker --edition=2021 crates/adapteros-lora-worker/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --cfg 'feature="default"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("adapteros-lora-mlx-ffi", "default", "experimental-backends", "pyo3"))' -C metadata=3d1c69cc69534939 -C extra-filename=-925f37a661199acb --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_codegraph=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_codegraph-dc22fe61c91997f8.rmeta --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_deterministic_exec=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_deterministic_exec-1f1556db29237a1e.rmeta --extern adapteros_lora_kernel_api=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_kernel_api-0d81e693a236b879.rmeta --extern adapteros_lora_kernel_mtl=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_kernel_mtl-eac18f3f4684ba59.rmeta --extern adapteros_lora_lifecycle=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_lifecycle-1e83f716a24ffe9f.rmeta --extern adapteros_lora_rag=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_rag-e7ecd86fc4de69f1.rmeta --extern adapteros_lora_router=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_router-ff28a561b2cbe32d.rmeta --extern adapteros_manifest=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_manifest-c7b6f1722b5209e3.rmeta --extern adapteros_policy=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_policy-acdb3c28e9a160d6.rmeta --extern adapteros_profiler=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_profiler-dbe991e499c924eb.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern async_trait=/Users/star/Dev/adapter-os/target/debug/deps/libasync_trait-7991b4af6bb56e2b.dylib --extern blake3=/Users/star/Dev/adapter-os/target/debug/deps/libblake3-62cb90cde14dc62e.rmeta --extern bytemuck=/Users/star/Dev/adapter-os/target/debug/deps/libbytemuck-d45eafdcbad95740.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern crossbeam=/Users/star/Dev/adapter-os/target/debug/deps/libcrossbeam-e1346261ffaf360f.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern hkdf=/Users/star/Dev/adapter-os/target/debug/deps/libhkdf-05eb32c900699a31.rmeta --extern mach=/Users/star/Dev/adapter-os/target/debug/deps/libmach-62cecf6f938b69fa.rmeta --extern memmap2=/Users/star/Dev/adapter-os/target/debug/deps/libmemmap2-462aabea9b839b37.rmeta --extern metal=/Users/star/Dev/adapter-os/target/debug/deps/libmetal-c417f6043f2199cd.rmeta --extern nix=/Users/star/Dev/adapter-os/target/debug/deps/libnix-f2f5571c914e7dac.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern rand_chacha=/Users/star/Dev/adapter-os/target/debug/deps/librand_chacha-aa7dc25ee020730c.rmeta --extern regex=/Users/star/Dev/adapter-os/target/debug/deps/libregex-22696e17983259a2.rmeta --extern safetensors=/Users/star/Dev/adapter-os/target/debug/deps/libsafetensors-bd5bd848333d6eea.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sha2=/Users/star/Dev/adapter-os/target/debug/deps/libsha2-a667fa4bd890c98c.rmeta --extern smallvec=/Users/star/Dev/adapter-os/target/debug/deps/libsmallvec-33cdddc3c756747b.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokenizers=/Users/star/Dev/adapter-os/target/debug/deps/libtokenizers-f4726738d47624ff.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tokio_util=/Users/star/Dev/adapter-os/target/debug/deps/libtokio_util-42ba1fd3b87ca4a8.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta --extern zeroize=/Users/star/Dev/adapter-os/target/debug/deps/libzeroize-e2a6402537e2edfc.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/Users/star/Dev/adapter-os/target/debug/build/esaxx-rs-dd37908d42632aad/out -L native=/Users/star/Dev/adapter-os/target/debug/build/onig_sys-2abc1d8be83da6ec/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_system_metrics --edition=2021 crates/adapteros-system-metrics/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("mlx"))' -C metadata=ecdcf9a946858538 -C extra-filename=-305d0b0ae9788801 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_manifest=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_manifest-c7b6f1722b5209e3.rmeta --extern adapteros_policy=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_policy-acdb3c28e9a160d6.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern async_trait=/Users/star/Dev/adapter-os/target/debug/deps/libasync_trait-7991b4af6bb56e2b.dylib --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern metal=/Users/star/Dev/adapter-os/target/debug/deps/libmetal-ffbc3eae7b381b4c.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern reqwest=/Users/star/Dev/adapter-os/target/debug/deps/libreqwest-7251e569751ae34b.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern sysinfo=/Users/star/Dev/adapter-os/target/debug/deps/libsysinfo-f52547b469c21bfc.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+warning: unused import: `MockLlmBackend`
+   --> crates/adapteros-lora-worker/src/lib.rs:720:38
+    |
+720 |         use crate::patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator};
+    |                                      ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: `adapteros-policy` (lib) generated 24 warnings
+warning: ambiguous glob re-exports
+  --> crates/adapteros-system-metrics/src/lib.rs:39:9
+   |
+33 | pub use types::*;
+   |         -------- but the name `MetricsAggregation` in the type namespace is also re-exported here
+...
+39 | pub use monitoring_types::*;
+   |         ^^^^^^^^^^^^^^^^^^^ the name `MetricsAggregation` in the type namespace is first re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/adapteros-lora-worker/src/inference_pipeline.rs:303:17
+    |
+303 |             let mut code_features = self.create_code_features(&formatted_prompt);
+    |                 ----^^^^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: field `stack_trace` is never read
+  --> crates/adapteros-lora-worker/src/deadlock.rs:40:5
+   |
+36 | struct LockInfo {
+   |        -------- field in this struct
+...
+40 |     stack_trace: String,
+   |     ^^^^^^^^^^^
+   |
+   = note: `LockInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: variant `Dedicated` is never constructed
+  --> crates/adapteros-lora-worker/src/embeddings.rs:23:5
+   |
+19 | enum EmbeddingType {
+   |      ------------- variant in this enum
+...
+23 |     Dedicated,
+   |     ^^^^^^^^^
+
+warning: field `policy` is never read
+   --> crates/adapteros-lora-worker/src/inference_pipeline.rs:121:5
+    |
+111 | pub struct InferencePipeline {
+    |            ----------------- field in this struct
+...
+121 |     policy: PolicyEngine,
+    |     ^^^^^^
+
+warning: method `calculate_token_entropy` is never used
+   --> crates/adapteros-lora-worker/src/inference_pipeline.rs:460:8
+    |
+145 | impl InferencePipeline {
+    | ---------------------- method in this implementation
+...
+460 |     fn calculate_token_entropy(&self, tokens: &[u32]) -> f32 {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `config` is never read
+  --> crates/adapteros-lora-worker/src/llm_backend.rs:34:5
+   |
+33 | pub struct LocalLlmBackend {
+   |            --------------- field in this struct
+34 |     config: LocalLlmConfig,
+   |     ^^^^^^
+
+warning: field `api_key` is never read
+   --> crates/adapteros-lora-worker/src/llm_backend.rs:182:5
+    |
+180 | pub struct RemoteLlmBackend {
+    |            ---------------- field in this struct
+181 |     api_endpoint: String,
+182 |     api_key: Option<String>,
+    |     ^^^^^^^
+
+warning: field `metrics` is never read
+   --> crates/adapteros-lora-worker/src/patch_telemetry.rs:115:5
+    |
+113 | pub struct PatchTelemetry {
+    |            -------------- field in this struct
+114 |     events: Vec<PatchEvent>,
+115 |     metrics: HashMap<String, serde_json::Value>,
+    |     ^^^^^^^
+
+warning: field `rank` is never read
+  --> crates/adapteros-lora-worker/src/vision_lora.rs:39:5
+   |
+37 | pub struct VisionLoraWeights {
+   |            ----------------- field in this struct
+38 |     task: VisionTask,
+39 |     rank: usize,
+   |     ^^^^
+   |
+   = note: `VisionLoraWeights` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> crates/adapteros-lora-worker/src/deadlock.rs:244:23
+    |
+244 |     pub async fn lock(&self) -> Result<tokio::sync::MutexGuard<T>> {
+    |                       ^^^^^            -------------------------- the same lifetime is hidden here
+    |                       |
+    |                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+244 |     pub async fn lock(&self) -> Result<tokio::sync::MutexGuard<'_, T>> {
+    |                                                                +++
+
+warning: unused `Result` that must be used
+   --> crates/adapteros-lora-worker/src/inference_pipeline.rs:375:17
+    |
+375 | /                 self.telemetry.log(
+376 | |                     "inference.step",
+377 | |                     serde_json::json!({
+378 | |                         "cpid": request.cpid,
+...   |
+383 | |                     }),
+384 | |                 );
+    | |_________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+375 |                 let _ = self.telemetry.log(
+    |                 +++++++
+
+warning: unused `Result` that must be used
+   --> crates/adapteros-lora-worker/src/inference_pipeline.rs:426:9
+    |
+426 | /         self.telemetry.log(
+427 | |             "inference.complete",
+428 | |             serde_json::json!({
+429 | |                 "cpid": request.cpid,
+...   |
+433 | |             }),
+434 | |         );
+    | |_________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+426 |         let _ = self.telemetry.log(
+    |         +++++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> crates/adapteros-lora-worker/src/limiter.rs:56:34
+   |
+56 |     pub async fn acquire_request(&self) -> Result<ResourceGuard> {
+   |                                  ^^^^^            ------------- the same lifetime is hidden here
+   |                                  |
+   |                                  the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+56 |     pub async fn acquire_request(&self) -> Result<ResourceGuard<'_>> {
+   |                                                                ++++
+
+warning: method `trigger_anomaly_alert` is never used
+   --> crates/adapteros-system-metrics/src/alerting.rs:887:14
+    |
+ 71 | impl AlertEvaluator {
+    | ------------------- method in this implementation
+...
+887 |     async fn trigger_anomaly_alert(
+    |              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: field `tenant_id` is never read
+    --> crates/adapteros-system-metrics/src/alerting.rs:2058:5
+     |
+2056 | struct WorkerInfo {
+     |        ---------- field in this struct
+2057 |     id: String,
+2058 |     tenant_id: String,
+     |     ^^^^^^^^^
+     |
+     = note: `WorkerInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `baseline_std_dev` is never read
+    --> crates/adapteros-system-metrics/src/alerting.rs:2066:5
+     |
+2063 | struct DriftDetection {
+     |        -------------- field in this struct
+...
+2066 |     baseline_std_dev: f64,
+     |     ^^^^^^^^^^^^^^^^
+     |
+     = note: `DriftDetection` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `sample_count`, `min_value`, and `max_value` are never read
+    --> crates/adapteros-system-metrics/src/alerting.rs:2078:5
+     |
+2075 | struct BaselineStats {
+     |        ------------- fields in this struct
+...
+2078 |     sample_count: usize,
+     |     ^^^^^^^^^^^^
+2079 |     min_value: f64,
+     |     ^^^^^^^^^
+2080 |     max_value: f64,
+     |     ^^^^^^^^^
+     |
+     = note: `BaselineStats` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `tenant_id` is never read
+   --> crates/adapteros-system-metrics/src/anomaly.rs:649:5
+    |
+647 | struct WorkerInfo {
+    |        ---------- field in this struct
+648 |     id: String,
+649 |     tenant_id: String,
+    |     ^^^^^^^^^
+    |
+    = note: `WorkerInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `tenant_id` is never read
+   --> crates/adapteros-system-metrics/src/baselines.rs:729:5
+    |
+727 | struct WorkerInfo {
+    |        ---------- field in this struct
+728 |     id: String,
+729 |     tenant_id: String,
+    |     ^^^^^^^^^
+    |
+    = note: `WorkerInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `last_cpu_time`, `last_cpu_count`, `last_disk_read`, `last_disk_write`, `last_network_rx`, and `last_network_tx` are never read
+  --> crates/adapteros-system-metrics/src/collector.rs:15:5
+   |
+13 | pub struct SystemMetricsCollector {
+   |            ---------------------- fields in this struct
+14 |     sys: System,
+15 |     last_cpu_time: u64,
+   |     ^^^^^^^^^^^^^
+16 |     last_cpu_count: usize,
+   |     ^^^^^^^^^^^^^^
+17 |     last_disk_read: u64,
+   |     ^^^^^^^^^^^^^^
+18 |     last_disk_write: u64,
+   |     ^^^^^^^^^^^^^^^
+19 |     last_network_rx: u64,
+   |     ^^^^^^^^^^^^^^^
+20 |     last_network_tx: u64,
+   |     ^^^^^^^^^^^^^^^
+
+warning: struct `DashboardConfigRow` is never constructed
+  --> crates/adapteros-system-metrics/src/dashboard.rs:21:8
+   |
+21 | struct DashboardConfigRow {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: field `policy_engine` is never read
+  --> crates/adapteros-system-metrics/src/policy.rs:15:5
+   |
+13 | pub struct SystemMetricsPolicy {
+   |            ------------------- field in this struct
+14 |     thresholds: ThresholdsConfig,
+15 |     policy_engine: Option<PolicyEngine>,
+   |     ^^^^^^^^^^^^^
+
+   Compiling adapteros-orchestrator v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-orchestrator)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_orchestrator --edition=2021 crates/adapteros-orchestrator/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=3bdf33b9ae6eff04 -C extra-filename=-3d7297743fad20d9 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_codegraph=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_codegraph-dc22fe61c91997f8.rmeta --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_federation=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_federation-68a5414e00195da2.rmeta --extern adapteros_lora_worker=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_worker-925f37a661199acb.rmeta --extern adapteros_manifest=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_manifest-c7b6f1722b5209e3.rmeta --extern adapteros_policy=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_policy-acdb3c28e9a160d6.rmeta --extern adapteros_registry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_registry-d25c6eca9bd328ac.rmeta --extern adapteros_sbom=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_sbom-bf6aed078a5f6b36.rmeta --extern adapteros_telemetry=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_telemetry-b08abc41f76fcd1f.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern async_trait=/Users/star/Dev/adapter-os/target/debug/deps/libasync_trait-7991b4af6bb56e2b.dylib --extern bincode=/Users/star/Dev/adapter-os/target/debug/deps/libbincode-89a62e7d88085524.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern clap=/Users/star/Dev/adapter-os/target/debug/deps/libclap-b3c62ac1c22c4d64.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern parking_lot=/Users/star/Dev/adapter-os/target/debug/deps/libparking_lot-4748a30600dd4a9d.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern serde_yaml=/Users/star/Dev/adapter-os/target/debug/deps/libserde_yaml-73d940995fdd16e3.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta --extern walkdir=/Users/star/Dev/adapter-os/target/debug/deps/libwalkdir-1b5794ffeb985c1c.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/Users/star/Dev/adapter-os/target/debug/build/esaxx-rs-dd37908d42632aad/out -L native=/Users/star/Dev/adapter-os/target/debug/build/onig_sys-2abc1d8be83da6ec/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+warning: unused import: `PathBuf`
+  --> crates/adapteros-orchestrator/src/dataset_builder.rs:12:23
+   |
+12 | use std::path::{Path, PathBuf};
+   |                       ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `adapteros-system-metrics` (lib) generated 10 warnings
+warning: `adapteros-lora-worker` (lib) generated 14 warnings (run `cargo fix --lib -p adapteros-lora-worker` to apply 2 suggestions)
+warning: field `policy_watcher` is never read
+  --> crates/adapteros-orchestrator/src/federation_daemon.rs:64:5
+   |
+60 | pub struct FederationDaemon {
+   |            ---------------- field in this struct
+...
+64 |     policy_watcher: Arc<PolicyHashWatcher>,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `path` is never read
+  --> crates/adapteros-orchestrator/src/gates/telemetry.rs:52:5
+   |
+51 | struct BundleInfo {
+   |        ---------- field in this struct
+52 |     path: PathBuf,
+   |     ^^^^
+
+warning: field `db` is never read
+   --> crates/adapteros-orchestrator/src/supervisor.rs:177:5
+    |
+161 | pub struct SupervisorDaemon {
+    |            ---------------- field in this struct
+...
+177 |     db: Arc<Db>,
+    |     ^^
+
+warning: field `interval` is never read
+   --> crates/adapteros-orchestrator/src/supervisor.rs:183:5
+    |
+181 | pub struct HealthChecker {
+    |            ------------- field in this struct
+182 |     /// Check interval
+183 |     interval: Duration,
+    |     ^^^^^^^^
+
+warning: unused `Result` that must be used
+   --> crates/adapteros-orchestrator/src/federation_daemon.rs:294:9
+    |
+294 |         self.telemetry.log_event(event);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+294 |         let _ = self.telemetry.log_event(event);
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/adapteros-orchestrator/src/federation_daemon.rs:311:9
+    |
+311 |         self.telemetry.log_event(event);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+311 |         let _ = self.telemetry.log_event(event);
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/adapteros-orchestrator/src/federation_daemon.rs:329:9
+    |
+329 |         self.telemetry.log_event(event);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+329 |         let _ = self.telemetry.log_event(event);
+    |         +++++++
+
+   Compiling adapteros-api-types v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-api-types)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_api_types --edition=2021 crates/adapteros-api-types/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f048f50586d3bf84 -C extra-filename=-7e3f29bfd04a4dae --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_orchestrator=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_orchestrator-3d7297743fad20d9.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern utoipa=/Users/star/Dev/adapter-os/target/debug/deps/libutoipa-26cfdb8a5025950b.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/Users/star/Dev/adapter-os/target/debug/build/esaxx-rs-dd37908d42632aad/out -L native=/Users/star/Dev/adapter-os/target/debug/build/onig_sys-2abc1d8be83da6ec/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+warning: `adapteros-orchestrator` (lib) generated 8 warnings (run `cargo fix --lib -p adapteros-orchestrator` to apply 1 suggestion)
+   Compiling adapteros-server-api v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-server-api)
+     Running `/Users/star/.cargo/bin/sccache /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name adapteros_server_api --edition=2021 crates/adapteros-server-api/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=671e513f36250418 -C extra-filename=-5784240280cac8a8 --out-dir /Users/star/Dev/adapter-os/target/debug/deps -C incremental=/Users/star/Dev/adapter-os/target/debug/incremental -L dependency=/Users/star/Dev/adapter-os/target/debug/deps --extern adapteros_api_types=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_api_types-7e3f29bfd04a4dae.rmeta --extern adapteros_codegraph=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_codegraph-dc22fe61c91997f8.rmeta --extern adapteros_core=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_core-6b6fcfe6101ffd9b.rmeta --extern adapteros_crypto=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_crypto-053399c5d657aa1c.rmeta --extern adapteros_db=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_db-55c49b0bab01e394.rmeta --extern adapteros_federation=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_federation-68a5414e00195da2.rmeta --extern adapteros_git=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_git-5b7cd213aa8307fc.rmeta --extern adapteros_lora_lifecycle=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_lifecycle-1e83f716a24ffe9f.rmeta --extern adapteros_lora_router=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_lora_router-ff28a561b2cbe32d.rmeta --extern adapteros_metrics_exporter=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_metrics_exporter-e087e94e55d2d46d.rmeta --extern adapteros_orchestrator=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_orchestrator-3d7297743fad20d9.rmeta --extern adapteros_policy=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_policy-acdb3c28e9a160d6.rmeta --extern adapteros_system_metrics=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_system_metrics-305d0b0ae9788801.rmeta --extern adapteros_verify=/Users/star/Dev/adapter-os/target/debug/deps/libadapteros_verify-3d370abbd9eded06.rmeta --extern anyhow=/Users/star/Dev/adapter-os/target/debug/deps/libanyhow-58185c299f3e795c.rmeta --extern argon2=/Users/star/Dev/adapter-os/target/debug/deps/libargon2-74a36ffd19557fb0.rmeta --extern axum=/Users/star/Dev/adapter-os/target/debug/deps/libaxum-44d9171981d15385.rmeta --extern base64=/Users/star/Dev/adapter-os/target/debug/deps/libbase64-cd0e933a8778df5b.rmeta --extern blake3=/Users/star/Dev/adapter-os/target/debug/deps/libblake3-62cb90cde14dc62e.rmeta --extern chrono=/Users/star/Dev/adapter-os/target/debug/deps/libchrono-9611886de8c793b1.rmeta --extern ed25519_dalek=/Users/star/Dev/adapter-os/target/debug/deps/libed25519_dalek-dfbb961228c04240.rmeta --extern futures_util=/Users/star/Dev/adapter-os/target/debug/deps/libfutures_util-9329b5c8abc0aba5.rmeta --extern git2=/Users/star/Dev/adapter-os/target/debug/deps/libgit2-dabb544af20af624.rmeta --extern glob=/Users/star/Dev/adapter-os/target/debug/deps/libglob-45cdf2caa4f0fe6c.rmeta --extern hex=/Users/star/Dev/adapter-os/target/debug/deps/libhex-d2396ddb0bc5d98e.rmeta --extern hyper=/Users/star/Dev/adapter-os/target/debug/deps/libhyper-8f82dccf25f4a999.rmeta --extern hyper_util=/Users/star/Dev/adapter-os/target/debug/deps/libhyper_util-5b0fdc2226d6ddcf.rmeta --extern jsonwebtoken=/Users/star/Dev/adapter-os/target/debug/deps/libjsonwebtoken-f9b2f7bbf3efbad9.rmeta --extern rand=/Users/star/Dev/adapter-os/target/debug/deps/librand-4102e14215049341.rmeta --extern regex=/Users/star/Dev/adapter-os/target/debug/deps/libregex-22696e17983259a2.rmeta --extern reqwest=/Users/star/Dev/adapter-os/target/debug/deps/libreqwest-7251e569751ae34b.rmeta --extern serde=/Users/star/Dev/adapter-os/target/debug/deps/libserde-8a8ee7cf61082dd0.rmeta --extern serde_json=/Users/star/Dev/adapter-os/target/debug/deps/libserde_json-c6bcd253f23f42bc.rmeta --extern sqlx=/Users/star/Dev/adapter-os/target/debug/deps/libsqlx-e45e691b46d94489.rmeta --extern tempfile=/Users/star/Dev/adapter-os/target/debug/deps/libtempfile-36ae98ca794931d8.rmeta --extern thiserror=/Users/star/Dev/adapter-os/target/debug/deps/libthiserror-159c50888fe23bc4.rmeta --extern tokio=/Users/star/Dev/adapter-os/target/debug/deps/libtokio-e0f59532ed7b6196.rmeta --extern tokio_stream=/Users/star/Dev/adapter-os/target/debug/deps/libtokio_stream-3848c4145e28d884.rmeta --extern tower=/Users/star/Dev/adapter-os/target/debug/deps/libtower-b4fc7c5b11d5c990.rmeta --extern tower_http=/Users/star/Dev/adapter-os/target/debug/deps/libtower_http-b001e0b7a7e60ec8.rmeta --extern tracing=/Users/star/Dev/adapter-os/target/debug/deps/libtracing-9827fb9590fc0bc2.rmeta --extern utoipa=/Users/star/Dev/adapter-os/target/debug/deps/libutoipa-26cfdb8a5025950b.rmeta --extern utoipa_swagger_ui=/Users/star/Dev/adapter-os/target/debug/deps/libutoipa_swagger_ui-423559905f416c8b.rmeta --extern uuid=/Users/star/Dev/adapter-os/target/debug/deps/libuuid-0d5d85f0754162ab.rmeta --extern walkdir=/Users/star/Dev/adapter-os/target/debug/deps/libwalkdir-1b5794ffeb985c1c.rmeta -Cdebuginfo=0 -L native=/Users/star/Dev/adapter-os/target/debug/build/blake3-67a67bd110ebc8b2/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libsqlite3-sys-4143d8138fd1bbbf/out -L native=/Users/star/Dev/adapter-os/target/debug/build/ring-cc1dd5112e9ad955/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libz-ng-sys-0a8676992abb886b/out/lib -L native=/Users/star/Dev/adapter-os/target/debug/build/zstd-sys-294f69ae0a6927db/out -L native=/Users/star/Dev/adapter-os/target/debug/build/libgit2-sys-8412f5b7fcddcaf6/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/libssh2-sys-c4ea88ee5d878e55/out/build -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-edd24ad37586f784/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-go-4aa961c0adf04910/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-javascript-75a2fc864658c56b/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-python-a459043676d6e2b1/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-rust-5ecc7c9c72b0d0e9/out -L native=/Users/star/Dev/adapter-os/target/debug/build/tree-sitter-typescript-871eae3ef6363127/out -L native=/Users/star/Dev/adapter-os/target/debug/build/objc_exception-f24649a0b4d8d1f3/out -L native=/Users/star/Dev/adapter-os/target/debug/build/esaxx-rs-dd37908d42632aad/out -L native=/Users/star/Dev/adapter-os/target/debug/build/onig_sys-2abc1d8be83da6ec/out -L native=/usr/lib -L 'native=/opt/homebrew/opt/openssl@3/lib'`
+error[E0255]: the name `list_golden_runs` is defined multiple times
+  --> crates/adapteros-server-api/src/handlers/golden.rs:16:1
+   |
+12 |       list_golden_runs, verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
+   |       ---------------- previous import of the value `list_golden_runs` here
+...
+16 | / pub async fn list_golden_runs(
+17 | |     State(_state): State<AppState>,
+18 | |     Extension(_claims): Extension<Claims>,
+19 | | ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+...  |
+37 | | }
+   | |_^ `list_golden_runs` redefined here
+   |
+   = note: `list_golden_runs` must be defined only once in the value namespace of this module
+help: you can use `as` to change the binding name of the import
+   |
+12 |     list_golden_runs as other_list_golden_runs, verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
+   |                      +++++++++++++++++++++++++
+
+error[E0252]: the name `Path` is defined multiple times
+  --> crates/adapteros-server-api/src/handlers.rs:46:5
+   |
+31 |     extract::{Path, Query, State},
+   |               ---- previous import of the type `Path` here
+...
+46 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^ `Path` reimported here
+   |
+   = note: `Path` must be defined only once in the type namespace of this module
+help: you can use `as` to change the binding name of the import
+   |
+46 | use std::path::Path as OtherPath;
+   |                     ++++++++++++
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:3580:22
+     |
+3580 | ) -> Result<Sse<impl FuturesStream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+     |                      ^^^^^^^^^^^^^ not found in this scope
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:5760:15
+     |
+5760 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:5762:28
+     |
+5762 |         tokio::time::sleep(Duration::from_secs(5)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:5802:15
+     |
+5802 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:5804:28
+     |
+5804 |         tokio::time::sleep(Duration::from_secs(10)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:5819:15
+     |
+5819 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:5821:28
+     |
+5821 |         tokio::time::sleep(Duration::from_secs(3)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:5946:15
+     |
+5946 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:5956:32
+     |
+5956 |             tokio::time::sleep(Duration::from_secs(2)).await;
+     |                                ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:6018:15
+     |
+6018 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:6028:32
+     |
+6028 |             tokio::time::sleep(Duration::from_millis(500)).await;
+     |                                ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:6090:15
+     |
+6090 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:6098:32
+     |
+6098 |             tokio::time::sleep(Duration::from_secs(5)).await;
+     |                                ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:7763:15
+     |
+7763 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:7765:28
+     |
+7765 |         tokio::time::sleep(Duration::from_secs(2)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:7814:15
+     |
+7814 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:7816:28
+     |
+7816 |         tokio::time::sleep(Duration::from_secs(10)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:7866:15
+     |
+7866 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:7868:28
+     |
+7868 |         tokio::time::sleep(Duration::from_secs(5)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+error[E0405]: cannot find trait `FuturesStream` in this scope
+    --> crates/adapteros-server-api/src/handlers.rs:8058:15
+     |
+8058 | ) -> Sse<impl FuturesStream<Item = Result<Event, Infallible>>> {
+     |               ^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: failed to resolve: use of undeclared type `Duration`
+    --> crates/adapteros-server-api/src/handlers.rs:8060:28
+     |
+8060 |         tokio::time::sleep(Duration::from_secs(5)).await;
+     |                            ^^^^^^^^ use of undeclared type `Duration`
+     |
+help: consider importing one of these items
+     |
+   3 + use std::time::Duration;
+     |
+   3 + use chrono::Duration;
+     |
+   3 + use tokio::time::Duration;
+     |
+
+warning: unused import: `list_golden_runs`
+  --> crates/adapteros-server-api/src/handlers/golden.rs:12:5
+   |
+12 |     list_golden_runs, verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Stream`
+  --> crates/adapteros-server-api/src/handlers.rs:42:34
+   |
+42 | use futures_util::stream::{self, Stream};
+   |                                  ^^^^^^
+
+warning: unused import: `std::path::Path`
+  --> crates/adapteros-server-api/src/handlers.rs:46:5
+   |
+46 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^
+

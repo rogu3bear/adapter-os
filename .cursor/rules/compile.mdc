@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+IMPORTANT: do not confuse "make it compile" with "make it work." If the code compiles, but the architecture is incompatible with a feature or service. This is worse than compilation errors because:
+Compilation errors block progress
+Runtime panics create silent failures that ship to production

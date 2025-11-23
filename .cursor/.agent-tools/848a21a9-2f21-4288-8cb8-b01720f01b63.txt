@@ -1,0 +1,1977 @@
+[Terminal output truncated: ~221KB dropped from beginning]
+fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+117 -     async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse>;
+117 +     fn apply_patch(&self, req: ApplyPatchRequest) -> impl std::future::Future<Output = Result<ApplyPatchResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:120:5
+    |
+120 |     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+120 -     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse>;
+120 +     fn get_code_policy(&self) -> impl std::future::Future<Output = Result<GetCodePolicyResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:121:5
+    |
+121 |     async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+121 -     async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()>;
+121 +     fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> impl std::future::Future<Output = Result<()>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:124:5
+    |
+124 |     async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+124 -     async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse>;
+124 +     fn get_code_metrics(&self, req: CodeMetricsRequest) -> impl std::future::Future<Output = Result<CodeMetricsResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:125:5
+    |
+125 |     async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+125 -     async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse>;
+125 +     fn compare_metrics(&self, req: CompareMetricsRequest) -> impl std::future::Future<Output = Result<CompareMetricsResponse>> + Send;
+    |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `mplora_mlx`
+  --> examples/lora_routing.rs:15:5
+   |
+15 | use mplora_mlx::routing::{apply_entropy_floor, select_top_k};
+   |     ^^^^^^^^^^ use of unresolved module or unlinked crate `mplora_mlx`
+   |
+   = help: if you wanted to use a crate named `mplora_mlx`, use `cargo add mplora_mlx` to add it to your `Cargo.toml`
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `adapter-os` (example "lora_routing") due to 1 previous error
+warning: unused import: `verify_replication`
+ --> tests/node_sync_e2e.rs:9:44
+  |
+9 | use adapteros_artifacts::{create_manifest, verify_replication, CasStore, ReplicationManifest};
+  |                                            ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::path::PathBuf`
+  --> tests/node_sync_e2e.rs:10:5
+   |
+10 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+error[E0659]: `DeterminismPolicy` is ambiguous
+ --> tests/policy_attestation.rs:8:31
+  |
+8 | fn create_default_policy() -> DeterminismPolicy {
+  |                               ^^^^^^^^^^^^^^^^^ ambiguous name
+  |
+  = note: ambiguous because of multiple glob imports of a name in the same module
+note: `DeterminismPolicy` could refer to the struct imported here
+ --> tests/policy_attestation.rs:5:5
+  |
+5 | use adapteros_manifest::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+  = help: consider adding an explicit import of `DeterminismPolicy` to disambiguate
+note: `DeterminismPolicy` could also refer to the struct imported here
+ --> tests/policy_attestation.rs:6:5
+  |
+6 | use adapteros_policy::packs::determinism::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: consider adding an explicit import of `DeterminismPolicy` to disambiguate
+
+warning: unused variable: `worker_id_b`
+  --> tests/determinism_rng_cross_worker.rs:19:9
+   |
+19 |     let worker_id_b = 2;
+   |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_worker_id_b`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+error[E0659]: `DeterminismPolicy` is ambiguous
+ --> tests/policy_attestation.rs:9:5
+  |
+9 |     DeterminismPolicy::new(DeterminismConfig::default())
+  |     ^^^^^^^^^^^^^^^^^ ambiguous name
+  |
+  = note: ambiguous because of multiple glob imports of a name in the same module
+note: `DeterminismPolicy` could refer to the struct imported here
+ --> tests/policy_attestation.rs:5:5
+  |
+5 | use adapteros_manifest::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+  = help: consider adding an explicit import of `DeterminismPolicy` to disambiguate
+note: `DeterminismPolicy` could also refer to the struct imported here
+ --> tests/policy_attestation.rs:6:5
+  |
+6 | use adapteros_policy::packs::determinism::*;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: consider adding an explicit import of `DeterminismPolicy` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+  --> tests/policy_attestation.rs:20:26
+   |
+20 |         rng_seed_method: RngSeedingMethod::HkdfSeeded,
+   |                          ^^^^^^^^^^^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+  --> tests/policy_attestation.rs:4:5
+   |
+ 4 | use adapteros_lora_kernel_api::attestation::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+  --> tests/policy_attestation.rs:6:5
+   |
+ 6 | use adapteros_policy::packs::determinism::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+  --> tests/policy_attestation.rs:37:26
+   |
+37 |         rng_seed_method: RngSeedingMethod::SystemEntropy,
+   |                          ^^^^^^^^^^^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+  --> tests/policy_attestation.rs:4:5
+   |
+ 4 | use adapteros_lora_kernel_api::attestation::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+  --> tests/policy_attestation.rs:6:5
+   |
+ 6 | use adapteros_policy::packs::determinism::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+  --> tests/policy_attestation.rs:55:26
+   |
+55 |         rng_seed_method: RngSeedingMethod::HkdfSeeded,
+   |                          ^^^^^^^^^^^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+  --> tests/policy_attestation.rs:4:5
+   |
+ 4 | use adapteros_lora_kernel_api::attestation::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+  --> tests/policy_attestation.rs:6:5
+   |
+ 6 | use adapteros_policy::packs::determinism::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+  --> tests/policy_attestation.rs:74:26
+   |
+74 |         rng_seed_method: RngSeedingMethod::SystemEntropy, // Wrong method
+   |                          ^^^^^^^^^^^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+  --> tests/policy_attestation.rs:4:5
+   |
+ 4 | use adapteros_lora_kernel_api::attestation::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+  --> tests/policy_attestation.rs:6:5
+   |
+ 6 | use adapteros_policy::packs::determinism::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+  --> tests/policy_attestation.rs:93:26
+   |
+93 |         rng_seed_method: RngSeedingMethod::HkdfSeeded,
+   |                          ^^^^^^^^^^^^^^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+  --> tests/policy_attestation.rs:4:5
+   |
+ 4 | use adapteros_lora_kernel_api::attestation::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+  --> tests/policy_attestation.rs:6:5
+   |
+ 6 | use adapteros_policy::packs::determinism::*;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+   --> tests/policy_attestation.rs:112:26
+    |
+112 |         rng_seed_method: RngSeedingMethod::HkdfSeeded,
+    |                          ^^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+   --> tests/policy_attestation.rs:4:5
+    |
+  4 | use adapteros_lora_kernel_api::attestation::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+   --> tests/policy_attestation.rs:6:5
+    |
+  6 | use adapteros_policy::packs::determinism::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+   --> tests/policy_attestation.rs:126:18
+    |
+126 |     config.rng = RngSeedingMethod::FixedSeed(42);
+    |                  ^^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+   --> tests/policy_attestation.rs:4:5
+    |
+  4 | use adapteros_lora_kernel_api::attestation::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+   --> tests/policy_attestation.rs:6:5
+    |
+  6 | use adapteros_policy::packs::determinism::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `DeterminismPolicy` is ambiguous
+   --> tests/policy_attestation.rs:127:18
+    |
+127 |     let policy = DeterminismPolicy::new(config);
+    |                  ^^^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `DeterminismPolicy` could refer to the struct imported here
+   --> tests/policy_attestation.rs:5:5
+    |
+  5 | use adapteros_manifest::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `DeterminismPolicy` to disambiguate
+note: `DeterminismPolicy` could also refer to the struct imported here
+   --> tests/policy_attestation.rs:6:5
+    |
+  6 | use adapteros_policy::packs::determinism::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `DeterminismPolicy` to disambiguate
+
+warning: unused import: `adapteros_lora_kernel_api::FusedKernels`
+ --> tests/kernel_rope_tests.rs:9:5
+  |
+9 | use adapteros_lora_kernel_api::FusedKernels;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+   --> tests/policy_attestation.rs:133:26
+    |
+133 |         rng_seed_method: RngSeedingMethod::FixedSeed(123),
+    |                          ^^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+   --> tests/policy_attestation.rs:4:5
+    |
+  4 | use adapteros_lora_kernel_api::attestation::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+   --> tests/policy_attestation.rs:6:5
+    |
+  6 | use adapteros_policy::packs::determinism::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+   --> tests/policy_attestation.rs:150:26
+    |
+150 |         rng_seed_method: RngSeedingMethod::HkdfSeeded,
+    |                          ^^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+   --> tests/policy_attestation.rs:4:5
+    |
+  4 | use adapteros_lora_kernel_api::attestation::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+   --> tests/policy_attestation.rs:6:5
+    |
+  6 | use adapteros_policy::packs::determinism::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+error[E0659]: `RngSeedingMethod` is ambiguous
+   --> tests/policy_attestation.rs:172:26
+    |
+172 |         rng_seed_method: RngSeedingMethod::HkdfSeeded,
+    |                          ^^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `RngSeedingMethod` could refer to the enum imported here
+   --> tests/policy_attestation.rs:4:5
+    |
+  4 | use adapteros_lora_kernel_api::attestation::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+note: `RngSeedingMethod` could also refer to the enum imported here
+   --> tests/policy_attestation.rs:6:5
+    |
+  6 | use adapteros_policy::packs::determinism::*;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `RngSeedingMethod` to disambiguate
+
+warning: unused import: `load_replay_bundle`
+  --> tests/determinism_two_node.rs:10:44
+   |
+10 | use adapteros_telemetry::{find_divergence, load_replay_bundle};
+   |                                            ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `LintIssue` and `LintSeverity`
+  --> tests/linter_integration.rs:33:33
+   |
+33 |     use adapteros_lora_worker::{LintIssue, LintSeverity, LinterResult};
+   |                                 ^^^^^^^^^  ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `x_neg`
+   --> tests/kernel_rope_tests.rs:185:9
+    |
+185 |     let x_neg = x * cos_neg - y * sin_neg;
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_x_neg`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `y_neg`
+   --> tests/kernel_rope_tests.rs:186:9
+    |
+186 |     let y_neg = y * cos_neg + x * sin_neg;
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_y_neg`
+
+error[E0432]: unresolved import `adapteros_system_metrics::PerformanceThresholds`
+ --> tests/system_metrics.rs:7:20
+  |
+7 |     MetricsConfig, PerformanceThresholds, SystemMetricsCollector, SystemMetricsPolicy,
+  |                    ^^^^^^^^^^^^^^^^^^^^^ no `PerformanceThresholds` in the root
+
+warning: unused import: `SystemMonitoringService`
+ --> tests/system_metrics.rs:8:20
+  |
+8 |     SystemMonitor, SystemMonitoringService,
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::path::Path`
+  --> tests/system_metrics.rs:11:5
+   |
+11 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+  --> tests/inference_integration_tests.rs:28:18
+   |
+28 |     let client = reqwest::Client::new();
+   |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+   |
+   = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+  --> tests/inference_integration_tests.rs:65:18
+   |
+65 |     let client = reqwest::Client::new();
+   |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+   |
+   = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:116:18
+    |
+116 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:164:18
+    |
+164 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:198:18
+    |
+198 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `metal`
+  --> tests/kernel_regression.rs:82:9
+   |
+82 |     use metal::Device;
+   |         ^^^^^ use of unresolved module or unlinked crate `metal`
+   |
+   = help: if you wanted to use a crate named `metal`, use `cargo add metal` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `metal`
+   --> tests/kernel_regression.rs:113:9
+    |
+113 |     use metal::Device;
+    |         ^^^^^ use of unresolved module or unlinked crate `metal`
+    |
+    = help: if you wanted to use a crate named `metal`, use `cargo add metal` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `metal`
+   --> tests/kernel_regression.rs:138:9
+    |
+138 |     use metal::Device;
+    |         ^^^^^ use of unresolved module or unlinked crate `metal`
+    |
+    = help: if you wanted to use a crate named `metal`, use `cargo add metal` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:252:18
+    |
+252 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:284:18
+    |
+284 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+warning: unused import: `std::path::Path`
+  --> tests/kernel_regression.rs:12:5
+   |
+12 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `futures`
+   --> tests/inference_integration_tests.rs:317:19
+    |
+317 |     let results = futures::future::join_all(handles).await;
+    |                   ^^^^^^^ use of unresolved module or unlinked crate `futures`
+    |
+    = help: if you wanted to use a crate named `futures`, use `cargo add futures` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:340:18
+    |
+340 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+  --> tests/determinism_two_node.rs:74:17
+   |
+74 |     let seed1 = derive_seed(&global_seed, "router", 0);
+   |                 ^^^^^^^^^^^                         - unexpected argument #3 of type `{integer}`
+   |
+note: function defined here
+  --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/seed.rs:39:8
+   |
+39 | pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
+   |        ^^^^^^^^^^^
+help: remove the extra argument
+   |
+74 -     let seed1 = derive_seed(&global_seed, "router", 0);
+74 +     let seed1 = derive_seed(&global_seed, "router");
+   |
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+  --> tests/determinism_two_node.rs:75:17
+   |
+75 |     let seed2 = derive_seed(&global_seed, "router", 0);
+   |                 ^^^^^^^^^^^                         - unexpected argument #3 of type `{integer}`
+   |
+note: function defined here
+  --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/seed.rs:39:8
+   |
+39 | pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
+   |        ^^^^^^^^^^^
+help: remove the extra argument
+   |
+75 -     let seed2 = derive_seed(&global_seed, "router", 0);
+75 +     let seed2 = derive_seed(&global_seed, "router");
+   |
+
+error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+  --> tests/determinism_two_node.rs:79:17
+   |
+79 |     let seed3 = derive_seed(&global_seed, "router", 1);
+   |                 ^^^^^^^^^^^                         - unexpected argument #3 of type `{integer}`
+   |
+note: function defined here
+  --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/seed.rs:39:8
+   |
+39 | pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
+   |        ^^^^^^^^^^^
+help: remove the extra argument
+   |
+79 -     let seed3 = derive_seed(&global_seed, "router", 1);
+79 +     let seed3 = derive_seed(&global_seed, "router");
+   |
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:374:18
+    |
+374 |     let client = reqwest::Client::new();
+    |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `reqwest`
+   --> tests/inference_integration_tests.rs:486:22
+    |
+486 |         let client = reqwest::Client::new();
+    |                      ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+    |
+    = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `adapteros_api_types`
+  --> tests/server_api_integration.rs:12:5
+   |
+12 | use adapteros_api_types::*;
+   |     ^^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `adapteros_api_types`
+   |
+help: there is a crate or module with a similar name
+   |
+12 - use adapteros_api_types::*;
+12 + use adapteros_api::*;
+   |
+
+error[E0560]: struct `MetricsConfig` has no field named `collection_interval`
+   --> tests/system_metrics.rs:117:9
+    |
+117 |         collection_interval: Duration::from_millis(100), // Fast for testing
+    |         ^^^^^^^^^^^^^^^^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+117 |         collection_interval_secs: Duration::from_millis(100), // Fast for testing
+    |                            +++++
+
+warning: unused imports: `ExecutorConfig` and `init_global_executor`
+  --> tests/inference_integration_tests.rs:15:36
+   |
+15 | use adapteros_deterministic_exec::{init_global_executor, spawn_deterministic, ExecutorConfig};
+   |                                    ^^^^^^^^^^^^^^^^^^^^                       ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+error[E0432]: unresolved import `adapteros_deterministic_exec::multi_agent::reset_global_seq`
+   --> tests/multi_agent_tick_sync.rs:6:22
+    |
+  6 |     next_global_seq, reset_global_seq, AgentBarrier, CoordinatedAction,
+    |                      ^^^^^^^^^^^^^^^^
+    |                      |
+    |                      no `reset_global_seq` in `multi_agent`
+    |                      help: a similar name exists in the module: `next_global_seq`
+    |
+note: found an item that was configured out
+   --> /Users/star/Dev/adapter-os/crates/adapteros-deterministic-exec/src/multi_agent.rs:166:8
+    |
+165 | #[cfg(test)]
+    |       ---- the item is gated here
+166 | pub fn reset_global_seq() {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: unused import: `adapteros_client::DefaultClient`
+  --> tests/server_api_integration.rs:13:5
+   |
+13 | use adapteros_client::DefaultClient;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+error[E0599]: no function or associated item named `new` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+ --> tests/policy_attestation.rs:9:24
+  |
+9 |     DeterminismPolicy::new(DeterminismConfig::default())
+  |                        ^^^ function or associated item not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0599]: no method named `to_hex` found for struct `PublicKey` in the current scope
+  --> tests/adapter_provenance.rs:18:30
+   |
+18 |     let key_hex = public_key.to_hex();
+   |                              ^^^^^^ method not found in `PublicKey`
+
+error[E0599]: no method named `unwrap` found for struct `Signature` in the current scope
+  --> tests/adapter_provenance.rs:28:55
+   |
+28 |     let signature = sign_bytes(&keypair, bundle_data).unwrap();
+   |                                                       ^^^^^^ method not found in `Signature`
+
+error[E0599]: no method named `unwrap` found for struct `Signature` in the current scope
+  --> tests/adapter_provenance.rs:57:55
+   |
+57 |     let signature = sign_bytes(&keypair, bundle_data).unwrap();
+   |                                                       ^^^^^^ method not found in `Signature`
+
+error[E0599]: no method named `device_name` found for struct `MetalKernels` in the current scope
+   --> tests/determinism_two_node.rs:258:19
+    |
+258 |     assert_eq!(k1.device_name(), k2.device_name());
+    |                   ^^^^^^^^^^^ method not found in `MetalKernels`
+    |
+   ::: /Users/star/Dev/adapter-os/crates/adapteros-lora-kernel-api/src/lib.rs:60:8
+    |
+ 60 |     fn device_name(&self) -> &str;
+    |        ----------- the method is available for `MetalKernels` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `FusedKernels` which provides `device_name` is implemented but not in scope; perhaps you want to import it
+    |
+  9 + use adapteros_lora_kernel_api::FusedKernels;
+    |
+
+error[E0599]: no method named `device_name` found for struct `MetalKernels` in the current scope
+   --> tests/determinism_two_node.rs:258:37
+    |
+258 |     assert_eq!(k1.device_name(), k2.device_name());
+    |                                     ^^^^^^^^^^^ method not found in `MetalKernels`
+    |
+   ::: /Users/star/Dev/adapter-os/crates/adapteros-lora-kernel-api/src/lib.rs:60:8
+    |
+ 60 |     fn device_name(&self) -> &str;
+    |        ----------- the method is available for `MetalKernels` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `FusedKernels` which provides `device_name` is implemented but not in scope; perhaps you want to import it
+    |
+  9 + use adapteros_lora_kernel_api::FusedKernels;
+    |
+
+error[E0599]: no method named `to_hex` found for struct `PublicKey` in the current scope
+  --> tests/adapter_provenance.rs:77:42
+   |
+77 |         signer_key: keypair.public_key().to_hex(),
+   |                                          ^^^^^^ method not found in `PublicKey`
+
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+  --> tests/policy_attestation.rs:26:20
+   |
+26 |     assert!(policy.validate_backend_attestation(&report).is_ok());
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0624]: method `collect_and_process_metrics` is private
+   --> tests/system_metrics.rs:128:26
+    |
+128 |     let result = monitor.collect_and_process_metrics().await;
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ private method
+    |
+   ::: /Users/star/Dev/adapter-os/crates/adapteros-system-metrics/src/monitor.rs:89:5
+    |
+ 89 |     async fn collect_and_process_metrics(&mut self) -> Result<()> {
+    |     ------------------------------------------------------------- private method defined here
+
+error[E0599]: no method named `device_name` found for struct `MetalKernels` in the current scope
+   --> tests/determinism_two_node.rs:260:53
+    |
+260 |     println!("✓ Both nodes use same device: {}", k1.device_name());
+    |                                                     ^^^^^^^^^^^ method not found in `MetalKernels`
+    |
+   ::: /Users/star/Dev/adapter-os/crates/adapteros-lora-kernel-api/src/lib.rs:60:8
+    |
+ 60 |     fn device_name(&self) -> &str;
+    |        ----------- the method is available for `MetalKernels` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `FusedKernels` which provides `device_name` is implemented but not in scope; perhaps you want to import it
+    |
+  9 + use adapteros_lora_kernel_api::FusedKernels;
+    |
+
+error[E0609]: no field `collection_interval` on type `MetricsConfig`
+   --> tests/system_metrics.rs:187:23
+    |
+187 |     assert_eq!(config.collection_interval, Duration::from_secs(30));
+    |                       ^^^^^^^^^^^^^^^^^^^ unknown field
+    |
+help: a field with a similar name exists
+    |
+187 |     assert_eq!(config.collection_interval_secs, Duration::from_secs(30));
+    |                                          +++++
+
+error[E0609]: no field `max_cpu_usage` on type `ThresholdsConfig`
+   --> tests/system_metrics.rs:194:27
+    |
+194 |     assert_eq!(thresholds.max_cpu_usage, 80.0);
+    |                           ^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `cpu_warning`, `cpu_critical`, `memory_warning`, `memory_critical`, `disk_warning` ... and 4 others
+
+error[E0609]: no field `max_memory_usage` on type `ThresholdsConfig`
+   --> tests/system_metrics.rs:195:27
+    |
+195 |     assert_eq!(thresholds.max_memory_usage, 90.0);
+    |                           ^^^^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `cpu_warning`, `cpu_critical`, `memory_warning`, `memory_critical`, `disk_warning` ... and 4 others
+
+error[E0609]: no field `max_disk_usage` on type `ThresholdsConfig`
+   --> tests/system_metrics.rs:196:27
+    |
+196 |     assert_eq!(thresholds.max_disk_usage, 95.0);
+    |                           ^^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `cpu_warning`, `cpu_critical`, `memory_warning`, `memory_critical`, `disk_warning` ... and 4 others
+
+error[E0609]: no field `max_gpu_utilization` on type `ThresholdsConfig`
+   --> tests/system_metrics.rs:197:27
+    |
+197 |     assert_eq!(thresholds.max_gpu_utilization, 95.0);
+    |                           ^^^^^^^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `cpu_warning`, `cpu_critical`, `memory_warning`, `memory_critical`, `disk_warning` ... and 4 others
+
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+  --> tests/policy_attestation.rs:43:25
+   |
+43 |     let result = policy.validate_backend_attestation(&report);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0599]: no method named `to_hex` found for struct `PublicKey` in the current scope
+  --> tests/adapter_provenance.rs:99:55
+   |
+99 |     let allowlist = vec![allowed_keypair.public_key().to_hex()];
+   |                                                       ^^^^^^ method not found in `PublicKey`
+
+For more information about this error, try `rustc --explain E0432`.
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+  --> tests/policy_attestation.rs:61:25
+   |
+61 |     let result = policy.validate_backend_attestation(&report);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0599]: no method named `to_hex` found for struct `PublicKey` in the current scope
+   --> tests/adapter_provenance.rs:101:52
+    |
+101 |     let allowed_key = allowed_keypair.public_key().to_hex();
+    |                                                    ^^^^^^ method not found in `PublicKey`
+
+error[E0599]: no method named `to_hex` found for struct `PublicKey` in the current scope
+   --> tests/adapter_provenance.rs:102:58
+    |
+102 |     let disallowed_key = disallowed_keypair.public_key().to_hex();
+    |                                                          ^^^^^^ method not found in `PublicKey`
+
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+  --> tests/policy_attestation.rs:80:25
+   |
+80 |     let result = policy.validate_backend_attestation(&report);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error: could not compile `adapter-os` (test "multi_agent_tick_sync") due to 1 previous error
+warning: unused variable: `bundle_hash`
+  --> tests/adapter_provenance.rs:40:9
+   |
+40 |     let bundle_hash = B3Hash::hash(b"unsigned_bundle");
+   |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bundle_hash`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+error: could not compile `adapter-os` (test "kernel_regression") due to 3 previous errors; 1 warning emitted
+error: could not compile `adapter-os` (test "inference_integration_tests") due to 11 previous errors; 1 warning emitted
+For more information about this error, try `rustc --explain E0599`.
+Some errors have detailed explanations: E0061, E0599.
+For more information about an error, try `rustc --explain E0061`.
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+  --> tests/policy_attestation.rs:99:25
+   |
+99 |     let result = policy.validate_backend_attestation(&report);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error: could not compile `adapter-os` (test "adapter_provenance") due to 7 previous errors; 1 warning emitted
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+   --> tests/policy_attestation.rs:118:25
+    |
+118 |     let result = policy.validate_backend_attestation(&report);
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0277]: the trait bound `adapteros_system_metrics::SystemMetrics: serde::Serialize` is not satisfied
+    --> tests/system_metrics.rs:268:38
+     |
+ 268 |     let json = serde_json::to_string(&metrics).expect("Failed to serialize metrics");
+     |                --------------------- ^^^^^^^^ the trait `serde_core::ser::Serialize` is not implemented for `adapteros_system_metrics::SystemMetrics`
+     |                |
+     |                required by a bound introduced by this call
+     |
+     = note: for local types consider adding `#[derive(serde::Serialize)]` to your `adapteros_system_metrics::SystemMetrics` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `serde_core::ser::Serialize`:
+               &'a T
+               &'a mut T
+               ()
+               (T,)
+               (T0, T1)
+               (T0, T1, T2)
+               (T0, T1, T2, T3)
+               (T0, T1, T2, T3, T4)
+             and 1440 others
+note: required by a bound in `serde_json::to_string`
+    --> /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.145/src/ser.rs:2247:17
+     |
+2245 | pub fn to_string<T>(value: &T) -> Result<String>
+     |        --------- required by a bound in this function
+2246 | where
+2247 |     T: ?Sized + Serialize,
+     |                 ^^^^^^^^^ required by this bound in `to_string`
+
+error: could not compile `adapter-os` (test "determinism_two_node") due to 6 previous errors; 1 warning emitted
+error[E0308]: mismatched types
+   --> tests/policy_attestation.rs:126:18
+    |
+126 |     config.rng = RngSeedingMethod::FixedSeed(42);
+    |     ----------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `RngSeedingMethod`, found a different `RngSeedingMethod`
+    |     |
+    |     expected due to the type of this binding
+    |
+    = note: `RngSeedingMethod` and `RngSeedingMethod` have similar names, but are actually distinct types
+note: `RngSeedingMethod` is defined in crate `adapteros_lora_kernel_api`
+   --> /Users/star/Dev/adapter-os/crates/adapteros-lora-kernel-api/src/attestation.rs:31:1
+    |
+ 31 | pub enum RngSeedingMethod {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+note: `RngSeedingMethod` is defined in crate `adapteros_policy`
+   --> /Users/star/Dev/adapter-os/crates/adapteros-policy/src/packs/determinism.rs:30:1
+    |
+ 30 | pub enum RngSeedingMethod {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `new` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+   --> tests/policy_attestation.rs:127:37
+    |
+127 |     let policy = DeterminismPolicy::new(config);
+    |                                     ^^^ function or associated item not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+   --> tests/policy_attestation.rs:160:20
+    |
+160 |     assert!(policy.validate_backend_attestation(&report).is_ok());
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+error[E0277]: the trait bound `adapteros_system_metrics::SystemMetrics: serde::Deserialize<'de>` is not satisfied
+    --> tests/system_metrics.rs:270:9
+     |
+ 270 |         serde_json::from_str(&json).expect("Failed to deserialize metrics");
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `serde_core::de::Deserialize<'_>` is not implemented for `adapteros_system_metrics::SystemMetrics`
+     |
+     = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `adapteros_system_metrics::SystemMetrics` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `serde_core::de::Deserialize<'de>`:
+               `&'a Path` implements `serde_core::de::Deserialize<'de>`
+               `&'a [u8]` implements `serde_core::de::Deserialize<'de>`
+               `&'a serde_json::value::RawValue` implements `serde_core::de::Deserialize<'de>`
+               `&'a str` implements `serde_core::de::Deserialize<'de>`
+               `()` implements `serde_core::de::Deserialize<'de>`
+               `(T,)` implements `serde_core::de::Deserialize<'de>`
+               `(T0, T1)` implements `serde_core::de::Deserialize<'de>`
+               `(T0, T1, T2)` implements `serde_core::de::Deserialize<'de>`
+             and 1453 others
+note: required by a bound in `serde_json::from_str`
+    --> /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.145/src/de.rs:2699:8
+     |
+2697 | pub fn from_str<'a, T>(s: &'a str) -> Result<T>
+     |        -------- required by a bound in this function
+2698 | where
+2699 |     T: de::Deserialize<'a>,
+     |        ^^^^^^^^^^^^^^^^^^^ required by this bound in `from_str`
+
+error[E0599]: no method named `validate_backend_attestation` found for struct `adapteros_manifest::DeterminismPolicy` in the current scope
+   --> tests/policy_attestation.rs:178:25
+    |
+178 |     let result = policy.validate_backend_attestation(&report);
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `adapteros_manifest::DeterminismPolicy`
+
+Some errors have detailed explanations: E0308, E0599, E0659.
+For more information about an error, try `rustc --explain E0308`.
+error[E0308]: mismatched types
+  --> tests/server_api_integration.rs:47:31
+   |
+47 |                 bearer_token: Some("test-token".to_string()),
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `Option<String>`
+   |
+   = note: expected struct `std::string::String`
+                found enum `Option<std::string::String>`
+
+error[E0308]: mismatched types
+  --> tests/server_api_integration.rs:53:31
+   |
+53 |     let state = AppState::new(db, jwt_secret, api_config, metrics_exporter);
+   |                 ------------- ^^ expected `Db`, found `Arc<Db>`
+   |                 |
+   |                 arguments to this function are incorrect
+   |
+   = note: expected struct `Db`
+              found struct `Arc<Db>`
+note: associated function defined here
+  --> /Users/star/Dev/adapter-os/crates/adapteros-server-api/src/state.rs:65:12
+   |
+65 |     pub fn new(
+   |            ^^^
+
+warning: unused variable: `telemetry_writer`
+  --> tests/system_metrics.rs:82:9
+   |
+82 |     let telemetry_writer = TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024)
+   |         ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_telemetry_writer`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `collector`
+   --> tests/system_metrics.rs:243:13
+    |
+243 |     let mut collector = SystemMetricsCollector::new();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_collector`
+
+warning: variable does not need to be mutable
+   --> tests/system_metrics.rs:243:9
+    |
+243 |     let mut collector = SystemMetricsCollector::new();
+    |         ----^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+  --> tests/server_api_integration.rs:77:75
+   |
+77 |                 .body(Body::from(serde_json::to_vec(&create_tenant_req)?))?,
+   |                  ---------------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+   |                  |
+   |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = help: the following other types implement trait `From<T>`:
+             `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+             `AosError` implements `From<anyhow::Error>`
+             `AosError` implements `From<rusqlite::error::Error>`
+             `AosError` implements `From<serde_json::Error>`
+             `AosError` implements `From<sqlx::Error>`
+             `AosError` implements `From<std::io::Error>`
+             `AosError` implements `From<zip::result::ZipError>`
+
+Some errors have detailed explanations: E0277, E0432, E0560, E0609, E0624.
+For more information about an error, try `rustc --explain E0277`.
+error[E0277]: `?` couldn't convert the error to `AosError`
+  --> tests/server_api_integration.rs:79:15
+   |
+70 |       let response = app
+   |  ____________________-
+71 | |         .clone()
+72 | |         .oneshot(
+73 | |             Request::builder()
+...  |
+79 | |         .await?;
+   | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+   | |______________|
+   |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = help: the following other types implement trait `From<T>`:
+             `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+             `AosError` implements `From<anyhow::Error>`
+             `AosError` implements `From<rusqlite::error::Error>`
+             `AosError` implements `From<serde_json::Error>`
+             `AosError` implements `From<sqlx::Error>`
+             `AosError` implements `From<std::io::Error>`
+             `AosError` implements `From<zip::result::ZipError>`
+
+error: could not compile `adapter-os` (test "policy_attestation") due to 24 previous errors
+error[E0277]: `?` couldn't convert the error to `AosError`
+  --> tests/server_api_integration.rs:83:93
+   |
+83 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+   |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+   |                                 |
+   |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = help: the following other types implement trait `From<T>`:
+             `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+             `AosError` implements `From<anyhow::Error>`
+             `AosError` implements `From<rusqlite::error::Error>`
+             `AosError` implements `From<serde_json::Error>`
+             `AosError` implements `From<sqlx::Error>`
+             `AosError` implements `From<std::io::Error>`
+             `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:100:72
+    |
+100 |                 .body(Body::from(serde_json::to_vec(&build_plan_req)?))?,
+    |                  ------------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:102:15
+    |
+ 93 |       let response = app
+    |  ____________________-
+ 94 | |         .clone()
+ 95 | |         .oneshot(
+ 96 | |             Request::builder()
+...   |
+102 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:106:93
+    |
+106 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:117:37
+    |
+117 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:119:15
+    |
+111 |       let response = app
+    |  ____________________-
+112 | |         .clone()
+113 | |         .oneshot(
+114 | |             Request::builder()
+...   |
+119 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error: could not compile `adapter-os` (test "system_metrics") due to 10 previous errors; 5 warnings emitted
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:123:93
+    |
+123 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:150:75
+    |
+150 |                 .body(Body::from(serde_json::to_vec(&create_tenant_req)?))?,
+    |                  ---------------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:152:15
+    |
+143 |       let response = app
+    |  ____________________-
+144 | |         .clone()
+145 | |         .oneshot(
+146 | |             Request::builder()
+...   |
+152 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:156:93
+    |
+156 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:192:74
+    |
+192 |                 .body(Body::from(serde_json::to_vec(&apply_policy_req)?))?,
+    |                  --------------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:194:15
+    |
+185 |       let response = app
+    |  ____________________-
+186 | |         .clone()
+187 | |         .oneshot(
+188 | |             Request::builder()
+...   |
+194 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:206:37
+    |
+206 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:208:15
+    |
+200 |       let response = app
+    |  ____________________-
+201 | |         .clone()
+202 | |         .oneshot(
+203 | |             Request::builder()
+...   |
+208 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:212:93
+    |
+212 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:228:70
+    |
+228 |                 .body(Body::from(serde_json::to_vec(&validate_req)?))?,
+    |                  ----------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:230:15
+    |
+221 |       let response = app
+    |  ____________________-
+222 | |         .clone()
+223 | |         .oneshot(
+224 | |             Request::builder()
+...   |
+230 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:234:93
+    |
+234 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:285:68
+    |
+285 |                 .body(Body::from(serde_json::to_vec(&verify_req)?))?,
+    |                  --------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:287:15
+    |
+278 |       let response = app
+    |  ____________________-
+279 | |         .clone()
+280 | |         .oneshot(
+281 | |             Request::builder()
+...   |
+287 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:312:37
+    |
+312 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:314:15
+    |
+303 |       let response = app
+    |  ____________________-
+304 | |         .clone()
+305 | |         .oneshot(
+306 | |             Request::builder()
+...   |
+314 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:332:37
+    |
+332 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:334:15
+    |
+325 |       let response = app
+    |  ____________________-
+326 | |         .clone()
+327 | |         .oneshot(
+328 | |             Request::builder()
+...   |
+334 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:364:37
+    |
+364 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:366:15
+    |
+358 |       let response = app
+    |  ____________________-
+359 | |         .clone()
+360 | |         .oneshot(
+361 | |             Request::builder()
+...   |
+366 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:370:93
+    |
+370 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:387:67
+    |
+387 |                 .body(Body::from(serde_json::to_vec(&login_req)?))?,
+    |                  -------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:389:15
+    |
+380 |       let response = app
+    |  ____________________-
+381 | |         .clone()
+382 | |         .oneshot(
+383 | |             Request::builder()
+...   |
+389 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:406:37
+    |
+406 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:408:15
+    |
+400 |       let response = app
+    |  ____________________-
+401 | |         .clone()
+402 | |         .oneshot(
+403 | |             Request::builder()
+...   |
+408 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:432:50
+    |
+432 |                 .body(Body::from("invalid json"))?,
+    |                  --------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:434:15
+    |
+425 |       let response = app
+    |  ____________________-
+426 | |         .clone()
+427 | |         .oneshot(
+428 | |             Request::builder()
+...   |
+434 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:452:69
+    |
+452 |                 .body(Body::from(serde_json::to_vec(&invalid_req)?))?,
+    |                  ---------------------------------------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:454:15
+    |
+445 |       let response = app
+    |  ____________________-
+446 | |         .clone()
+447 | |         .oneshot(
+448 | |             Request::builder()
+...   |
+454 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:466:37
+    |
+466 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:468:15
+    |
+460 |       let response = app
+    |  ____________________-
+461 | |         .clone()
+462 | |         .oneshot(
+463 | |             Request::builder()
+...   |
+468 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:480:37
+    |
+480 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:482:15
+    |
+474 |       let response = app
+    |  ____________________-
+475 | |         .clone()
+476 | |         .oneshot(
+477 | |             Request::builder()
+...   |
+482 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:504:37
+    |
+504 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:506:15
+    |
+498 |       let response = app
+    |  ____________________-
+499 | |         .clone()
+500 | |         .oneshot(
+501 | |             Request::builder()
+...   |
+506 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:510:93
+    |
+510 |         serde_json::from_slice(&axum::body::to_bytes(response.into_body(), usize::MAX).await?)?;
+    |                                 ------------------------------------------------------------^ the trait `From<axum::Error>` is not implemented for `AosError`
+    |                                 |
+    |                                 this can't be annotated with `?` because it has type `Result<_, axum::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:522:37
+    |
+522 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:524:15
+    |
+516 |       let response = app
+    |  ____________________-
+517 | |         .clone()
+518 | |         .oneshot(
+519 | |             Request::builder()
+...   |
+524 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:537:37
+    |
+537 |                 .body(Body::empty())?,
+    |                  -------------------^ the trait `From<axum::http::Error>` is not implemented for `AosError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, axum::http::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> tests/server_api_integration.rs:539:15
+    |
+531 |       let response = app
+    |  ____________________-
+532 | |         .clone()
+533 | |         .oneshot(
+534 | |             Request::builder()
+...   |
+539 | |         .await?;
+    | |              -^ the trait `From<Infallible>` is not implemented for `AosError`
+    | |______________|
+    |                this can't be annotated with `?` because it has type `Result<_, Infallible>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<adapteros_lora_quant::QuantizationError>`
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+Some errors have detailed explanations: E0277, E0308, E0432.
+error: could not compile `adapter-os` (test "server_api_integration") due to 51 previous errors; 1 warning emitted

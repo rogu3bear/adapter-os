@@ -1,0 +1,1402 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /Users/star/Dev/adapter-os/fuzz/Cargo.toml
+workspace: /Users/star/Dev/adapter-os/Cargo.toml
+   Compiling pyo3-build-config v0.22.6
+warning: field `cause` is never read
+  --> crates/adapteros-deterministic-exec/src/lib.rs:81:5
+   |
+80 | pub struct CancelToken {
+   |            ----------- field in this struct
+81 |     cause: String,
+   |     ^^^^^
+   |
+   = note: `CancelToken` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `executor` is never read
+   --> crates/adapteros-deterministic-exec/src/lib.rs:183:5
+    |
+181 | pub struct DeterministicJoinHandle {
+    |            ----------------------- field in this struct
+182 |     task_id: TaskId,
+183 |     executor: Arc<DeterministicExecutor>,
+    |     ^^^^^^^^
+
+warning: field `task_id` is never read
+   --> crates/adapteros-deterministic-exec/src/lib.rs:289:5
+    |
+287 | pub struct TickTimeout {
+    |            ----------- field in this struct
+288 |     /// Task ID this timeout belongs to
+289 |     task_id: TaskId,
+    |     ^^^^^^^
+    |
+    = note: `TickTimeout` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `agent_ids` is never read
+  --> crates/adapteros-deterministic-exec/src/multi_agent.rs:39:5
+   |
+37 | pub struct AgentBarrier {
+   |            ------------ field in this struct
+38 |     /// Expected agent IDs
+39 |     agent_ids: Vec<String>,
+   |     ^^^^^^^^^
+   |
+   = note: `AgentBarrier` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: `adapteros-deterministic-exec` (lib) generated 4 warnings
+warning: field `keywords` is never read
+   --> crates/adapteros-codegraph/src/framework_detector.rs:277:5
+    |
+273 | struct FrameworkRule {
+    |        ------------- field in this struct
+...
+277 |     keywords: &'static [&'static str],
+    |     ^^^^^^^^
+    |
+    = note: `FrameworkRule` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: field `go_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/go.rs:17:5
+   |
+13 | pub struct GoParser {
+   |            -------- field in this struct
+...
+17 |     go_lang: TSLanguage,
+   |     ^^^^^^^
+
+warning: field `javascript_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/javascript.rs:17:5
+   |
+13 | pub struct JavaScriptParser {
+   |            ---------------- field in this struct
+...
+17 |     javascript_lang: TSLanguage,
+   |     ^^^^^^^^^^^^^^^
+
+warning: field `python_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/python.rs:17:5
+   |
+13 | pub struct PythonParser {
+   |            ------------ field in this struct
+...
+17 |     python_lang: TSLanguage,
+   |     ^^^^^^^^^^^
+
+warning: field `rust_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/rust.rs:30:5
+   |
+26 | pub struct RustParser {
+   |            ---------- field in this struct
+...
+30 |     rust_lang: TSLanguage,
+   |     ^^^^^^^^^
+
+warning: field `typescript_lang` is never read
+  --> crates/adapteros-codegraph/src/parsers/typescript.rs:17:5
+   |
+13 | pub struct TypeScriptParser {
+   |            ---------------- field in this struct
+...
+17 |     typescript_lang: TSLanguage,
+   |     ^^^^^^^^^^^^^^^
+
+warning: `adapteros-codegraph` (lib) generated 6 warnings
+warning: unused variable: `repo_id`
+   --> crates/adapteros-lora-rag/src/evidence_manager.rs:141:9
+    |
+141 |         repo_id: Option<&str>,
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_repo_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: field `tenant_id` is never read
+  --> crates/adapteros-lora-rag/src/evidence_manager.rs:85:5
+   |
+84 | pub struct EvidenceIndexManager {
+   |            -------------------- field in this struct
+85 |     tenant_id: String,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adapteros-lora-rag` (lib) generated 2 warnings
+warning: adapteros-lora-kernel-mtl@0.1.0: Kernel hash: f53b0b6b761cff8667316c5078b3dfe6cdf19cf8aeca3a685d140bb71d195703
+warning: unused `Result` that must be used
+   --> crates/adapteros-lora-lifecycle/src/lib.rs:182:17
+    |
+182 | /                 spawn_deterministic("Activation pct update".to_string(), async move {
+183 | |                     if let Err(e) = sqlx::query(
+184 | |                         "UPDATE adapters SET activation_pct = ?, updated_at = datetime('now') \
+185 | |                          WHERE adapter_id = ?",
+...   |
+194 | |                 });
+    | |__________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+182 |                 let _ = spawn_deterministic("Activation pct update".to_string(), async move {
+    |                 +++++++
+
+warning: `adapteros-lora-lifecycle` (lib) generated 1 warning
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> crates/adapteros-lora-worker/src/deadlock.rs:245:23
+    |
+245 |     pub async fn lock(&self) -> Result<tokio::sync::MutexGuard<T>> {
+    |                       ^^^^^            -------------------------- the same lifetime is hidden here
+    |                       |
+    |                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+245 |     pub async fn lock(&self) -> Result<tokio::sync::MutexGuard<'_, T>> {
+    |                                                                +++
+
+warning: `adapteros-lora-worker` (lib) generated 1 warning
+warning: field `policy_watcher` is never read
+  --> crates/adapteros-orchestrator/src/federation_daemon.rs:64:5
+   |
+60 | pub struct FederationDaemon {
+   |            ---------------- field in this struct
+...
+64 |     policy_watcher: Arc<PolicyHashWatcher>,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adapteros-orchestrator` (lib) generated 1 warning
+warning: unused import: `AosError`
+ --> crates/adapteros-trace/src/validator.rs:5:22
+  |
+5 | use adapteros_core::{AosError, Result};
+  |                      ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: adapteros-lora-mlx-ffi@0.1.0: MLX FFI build: REAL
+warning: adapteros-lora-mlx-ffi@0.1.0: Using includes: /opt/homebrew/include | libs: /opt/homebrew/lib (source: default:/opt/homebrew)
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:267:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   267 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:283:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   283 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:412:14: warning: unused variable 'arr_b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   412 |         auto arr_b = reinterpret_cast<StubArray*>(b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:523:14: warning: unused variable 'a' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   523 |         auto a = reinterpret_cast<StubArray*>(lora_a);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:524:14: warning: unused variable 'b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   524 |         auto b = reinterpret_cast<StubArray*>(lora_b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: 5 warnings generated.
+warning: `adapteros-trace` (lib) generated 1 warning (run `cargo fix --lib -p adapteros-trace` to apply 1 suggestion)
+warning: type `wchar_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:6:10
+  |
+6 | pub type wchar_t = ::std::os::raw::c_int;
+  |          ^^^^^^^ help: convert the identifier to upper camel case: `WcharT`
+  |
+  = note: `#[warn(non_camel_case_types)]` on by default
+
+warning: type `max_align_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:7:10
+  |
+7 | pub type max_align_t = f64;
+  |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `MaxAlignT`
+
+warning: type `int_least8_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:8:10
+  |
+8 | pub type int_least8_t = i8;
+  |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast8T`
+
+warning: type `int_least16_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:9:10
+  |
+9 | pub type int_least16_t = i16;
+  |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast16T`
+
+warning: type `int_least32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:10:10
+   |
+10 | pub type int_least32_t = i32;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast32T`
+
+warning: type `int_least64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:11:10
+   |
+11 | pub type int_least64_t = i64;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast64T`
+
+warning: type `uint_least8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:12:10
+   |
+12 | pub type uint_least8_t = u8;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast8T`
+
+warning: type `uint_least16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:13:10
+   |
+13 | pub type uint_least16_t = u16;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast16T`
+
+warning: type `uint_least32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:14:10
+   |
+14 | pub type uint_least32_t = u32;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast32T`
+
+warning: type `uint_least64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:15:10
+   |
+15 | pub type uint_least64_t = u64;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast64T`
+
+warning: type `int_fast8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:16:10
+   |
+16 | pub type int_fast8_t = i8;
+   |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast8T`
+
+warning: type `int_fast16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:17:10
+   |
+17 | pub type int_fast16_t = i16;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast16T`
+
+warning: type `int_fast32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:18:10
+   |
+18 | pub type int_fast32_t = i32;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast32T`
+
+warning: type `int_fast64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:19:10
+   |
+19 | pub type int_fast64_t = i64;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast64T`
+
+warning: type `uint_fast8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:20:10
+   |
+20 | pub type uint_fast8_t = u8;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast8T`
+
+warning: type `uint_fast16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:21:10
+   |
+21 | pub type uint_fast16_t = u16;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast16T`
+
+warning: type `uint_fast32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:22:10
+   |
+22 | pub type uint_fast32_t = u32;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast32T`
+
+warning: type `uint_fast64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:23:10
+   |
+23 | pub type uint_fast64_t = u64;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast64T`
+
+warning: type `__int8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:24:10
+   |
+24 | pub type __int8_t = ::std::os::raw::c_schar;
+   |          ^^^^^^^^ help: convert the identifier to upper camel case: `Int8T`
+
+warning: type `__uint8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:25:10
+   |
+25 | pub type __uint8_t = ::std::os::raw::c_uchar;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Uint8T`
+
+warning: type `__int16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:26:10
+   |
+26 | pub type __int16_t = ::std::os::raw::c_short;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Int16T`
+
+warning: type `__uint16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:27:10
+   |
+27 | pub type __uint16_t = ::std::os::raw::c_ushort;
+   |          ^^^^^^^^^^ help: convert the identifier to upper camel case: `Uint16T`
+
+warning: type `__int32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:28:10
+   |
+28 | pub type __int32_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Int32T`
+
+warning: type `__uint32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:29:10
+   |
+29 | pub type __uint32_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^ help: convert the identifier to upper camel case: `Uint32T`
+
+warning: type `__int64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:30:10
+   |
+30 | pub type __int64_t = ::std::os::raw::c_longlong;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Int64T`
+
+warning: type `__uint64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:31:10
+   |
+31 | pub type __uint64_t = ::std::os::raw::c_ulonglong;
+   |          ^^^^^^^^^^ help: convert the identifier to upper camel case: `Uint64T`
+
+warning: type `__darwin_intptr_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:32:10
+   |
+32 | pub type __darwin_intptr_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinIntptrT`
+
+warning: type `__darwin_natural_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:33:10
+   |
+33 | pub type __darwin_natural_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinNaturalT`
+
+warning: type `__darwin_ct_rune_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:34:10
+   |
+34 | pub type __darwin_ct_rune_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinCtRuneT`
+
+warning: type `__darwin_mbstate_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:76:10
+   |
+76 | pub type __darwin_mbstate_t = __mbstate_t;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinMbstateT`
+
+warning: type `__darwin_ptrdiff_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:77:10
+   |
+77 | pub type __darwin_ptrdiff_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPtrdiffT`
+
+warning: type `__darwin_size_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:78:10
+   |
+78 | pub type __darwin_size_t = ::std::os::raw::c_ulong;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSizeT`
+
+warning: type `__darwin_wchar_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:79:10
+   |
+79 | pub type __darwin_wchar_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinWcharT`
+
+warning: type `__darwin_rune_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:80:10
+   |
+80 | pub type __darwin_rune_t = __darwin_wchar_t;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinRuneT`
+
+warning: type `__darwin_wint_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:81:10
+   |
+81 | pub type __darwin_wint_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinWintT`
+
+warning: type `__darwin_clock_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:82:10
+   |
+82 | pub type __darwin_clock_t = ::std::os::raw::c_ulong;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinClockT`
+
+warning: type `__darwin_socklen_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:83:10
+   |
+83 | pub type __darwin_socklen_t = __uint32_t;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSocklenT`
+
+warning: type `__darwin_ssize_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:84:10
+   |
+84 | pub type __darwin_ssize_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSsizeT`
+
+warning: type `__darwin_time_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:85:10
+   |
+85 | pub type __darwin_time_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinTimeT`
+
+warning: type `__darwin_blkcnt_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:86:10
+   |
+86 | pub type __darwin_blkcnt_t = __int64_t;
+   |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinBlkcntT`
+
+warning: type `__darwin_blksize_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:87:10
+   |
+87 | pub type __darwin_blksize_t = __int32_t;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinBlksizeT`
+
+warning: type `__darwin_dev_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:88:10
+   |
+88 | pub type __darwin_dev_t = __int32_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinDevT`
+
+warning: type `__darwin_fsblkcnt_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:89:10
+   |
+89 | pub type __darwin_fsblkcnt_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinFsblkcntT`
+
+warning: type `__darwin_fsfilcnt_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:90:10
+   |
+90 | pub type __darwin_fsfilcnt_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinFsfilcntT`
+
+warning: type `__darwin_gid_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:91:10
+   |
+91 | pub type __darwin_gid_t = __uint32_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinGidT`
+
+warning: type `__darwin_id_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:92:10
+   |
+92 | pub type __darwin_id_t = __uint32_t;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinIdT`
+
+warning: type `__darwin_ino64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:93:10
+   |
+93 | pub type __darwin_ino64_t = __uint64_t;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinIno64T`
+
+warning: type `__darwin_ino_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:94:10
+   |
+94 | pub type __darwin_ino_t = __darwin_ino64_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinInoT`
+
+warning: type `__darwin_mach_port_name_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:95:10
+   |
+95 | pub type __darwin_mach_port_name_t = __darwin_natural_t;
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinMachPortNameT`
+
+warning: type `__darwin_mach_port_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:96:10
+   |
+96 | pub type __darwin_mach_port_t = __darwin_mach_port_name_t;
+   |          ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinMachPortT`
+
+warning: type `__darwin_mode_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:97:10
+   |
+97 | pub type __darwin_mode_t = __uint16_t;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinModeT`
+
+warning: type `__darwin_off_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:98:10
+   |
+98 | pub type __darwin_off_t = __int64_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinOffT`
+
+warning: type `__darwin_pid_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:99:10
+   |
+99 | pub type __darwin_pid_t = __int32_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPidT`
+
+warning: type `__darwin_sigset_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:100:10
+    |
+100 | pub type __darwin_sigset_t = __uint32_t;
+    |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSigsetT`
+
+warning: type `__darwin_suseconds_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:101:10
+    |
+101 | pub type __darwin_suseconds_t = __int32_t;
+    |          ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSusecondsT`
+
+warning: type `__darwin_uid_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:102:10
+    |
+102 | pub type __darwin_uid_t = __uint32_t;
+    |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUidT`
+
+warning: type `__darwin_useconds_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:103:10
+    |
+103 | pub type __darwin_useconds_t = __uint32_t;
+    |          ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUsecondsT`
+
+warning: type `__darwin_uuid_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:104:10
+    |
+104 | pub type __darwin_uuid_t = [::std::os::raw::c_uchar; 16usize];
+    |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUuidT`
+
+warning: type `__darwin_uuid_string_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:105:10
+    |
+105 | pub type __darwin_uuid_string_t = [::std::os::raw::c_char; 37usize];
+    |          ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUuidStringT`
+
+warning: type `__darwin_pthread_attr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:547:10
+    |
+547 | pub type __darwin_pthread_attr_t = _opaque_pthread_attr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadAttrT`
+
+warning: type `__darwin_pthread_cond_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:548:10
+    |
+548 | pub type __darwin_pthread_cond_t = _opaque_pthread_cond_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadCondT`
+
+warning: type `__darwin_pthread_condattr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:549:10
+    |
+549 | pub type __darwin_pthread_condattr_t = _opaque_pthread_condattr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadCondattrT`
+
+warning: type `__darwin_pthread_key_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:550:10
+    |
+550 | pub type __darwin_pthread_key_t = ::std::os::raw::c_ulong;
+    |          ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadKeyT`
+
+warning: type `__darwin_pthread_mutex_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:551:10
+    |
+551 | pub type __darwin_pthread_mutex_t = _opaque_pthread_mutex_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadMutexT`
+
+warning: type `__darwin_pthread_mutexattr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:552:10
+    |
+552 | pub type __darwin_pthread_mutexattr_t = _opaque_pthread_mutexattr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadMutexattrT`
+
+warning: type `__darwin_pthread_once_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:553:10
+    |
+553 | pub type __darwin_pthread_once_t = _opaque_pthread_once_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadOnceT`
+
+warning: type `__darwin_pthread_rwlock_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:554:10
+    |
+554 | pub type __darwin_pthread_rwlock_t = _opaque_pthread_rwlock_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadRwlockT`
+
+warning: type `__darwin_pthread_rwlockattr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:555:10
+    |
+555 | pub type __darwin_pthread_rwlockattr_t = _opaque_pthread_rwlockattr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadRwlockattrT`
+
+warning: type `__darwin_pthread_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:556:10
+    |
+556 | pub type __darwin_pthread_t = *mut _opaque_pthread_t;
+    |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadT`
+
+warning: type `intmax_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:557:10
+    |
+557 | pub type intmax_t = ::std::os::raw::c_long;
+    |          ^^^^^^^^ help: convert the identifier to upper camel case: `IntmaxT`
+
+warning: type `uintmax_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:558:10
+    |
+558 | pub type uintmax_t = ::std::os::raw::c_ulong;
+    |          ^^^^^^^^^ help: convert the identifier to upper camel case: `UintmaxT`
+
+warning: type `mlx_array_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:564:10
+    |
+564 | pub type mlx_array_t = mlx_array;
+    |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `MlxArrayT`
+
+warning: type `mlx_model_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:570:10
+    |
+570 | pub type mlx_model_t = mlx_model;
+    |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `MlxModelT`
+
+warning: type `mlx_context_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:576:10
+    |
+576 | pub type mlx_context_t = mlx_context;
+    |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `MlxContextT`
+
+warning: type `__builtin_va_list` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:723:10
+    |
+723 | pub type __builtin_va_list = *mut ::std::os::raw::c_char;
+    |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `BuiltinVaList`
+
+warning: method `apply_loras` is never used
+  --> crates/adapteros-lora-mlx-ffi/src/backend.rs:96:8
+   |
+20 | impl MLXFFIBackend {
+   | ------------------ method in this implementation
+...
+96 |     fn apply_loras(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `apply_lora_transform` is never used
+  --> crates/adapteros-lora-mlx-ffi/src/routing.rs:90:4
+   |
+90 | fn apply_lora_transform(
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `__bool_true_false_are_defined` should have an upper case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:3:11
+  |
+3 | pub const __bool_true_false_are_defined: u32 = 1;
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper case: `__BOOL_TRUE_FALSE_ARE_DEFINED`
+  |
+  = note: `#[warn(non_upper_case_globals)]` on by default
+
+warning: constant `true_` should have an upper case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:4:11
+  |
+4 | pub const true_: u32 = 1;
+  |           ^^^^^ help: convert the identifier to upper case: `TRUE`
+
+warning: constant `false_` should have an upper case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:5:11
+  |
+5 | pub const false_: u32 = 0;
+  |           ^^^^^^ help: convert the identifier to upper case: `FALSE`
+
+warning: structure field `_mbstateL` should have a snake case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8a85a14be4adf7dc/out/bindings.rs:39:9
+   |
+39 |     pub _mbstateL: ::std::os::raw::c_longlong,
+   |         ^^^^^^^^^ help: convert the identifier to snake case: `_mbstate_l`
+   |
+   = note: `#[warn(non_snake_case)]` on by default
+
+warning: field `timeout` is never read
+   --> crates/adapteros-client/src/uds.rs:350:5
+    |
+348 | pub struct ConnectionPool {
+    |            -------------- field in this struct
+349 |     connections: Vec<UnixStream>,
+350 |     timeout: Duration,
+    |     ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:32:5
+   |
+32 |     async fn health(&self) -> Result<HealthResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+   = note: `#[warn(async_fn_in_trait)]` on by default
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+32 -     async fn health(&self) -> Result<HealthResponse>;
+32 +     fn health(&self) -> impl std::future::Future<Output = Result<HealthResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:33:5
+   |
+33 |     async fn login(&self, req: LoginRequest) -> Result<LoginResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+33 -     async fn login(&self, req: LoginRequest) -> Result<LoginResponse>;
+33 +     fn login(&self, req: LoginRequest) -> impl std::future::Future<Output = Result<LoginResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:34:5
+   |
+34 |     async fn logout(&self) -> Result<()>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+34 -     async fn logout(&self) -> Result<()>;
+34 +     fn logout(&self) -> impl std::future::Future<Output = Result<()>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:35:5
+   |
+35 |     async fn me(&self) -> Result<UserInfoResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+35 -     async fn me(&self) -> Result<UserInfoResponse>;
+35 +     fn me(&self) -> impl std::future::Future<Output = Result<UserInfoResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:38:5
+   |
+38 |     async fn list_tenants(&self) -> Result<Vec<TenantResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+38 -     async fn list_tenants(&self) -> Result<Vec<TenantResponse>>;
+38 +     fn list_tenants(&self) -> impl std::future::Future<Output = Result<Vec<TenantResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:39:5
+   |
+39 |     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<TenantResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+39 -     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<TenantResponse>;
+39 +     fn create_tenant(&self, req: CreateTenantRequest) -> impl std::future::Future<Output = Result<TenantResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:42:5
+   |
+42 |     async fn list_adapters(&self) -> Result<Vec<AdapterResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+42 -     async fn list_adapters(&self) -> Result<Vec<AdapterResponse>>;
+42 +     fn list_adapters(&self) -> impl std::future::Future<Output = Result<Vec<AdapterResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:43:5
+   |
+43 |     async fn register_adapter(&self, req: RegisterAdapterRequest) -> Result<AdapterResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+43 -     async fn register_adapter(&self, req: RegisterAdapterRequest) -> Result<AdapterResponse>;
+43 +     fn register_adapter(&self, req: RegisterAdapterRequest) -> impl std::future::Future<Output = Result<AdapterResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:44:5
+   |
+44 |     async fn evict_adapter(&self, adapter_id: &str) -> Result<()>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+44 -     async fn evict_adapter(&self, adapter_id: &str) -> Result<()>;
+44 +     fn evict_adapter(&self, adapter_id: &str) -> impl std::future::Future<Output = Result<()>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:45:5
+   |
+45 |     async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+45 -     async fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> Result<()>;
+45 +     fn pin_adapter(&self, adapter_id: &str, pinned: bool) -> impl std::future::Future<Output = Result<()>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:48:5
+   |
+48 |     async fn get_memory_usage(&self) -> Result<MemoryUsageResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+48 -     async fn get_memory_usage(&self) -> Result<MemoryUsageResponse>;
+48 +     fn get_memory_usage(&self) -> impl std::future::Future<Output = Result<MemoryUsageResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:51:5
+   |
+51 |     async fn start_adapter_training(
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+51 ~     fn start_adapter_training(
+52 |         &self,
+53 |         req: StartTrainingRequest,
+54 ~     ) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:55:5
+   |
+55 |     async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+55 -     async fn get_training_session(&self, session_id: &str) -> Result<TrainingSessionResponse>;
+55 +     fn get_training_session(&self, session_id: &str) -> impl std::future::Future<Output = Result<TrainingSessionResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:56:5
+   |
+56 |     async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+56 -     async fn list_training_sessions(&self) -> Result<Vec<TrainingSessionResponse>>;
+56 +     fn list_training_sessions(&self) -> impl std::future::Future<Output = Result<Vec<TrainingSessionResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:59:5
+   |
+59 |     async fn get_telemetry_events(&self, filters: TelemetryFilters) -> Result<Vec<TelemetryEvent>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+59 -     async fn get_telemetry_events(&self, filters: TelemetryFilters) -> Result<Vec<TelemetryEvent>>;
+59 +     fn get_telemetry_events(&self, filters: TelemetryFilters) -> impl std::future::Future<Output = Result<Vec<TelemetryEvent>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:62:5
+   |
+62 |     async fn list_nodes(&self) -> Result<Vec<NodeResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+62 -     async fn list_nodes(&self) -> Result<Vec<NodeResponse>>;
+62 +     fn list_nodes(&self) -> impl std::future::Future<Output = Result<Vec<NodeResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:63:5
+   |
+63 |     async fn register_node(&self, req: RegisterNodeRequest) -> Result<NodeResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+63 -     async fn register_node(&self, req: RegisterNodeRequest) -> Result<NodeResponse>;
+63 +     fn register_node(&self, req: RegisterNodeRequest) -> impl std::future::Future<Output = Result<NodeResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:66:5
+   |
+66 |     async fn list_plans(&self, tenant_id: Option<String>) -> Result<Vec<PlanResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+66 -     async fn list_plans(&self, tenant_id: Option<String>) -> Result<Vec<PlanResponse>>;
+66 +     fn list_plans(&self, tenant_id: Option<String>) -> impl std::future::Future<Output = Result<Vec<PlanResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:67:5
+   |
+67 |     async fn build_plan(&self, req: BuildPlanRequest) -> Result<JobResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+67 -     async fn build_plan(&self, req: BuildPlanRequest) -> Result<JobResponse>;
+67 +     fn build_plan(&self, req: BuildPlanRequest) -> impl std::future::Future<Output = Result<JobResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:70:5
+   |
+70 |     async fn list_workers(&self, tenant_id: Option<String>) -> Result<Vec<WorkerResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+70 -     async fn list_workers(&self, tenant_id: Option<String>) -> Result<Vec<WorkerResponse>>;
+70 +     fn list_workers(&self, tenant_id: Option<String>) -> impl std::future::Future<Output = Result<Vec<WorkerResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:71:5
+   |
+71 |     async fn spawn_worker(&self, req: SpawnWorkerRequest) -> Result<()>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+71 -     async fn spawn_worker(&self, req: SpawnWorkerRequest) -> Result<()>;
+71 +     fn spawn_worker(&self, req: SpawnWorkerRequest) -> impl std::future::Future<Output = Result<()>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:74:5
+   |
+74 |     async fn promote_cp(&self, req: PromoteCPRequest) -> Result<PromotionResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+74 -     async fn promote_cp(&self, req: PromoteCPRequest) -> Result<PromotionResponse>;
+74 +     fn promote_cp(&self, req: PromoteCPRequest) -> impl std::future::Future<Output = Result<PromotionResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:75:5
+   |
+75 |     async fn promotion_gates(&self, cpid: String) -> Result<PromotionGatesResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+75 -     async fn promotion_gates(&self, cpid: String) -> Result<PromotionGatesResponse>;
+75 +     fn promotion_gates(&self, cpid: String) -> impl std::future::Future<Output = Result<PromotionGatesResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:76:5
+   |
+76 |     async fn rollback_cp(&self, req: RollbackCPRequest) -> Result<RollbackResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+76 -     async fn rollback_cp(&self, req: RollbackCPRequest) -> Result<RollbackResponse>;
+76 +     fn rollback_cp(&self, req: RollbackCPRequest) -> impl std::future::Future<Output = Result<RollbackResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:79:5
+   |
+79 |     async fn list_jobs(&self, tenant_id: Option<String>) -> Result<Vec<JobResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+79 -     async fn list_jobs(&self, tenant_id: Option<String>) -> Result<Vec<JobResponse>>;
+79 +     fn list_jobs(&self, tenant_id: Option<String>) -> impl std::future::Future<Output = Result<Vec<JobResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:82:5
+   |
+82 |     async fn import_model(&self, req: ImportModelRequest) -> Result<()>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+82 -     async fn import_model(&self, req: ImportModelRequest) -> Result<()>;
+82 +     fn import_model(&self, req: ImportModelRequest) -> impl std::future::Future<Output = Result<()>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:85:5
+   |
+85 |     async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+85 -     async fn list_policies(&self) -> Result<Vec<PolicyPackResponse>>;
+85 +     fn list_policies(&self) -> impl std::future::Future<Output = Result<Vec<PolicyPackResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:86:5
+   |
+86 |     async fn get_policy(&self, cpid: String) -> Result<PolicyPackResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+86 -     async fn get_policy(&self, cpid: String) -> Result<PolicyPackResponse>;
+86 +     fn get_policy(&self, cpid: String) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:87:5
+   |
+87 |     async fn validate_policy(&self, req: ValidatePolicyRequest)
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+87 ~     fn validate_policy(&self, req: ValidatePolicyRequest)
+88 ~         -> impl std::future::Future<Output = Result<PolicyValidationResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:89:5
+   |
+89 |     async fn apply_policy(&self, req: ApplyPolicyRequest) -> Result<PolicyPackResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+89 -     async fn apply_policy(&self, req: ApplyPolicyRequest) -> Result<PolicyPackResponse>;
+89 +     fn apply_policy(&self, req: ApplyPolicyRequest) -> impl std::future::Future<Output = Result<PolicyPackResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:92:5
+   |
+92 |     async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+92 -     async fn list_telemetry_bundles(&self) -> Result<Vec<TelemetryBundleResponse>>;
+92 +     fn list_telemetry_bundles(&self) -> impl std::future::Future<Output = Result<Vec<TelemetryBundleResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:95:5
+   |
+95 |     async fn register_repo(&self, req: RegisterRepoRequest) -> Result<RepoResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+95 -     async fn register_repo(&self, req: RegisterRepoRequest) -> Result<RepoResponse>;
+95 +     fn register_repo(&self, req: RegisterRepoRequest) -> impl std::future::Future<Output = Result<RepoResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:96:5
+   |
+96 |     async fn scan_repo(&self, req: ScanRepoRequest) -> Result<JobResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+96 -     async fn scan_repo(&self, req: ScanRepoRequest) -> Result<JobResponse>;
+96 +     fn scan_repo(&self, req: ScanRepoRequest) -> impl std::future::Future<Output = Result<JobResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:97:5
+   |
+97 |     async fn list_repos(&self) -> Result<Vec<RepoResponse>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+97 -     async fn list_repos(&self) -> Result<Vec<RepoResponse>>;
+97 +     fn list_repos(&self) -> impl std::future::Future<Output = Result<Vec<RepoResponse>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:98:5
+   |
+98 |     async fn list_adapters_by_tenant(&self, tenant_id: String) -> Result<ListAdaptersResponse>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+98 -     async fn list_adapters_by_tenant(&self, tenant_id: String) -> Result<ListAdaptersResponse>;
+98 +     fn list_adapters_by_tenant(&self, tenant_id: String) -> impl std::future::Future<Output = Result<ListAdaptersResponse>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+  --> crates/adapteros-client/src/lib.rs:99:5
+   |
+99 |     async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>>;
+   |     ^^^^^
+   |
+   = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+   |
+99 -     async fn get_adapter_activations(&self) -> Result<Vec<ActivationData>>;
+99 +     fn get_adapter_activations(&self) -> impl std::future::Future<Output = Result<Vec<ActivationData>>> + Send;
+   |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:100:5
+    |
+100 |     async fn create_commit_delta(&self, req: CommitDeltaRequest) -> Result<CommitDeltaResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+100 -     async fn create_commit_delta(&self, req: CommitDeltaRequest) -> Result<CommitDeltaResponse>;
+100 +     fn create_commit_delta(&self, req: CommitDeltaRequest) -> impl std::future::Future<Output = Result<CommitDeltaResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:101:5
+    |
+101 |     async fn get_commit_details(
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+101 ~     fn get_commit_details(
+102 |         &self,
+103 |         repo_id: String,
+104 |         commit: String,
+105 ~     ) -> impl std::future::Future<Output = Result<CommitDetailsResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:108:5
+    |
+108 |     async fn extract_router_features(
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+108 ~     fn extract_router_features(
+109 |         &self,
+110 |         req: RouterFeaturesRequest,
+111 ~     ) -> impl std::future::Future<Output = Result<RouterFeaturesResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:112:5
+    |
+112 |     async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+112 -     async fn score_adapters(&self, req: ScoreAdaptersRequest) -> Result<ScoreAdaptersResponse>;
+112 +     fn score_adapters(&self, req: ScoreAdaptersRequest) -> impl std::future::Future<Output = Result<ScoreAdaptersResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:115:5
+    |
+115 |     async fn propose_patch(&self, req: ProposePatchRequest) -> Result<ProposePatchResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+115 -     async fn propose_patch(&self, req: ProposePatchRequest) -> Result<ProposePatchResponse>;
+115 +     fn propose_patch(&self, req: ProposePatchRequest) -> impl std::future::Future<Output = Result<ProposePatchResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:116:5
+    |
+116 |     async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+116 -     async fn validate_patch(&self, req: ValidatePatchRequest) -> Result<ValidatePatchResponse>;
+116 +     fn validate_patch(&self, req: ValidatePatchRequest) -> impl std::future::Future<Output = Result<ValidatePatchResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:117:5
+    |
+117 |     async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+117 -     async fn apply_patch(&self, req: ApplyPatchRequest) -> Result<ApplyPatchResponse>;
+117 +     fn apply_patch(&self, req: ApplyPatchRequest) -> impl std::future::Future<Output = Result<ApplyPatchResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:120:5
+    |
+120 |     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+120 -     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse>;
+120 +     fn get_code_policy(&self) -> impl std::future::Future<Output = Result<GetCodePolicyResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:121:5
+    |
+121 |     async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+121 -     async fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> Result<()>;
+121 +     fn update_code_policy(&self, req: UpdateCodePolicyRequest) -> impl std::future::Future<Output = Result<()>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:124:5
+    |
+124 |     async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+124 -     async fn get_code_metrics(&self, req: CodeMetricsRequest) -> Result<CodeMetricsResponse>;
+124 +     fn get_code_metrics(&self, req: CodeMetricsRequest) -> impl std::future::Future<Output = Result<CodeMetricsResponse>> + Send;
+    |
+
+warning: use of `async fn` in public traits is discouraged as auto trait bounds cannot be specified
+   --> crates/adapteros-client/src/lib.rs:125:5
+    |
+125 |     async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse>;
+    |     ^^^^^
+    |
+    = note: you can suppress this lint if you plan to use the trait only in your own code, or do not care about auto traits like `Send` on the `Future`
+help: you can alternatively desugar to a normal `fn` that returns `impl Future` and add any desired bounds such as `Send`, but these cannot be relaxed without a breaking API change
+    |
+125 -     async fn compare_metrics(&self, req: CompareMetricsRequest) -> Result<CompareMetricsResponse>;
+125 +     fn compare_metrics(&self, req: CompareMetricsRequest) -> impl std::future::Future<Output = Result<CompareMetricsResponse>> + Send;
+    |
+
+warning: method `trigger_anomaly_alert` is never used
+   --> crates/adapteros-system-metrics/src/alerting.rs:887:14
+    |
+ 71 | impl AlertEvaluator {
+    | ------------------- method in this implementation
+...
+887 |     async fn trigger_anomaly_alert(
+    |              ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: type `Signal` is more private than the item `ApiState::<K>::new`
+   --> crates/adapteros-api/src/lib.rs:62:5
+    |
+ 62 | /     pub fn new(
+ 63 | |         worker: adapteros_lora_worker::Worker<K>,
+ 64 | |         signals_tx: broadcast::Sender<Signal>,
+ 65 | |     ) -> Self {
+    | |_____________^ associated function `ApiState::<K>::new` is reachable at visibility `pub`
+    |
+note: but type `Signal` is only usable at visibility `pub(crate)`
+   --> crates/adapteros-api/src/lib.rs:373:1
+    |
+373 | struct Signal {
+    | ^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: `adapteros-lora-mlx-ffi` (lib) generated 81 warnings
+warning: `adapteros-client` (lib) generated 48 warnings
+warning: `adapteros-system-metrics` (lib) generated 1 warning
+warning: `adapteros-api` (lib) generated 1 warning
+   Compiling pyo3-macros-backend v0.22.6
+   Compiling pyo3-ffi v0.22.6
+   Compiling pyo3 v0.22.6
+   Compiling pyo3-macros v0.22.6
+   Compiling adapteros-cli v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-cli)
+error[E0308]: `match` arms have incompatible types
+    --> crates/adapteros-cli/src/main.rs:1534:43
+     |
+1245 | /     match command {
+1246 | |         // Tenant Management
+1247 | |         Commands::TenantInit { id, uid, gid } | Commands::Init { id, uid, gid } => {
+1248 | |             init_tenant::run(&id, *uid, *gid, &output).await?;
+...    |
+1532 | |             golden::execute(cmd, &output).await?;
+     | |             ------------------------------------- this and all prior arms are found to be of type `()`
+1533 | |         }
+1534 | |         Commands::TraceValidate { .. } => "trace-validate",
+     | |                                           ^^^^^^^^^^^^^^^^ expected `()`, found `&str`
+...    |
+1639 | |     }
+     | |_____- `match` arms have incompatible types
+
+warning: unused variable: `bundle_path`
+   --> crates/adapteros-cli/src/commands/verify_telemetry.rs:167:21
+    |
+167 | fn verify_signature(bundle_path: &Path, metadata: &SignatureMetadata) -> Result<()> {
+    |                     ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bundle_path`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `event`
+  --> crates/adapteros-cli/src/logging.rs:76:17
+   |
+76 |             let event = TelemetryEventBuilder::new(
+   |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_event`
+
+warning: unused variable: `event`
+  --> crates/adapteros-cli/src/logging.rs:96:17
+   |
+96 |             let event = TelemetryEventBuilder::new(
+   |                 ^^^^^ help: if this is intentional, prefix it with an underscore: `_event`
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `adapteros-cli` (bin "aosctl") generated 3 warnings
+error: could not compile `adapteros-cli` (bin "aosctl") due to 1 previous error; 3 warnings emitted

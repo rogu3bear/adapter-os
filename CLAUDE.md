@@ -3,8 +3,83 @@
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-22 (UI clarity improvements: tooltips, terminology, labels. See [UI_IMPROVEMENTS_CHANGELOG.md](UI_IMPROVEMENTS_CHANGELOG.md) and [DEMO_GUIDE.md](DEMO_GUIDE.md))
+**Last Updated:** 2025-11-23 (Cursor AI integration rules added, repository metadata enhancements, v0.3-alpha status updates)
 **Maintained by:** James KC Auchterlonie
+
+**AI Assistant Integration:** Cursor AI must reference this guide before all code changes. See [.cursor/claude-integration-rules.md](.cursor/claude-integration-rules.md)
+
+---
+
+## AI Assistant Integration Protocol
+
+### Cursor AI Workflow Requirements
+
+**Pre-Conversation Checklist:**
+- [ ] Reference CLAUDE.md standards before any code changes
+- [ ] Verify compliance with documented patterns and conventions
+- [ ] Check current version status (currently: v0.3-alpha)
+- [ ] Review applicable policy packs and RBAC permissions
+
+**During Code Changes:**
+- [ ] Cross-reference against specific CLAUDE.md sections
+- [ ] Follow documented error handling patterns
+- [ ] Use approved logging and tracing standards
+- [ ] Maintain deterministic execution requirements
+
+**Post-Change Updates:**
+- [ ] Update CLAUDE.md if new patterns emerge
+- [ ] Document any standard modifications
+- [ ] Ensure documentation reflects current implementation
+- [ ] Flag inconsistencies between code and documentation
+
+### Quality Assurance Gates
+
+**Mandatory Checks:**
+- Code style matches CLAUDE.md conventions
+- Error handling follows established patterns
+- Logging uses `tracing` macros with structured fields
+- Tests follow deterministic execution requirements
+- Documentation updated for any API changes
+
+**Documentation Updates:**
+- New crates require CLAUDE.md architecture pattern entries
+- Policy changes must update the 23 canonical policies section
+- RBAC modifications need permission matrix updates
+- New endpoints require API reference updates
+
+### Memory and Context Management
+
+**Single Source of Truth:** CLAUDE.md is the authoritative reference for all AdapterOS standards and patterns.
+
+**Update Protocol:** Any deviation from documented standards requires immediate CLAUDE.md updates.
+
+**Version Tracking:** CLAUDE.md must reflect current implementation version (v0.3-alpha).
+
+---
+
+## Current Implementation Status (v0.3-alpha)
+
+### ✅ **Implemented Features**
+- Multi-backend architecture (CoreML, MLX, Metal)
+- K-sparse LoRA routing with Q15 quantization
+- Deterministic execution with HKDF seeding
+- 23 canonical policy packs enforcement
+- REST API with streaming inference support
+- SQLite database with comprehensive migrations
+- CLI tools (`aosctl`) with full feature set
+
+### 🔄 **In Development**
+- Training pipeline and dataset management
+- Federation system for cross-node synchronization
+- Advanced UI with real-time monitoring
+- Production deployment hardening
+
+### 📊 **Architecture Scale**
+- 69 crates in workspace
+- 386,890+ lines of Rust code
+- 200+ documentation files
+- 11 active CI/CD workflows
+- 189 REST API endpoints
 
 ---
 

@@ -1,0 +1,1100 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /Users/star/Dev/adapter-os/fuzz/Cargo.toml
+workspace: /Users/star/Dev/adapter-os/Cargo.toml
+    Checking adapteros-db v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-db)
+    Checking adapteros-codegraph v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-codegraph)
+    Checking adapteros-profiler v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-profiler)
+warning: adapteros-lora-kernel-mtl@0.1.0: Kernel hash: f53b0b6b761cff8667316c5078b3dfe6cdf19cf8aeca3a685d140bb71d195703
+    Checking adapteros-lora-kernel-mtl v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-kernel-mtl)
+    Checking adapteros-lora-router v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-router)
+    Checking adapteros-registry v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-registry)
+    Checking adapteros-graph v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-graph)
+warning: adapteros-lora-mlx-ffi@0.1.0: MLX FFI build: REAL
+warning: adapteros-lora-mlx-ffi@0.1.0: Using includes: /opt/homebrew/include | libs: /opt/homebrew/lib (source: default:/opt/homebrew)
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:267:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   267 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:283:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   283 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:412:14: warning: unused variable 'arr_b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   412 |         auto arr_b = reinterpret_cast<StubArray*>(b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:523:14: warning: unused variable 'a' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   523 |         auto a = reinterpret_cast<StubArray*>(lora_a);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:524:14: warning: unused variable 'b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   524 |         auto b = reinterpret_cast<StubArray*>(lora_b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: 5 warnings generated.
+    Checking adapteros-lora-plan v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-plan)
+    Checking adapteros-lora-mlx-ffi v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-lora-mlx-ffi)
+    Checking pyo3 v0.22.6
+    Checking adapteros-verification v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-verification)
+    Checking adapteros-config v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-config)
+    Checking adapteros-testing v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-testing)
+error: type `wchar_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:6:10
+  |
+6 | pub type wchar_t = ::std::os::raw::c_int;
+  |          ^^^^^^^ help: convert the identifier to upper camel case: `WcharT`
+  |
+  = note: `-D non-camel-case-types` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(non_camel_case_types)]`
+
+error: type `max_align_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:7:10
+  |
+7 | pub type max_align_t = f64;
+  |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `MaxAlignT`
+
+error: type `int_least8_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:8:10
+  |
+8 | pub type int_least8_t = i8;
+  |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast8T`
+
+error: type `int_least16_t` should have an upper camel case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:9:10
+  |
+9 | pub type int_least16_t = i16;
+  |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast16T`
+
+error: type `int_least32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:10:10
+   |
+10 | pub type int_least32_t = i32;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast32T`
+
+error: type `int_least64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:11:10
+   |
+11 | pub type int_least64_t = i64;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntLeast64T`
+
+error: type `uint_least8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:12:10
+   |
+12 | pub type uint_least8_t = u8;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast8T`
+
+error: type `uint_least16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:13:10
+   |
+13 | pub type uint_least16_t = u16;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast16T`
+
+error: type `uint_least32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:14:10
+   |
+14 | pub type uint_least32_t = u32;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast32T`
+
+error: type `uint_least64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:15:10
+   |
+15 | pub type uint_least64_t = u64;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintLeast64T`
+
+error: type `int_fast8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:16:10
+   |
+16 | pub type int_fast8_t = i8;
+   |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast8T`
+
+error: type `int_fast16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:17:10
+   |
+17 | pub type int_fast16_t = i16;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast16T`
+
+error: type `int_fast32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:18:10
+   |
+18 | pub type int_fast32_t = i32;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast32T`
+
+error: type `int_fast64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:19:10
+   |
+19 | pub type int_fast64_t = i64;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntFast64T`
+
+error: type `uint_fast8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:20:10
+   |
+20 | pub type uint_fast8_t = u8;
+   |          ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast8T`
+
+error: type `uint_fast16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:21:10
+   |
+21 | pub type uint_fast16_t = u16;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast16T`
+
+error: type `uint_fast32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:22:10
+   |
+22 | pub type uint_fast32_t = u32;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast32T`
+
+error: type `uint_fast64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:23:10
+   |
+23 | pub type uint_fast64_t = u64;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UintFast64T`
+
+error: type `__int8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:24:10
+   |
+24 | pub type __int8_t = ::std::os::raw::c_schar;
+   |          ^^^^^^^^ help: convert the identifier to upper camel case: `Int8T`
+
+error: type `__uint8_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:25:10
+   |
+25 | pub type __uint8_t = ::std::os::raw::c_uchar;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Uint8T`
+
+error: type `__int16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:26:10
+   |
+26 | pub type __int16_t = ::std::os::raw::c_short;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Int16T`
+
+error: type `__uint16_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:27:10
+   |
+27 | pub type __uint16_t = ::std::os::raw::c_ushort;
+   |          ^^^^^^^^^^ help: convert the identifier to upper camel case: `Uint16T`
+
+error: type `__int32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:28:10
+   |
+28 | pub type __int32_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Int32T`
+
+error: type `__uint32_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:29:10
+   |
+29 | pub type __uint32_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^ help: convert the identifier to upper camel case: `Uint32T`
+
+error: type `__int64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:30:10
+   |
+30 | pub type __int64_t = ::std::os::raw::c_longlong;
+   |          ^^^^^^^^^ help: convert the identifier to upper camel case: `Int64T`
+
+error: type `__uint64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:31:10
+   |
+31 | pub type __uint64_t = ::std::os::raw::c_ulonglong;
+   |          ^^^^^^^^^^ help: convert the identifier to upper camel case: `Uint64T`
+
+error: type `__darwin_intptr_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:32:10
+   |
+32 | pub type __darwin_intptr_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinIntptrT`
+
+error: type `__darwin_natural_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:33:10
+   |
+33 | pub type __darwin_natural_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinNaturalT`
+
+error: type `__darwin_ct_rune_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:34:10
+   |
+34 | pub type __darwin_ct_rune_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinCtRuneT`
+
+error: type `__darwin_mbstate_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:76:10
+   |
+76 | pub type __darwin_mbstate_t = __mbstate_t;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinMbstateT`
+
+error: type `__darwin_ptrdiff_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:77:10
+   |
+77 | pub type __darwin_ptrdiff_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPtrdiffT`
+
+error: type `__darwin_size_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:78:10
+   |
+78 | pub type __darwin_size_t = ::std::os::raw::c_ulong;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSizeT`
+
+error: type `__darwin_wchar_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:79:10
+   |
+79 | pub type __darwin_wchar_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinWcharT`
+
+error: type `__darwin_rune_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:80:10
+   |
+80 | pub type __darwin_rune_t = __darwin_wchar_t;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinRuneT`
+
+error: type `__darwin_wint_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:81:10
+   |
+81 | pub type __darwin_wint_t = ::std::os::raw::c_int;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinWintT`
+
+error: type `__darwin_clock_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:82:10
+   |
+82 | pub type __darwin_clock_t = ::std::os::raw::c_ulong;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinClockT`
+
+error: type `__darwin_socklen_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:83:10
+   |
+83 | pub type __darwin_socklen_t = __uint32_t;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSocklenT`
+
+error: type `__darwin_ssize_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:84:10
+   |
+84 | pub type __darwin_ssize_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSsizeT`
+
+error: type `__darwin_time_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:85:10
+   |
+85 | pub type __darwin_time_t = ::std::os::raw::c_long;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinTimeT`
+
+error: type `__darwin_blkcnt_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:86:10
+   |
+86 | pub type __darwin_blkcnt_t = __int64_t;
+   |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinBlkcntT`
+
+error: type `__darwin_blksize_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:87:10
+   |
+87 | pub type __darwin_blksize_t = __int32_t;
+   |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinBlksizeT`
+
+error: type `__darwin_dev_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:88:10
+   |
+88 | pub type __darwin_dev_t = __int32_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinDevT`
+
+error: type `__darwin_fsblkcnt_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:89:10
+   |
+89 | pub type __darwin_fsblkcnt_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinFsblkcntT`
+
+error: type `__darwin_fsfilcnt_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:90:10
+   |
+90 | pub type __darwin_fsfilcnt_t = ::std::os::raw::c_uint;
+   |          ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinFsfilcntT`
+
+error: type `__darwin_gid_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:91:10
+   |
+91 | pub type __darwin_gid_t = __uint32_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinGidT`
+
+error: type `__darwin_id_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:92:10
+   |
+92 | pub type __darwin_id_t = __uint32_t;
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinIdT`
+
+error: type `__darwin_ino64_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:93:10
+   |
+93 | pub type __darwin_ino64_t = __uint64_t;
+   |          ^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinIno64T`
+
+error: type `__darwin_ino_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:94:10
+   |
+94 | pub type __darwin_ino_t = __darwin_ino64_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinInoT`
+
+error: type `__darwin_mach_port_name_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:95:10
+   |
+95 | pub type __darwin_mach_port_name_t = __darwin_natural_t;
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinMachPortNameT`
+
+error: type `__darwin_mach_port_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:96:10
+   |
+96 | pub type __darwin_mach_port_t = __darwin_mach_port_name_t;
+   |          ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinMachPortT`
+
+error: type `__darwin_mode_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:97:10
+   |
+97 | pub type __darwin_mode_t = __uint16_t;
+   |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinModeT`
+
+error: type `__darwin_off_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:98:10
+   |
+98 | pub type __darwin_off_t = __int64_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinOffT`
+
+error: type `__darwin_pid_t` should have an upper camel case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:99:10
+   |
+99 | pub type __darwin_pid_t = __int32_t;
+   |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPidT`
+
+error: type `__darwin_sigset_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:100:10
+    |
+100 | pub type __darwin_sigset_t = __uint32_t;
+    |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSigsetT`
+
+error: type `__darwin_suseconds_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:101:10
+    |
+101 | pub type __darwin_suseconds_t = __int32_t;
+    |          ^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinSusecondsT`
+
+error: type `__darwin_uid_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:102:10
+    |
+102 | pub type __darwin_uid_t = __uint32_t;
+    |          ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUidT`
+
+error: type `__darwin_useconds_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:103:10
+    |
+103 | pub type __darwin_useconds_t = __uint32_t;
+    |          ^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUsecondsT`
+
+error: type `__darwin_uuid_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:104:10
+    |
+104 | pub type __darwin_uuid_t = [::std::os::raw::c_uchar; 16usize];
+    |          ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUuidT`
+
+error: type `__darwin_uuid_string_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:105:10
+    |
+105 | pub type __darwin_uuid_string_t = [::std::os::raw::c_char; 37usize];
+    |          ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinUuidStringT`
+
+error: type `__darwin_pthread_attr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:547:10
+    |
+547 | pub type __darwin_pthread_attr_t = _opaque_pthread_attr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadAttrT`
+
+error: type `__darwin_pthread_cond_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:548:10
+    |
+548 | pub type __darwin_pthread_cond_t = _opaque_pthread_cond_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadCondT`
+
+error: type `__darwin_pthread_condattr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:549:10
+    |
+549 | pub type __darwin_pthread_condattr_t = _opaque_pthread_condattr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadCondattrT`
+
+error: type `__darwin_pthread_key_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:550:10
+    |
+550 | pub type __darwin_pthread_key_t = ::std::os::raw::c_ulong;
+    |          ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadKeyT`
+
+error: type `__darwin_pthread_mutex_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:551:10
+    |
+551 | pub type __darwin_pthread_mutex_t = _opaque_pthread_mutex_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadMutexT`
+
+error: type `__darwin_pthread_mutexattr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:552:10
+    |
+552 | pub type __darwin_pthread_mutexattr_t = _opaque_pthread_mutexattr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadMutexattrT`
+
+error: type `__darwin_pthread_once_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:553:10
+    |
+553 | pub type __darwin_pthread_once_t = _opaque_pthread_once_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadOnceT`
+
+error: type `__darwin_pthread_rwlock_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:554:10
+    |
+554 | pub type __darwin_pthread_rwlock_t = _opaque_pthread_rwlock_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadRwlockT`
+
+error: type `__darwin_pthread_rwlockattr_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:555:10
+    |
+555 | pub type __darwin_pthread_rwlockattr_t = _opaque_pthread_rwlockattr_t;
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadRwlockattrT`
+
+error: type `__darwin_pthread_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:556:10
+    |
+556 | pub type __darwin_pthread_t = *mut _opaque_pthread_t;
+    |          ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `DarwinPthreadT`
+
+error: type `intmax_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:557:10
+    |
+557 | pub type intmax_t = ::std::os::raw::c_long;
+    |          ^^^^^^^^ help: convert the identifier to upper camel case: `IntmaxT`
+
+error: type `uintmax_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:558:10
+    |
+558 | pub type uintmax_t = ::std::os::raw::c_ulong;
+    |          ^^^^^^^^^ help: convert the identifier to upper camel case: `UintmaxT`
+
+error: type `mlx_array_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:564:10
+    |
+564 | pub type mlx_array_t = mlx_array;
+    |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `MlxArrayT`
+
+error: type `mlx_model_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:570:10
+    |
+570 | pub type mlx_model_t = mlx_model;
+    |          ^^^^^^^^^^^ help: convert the identifier to upper camel case: `MlxModelT`
+
+error: type `mlx_context_t` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:576:10
+    |
+576 | pub type mlx_context_t = mlx_context;
+    |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `MlxContextT`
+
+error: type `__builtin_va_list` should have an upper camel case name
+   --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:723:10
+    |
+723 | pub type __builtin_va_list = *mut ::std::os::raw::c_char;
+    |          ^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `BuiltinVaList`
+
+error: clamp-like pattern without using clamp function
+  --> crates/adapteros-profiler/src/scoring.rs:41:29
+   |
+41 |         let quality_score = metrics.quality_delta.max(0.0).min(1.0);
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with clamp: `metrics.quality_delta.clamp(0.0, 1.0)`
+   |
+   = note: clamp will panic if max < min, min.is_nan(), or max.is_nan()
+   = note: clamp returns NaN if the input is NaN
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_clamp
+   = note: `-D clippy::manual-clamp` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_clamp)]`
+
+error: method `from_str` can be confused for the standard trait method `std::str::FromStr::from_str`
+  --> crates/adapteros-graph/src/tensor.rs:43:5
+   |
+43 | /     pub fn from_str(s: &str) -> Result<Self> {
+44 | |         match s {
+45 | |             "float32" | "f32" => Ok(DataType::Float32),
+46 | |             "float16" | "f16" => Ok(DataType::Float16),
+...  |
+58 | |     }
+   | |_____^
+   |
+   = help: consider implementing the trait `std::str::FromStr` or choosing a less ambiguous method name
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#should_implement_trait
+   = note: `-D clippy::should-implement-trait` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::should_implement_trait)]`
+
+error: this function has too many arguments (8/7)
+  --> crates/adapteros-registry/src/models.rs:24:5
+   |
+24 | /     pub fn new(
+25 | |         name: String,
+26 | |         config_hash: B3Hash,
+27 | |         tokenizer_hash: B3Hash,
+...  |
+32 | |         model_card_hash: Option<B3Hash>,
+33 | |     ) -> Self {
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+   = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: method `apply_loras` is never used
+  --> crates/adapteros-lora-mlx-ffi/src/backend.rs:96:8
+   |
+20 | impl MLXFFIBackend {
+   | ------------------ method in this implementation
+...
+96 |     fn apply_loras(
+   |        ^^^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: function `apply_lora_transform` is never used
+  --> crates/adapteros-lora-mlx-ffi/src/routing.rs:90:4
+   |
+90 | fn apply_lora_transform(
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `adapteros-profiler` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: parameter is only used in recursion
+   --> crates/adapteros-config/src/loader.rs:171:28
+    |
+171 |     fn flatten_toml_value(&self, value: &Value, prefix: String) -> HashMap<String, String> {
+    |                            ^^^^
+    |
+note: parameter used here
+   --> crates/adapteros-config/src/loader.rs:183:37
+    |
+183 |                     let flattened = self.flatten_toml_value(val, new_prefix);
+    |                                     ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#only_used_in_recursion
+    = note: `-D clippy::only-used-in-recursion` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::only_used_in_recursion)]`
+
+error: could not compile `adapteros-graph` (lib) due to 1 previous error
+error: could not compile `adapteros-registry` (lib) due to 1 previous error
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/adapteros-lora-mlx-ffi/src/lora.rs:53:20
+   |
+53 |     flatten_cache: Arc<RwLock<HashMap<String, (Arc<Vec<f32>>, Arc<Vec<f32>>)>>>,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+   = note: `-D clippy::type-complexity` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/adapteros-lora-mlx-ffi/src/lora.rs:100:10
+    |
+100 |     ) -> Option<(&Vec<Vec<f32>>, &Vec<Vec<f32>>)> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/adapteros-lora-mlx-ffi/src/lora.rs:277:10
+    |
+277 |     ) -> Option<(Arc<Vec<f32>>, Arc<Vec<f32>>)> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: accessing first element with `a.get(0)`
+   --> crates/adapteros-lora-mlx-ffi/src/lora.rs:296:34
+    |
+296 |             .unwrap_or((a.len(), a.get(0).map(|r| r.len()).unwrap_or(0)));
+    |                                  ^^^^^^^^ help: try: `a.first()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#get_first
+    = note: `-D clippy::get-first` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::get_first)]`
+
+error: the loop variable `r` is used to index `intermediate`
+   --> crates/adapteros-lora-mlx-ffi/src/routing.rs:154:14
+    |
+154 |     for r in 0..rank {
+    |              ^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+    |
+154 -     for r in 0..rank {
+154 +     for (r, <item>) in intermediate.iter_mut().enumerate().take(rank) {
+    |
+
+error: the loop variable `h` is used to index `output`
+   --> crates/adapteros-lora-mlx-ffi/src/routing.rs:165:14
+    |
+165 |     for h in 0..hidden_dim {
+    |              ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+165 -     for h in 0..hidden_dim {
+165 +     for (h, <item>) in output.iter_mut().enumerate().take(hidden_dim) {
+    |
+
+error: could not compile `adapteros-config` (lib) due to 1 previous error
+error: the loop variable `i` is only used to index `w`
+   --> crates/adapteros-lora-mlx-ffi/src/lib.rs:148:18
+    |
+148 |         for i in 0..(vocab * hidden) {
+    |                  ^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_range_loop
+help: consider using an iterator
+    |
+148 -         for i in 0..(vocab * hidden) {
+148 +         for <item> in w.iter_mut().take((vocab * hidden)) {
+    |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/adapteros-lora-mlx-ffi/src/lib.rs:295:10
+    |
+295 |     ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#type_complexity
+
+error: constant `__bool_true_false_are_defined` should have an upper case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:3:11
+  |
+3 | pub const __bool_true_false_are_defined: u32 = 1;
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper case: `__BOOL_TRUE_FALSE_ARE_DEFINED`
+  |
+  = note: `-D non-upper-case-globals` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(non_upper_case_globals)]`
+
+error: constant `true_` should have an upper case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:4:11
+  |
+4 | pub const true_: u32 = 1;
+  |           ^^^^^ help: convert the identifier to upper case: `TRUE`
+
+error: constant `false_` should have an upper case name
+ --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:5:11
+  |
+5 | pub const false_: u32 = 0;
+  |           ^^^^^^ help: convert the identifier to upper case: `FALSE`
+
+error: structure field `_mbstateL` should have a snake case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-8e5378df39be0fff/out/bindings.rs:39:9
+   |
+39 |     pub _mbstateL: ::std::os::raw::c_longlong,
+   |         ^^^^^^^^^ help: convert the identifier to snake case: `_mbstate_l`
+   |
+   = note: `-D non-snake-case` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(non_snake_case)]`
+
+warning: adapteros-lora-mlx-ffi@0.1.0: MLX FFI build: REAL
+warning: adapteros-lora-mlx-ffi@0.1.0: Using includes: /opt/homebrew/include | libs: /opt/homebrew/lib (source: default:/opt/homebrew)
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:267:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   267 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:283:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   283 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:412:14: warning: unused variable 'arr_b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   412 |         auto arr_b = reinterpret_cast<StubArray*>(b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:523:14: warning: unused variable 'a' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   523 |         auto a = reinterpret_cast<StubArray*>(lora_a);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:524:14: warning: unused variable 'b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   524 |         auto b = reinterpret_cast<StubArray*>(lora_b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: 5 warnings generated.
+error: could not compile `adapteros-lora-mlx-ffi` (lib) due to 89 previous errors
+error: clamp-like pattern without using clamp function
+   --> crates/adapteros-lora-router/src/calibration.rs:344:33
+    |
+344 |         let prediction_budget = self.k.max(1).min(MAX_PREDICTED_ADAPTERS);
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with clamp: `self.k.clamp(1, MAX_PREDICTED_ADAPTERS)`
+    |
+    = note: clamp will panic if max < min
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_clamp
+    = note: `-D clippy::manual-clamp` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_clamp)]`
+
+error: this function has too many arguments (8/7)
+  --> crates/adapteros-lora-router/src/lib.rs:88:5
+   |
+88 | /     pub fn new_with_mplora(
+89 | |         language: f32,
+90 | |         framework: f32,
+91 | |         symbols: f32,
+...  |
+96 | |         similarity: f32,
+97 | |     ) -> Self {
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+   = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: fields `config`, `environments`, and `test_results_history` are never read
+   --> crates/adapteros-testing/src/unified_framework.rs:588:5
+    |
+586 | pub struct UnifiedTestingFramework {
+    |            ----------------------- fields in this struct
+587 |     /// Test configuration
+588 |     config: TestConfig,
+    |     ^^^^^^
+...
+591 |     environments: HashMap<String, TestEnvironment>,
+    |     ^^^^^^^^^^^^
+...
+594 |     test_results_history: Vec<TestResult>,
+    |     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: useless use of `vec!`
+   --> crates/adapteros-lora-router/src/calibration.rs:190:22
+    |
+190 |           let ranges = vec![
+    |  ______________________^
+191 | |             vec![0.1, 0.2, 0.3, 0.4, 0.5],    // language
+192 | |             vec![0.1, 0.2, 0.25, 0.3, 0.4],   // framework
+193 | |             vec![0.05, 0.1, 0.15, 0.2, 0.25], // symbols
+194 | |             vec![0.05, 0.1, 0.15, 0.2],       // paths
+195 | |             vec![0.05, 0.1, 0.15, 0.2],       // verb
+196 | |         ];
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+help: you can use an array directly
+    |
+190 ~         let ranges = [vec![0.1, 0.2, 0.3, 0.4, 0.5],    // language
+191 +             vec![0.1, 0.2, 0.25, 0.3, 0.4],   // framework
+192 +             vec![0.05, 0.1, 0.15, 0.2, 0.25], // symbols
+193 +             vec![0.05, 0.1, 0.15, 0.2],       // paths
+194 ~             vec![0.05, 0.1, 0.15, 0.2]];
+    |
+
+error: could not compile `adapteros-lora-router` (lib) due to 3 previous errors
+error: could not compile `adapteros-testing` (lib) due to 1 previous error
+error: unnecessary use of `to_string`
+   --> crates/adapteros-codegraph/src/framework_detector.rs:372:59
+    |
+372 |                         if metadata.config_files.contains(&file.to_string()) {
+    |                                                           ^^^^^^^^^^^^^^^^^ help: replace it with: `file`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_to_owned
+    = note: `-D clippy::unnecessary-to-owned` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_to_owned)]`
+
+error: transmute used without annotations
+  --> crates/adapteros-codegraph/src/parsers/rust.rs:21:29
+   |
+21 |     let raw = unsafe { mem::transmute::<_, *const c_void>(lang) };
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider adding missing annotations: `transmute::<tree_sitter::Language, *const std::ffi::c_void>`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#missing_transmute_annotations
+   = note: `-D clippy::missing-transmute-annotations` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::missing_transmute_annotations)]`
+
+error: implementation of inherent method `to_string(&self) -> String` for type `types::TypeAnnotation`
+   --> crates/adapteros-codegraph/src/types.rs:196:5
+    |
+196 | /     pub fn to_string(&self) -> String {
+197 | |         let mut parts = Vec::new();
+198 | |
+199 | |         if let Some(ref declared) = self.declared_type {
+...   |
+219 | |         parts.join("; ")
+220 | |     }
+    | |_____^
+    |
+    = help: implement trait `Display` for type `types::TypeAnnotation` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#inherent_to_string
+    = note: `-D clippy::inherent-to-string` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::inherent_to_string)]`
+
+error: implementation of inherent method `to_string(&self) -> String` for type `types::Span`
+   --> crates/adapteros-codegraph/src/types.rs:289:5
+    |
+289 | /     pub fn to_string(&self) -> String {
+290 | |         format!(
+291 | |             "{}:{}:{}:{}",
+292 | |             self.start_line, self.start_column, self.end_line, self.end_column
+293 | |         )
+294 | |     }
+    | |_____^
+    |
+    = help: implement trait `Display` for type `types::Span` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#inherent_to_string
+
+error: could not compile `adapteros-codegraph` (lib) due to 4 previous errors
+error: this function has too many arguments (8/7)
+   --> crates/adapteros-verification/src/code_quality.rs:507:5
+    |
+507 | /     fn calculate_score(
+508 | |         &self,
+509 | |         clippy: &ClippyResults,
+510 | |         format: &FormatResults,
+...   |
+515 | |         config: &crate::unified_validation::CodeQualityConfig,
+516 | |     ) -> f64 {
+    | |____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: clamp-like pattern without using clamp function
+   --> crates/adapteros-verification/src/code_quality.rs:558:9
+    |
+558 |         score.max(0.0).min(100.0)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with clamp: `score.clamp(0.0, 100.0)`
+    |
+    = note: clamp will panic if max < min, min.is_nan(), or max.is_nan()
+    = note: clamp returns NaN if the input is NaN
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_clamp
+    = note: `-D clippy::manual-clamp` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_clamp)]`
+
+error: this function has too many arguments (8/7)
+   --> crates/adapteros-verification/src/code_quality.rs:562:5
+    |
+562 | /     fn generate_recommendations(
+563 | |         &self,
+564 | |         clippy: &ClippyResults,
+565 | |         format: &FormatResults,
+...   |
+570 | |         recommendations: &mut Vec<String>,
+571 | |     ) {
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: clamp-like pattern without using clamp function
+   --> crates/adapteros-verification/src/performance.rs:544:9
+    |
+544 |         score.max(0.0).min(100.0)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with clamp: `score.clamp(0.0, 100.0)`
+    |
+    = note: clamp will panic if max < min, min.is_nan(), or max.is_nan()
+    = note: clamp returns NaN if the input is NaN
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_clamp
+
+error: clamp-like pattern without using clamp function
+   --> crates/adapteros-verification/src/security.rs:552:9
+    |
+552 |         score.max(0.0).min(100.0)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with clamp: `score.clamp(0.0, 100.0)`
+    |
+    = note: clamp will panic if max < min, min.is_nan(), or max.is_nan()
+    = note: clamp returns NaN if the input is NaN
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_clamp
+
+error: method `from_str` can be confused for the standard trait method `std::str::FromStr::from_str`
+    --> crates/adapteros-verification/src/unified_validation.rs:1343:5
+     |
+1343 | /     pub fn from_str(s: &str) -> Option<Self> {
+1344 | |         match s.to_lowercase().as_str() {
+1345 | |             "pass" | "passed" => Some(VerificationStatus::Pass),
+1346 | |             "warning" | "warn" => Some(VerificationStatus::Warning),
+...    |
+1350 | |     }
+     | |_____^
+     |
+     = help: consider implementing the trait `std::str::FromStr` or choosing a less ambiguous method name
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#should_implement_trait
+     = note: `-D clippy::should-implement-trait` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::should_implement_trait)]`
+
+error: method `from_str` can be confused for the standard trait method `std::str::FromStr::from_str`
+    --> crates/adapteros-verification/src/unified_validation.rs:1354:5
+     |
+1354 | /     pub fn from_str(s: &str) -> Option<Self> {
+1355 | |         match s.to_lowercase().as_str() {
+1356 | |             "critical" => Some(IssueSeverity::Critical),
+1357 | |             "high" => Some(IssueSeverity::High),
+...    |
+1363 | |     }
+     | |_____^
+     |
+     = help: consider implementing the trait `std::str::FromStr` or choosing a less ambiguous method name
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#should_implement_trait
+
+error: method `from_str` can be confused for the standard trait method `std::str::FromStr::from_str`
+    --> crates/adapteros-verification/src/unified_validation.rs:1367:5
+     |
+1367 | /     pub fn from_str(s: &str) -> Option<Self> {
+1368 | |         match s.to_lowercase().as_str() {
+1369 | |             "critical" => Some(SecuritySeverity::Critical),
+1370 | |             "high" => Some(SecuritySeverity::High),
+...    |
+1376 | |     }
+     | |_____^
+     |
+     = help: consider implementing the trait `std::str::FromStr` or choosing a less ambiguous method name
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#should_implement_trait
+
+error: method `from_str` can be confused for the standard trait method `std::str::FromStr::from_str`
+    --> crates/adapteros-verification/src/unified_validation.rs:1380:5
+     |
+1380 | /     pub fn from_str(s: &str) -> Option<Self> {
+1381 | |         match s.to_lowercase().as_str() {
+1382 | |             "high" => Some(RecommendationPriority::High),
+1383 | |             "medium" => Some(RecommendationPriority::Medium),
+...    |
+1387 | |     }
+     | |_____^
+     |
+     = help: consider implementing the trait `std::str::FromStr` or choosing a less ambiguous method name
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#should_implement_trait
+
+error: could not compile `adapteros-verification` (lib) due to 9 previous errors
+error: stripping a prefix manually
+  --> crates/adapteros-db/src/lib.rs:27:34
+   |
+27 |             format!("sqlite:{}", &path["sqlite://".len()..])
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the prefix was tested here
+  --> crates/adapteros-db/src/lib.rs:24:19
+   |
+24 |         let url = if path.starts_with("sqlite://") {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_strip
+   = note: `-D clippy::manual-strip` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_strip)]`
+help: try using the `strip_prefix` method
+   |
+24 ~         let url = if let Some(<stripped>) = path.strip_prefix("sqlite://") {
+25 |             // Convert triple-slash form to single-colon absolute path style
+26 |             // e.g., sqlite:///abs/path.db -> sqlite:/abs/path.db
+27 ~             format!("sqlite:{}", <stripped>)
+   |
+
+error: this function has too many arguments (8/7)
+  --> crates/adapteros-db/src/adapters.rs:51:5
+   |
+51 | /     pub async fn register_adapter(
+52 | |         &self,
+53 | |         adapter_id: &str,
+54 | |         name: &str,
+...  |
+59 | |         framework: Option<&str>,
+60 | |     ) -> Result<String> {
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+   = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: this function has too many arguments (15/7)
+  --> crates/adapteros-db/src/adapters.rs:81:5
+   |
+81 | /     pub async fn register_adapter_extended(
+82 | |         &self,
+83 | |         adapter_id: &str,
+84 | |         name: &str,
+...  |
+96 | |         intent: Option<&str>,
+97 | |     ) -> Result<String> {
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (11/7)
+  --> crates/adapteros-db/src/commits.rs:24:5
+   |
+24 | /     pub async fn save_commit(
+25 | |         &self,
+26 | |         repo_id: &str,
+27 | |         sha: &str,
+...  |
+35 | |         ephemeral_adapter_id: Option<&str>,
+36 | |     ) -> Result<String> {
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (8/7)
+  --> crates/adapteros-db/src/contacts.rs:42:5
+   |
+42 | /     pub async fn upsert_contact(
+43 | |         &self,
+44 | |         tenant_id: &str,
+45 | |         name: &str,
+...  |
+50 | |         discovered_by: Option<&str>,
+51 | |     ) -> Result<String> {
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (8/7)
+   --> crates/adapteros-db/src/training_datasets.rs:196:5
+    |
+196 | /     pub async fn store_dataset_statistics(
+197 | |         &self,
+198 | |         dataset_id: &str,
+199 | |         num_examples: i32,
+...   |
+204 | |         total_tokens: i64,
+205 | |     ) -> Result<()> {
+    | |___________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (8/7)
+  --> crates/adapteros-db/src/models.rs:89:5
+   |
+89 | /     pub async fn register_model(
+90 | |         &self,
+91 | |         name: &str,
+92 | |         hash_b3: &str,
+...  |
+97 | |         metadata_json: Option<&str>,
+98 | |     ) -> Result<String> {
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (9/7)
+  --> crates/adapteros-db/src/patch_proposals.rs:22:5
+   |
+22 | /     pub async fn create_patch_proposal(
+23 | |         &self,
+24 | |         repo_id: &str,
+25 | |         commit_sha: &str,
+...  |
+31 | |         created_by: &str,
+32 | |     ) -> Result<String> {
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (13/7)
+   --> crates/adapteros-db/src/repositories.rs:243:5
+    |
+243 | /     pub async fn store_code_graph_metadata(
+244 | |         &self,
+245 | |         repo_id: &str,
+246 | |         commit_sha: &str,
+...   |
+256 | |         test_map_hash: Option<&str>,
+257 | |     ) -> Result<String> {
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: this function has too many arguments (8/7)
+  --> crates/adapteros-db/src/workers.rs:44:5
+   |
+44 | /     pub async fn insert_worker(
+45 | |         &self,
+46 | |         id: &str,
+47 | |         tenant_id: &str,
+...  |
+52 | |         status: &str,
+53 | |     ) -> Result<()> {
+   | |___________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+
+error: could not compile `adapteros-db` (lib) due to 10 previous errors

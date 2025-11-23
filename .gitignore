@@ -20,6 +20,7 @@ Cargo.lock
 # IDE
 .vscode/
 .idea/
+!.cursor/  # Include Cursor AI rules
 *.swp
 *.swo
 *~

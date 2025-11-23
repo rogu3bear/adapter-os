@@ -1,0 +1,2041 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /Users/star/Dev/adapter-os/fuzz/Cargo.toml
+workspace: /Users/star/Dev/adapter-os/Cargo.toml
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking adapteros-single-file-adapter v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-single-file-adapter)
+warning: adapteros-lora-kernel-mtl@0.1.0: Kernel hash: 64c09e2df2e2583ce5d171f31d04bc77941aa6a9c39d170a196289d3dbc2bf44
+   Compiling pyo3-build-config v0.22.6
+warning: unused import: `AosError`
+ --> crates/adapteros-trace/src/validator.rs:5:22
+  |
+5 | use adapteros_core::{AosError, Result};
+  |                      ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `tmp_path`
+   --> crates/adapteros-trace/src/writer.rs:111:13
+    |
+111 |     let mut tmp_path = path_ref.as_os_str().to_owned();
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_tmp_path`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/adapteros-trace/src/writer.rs:111:9
+    |
+111 |     let mut tmp_path = path_ref.as_os_str().to_owned();
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: `adapteros-trace` (lib) generated 3 warnings (run `cargo fix --lib -p adapteros-trace` to apply 2 suggestions)
+warning: adapteros-lora-mlx-ffi@0.1.0: MLX FFI build: REAL
+warning: adapteros-lora-mlx-ffi@0.1.0: Using includes: /opt/homebrew/include | libs: /opt/homebrew/lib (source: default:/opt/homebrew)
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:267:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   267 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:283:14: warning: unused variable 'mdl' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   283 |         auto mdl = reinterpret_cast<StubModel*>(model);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:412:14: warning: unused variable 'arr_b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   412 |         auto arr_b = reinterpret_cast<StubArray*>(b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^~~~~
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:523:14: warning: unused variable 'a' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   523 |         auto a = reinterpret_cast<StubArray*>(lora_a);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: src/mlx_cpp_wrapper.cpp:524:14: warning: unused variable 'b' [-Wunused-variable]
+warning: adapteros-lora-mlx-ffi@0.1.0:   524 |         auto b = reinterpret_cast<StubArray*>(lora_b);
+warning: adapteros-lora-mlx-ffi@0.1.0:       |              ^
+warning: adapteros-lora-mlx-ffi@0.1.0: 5 warnings generated.
+warning: method `apply_loras` is never used
+  --> crates/adapteros-lora-mlx-ffi/src/backend.rs:96:8
+   |
+20 | impl MLXFFIBackend {
+   | ------------------ method in this implementation
+...
+96 |     fn apply_loras(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `apply_lora_transform` is never used
+  --> crates/adapteros-lora-mlx-ffi/src/routing.rs:90:4
+   |
+90 | fn apply_lora_transform(
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: structure field `_mbstateL` should have a snake case name
+  --> /Users/star/Dev/adapter-os/target/debug/build/adapteros-lora-mlx-ffi-0d277204088685d1/out/bindings.rs:75:9
+   |
+75 |     pub _mbstateL: ::std::os::raw::c_longlong,
+   |         ^^^^^^^^^ help: convert the identifier to snake case: `_mbstate_l`
+   |
+   = note: `#[warn(non_snake_case)]` on by default
+
+warning: `adapteros-lora-mlx-ffi` (lib) generated 3 warnings
+    Checking adapteros-secure-fs v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-secure-fs)
+    Checking adapteros-platform v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-platform)
+    Checking adapteros-storage v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-storage)
+warning: field `executor` is never read
+  --> crates/adapteros-base-llm/src/qwen.rs:25:5
+   |
+23 | struct QwenState {
+   |        --------- field in this struct
+24 |     initialized: bool,
+25 |     executor: Option<DeterministicExecutor>,
+   |     ^^^^^^^^
+   |
+   = note: `QwenState` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+
+    Checking adapteros-domain v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-domain)
+    Checking adapteros-config v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-config)
+    Checking adapteros-error-recovery v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-error-recovery)
+warning: `adapteros-base-llm` (lib) generated 1 warning
+    Checking adapteros-temp v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-temp)
+    Checking adapteros-concurrent-fs v0.1.0 (/Users/star/Dev/adapter-os/crates/adapteros-concurrent-fs)
+warning: fields `config`, `environments`, and `test_results_history` are never read
+   --> crates/adapteros-testing/src/unified_framework.rs:588:5
+    |
+586 | pub struct UnifiedTestingFramework {
+    |            ----------------------- fields in this struct
+587 |     /// Test configuration
+588 |     config: TestConfig,
+    |     ^^^^^^
+...
+591 |     environments: HashMap<String, TestEnvironment>,
+    |     ^^^^^^^^^^^^
+...
+594 |     test_results_history: Vec<TestResult>,
+    |     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `adapteros-testing` (lib) generated 1 warning
+error: expected `;`, found `#`
+  --> crates/adapteros-platform/src/common.rs:34:13
+   |
+33 |         #[cfg(target_os = "windows")]
+   |         ----------------------------- only `;` terminated statements or tail expressions are allowed after this attribute
+34 |         true
+   |             ^ expected `;` here
+35 |         #[cfg(not(target_os = "windows"))]
+   |         - unexpected token
+   |
+help: add `;` here
+   |
+34 |         true;
+   |             +
+help: alternatively, consider surrounding the expression with a block
+   |
+34 |         { true }
+   |         +      +
+help: it seems like you are trying to provide different expressions depending on `cfg`, consider using `if cfg!(..)`
+   |
+33 ~         if cfg!(target_os = "windows") {
+34 ~             true
+35 ~         } else if cfg!(not(target_os = "windows")) {
+36 ~             false
+37 +         }
+   |
+
+error: expected `;`, found `#`
+  --> crates/adapteros-platform/src/common.rs:42:13
+   |
+41 |         #[cfg(target_os = "macos")]
+   |         --------------------------- only `;` terminated statements or tail expressions are allowed after this attribute
+42 |         true
+   |             ^ expected `;` here
+43 |         #[cfg(not(target_os = "macos"))]
+   |         - unexpected token
+   |
+help: add `;` here
+   |
+42 |         true;
+   |             +
+help: alternatively, consider surrounding the expression with a block
+   |
+42 |         { true }
+   |         +      +
+help: it seems like you are trying to provide different expressions depending on `cfg`, consider using `if cfg!(..)`
+   |
+41 ~         if cfg!(target_os = "macos") {
+42 ~             true
+43 ~         } else if cfg!(not(target_os = "macos")) {
+44 ~             false
+45 +         }
+   |
+
+error: expected `;`, found `#`
+  --> crates/adapteros-platform/src/common.rs:50:13
+   |
+49 |         #[cfg(target_os = "linux")]
+   |         --------------------------- only `;` terminated statements or tail expressions are allowed after this attribute
+50 |         true
+   |             ^ expected `;` here
+51 |         #[cfg(not(target_os = "linux"))]
+   |         - unexpected token
+   |
+help: add `;` here
+   |
+50 |         true;
+   |             +
+help: alternatively, consider surrounding the expression with a block
+   |
+50 |         { true }
+   |         +      +
+help: it seems like you are trying to provide different expressions depending on `cfg`, consider using `if cfg!(..)`
+   |
+49 ~         if cfg!(target_os = "linux") {
+50 ~             true
+51 ~         } else if cfg!(not(target_os = "linux")) {
+52 ~             false
+53 +         }
+   |
+
+error: expected `;`, found `#`
+  --> crates/adapteros-platform/src/common.rs:58:13
+   |
+57 |         #[cfg(unix)]
+   |         ------------ only `;` terminated statements or tail expressions are allowed after this attribute
+58 |         true
+   |             ^ expected `;` here
+59 |         #[cfg(not(unix))]
+   |         - unexpected token
+   |
+help: add `;` here
+   |
+58 |         true;
+   |             +
+help: alternatively, consider surrounding the expression with a block
+   |
+58 |         { true }
+   |         +      +
+help: it seems like you are trying to provide different expressions depending on `cfg`, consider using `if cfg!(..)`
+   |
+57 ~         if cfg!(unix) {
+58 ~             true
+59 ~         } else if cfg!(not(unix)) {
+60 ~             false
+61 +         }
+   |
+
+error[E0583]: file not found for module `cleanup`
+ --> crates/adapteros-temp/src/lib.rs:7:1
+  |
+7 | pub mod cleanup;
+  | ^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `cleanup`, create file "crates/adapteros-temp/src/cleanup.rs" or "crates/adapteros-temp/src/cleanup/mod.rs"
+  = note: if there is a `mod cleanup` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `manager`
+ --> crates/adapteros-temp/src/lib.rs:9:1
+  |
+9 | pub mod manager;
+  | ^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `manager`, create file "crates/adapteros-temp/src/manager.rs" or "crates/adapteros-temp/src/manager/mod.rs"
+  = note: if there is a `mod manager` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0583]: file not found for module `manager`
+ --> crates/adapteros-concurrent-fs/src/lib.rs:9:1
+  |
+9 | pub mod manager;
+  | ^^^^^^^^^^^^^^^^
+  |
+  = help: to create the module `manager`, create file "crates/adapteros-concurrent-fs/src/manager.rs" or "crates/adapteros-concurrent-fs/src/manager/mod.rs"
+  = note: if there is a `mod manager` elsewhere in the crate already, import it with `use crate::...` instead
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `safetensors`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:184:9
+    |
+184 |     use safetensors::{tensor::TensorView, SafeTensors};
+    |         ^^^^^^^^^^^ use of unresolved module or unlinked crate `safetensors`
+    |
+    = help: if you wanted to use a crate named `safetensors`, use `cargo add safetensors` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `safetensors`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:184:9
+    |
+184 |     use safetensors::{tensor::TensorView, SafeTensors};
+    |         ^^^^^^^^^^^ use of unresolved module or unlinked crate `safetensors`
+    |
+    = help: if you wanted to use a crate named `safetensors`, use `cargo add safetensors` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `cap_std::path`
+ --> crates/adapteros-secure-fs/src/caps.rs:7:14
+  |
+7 | use cap_std::path::PathBuf;
+  |              ^^^^ could not find `path` in `cap_std`
+
+error[E0432]: unresolved import `cap_std::path`
+  --> crates/adapteros-secure-fs/src/lib.rs:13:14
+   |
+13 | use cap_std::path::PathBuf;
+   |              ^^^^ could not find `path` in `cap_std`
+
+warning: unused imports: `error` and `warn`
+  --> crates/adapteros-secure-fs/src/caps.rs:11:22
+   |
+11 | use tracing::{debug, error, info, warn};
+   |                      ^^^^^        ^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `adapteros_single_file_adapter`
+  --> crates/adapteros-config/src/loader.rs:12:5
+   |
+12 | use adapteros_single_file_adapter::format::TrainingConfig;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `adapteros_single_file_adapter`
+   |
+   = help: if you wanted to use a crate named `adapteros_single_file_adapter`, use `cargo add adapteros_single_file_adapter` to add it to your `Cargo.toml`
+
+warning: unused import: `warn`
+ --> crates/adapteros-secure-fs/src/symlink.rs:7:22
+  |
+7 | use tracing::{debug, warn};
+  |                      ^^^^
+
+warning: unused import: `std::os::unix::fs::MetadataExt`
+   --> crates/adapteros-platform/src/unix.rs:229:17
+    |
+229 |             use std::os::unix::fs::MetadataExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::os::unix::fs::OpenOptionsExt`
+   --> crates/adapteros-platform/src/unix.rs:230:17
+    |
+230 |             use std::os::unix::fs::OpenOptionsExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::time::SystemTime`
+  --> crates/adapteros-secure-fs/src/lib.rs:16:5
+   |
+16 | use std::time::SystemTime;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `debug`, `error`, and `warn`
+  --> crates/adapteros-secure-fs/src/lib.rs:17:15
+   |
+17 | use tracing::{debug, error, info, warn};
+   |               ^^^^^  ^^^^^        ^^^^
+
+warning: unused import: `std::os::unix::fs::MetadataExt`
+   --> crates/adapteros-platform/src/macos.rs:244:17
+    |
+244 |             use std::os::unix::fs::MetadataExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::os::unix::fs::OpenOptionsExt`
+   --> crates/adapteros-platform/src/macos.rs:245:17
+    |
+245 |             use std::os::unix::fs::OpenOptionsExt;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `tracing::debug`
+ --> crates/adapteros-platform/src/common.rs:7:5
+  |
+7 | use tracing::debug;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `Duration`
+  --> crates/adapteros-platform/src/lib.rs:15:17
+   |
+15 | use std::time::{Duration, SystemTime};
+   |                 ^^^^^^^^
+
+warning: unused imports: `debug`, `error`, `info`, and `warn`
+  --> crates/adapteros-platform/src/lib.rs:16:15
+   |
+16 | use tracing::{debug, error, info, warn};
+   |               ^^^^^  ^^^^^  ^^^^  ^^^^
+
+error[E0425]: cannot find function `to_vec` in crate `toml`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:118:20
+    |
+118 |             &toml::to_vec(&adapter.config)
+    |                    ^^^^^^ not found in `toml`
+    |
+help: consider importing this function
+    |
+  3 + use serde_json::to_vec;
+    |
+help: if you import `to_vec`, refer to it directly
+    |
+118 -             &toml::to_vec(&adapter.config)
+118 +             &to_vec(&adapter.config)
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `SingleFileAdapterLoader`
+  --> crates/adapteros-single-file-adapter/src/validator.rs:34:15
+   |
+34 |         match SingleFileAdapterLoader::load(path).await {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^ use of undeclared type `SingleFileAdapterLoader`
+   |
+help: a struct with a similar name exists
+   |
+34 -         match SingleFileAdapterLoader::load(path).await {
+34 +         match SingleFileAdapter::load(path).await {
+   |
+help: consider importing this struct through its public re-export
+   |
+ 3 + use crate::SingleFileAdapterLoader;
+   |
+
+warning: unused import: `super::format::*`
+ --> crates/adapteros-single-file-adapter/src/validator.rs:3:5
+  |
+3 | use super::format::*;
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `AosError`
+ --> crates/adapteros-single-file-adapter/src/validator.rs:4:22
+  |
+4 | use adapteros_core::{AosError, Result};
+  |                      ^^^^^^^^
+
+error[E0432]: unresolved import `adapteros_single_file_adapter`
+  --> crates/adapteros-config/src/loader.rs:13:5
+   |
+13 | use adapteros_single_file_adapter::SingleFileAdapterLoader;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `adapteros_single_file_adapter`
+   |
+   = help: if you wanted to use a crate named `adapteros_single_file_adapter`, use `cargo add adapteros_single_file_adapter` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `tokio`
+  --> crates/adapteros-config/src/loader.rs:14:5
+   |
+14 | use tokio;
+   |     ^^^^^ no external crate `tokio`
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `adapteros_single_file_adapter`
+  --> crates/adapteros-domain/src/manifest.rs:11:5
+   |
+11 | use adapteros_single_file_adapter::format::AdapterManifest as AosManifest;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `adapteros_single_file_adapter`
+   |
+   = help: if you wanted to use a crate named `adapteros_single_file_adapter`, use `cargo add adapteros_single_file_adapter` to add it to your `Cargo.toml`
+
+error[E0425]: cannot find function `sleep` in this scope
+   --> crates/adapteros-concurrent-fs/src/atomic.rs:124:25
+    |
+124 |                         sleep(self.config.retry_delay).await;
+    |                         ^^^^^ not found in this scope
+    |
+help: consider importing one of these functions
+    |
+  5 + use std::thread::sleep;
+    |
+  5 + use tokio::time::sleep;
+    |
+
+error[E0432]: unresolved import `adapteros_single_file_adapter`
+  --> crates/adapteros-domain/src/manifest.rs:12:5
+   |
+12 | use adapteros_single_file_adapter::SingleFileAdapterLoader;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `adapteros_single_file_adapter`
+   |
+   = help: if you wanted to use a crate named `adapteros_single_file_adapter`, use `cargo add adapteros_single_file_adapter` to add it to your `Cargo.toml`
+
+warning: unused imports: `info` and `warn`
+  --> crates/adapteros-concurrent-fs/src/locking.rs:12:29
+   |
+12 | use tracing::{debug, error, info, warn};
+   |                             ^^^^  ^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `info`
+  --> crates/adapteros-concurrent-fs/src/atomic.rs:10:29
+   |
+10 | use tracing::{debug, error, info, warn};
+   |                             ^^^^
+
+warning: unused import: `AosError`
+ --> crates/adapteros-concurrent-fs/src/conflict.rs:5:22
+  |
+5 | use adapteros_core::{AosError, Result};
+  |                      ^^^^^^^^
+
+warning: unused imports: `error` and `info`
+ --> crates/adapteros-concurrent-fs/src/conflict.rs:9:22
+  |
+9 | use tracing::{debug, error, info, warn};
+  |                      ^^^^^  ^^^^
+
+warning: unused import: `PathBuf`
+  --> crates/adapteros-concurrent-fs/src/lib.rs:13:23
+   |
+13 | use std::path::{Path, PathBuf};
+   |                       ^^^^^^^
+
+warning: unused import: `RwLock`
+  --> crates/adapteros-concurrent-fs/src/lib.rs:15:19
+   |
+15 | use tokio::sync::{RwLock, Mutex};
+   |                   ^^^^^^
+
+warning: unused imports: `error`, `info`, and `warn`
+  --> crates/adapteros-concurrent-fs/src/lib.rs:16:22
+   |
+16 | use tracing::{debug, error, info, warn};
+   |                      ^^^^^  ^^^^  ^^^^
+
+warning: unused imports: `error` and `info`
+  --> crates/adapteros-error-recovery/src/corruption.rs:10:22
+   |
+10 | use tracing::{debug, error, info, warn};
+   |                      ^^^^^  ^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Duration`
+ --> crates/adapteros-error-recovery/src/recovery.rs:8:17
+  |
+8 | use std::time::{Duration, SystemTime};
+  |                 ^^^^^^^^
+
+warning: unused imports: `debug` and `error`
+  --> crates/adapteros-error-recovery/src/retry.rs:10:15
+   |
+10 | use tracing::{debug, error, info, warn};
+   |               ^^^^^  ^^^^^
+
+warning: unused imports: `error` and `info`
+  --> crates/adapteros-error-recovery/src/validation.rs:10:22
+   |
+10 | use tracing::{debug, error, info, warn};
+   |                      ^^^^^  ^^^^
+
+error[E0433]: failed to resolve: use of undeclared type `SystemTime`
+  --> crates/adapteros-temp/src/atomic.rs:22:13
+   |
+22 |             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+   |             ^^^^^^^^^^ use of undeclared type `SystemTime`
+   |
+help: consider importing one of these structs
+   |
+ 5 + use crate::SystemTime;
+   |
+ 5 + use std::time::SystemTime;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `SystemTime`
+  --> crates/adapteros-temp/src/atomic.rs:22:46
+   |
+22 |             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+   |                                              ^^^^^^^^^^ use of undeclared type `SystemTime`
+   |
+help: consider importing one of these structs
+   |
+ 5 + use crate::SystemTime;
+   |
+ 5 + use std::time::SystemTime;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `SystemTime`
+  --> crates/adapteros-temp/src/atomic.rs:99:13
+   |
+99 |             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+   |             ^^^^^^^^^^ use of undeclared type `SystemTime`
+   |
+help: consider importing one of these structs
+   |
+ 5 + use crate::SystemTime;
+   |
+ 5 + use std::time::SystemTime;
+   |
+
+error[E0433]: failed to resolve: use of undeclared type `SystemTime`
+  --> crates/adapteros-temp/src/atomic.rs:99:46
+   |
+99 |             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+   |                                              ^^^^^^^^^^ use of undeclared type `SystemTime`
+   |
+help: consider importing one of these structs
+   |
+ 5 + use crate::SystemTime;
+   |
+ 5 + use std::time::SystemTime;
+   |
+
+error[E0412]: cannot find type `TempFileGuard` in this scope
+   --> crates/adapteros-temp/src/lib.rs:125:80
+    |
+125 |     pub async fn create_temp_file(&self, prefix: &str, suffix: &str) -> Result<TempFileGuard> {
+    |                                                                                ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+ 11 + use crate::guard::TempFileGuard;
+    |
+
+error[E0422]: cannot find struct, variant or union type `TempFileGuard` in this scope
+   --> crates/adapteros-temp/src/lib.rs:158:12
+    |
+158 |         Ok(TempFileGuard {
+    |            ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+ 11 + use crate::guard::TempFileGuard;
+    |
+
+error[E0412]: cannot find type `TempDirGuard` in this scope
+   --> crates/adapteros-temp/src/lib.rs:166:65
+    |
+166 |     pub async fn create_temp_dir(&self, prefix: &str) -> Result<TempDirGuard> {
+    |                                                                 ^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+ 11 + use crate::guard::TempDirGuard;
+    |
+
+error[E0422]: cannot find struct, variant or union type `TempDirGuard` in this scope
+   --> crates/adapteros-temp/src/lib.rs:181:12
+    |
+181 |         Ok(TempDirGuard {
+    |            ^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+ 11 + use crate::guard::TempDirGuard;
+    |
+
+warning: unused import: `error`
+  --> crates/adapteros-storage/src/quota.rs:13:22
+   |
+13 | use tracing::{debug, error, warn};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `CleanupPolicy`
+ --> crates/adapteros-storage/src/cleanup.rs:5:13
+  |
+5 | use crate::{CleanupPolicy, StorageConfig, StorageUsage};
+  |             ^^^^^^^^^^^^^
+
+warning: unused import: `sleep`
+  --> crates/adapteros-storage/src/cleanup.rs:11:29
+   |
+11 | use tokio::time::{interval, sleep};
+   |                             ^^^^^
+
+warning: unused imports: `AlertThresholds` and `StorageMonitoring`
+ --> crates/adapteros-storage/src/monitor.rs:5:13
+  |
+5 | use crate::{AlertThresholds, StorageConfig, StorageMonitoring, StorageUsage};
+  |             ^^^^^^^^^^^^^^^                 ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Duration`
+ --> crates/adapteros-storage/src/monitor.rs:9:17
+  |
+9 | use std::time::{Duration, SystemTime};
+  |                 ^^^^^^^^
+
+warning: unused import: `sleep`
+  --> crates/adapteros-storage/src/monitor.rs:11:29
+   |
+11 | use tokio::time::{interval, sleep};
+   |                             ^^^^^
+
+warning: unused imports: `CleanupPolicy` and `StorageMonitoring`
+ --> crates/adapteros-storage/src/policy.rs:5:13
+  |
+5 | use crate::{CleanupPolicy, StorageConfig, StorageMonitoring};
+  |             ^^^^^^^^^^^^^                 ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+ --> crates/adapteros-storage/src/policy.rs:9:5
+  |
+9 | use std::time::Duration;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AosError`
+  --> crates/adapteros-storage/src/lib.rs:11:22
+   |
+11 | use adapteros_core::{AosError, Result};
+   |                      ^^^^^^^^
+
+warning: unreachable statement
+  --> crates/adapteros-platform/src/windows.rs:98:9
+   |
+95 |             return Err(AosError::Platform("Windows permissions not available on this platform".to_string()));
+   |             ------------------------------------------------------------------------------------------------ any code following this expression is unreachable
+...
+98 |         debug!("Set Windows file permissions: {:o}", permissions);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` on by default
+   = note: this warning originates in the macro `$crate::event` which comes from the expansion of the macro `debug` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unreachable statement
+   --> crates/adapteros-platform/src/windows.rs:139:9
+    |
+136 |             return Err(AosError::Platform("Windows symlinks not available on this platform".to_string()));
+    |             --------------------------------------------------------------------------------------------- any code following this expression is unreachable
+...
+139 |         debug!("Created Windows symlink: {} -> {}", link.display(), target.display());
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: this warning originates in the macro `$crate::event` which comes from the expansion of the macro `debug` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0107]: type alias takes 1 generic argument but 2 generic arguments were supplied
+   --> crates/adapteros-error-recovery/src/retry.rs:237:16
+    |
+237 |     F: Fn() -> Result<T, E> + Send + 'static,
+    |                ^^^^^^  --- help: remove the unnecessary generic argument
+    |                |
+    |                expected 1 generic argument
+    |
+note: type alias defined here, with 1 generic parameter: `T`
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:6:10
+    |
+  6 | pub type Result<T> = std::result::Result<T, AosError>;
+    |          ^^^^^^ -
+
+warning: unreachable statement
+   --> crates/adapteros-platform/src/linux.rs:126:9
+    |
+123 |             return Err(AosError::Platform("Linux permissions not available on this platform".to_string()));
+    |             ---------------------------------------------------------------------------------------------- any code following this expression is unreachable
+...
+126 |         debug!("Set Linux file permissions: {:o}", permissions);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: this warning originates in the macro `$crate::event` which comes from the expansion of the macro `debug` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unreachable statement
+   --> crates/adapteros-platform/src/linux.rs:157:9
+    |
+154 |             return Err(AosError::Platform("Linux symlinks not available on this platform".to_string()));
+    |             ------------------------------------------------------------------------------------------- any code following this expression is unreachable
+...
+157 |         debug!("Created Linux symlink: {} -> {}", link.display(), target.display());
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: this warning originates in the macro `$crate::event` which comes from the expansion of the macro `debug` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unreachable statement
+  --> crates/adapteros-platform/src/common.rs:25:9
+   |
+19 |         return "macos";
+   |         -------------- any code following this expression is unreachable
+...
+25 |         return "unix";
+   |         ^^^^^^^^^^^^^^ unreachable statement
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:54:45
+    |
+ 54 |             .map_err(|_| AosError::Training("Missing manifest.json in .aos file"))?;
+    |                          ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                          |
+    |                          arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+ 54 |             .map_err(|_| AosError::Training("Missing manifest.json in .aos file".to_string()))?;
+    |                                                                                 ++++++++++++
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:65:45
+    |
+ 65 |             .map_err(|_| AosError::Training("Missing weights.safetensors in .aos file"))?;
+    |                          ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                          |
+    |                          arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+ 65 |             .map_err(|_| AosError::Training("Missing weights.safetensors in .aos file".to_string()))?;
+    |                                                                                       ++++++++++++
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:74:45
+    |
+ 74 |             .map_err(|_| AosError::Training("Missing training_data.jsonl in .aos file"))?;
+    |                          ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                          |
+    |                          arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+ 74 |             .map_err(|_| AosError::Training("Missing training_data.jsonl in .aos file".to_string()))?;
+    |                                                                                       ++++++++++++
+
+error[E0107]: type alias takes 1 generic argument but 2 generic arguments were supplied
+  --> crates/adapteros-single-file-adapter/src/loader.rs:83:24
+   |
+83 |             .collect::<Result<Vec<_>, _>>()
+   |                        ^^^^^^       --- help: remove the unnecessary generic argument
+   |                        |
+   |                        expected 1 generic argument
+   |
+note: type alias defined here, with 1 generic parameter: `T`
+  --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:6:10
+   |
+ 6 | pub type Result<T> = std::result::Result<T, AosError>;
+   |          ^^^^^^ -
+
+error[E0599]: no method named `write_all` found for struct `tokio::fs::File` in the current scope
+   --> crates/adapteros-temp/src/atomic.rs:46:14
+    |
+ 40 | /         fs::OpenOptions::new()
+ 41 | |             .create(true)
+ 42 | |             .append(true)
+ 43 | |             .open(&self.temp_path)
+ 44 | |             .await
+ 45 | |             .map_err(|e| AosError::Io(format!("Failed to open temp file for append: {}", e)))?
+ 46 | |             .write_all(data)
+    | |_____________-^^^^^^^^^
+    |
+   ::: /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.47.1/src/io/util/async_write_ext.rs:369:12
+    |
+369 |           fn write_all<'a>(&'a mut self, src: &'a [u8]) -> WriteAll<'a, Self>
+    |              --------- the method is available for `tokio::fs::File` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `AsyncWriteExt` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+    |
+  5 + use tokio::io::AsyncWriteExt;
+    |
+help: there is a method `write` with a similar name
+    |
+ 46 -             .write_all(data)
+ 46 +             .write(data)
+    |
+
+error[E0277]: a value of type `Result<Vec<_>, AosError>` cannot be built from an iterator over elements of type `Result<_, serde_json::Error>`
+    --> crates/adapteros-single-file-adapter/src/loader.rs:83:24
+     |
+  83 |             .collect::<Result<Vec<_>, _>>()
+     |              -------   ^^^^^^^^^^^^^^^^^ value of type `Result<Vec<_>, AosError>` cannot be built from `std::iter::Iterator<Item=Result<_, serde_json::Error>>`
+     |              |
+     |              required by a bound introduced by this call
+     |
+     = help: the trait `FromIterator<Result<_, serde_json::Error>>` is not implemented for `Result<Vec<_>, AosError>`
+             but trait `FromIterator<Result<_, AosError>>` is implemented for it
+     = help: for that trait implementation, expected `AosError`, found `serde_json::Error`
+note: the method call chain might not have had the expected associated types
+    --> crates/adapteros-single-file-adapter/src/loader.rs:82:14
+     |
+  75 |         let mut training_data_str = String::new();
+     |                                     ------------- this expression has type `String`
+...
+  80 |             .lines()
+     |              ------- `Iterator::Item` is `&str` here
+  81 |             .filter(|line| !line.trim().is_empty())
+     |              -------------------------------------- `Iterator::Item` remains `&str` here
+  82 |             .map(|line| serde_json::from_str(line))
+     |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Iterator::Item` changed to `Result<_, Error>` here
+note: required by a bound in `collect`
+    --> /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:2014:19
+     |
+2014 |     fn collect<B: FromIterator<Self::Item>>(self) -> B
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Iterator::collect`
+
+error[E0502]: cannot borrow `locks` as mutable because it is also borrowed as immutable
+   --> crates/adapteros-concurrent-fs/src/locking.rs:211:29
+    |
+201 |         if let Some(lock_info) = locks.get(path) {
+    |                                  ----- immutable borrow occurs here
+...
+211 |                             locks.remove(path);
+    |                             ^^^^^ mutable borrow occurs here
+...
+214 |                 }
+    |                 - immutable borrow might be used here, when `read_count` is dropped and runs the `Drop` code for type `tokio::sync::MutexGuard`
+
+error[E0502]: cannot borrow `locks` as mutable because it is also borrowed as immutable
+   --> crates/adapteros-concurrent-fs/src/locking.rs:221:21
+    |
+201 |         if let Some(lock_info) = locks.get(path) {
+    |                                  ----- immutable borrow occurs here
+...
+221 |                     locks.remove(path);
+    |                     ^^^^^ mutable borrow occurs here
+222 |                 }
+    |                 - immutable borrow might be used here, when `write_locked` is dropped and runs the `Drop` code for type `tokio::sync::MutexGuard`
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:89:45
+    |
+ 89 |             .map_err(|_| AosError::Training("Missing config.toml in .aos file"))?;
+    |                          ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                          |
+    |                          arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+ 89 |             .map_err(|_| AosError::Training("Missing config.toml in .aos file".to_string()))?;
+    |                                                                               ++++++++++++
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:100:45
+    |
+100 |             .map_err(|_| AosError::Training("Missing lineage.json in .aos file"))?;
+    |                          ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                          |
+    |                          arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+100 |             .map_err(|_| AosError::Training("Missing lineage.json in .aos file".to_string()))?;
+    |                                                                                ++++++++++++
+
+warning: unreachable statement
+   --> crates/adapteros-platform/src/lib.rs:206:9
+    |
+200 |         return Platform::MacOS;
+    |         ---------------------- any code following this expression is unreachable
+...
+206 |         return Platform::Unix;
+    |         ^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+
+error[E0277]: `?` couldn't convert the error to `AosError`
+   --> crates/adapteros-single-file-adapter/src/loader.rs:110:60
+    |
+110 |             let mut sig_file = zip.by_name("signature.sig")?;
+    |                                    ------------------------^ the trait `From<ZipError>` is not implemented for `AosError`
+    |                                    |
+    |                                    this can't be annotated with `?` because it has type `Result<_, ZipError>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `AosError` implements `From<anyhow::Error>`
+              `AosError` implements `From<rusqlite::error::Error>`
+              `AosError` implements `From<serde_json::Error>`
+              `AosError` implements `From<sqlx_core::error::Error>`
+              `AosError` implements `From<std::io::Error>`
+              `AosError` implements `From<zip::result::ZipError>`
+
+error[E0599]: no function or associated item named `detect_platform` found for struct `PlatformConfig` in the current scope
+   --> crates/adapteros-platform/src/lib.rs:332:15
+    |
+ 20 | pub struct PlatformConfig {
+    | ------------------------- function or associated item `detect_platform` not found for this struct
+...
+332 |         Self::detect_platform().unwrap_or_else(|_| PlatformConfig {
+    |               ^^^^^^^^^^^^^^^ function or associated item not found in `PlatformConfig`
+
+error[E0599]: no method named `verify` found for struct `format::SingleFileAdapter` in the current scope
+   --> crates/adapteros-single-file-adapter/src/loader.rs:141:25
+    |
+141 |             if !adapter.verify()? {
+    |                         ^^^^^^ method not found in `format::SingleFileAdapter`
+    |
+   ::: crates/adapteros-single-file-adapter/src/format.rs:18:1
+    |
+ 18 | pub struct SingleFileAdapter {
+    | ---------------------------- method `verify` not found for this struct
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `verify`, perhaps you need to implement one of them:
+            candidate #1: `digest::mac::Mac`
+            candidate #2: `ring::rsa::padding::Verification`
+            candidate #3: `ring::signature::VerificationAlgorithm`
+            candidate #4: `signature::verifier::Verifier`
+            candidate #5: `universal_hash::UniversalHash`
+            candidate #6: `winnow::parser::Parser`
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:142:47
+    |
+142 |                 return Err(AosError::Training("Adapter integrity verification failed"));
+    |                            ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                            |
+    |                            arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+142 |                 return Err(AosError::Training("Adapter integrity verification failed".to_string()));
+    |                                                                                      ++++++++++++
+
+warning: unused variable: `path`
+  --> crates/adapteros-platform/src/windows.rs:84:36
+   |
+84 |     fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+   |                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `permissions`
+  --> crates/adapteros-platform/src/windows.rs:84:49
+   |
+84 |     fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+   |                                                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_permissions`
+
+warning: unused variable: `path`
+   --> crates/adapteros-platform/src/windows.rs:102:36
+    |
+102 |     fn get_file_permissions(&self, path: &Path) -> Result<u32> {
+    |                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+
+warning: unused variable: `target`
+   --> crates/adapteros-platform/src/windows.rs:117:30
+    |
+117 |     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    |                              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_target`
+
+warning: unused variable: `link`
+   --> crates/adapteros-platform/src/windows.rs:117:45
+    |
+117 |     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    |                                             ^^^^ help: if this is intentional, prefix it with an underscore: `_link`
+
+warning: unused variable: `link`
+   --> crates/adapteros-platform/src/windows.rs:143:28
+    |
+143 |     fn read_symlink(&self, link: &Path) -> Result<PathBuf> {
+    |                            ^^^^ help: if this is intentional, prefix it with an underscore: `_link`
+
+warning: unused variable: `path`
+   --> crates/adapteros-platform/src/windows.rs:156:26
+    |
+156 |     fn is_symlink(&self, path: &Path) -> bool {
+    |                          ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+
+error[E0599]: no method named `is_signed` found for struct `format::SingleFileAdapter` in the current scope
+   --> crates/adapteros-single-file-adapter/src/loader.rs:155:21
+    |
+155 |             adapter.is_signed()
+    |                     ^^^^^^^^^ method not found in `format::SingleFileAdapter`
+    |
+   ::: crates/adapteros-single-file-adapter/src/format.rs:18:1
+    |
+ 18 | pub struct SingleFileAdapter {
+    | ---------------------------- method `is_signed` not found for this struct
+
+error[E0382]: use of moved value: `shutdown_rx`
+  --> crates/adapteros-storage/src/cleanup.rs:56:25
+   |
+56 |                     _ = shutdown_rx => {
+   |                         ^^^^^^^^^^^ value moved here, in previous iteration of loop
+   |
+   = note: move occurs because `shutdown_rx` has type `tokio::sync::oneshot::Receiver<()>`, which does not implement the `Copy` trait
+
+warning: unused variable: `file`
+   --> crates/adapteros-platform/src/unix.rs:233:17
+    |
+233 |             let file = OpenOptions::new()
+    |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_file`
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:173:45
+    |
+173 |             .map_err(|_| AosError::Training("Missing manifest.json in .aos file"))?;
+    |                          ------------------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `&str`
+    |                          |
+    |                          arguments to this enum variant are incorrect
+    |
+note: tuple variant defined here
+   --> /Users/star/Dev/adapter-os/crates/adapteros-core/src/error.rs:144:5
+    |
+144 |     Training(String),
+    |     ^^^^^^^^
+help: try using a conversion method
+    |
+173 |             .map_err(|_| AosError::Training("Missing manifest.json in .aos file".to_string()))?;
+    |                                                                                 ++++++++++++
+
+error[E0308]: `?` operator has incompatible types
+   --> crates/adapteros-single-file-adapter/src/loader.rs:182:13
+    |
+182 |         if !verify_format_version(manifest.format_version)? {
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `bool`, found `()`
+    |
+    = note: `?` operator cannot convert from `()` to `bool`
+
+error[E0277]: the trait bound `&Cow<'_, str>: Pattern` is not satisfied
+    --> crates/adapteros-error-recovery/src/recovery.rs:189:61
+     |
+ 189 |                 if entry_name.to_string_lossy().starts_with(&file_name) {
+     |                                                 ----------- ^^^^^^^^^^ the trait `Fn(char)` is not implemented for `Cow<'_, str>`
+     |                                                 |
+     |                                                 required by a bound introduced by this call
+     |
+     = note: required for `&Cow<'_, str>` to implement `FnOnce(char)`
+     = note: required for `&Cow<'_, str>` to implement `Pattern`
+note: required by a bound in `core::str::<impl str>::starts_with`
+    --> /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/str/mod.rs:1378:27
+     |
+1378 |     pub fn starts_with<P: Pattern>(&self, pat: P) -> bool {
+     |                           ^^^^^^^ required by this bound in `core::str::<impl str>::starts_with`
+help: consider dereferencing here
+     |
+ 189 |                 if entry_name.to_string_lossy().starts_with(&*file_name) {
+     |                                                              +
+
+error[E0277]: the trait bound `&Cow<'_, str>: Pattern` is not satisfied
+    --> crates/adapteros-error-recovery/src/recovery.rs:220:61
+     |
+ 220 |                 if entry_name.to_string_lossy().starts_with(&file_name) {
+     |                                                 ----------- ^^^^^^^^^^ the trait `Fn(char)` is not implemented for `Cow<'_, str>`
+     |                                                 |
+     |                                                 required by a bound introduced by this call
+     |
+     = note: required for `&Cow<'_, str>` to implement `FnOnce(char)`
+     = note: required for `&Cow<'_, str>` to implement `Pattern`
+note: required by a bound in `core::str::<impl str>::starts_with`
+    --> /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/str/mod.rs:1378:27
+     |
+1378 |     pub fn starts_with<P: Pattern>(&self, pat: P) -> bool {
+     |                           ^^^^^^^ required by this bound in `core::str::<impl str>::starts_with`
+help: consider dereferencing here
+     |
+ 220 |                 if entry_name.to_string_lossy().starts_with(&*file_name) {
+     |                                                              +
+
+warning: unused variable: `file`
+   --> crates/adapteros-platform/src/macos.rs:248:17
+    |
+248 |             let file = OpenOptions::new()
+    |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_file`
+
+error[E0599]: no function or associated item named `from_std` found for struct `Dir` in the current scope
+   --> crates/adapteros-secure-fs/src/lib.rs:154:21
+    |
+154 |             Ok(Dir::from_std(dir))
+    |                     ^^^^^^^^ function or associated item not found in `Dir`
+    |
+note: if you're trying to build a new `Dir` consider using one of the following associated functions:
+      Dir::from_std_file
+      Dir::open_ambient_dir
+      Dir::reopen_dir
+   --> /Users/star/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cap-std-1.0.15/src/fs/dir.rs:60:5
+    |
+ 60 |       pub fn from_std_file(std_file: fs::File) -> Self {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+637 | /     pub fn open_ambient_dir<P: AsRef<Path>>(
+638 | |         path: P,
+639 | |         ambient_authority: AmbientAuthority,
+640 | |     ) -> io::Result<Self> {
+    | |_________________________^
+...
+679 |       pub fn reopen_dir<Filelike: AsFilelike>(dir: &Filelike) -> io::Result<Self> {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `from` with a similar name
+    |
+154 -             Ok(Dir::from_std(dir))
+154 +             Ok(Dir::from(dir))
+    |
+
+error[E0277]: the trait bound `&Cow<'_, str>: Pattern` is not satisfied
+    --> crates/adapteros-error-recovery/src/recovery.rs:261:61
+     |
+ 261 |                 if entry_name.to_string_lossy().starts_with(&file_name) {
+     |                                                 ----------- ^^^^^^^^^^ the trait `Fn(char)` is not implemented for `Cow<'_, str>`
+     |                                                 |
+     |                                                 required by a bound introduced by this call
+     |
+     = note: required for `&Cow<'_, str>` to implement `FnOnce(char)`
+     = note: required for `&Cow<'_, str>` to implement `Pattern`
+note: required by a bound in `core::str::<impl str>::starts_with`
+    --> /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/str/mod.rs:1378:27
+     |
+1378 |     pub fn starts_with<P: Pattern>(&self, pat: P) -> bool {
+     |                           ^^^^^^^ required by this bound in `core::str::<impl str>::starts_with`
+help: consider dereferencing here
+     |
+ 261 |                 if entry_name.to_string_lossy().starts_with(&*file_name) {
+     |                                                              +
+
+warning: unused variable: `path`
+   --> crates/adapteros-platform/src/linux.rs:112:36
+    |
+112 |     fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+    |                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+
+warning: unused variable: `permissions`
+   --> crates/adapteros-platform/src/linux.rs:112:49
+    |
+112 |     fn set_file_permissions(&self, path: &Path, permissions: u32) -> Result<()> {
+    |                                                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_permissions`
+
+warning: unused variable: `path`
+   --> crates/adapteros-platform/src/linux.rs:130:36
+    |
+130 |     fn get_file_permissions(&self, path: &Path) -> Result<u32> {
+    |                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+
+warning: unused variable: `target`
+   --> crates/adapteros-platform/src/linux.rs:145:30
+    |
+145 |     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    |                              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_target`
+
+warning: unused variable: `link`
+   --> crates/adapteros-platform/src/linux.rs:145:45
+    |
+145 |     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
+    |                                             ^^^^ help: if this is intentional, prefix it with an underscore: `_link`
+
+warning: unused variable: `link`
+   --> crates/adapteros-platform/src/linux.rs:161:28
+    |
+161 |     fn read_symlink(&self, link: &Path) -> Result<PathBuf> {
+    |                            ^^^^ help: if this is intentional, prefix it with an underscore: `_link`
+
+warning: unused variable: `path`
+   --> crates/adapteros-platform/src/linux.rs:174:26
+    |
+174 |     fn is_symlink(&self, path: &Path) -> bool {
+    |                          ^^^^ help: if this is intentional, prefix it with an underscore: `_path`
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/packager.rs:54:64
+    |
+ 54 |             file_options = file_options.compression_level(Some(level as u32));
+    |                                                           ---- ^^^^^^^^^^^^ expected `i32`, found `u32`
+    |                                                           |
+    |                                                           arguments to this enum variant are incorrect
+    |
+help: the type constructed contains `u32` due to the type of the argument passed
+   --> crates/adapteros-single-file-adapter/src/packager.rs:54:59
+    |
+ 54 |             file_options = file_options.compression_level(Some(level as u32));
+    |                                                           ^^^^^------------^
+    |                                                                |
+    |                                                                this argument influences the type of `Some`
+note: tuple variant defined here
+   --> /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:601:5
+    |
+601 |     Some(#[stable(feature = "rust1", since = "1.0.0")] T),
+    |     ^^^^
+help: you can convert a `u32` to an `i32` and panic if the converted value doesn't fit
+    |
+ 54 |             file_options = file_options.compression_level(Some((level as u32).try_into().unwrap()));
+    |                                                                +            +++++++++++++++++++++
+
+warning: unused variable: `conflict`
+   --> crates/adapteros-concurrent-fs/src/conflict.rs:337:42
+    |
+337 |     async fn apply_merge_strategy(&self, conflict: &FileConflict) -> Result<ResolutionResult> {
+    |                                          ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_conflict`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+Some errors have detailed explanations: E0432, E0433.
+For more information about an error, try `rustc --explain E0432`.
+error[E0533]: expected value, found struct variant `AosError::Timeout`
+   --> crates/adapteros-error-recovery/src/retry.rs:213:32
+    |
+213 |                     return Err(AosError::Timeout("Operation timed out".to_string()));
+    |                                ^^^^^^^^^^^^^^^^^ not a value
+    |
+help: you might have meant to create a new value of the struct
+    |
+213 -                     return Err(AosError::Timeout("Operation timed out".to_string()));
+213 +                     return Err(AosError::Timeout { duration: /* value */ });
+    |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `adapteros-config` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error[E0308]: mismatched types
+   --> crates/adapteros-error-recovery/src/retry.rs:251:35
+    |
+229 | pub async fn retry_with_error_handler<F, T, E>(
+    |                                             - expected this type parameter
+...
+251 |                 if !error_handler(&e, attempt) {
+    |                     ------------- ^^ expected `&E`, found `&AosError`
+    |                     |
+    |                     arguments to this function are incorrect
+    |
+    = note: expected reference `&E`
+               found reference `&AosError`
+note: type parameter defined here
+   --> crates/adapteros-error-recovery/src/retry.rs:234:20
+    |
+234 |     error_handler: impl Fn(&E, u32) -> bool + Send + Sync,
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:64:13
+     |
+  64 |         zip.write_all(
+     |         ----^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+  64 -         zip.write_all(
+  64 +         zip.write(
+     |
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+  --> crates/adapteros-single-file-adapter/src/packager.rs:73:78
+   |
+73 |         let positive_weights_bytes = serialize_weight_group(&adapter.weights.positive)?;
+   |                                                                              ^^^^^^^^ unknown field
+
+error[E0599]: no method named `clone` found for struct `tokio::sync::RwLock` in the current scope
+  --> crates/adapteros-temp/src/lib.rs:84:46
+   |
+84 |         let active_files = self.active_files.clone();
+   |                                              ^^^^^ method not found in `tokio::sync::RwLock<HashMap<std::string::String, TempFileInfo>>`
+
+warning: unused variable: `config`
+  --> crates/adapteros-secure-fs/src/permissions.rs:76:57
+   |
+76 | pub fn check_secure_permissions(path: impl AsRef<Path>, config: &PermissionConfig) -> Result<bool> {
+   |                                                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: `adapteros-platform` (lib) generated 29 warnings
+error: could not compile `adapteros-platform` (lib) due to 5 previous errors; 29 warnings emitted
+error[E0382]: borrow of moved value: `path`
+  --> crates/adapteros-secure-fs/src/permissions.rs:86:12
+   |
+76 | pub fn check_secure_permissions(path: impl AsRef<Path>, config: &PermissionConfig) -> Result<bool> {
+   |                                 ---- move occurs because `path` has type `impl AsRef<Path>`, which does not implement the `Copy` trait
+...
+80 |         let metadata = std::fs::metadata(path)
+   |                                          ---- value moved here
+...
+86 |         if path.as_ref().is_file() {
+   |            ^^^^ value borrowed here after move
+   |
+help: consider borrowing `path`
+   |
+80 |         let metadata = std::fs::metadata(&path)
+   |                                          +
+help: consider restricting opaque type `impl AsRef<Path>` with trait `Copy`
+   |
+76 | pub fn check_secure_permissions(path: impl AsRef<Path> + Copy, config: &PermissionConfig) -> Result<bool> {
+   |                                                        ++++++
+
+warning: value assigned to `details` is never read
+   --> crates/adapteros-error-recovery/src/validation.rs:108:17
+    |
+108 |         let mut details = String::new();
+    |                 ^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+error[E0599]: no method named `clone` found for struct `tokio::sync::RwLock` in the current scope
+  --> crates/adapteros-storage/src/monitor.rs:60:54
+   |
+60 |         let last_alert_level = self.last_alert_level.clone();
+   |                                                      ^^^^^ method not found in `tokio::sync::RwLock<std::option::Option<AlertLevel>>`
+
+error[E0596]: cannot borrow `self.validation_cache` as mutable, as it is behind a `&` reference
+   --> crates/adapteros-error-recovery/src/validation.rs:198:9
+    |
+198 |         self.validation_cache.insert(path.to_path_buf(), result.clone());
+    |         ^^^^^^^^^^^^^^^^^^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+ 98 |     pub async fn validate_file_detailed(&mut self, path: &Path) -> Result<ValidationResult> {
+    |                                          +++
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:74:13
+     |
+  74 |         zip.write_all(&positive_weights_bytes)
+     |             ^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+  74 -         zip.write_all(&positive_weights_bytes)
+  74 +         zip.write(&positive_weights_bytes)
+     |
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+  --> crates/adapteros-single-file-adapter/src/packager.rs:80:78
+   |
+80 |         let negative_weights_bytes = serialize_weight_group(&adapter.weights.negative)?;
+   |                                                                              ^^^^^^^^ unknown field
+
+warning: value assigned to `details` is never read
+   --> crates/adapteros-error-recovery/src/validation.rs:212:17
+    |
+212 |         let mut details = String::new();
+    |                 ^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+Some errors have detailed explanations: E0382, E0432, E0599.
+For more information about an error, try `rustc --explain E0382`.
+warning: unused variable: `metadata`
+   --> crates/adapteros-error-recovery/src/validation.rs:288:13
+    |
+288 |         let metadata = fs::metadata(path).await
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_metadata`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `adapteros-secure-fs` (lib) generated 5 warnings
+error: could not compile `adapteros-secure-fs` (lib) due to 4 previous errors; 5 warnings emitted
+error[E0382]: borrow of moved value: `current_alert_level`
+   --> crates/adapteros-storage/src/monitor.rs:131:40
+    |
+115 |         let current_alert_level = if usage.exceeds_threshold(thresholds.emergency_pct) {
+    |             ------------------- move occurs because `current_alert_level` has type `std::option::Option<AlertLevel>`, which does not implement the `Copy` trait
+...
+128 |         *last_level = current_alert_level;
+    |                       ------------------- value moved here
+...
+131 |             if let Some(alert_level) = &current_alert_level {
+    |                                        ^^^^^^^^^^^^^^^^^^^^ value borrowed here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+128 |         *last_level = current_alert_level.clone();
+    |                                          ++++++++
+
+warning: unused variable: `metadata`
+   --> crates/adapteros-error-recovery/src/validation.rs:373:13
+    |
+373 |         let metadata = fs::metadata(path).await
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_metadata`
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:81:13
+     |
+  81 |         zip.write_all(&negative_weights_bytes)
+     |             ^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+  81 -         zip.write_all(&negative_weights_bytes)
+  81 +         zip.write(&negative_weights_bytes)
+     |
+
+error[E0733]: recursion in an async fn requires boxing
+   --> crates/adapteros-concurrent-fs/src/locking.rs:116:5
+    |
+116 |     async fn acquire_read_lock_internal(&self, path: &PathBuf, holder: &str) -> Result<FileLock> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+126 |                 return self.acquire_read_lock_internal(path, holder).await;
+    |                        --------------------------------------------------- recursive call here
+    |
+    = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
+
+error[E0609]: no field `combined` on type `Vec<u8>`
+  --> crates/adapteros-single-file-adapter/src/packager.rs:86:57
+   |
+86 |             if let Some(ref combined) = adapter.weights.combined {
+   |                                                         ^^^^^^^^ unknown field
+
+error[E0733]: recursion in an async fn requires boxing
+   --> crates/adapteros-concurrent-fs/src/locking.rs:156:5
+    |
+156 |     async fn acquire_write_lock_internal(&self, path: &PathBuf, holder: &str) -> Result<FileLock> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+168 |                 return self.acquire_write_lock_internal(path, holder).await;
+    |                        ---------------------------------------------------- recursive call here
+    |
+    = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
+
+warning: unused variable: `file_id`
+   --> crates/adapteros-temp/src/lib.rs:247:27
+    |
+247 |             files.retain(|file_id, file_info| {
+    |                           ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_file_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:92:21
+     |
+  92 |                 zip.write_all(&combined_weights_bytes).map_err(|e| {
+     |                     ^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+  92 -                 zip.write_all(&combined_weights_bytes).map_err(|e| {
+  92 +                 zip.write(&combined_weights_bytes).map_err(|e| {
+     |
+
+error[E0596]: cannot borrow `self.monitor` as mutable, as it is behind a `&` reference
+   --> crates/adapteros-storage/src/lib.rs:167:9
+    |
+167 |         self.monitor.start_monitoring().await
+    |         ^^^^^^^^^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+166 |     pub async fn start_monitoring(&mut self) -> Result<()> {
+    |                                    +++
+
+error[E0596]: cannot borrow `self.monitor` as mutable, as it is behind a `&` reference
+   --> crates/adapteros-storage/src/lib.rs:172:9
+    |
+172 |         self.monitor.stop_monitoring().await
+    |         ^^^^^^^^^^^^ `self` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+171 |     pub async fn stop_monitoring(&mut self) -> Result<()> {
+    |                                   +++
+
+error[E0502]: cannot borrow `history` as immutable because it is also borrowed as mutable
+   --> crates/adapteros-error-recovery/src/lib.rs:275:30
+    |
+275 |             history.drain(0..history.len() - 1000);
+    |             ------- -----    ^^^^^^^ immutable borrow occurs here
+    |             |       |
+    |             |       mutable borrow later used by call
+    |             mutable borrow occurs here
+
+error[E0277]: the `?` operator can only be applied to values that implement `Try`
+  --> crates/adapteros-storage/src/quota.rs:54:24
+   |
+54 |         let reserved = self.get_total_reserved()?;
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^ the `?` operator cannot be applied to type `impl Future<Output = Result<u64, AosError>>`
+   |
+   = help: the trait `Try` is not implemented for `impl Future<Output = Result<u64, AosError>>`
+note: this implements `Future` and its output type supports `?`, but the future cannot be awaited in a synchronous function
+  --> crates/adapteros-storage/src/quota.rs:54:49
+   |
+52 |     pub fn check_space(&self, file_size: u64) -> Result<()> {
+   |     ------------------------------------------------------- this is not `async`
+53 |         let usage = self.get_current_usage()?;
+54 |         let reserved = self.get_total_reserved()?;
+   |                                                 ^
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:106:17
+     |
+ 106 |             zip.write_all(&serde_json::to_vec(example).map_err(|e| {
+     |             ----^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+ 106 -             zip.write_all(&serde_json::to_vec(example).map_err(|e| {
+ 106 +             zip.write(&serde_json::to_vec(example).map_err(|e| {
+     |
+
+error[E0061]: this function takes 3 arguments but 1 argument was supplied
+  --> crates/adapteros-storage/src/monitor.rs:35:25
+   |
+35 |         let telemetry = TelemetryWriter::new("storage_monitor".to_string());
+   |                         ^^^^^^^^^^^^^^^^^^^^------------------------------- two arguments of type `usize` and `usize` are missing
+   |
+note: associated function defined here
+  --> /Users/star/Dev/adapter-os/crates/adapteros-telemetry/src/lib.rs:91:12
+   |
+91 |     pub fn new<P: AsRef<Path>>(output_dir: P, max_events: usize, max_bytes: usize) -> Result<Self> {
+   |            ^^^
+help: provide the arguments
+   |
+35 |         let telemetry = TelemetryWriter::new("storage_monitor".to_string(), /* usize */, /* usize */);
+   |                                                                           ++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+  --> crates/adapteros-storage/src/monitor.rs:40:13
+   |
+40 |             telemetry,
+   |             ^^^^^^^^^ expected `TelemetryWriter`, found `Result<TelemetryWriter, AosError>`
+   |
+   = note: expected struct `TelemetryWriter`
+                found enum `Result<TelemetryWriter, AosError>`
+help: use the `?` operator to extract the `Result<TelemetryWriter, AosError>` value, propagating a `Result::Err` value to the caller
+   |
+40 |             telemetry: telemetry?,
+   |                      ++++++++++++
+
+error[E0521]: borrowed data escapes outside of method
+   --> crates/adapteros-concurrent-fs/src/lib.rs:185:9
+    |
+179 |   impl<'a> Drop for ConcurrentOperationGuard<'a> {
+    |        -- lifetime `'a` defined here
+180 |       fn drop(&mut self) {
+    |               --------- `self` is a reference that is only valid in the method body
+...
+185 | /         tokio::spawn(async move {
+186 | |             manager.release_operation().await;
+187 | |         });
+    | |          ^
+    | |          |
+    | |__________`self` escapes the method body here
+    |            argument requires that `'a` must outlive `'static`
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:110:17
+     |
+ 110 |             zip.write_all(b"\n")
+     |                 ^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+ 110 -             zip.write_all(b"\n")
+ 110 +             zip.write(b"\n")
+     |
+
+warning: variable `count` is assigned to, but never used
+   --> crates/adapteros-domain/src/vision.rs:187:29
+    |
+187 |                     let mut count = 0;
+    |                             ^^^^^
+    |
+    = note: consider using `_count` instead
+    = note: `#[warn(unused_variables)]` on by default
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:117:13
+     |
+ 117 |         zip.write_all(
+     |         ----^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+ 117 -         zip.write_all(
+ 117 +         zip.write(
+     |
+
+Some errors have detailed explanations: E0425, E0502, E0521, E0583, E0733.
+For more information about an error, try `rustc --explain E0425`.
+error[E0733]: recursion in an async fn requires boxing
+   --> crates/adapteros-temp/src/atomic.rs:185:5
+    |
+185 |     async fn copy_directory_recursive(src: &Path, dst: &Path) -> Result<()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+201 |                 Self::copy_directory_recursive(&entry_path, &dst_path).await?;
+    |                 ------------------------------------------------------------ recursive call here
+    |
+    = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
+
+error[E0164]: expected tuple struct or tuple variant, found struct variant `AosError::Timeout`
+   --> crates/adapteros-error-recovery/src/lib.rs:202:13
+    |
+202 |             AosError::Timeout(_) => ErrorType::TimeoutError,
+    |             ^^^^^^^^^^^^^^^^^^^^ not a tuple struct or tuple variant
+    |
+help: the struct variant's field is being ignored
+    |
+202 -             AosError::Timeout(_) => ErrorType::TimeoutError,
+202 +             AosError::Timeout { duration: _ } => ErrorType::TimeoutError,
+    |
+
+warning: `adapteros-concurrent-fs` (lib) generated 8 warnings
+error: could not compile `adapteros-concurrent-fs` (lib) due to 7 previous errors; 8 warnings emitted
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:126:13
+     |
+ 126 |         zip.write_all(
+     |         ----^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+ 126 -         zip.write_all(
+ 126 +         zip.write(
+     |
+
+warning: `adapteros-domain` (lib) generated 1 warning
+error: could not compile `adapteros-domain` (lib) due to 2 previous errors; 1 warning emitted
+error[E0521]: borrowed data escapes outside of method
+   --> crates/adapteros-temp/src/guard.rs:97:9
+    |
+ 83 |   impl<'a> Drop for TempFileGuard<'a> {
+    |        -- lifetime `'a` defined here
+ 84 |       fn drop(&mut self) {
+    |               --------- `self` is a reference that is only valid in the method body
+...
+ 97 | /         tokio::spawn(async move {
+ 98 | |             if let Err(e) = manager.remove_temp_file(&file_id).await {
+ 99 | |                 tracing::warn!("Failed to remove temp file from active list: {}", e);
+100 | |             }
+101 | |         });
+    | |          ^
+    | |          |
+    | |__________`self` escapes the method body here
+    |            argument requires that `'a` must outlive `'static`
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:137:21
+     |
+ 137 |                 zip.write_all(&serde_json::to_vec_pretty(signature).map_err(|e| {
+     |                 ----^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+ 137 -                 zip.write_all(&serde_json::to_vec_pretty(signature).map_err(|e| {
+ 137 +                 zip.write(&serde_json::to_vec_pretty(signature).map_err(|e| {
+     |
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:149:48
+    |
+149 |                 example_count: adapter.weights.positive.metadata.example_count,
+    |                                                ^^^^^^^^ unknown field
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:150:43
+    |
+150 |                 avg_loss: adapter.weights.positive.metadata.avg_loss,
+    |                                           ^^^^^^^^ unknown field
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:151:51
+    |
+151 |                 training_time_ms: adapter.weights.positive.metadata.training_time_ms,
+    |                                                   ^^^^^^^^ unknown field
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:152:45
+    |
+152 |                 created_at: adapter.weights.positive.metadata.created_at.clone(),
+    |                                             ^^^^^^^^ unknown field
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:155:48
+    |
+155 |                 example_count: adapter.weights.negative.metadata.example_count,
+    |                                                ^^^^^^^^ unknown field
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:156:43
+    |
+156 |                 avg_loss: adapter.weights.negative.metadata.avg_loss,
+    |                                           ^^^^^^^^ unknown field
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:157:51
+    |
+157 |                 training_time_ms: adapter.weights.negative.metadata.training_time_ms,
+    |                                                   ^^^^^^^^ unknown field
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:158:45
+    |
+158 |                 created_at: adapter.weights.negative.metadata.created_at.clone(),
+    |                                             ^^^^^^^^ unknown field
+
+error[E0609]: no field `combined` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:160:39
+    |
+160 |             combined: adapter.weights.combined.as_ref().map(|c| WeightGroupInfo {
+    |                                       ^^^^^^^^ unknown field
+
+error[E0733]: recursion in an async fn requires boxing
+   --> crates/adapteros-temp/src/guard.rs:198:5
+    |
+198 |     async fn copy_directory_recursive(&self, src: &PathBuf, dst: &PathBuf) -> Result<()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+214 |                 self.copy_directory_recursive(&entry_path, &dst_path).await?;
+    |                 ----------------------------------------------------------- recursive call here
+    |
+    = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
+
+error[E0521]: borrowed data escapes outside of method
+   --> crates/adapteros-temp/src/guard.rs:236:9
+    |
+222 |   impl<'a> Drop for TempDirGuard<'a> {
+    |        -- lifetime `'a` defined here
+223 |       fn drop(&mut self) {
+    |               --------- `self` is a reference that is only valid in the method body
+...
+236 | /         tokio::spawn(async move {
+237 | |             if let Err(e) = manager.remove_temp_dir(&dir_id).await {
+238 | |                 tracing::warn!("Failed to remove temp directory from active list: {}", e);
+239 | |             }
+240 | |         });
+    | |          ^
+    | |          |
+    | |__________`self` escapes the method body here
+    |            argument requires that `'a` must outlive `'static`
+
+error[E0599]: no method named `write_all` found for struct `ZipWriter` in the current scope
+    --> crates/adapteros-single-file-adapter/src/packager.rs:168:13
+     |
+ 168 |         zip.write_all(
+     |         ----^^^^^^^^^
+     |
+    ::: /Users/star/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/io/mod.rs:1835:8
+     |
+1835 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `ZipWriter<File>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+   3 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+ 168 -         zip.write_all(
+ 168 +         zip.write(
+     |
+
+error[E0308]: mismatched types
+   --> crates/adapteros-storage/src/lib.rs:147:9
+    |
+146 |     pub fn reserve_space(&self, file_size: u64) -> Result<quota::SpaceReservation> {
+    |                                                    ------------------------------- expected `Result<SpaceReservation, AosError>` because of return type
+147 |         self.quota_manager.reserve_space(file_size)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<SpaceReservation, AosError>`, found future
+
+error[E0308]: mismatched types
+   --> crates/adapteros-storage/src/lib.rs:152:9
+    |
+151 |     pub fn release_space(&self, reservation: quota::SpaceReservation) -> Result<()> {
+    |                                                                          ---------- expected `Result<(), AosError>` because of return type
+152 |         self.quota_manager.release_space(reservation)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<(), AosError>`, found future
+
+error[E0308]: mismatched types
+   --> crates/adapteros-storage/src/lib.rs:162:9
+    |
+161 |     pub fn get_usage(&self) -> Result<StorageUsage> {
+    |                                -------------------- expected `Result<StorageUsage, AosError>` because of return type
+162 |         self.monitor.get_usage()
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<StorageUsage, AosError>`, found future
+
+Some errors have detailed explanations: E0412, E0422, E0433, E0521, E0583, E0599, E0733.
+For more information about an error, try `rustc --explain E0412`.
+warning: `adapteros-temp` (lib) generated 1 warning
+error: could not compile `adapteros-temp` (lib) due to 16 previous errors; 1 warning emitted
+Some errors have detailed explanations: E0107, E0164, E0277, E0308, E0502, E0533, E0596.
+For more information about an error, try `rustc --explain E0107`.
+error[E0733]: recursion in an async fn requires boxing
+   --> crates/adapteros-storage/src/cleanup.rs:228:5
+    |
+228 |     async fn walk_directory(&self, path: &PathBuf, used_bytes: &mut u64, file_count: &mut u32) -> Result<()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+243 |                 self.walk_directory(&entry_path, used_bytes, file_count).await?;
+    |                 -------------------------------------------------------------- recursive call here
+    |
+    = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
+
+warning: `adapteros-error-recovery` (lib) generated 8 warnings
+error: could not compile `adapteros-error-recovery` (lib) due to 9 previous errors; 8 warnings emitted
+error[E0733]: recursion in an async fn requires boxing
+   --> crates/adapteros-storage/src/monitor.rs:223:5
+    |
+223 |     async fn walk_directory(path: &PathBuf, used_bytes: &mut u64, file_count: &mut u32) -> Result<()> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+238 |                 Self::walk_directory(&entry_path, used_bytes, file_count).await?;
+    |                 --------------------------------------------------------------- recursive call here
+    |
+    = note: a recursive `async fn` call must introduce indirection such as `Box::pin` to avoid an infinitely sized future
+
+error[E0308]: mismatched types
+   --> crates/adapteros-single-file-adapter/src/format.rs:244:13
+    |
+244 |             weights,
+    |             ^^^^^^^ expected `Vec<u8>`, found `AdapterWeights`
+    |
+    = note: expected struct `Vec<u8>`
+               found struct `AdapterWeights`
+
+error[E0609]: no field `combined` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/format.rs:283:29
+    |
+283 |         match &self.weights.combined {
+    |                             ^^^^^^^^ unknown field
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/format.rs:299:31
+    |
+299 |                 &self.weights.positive,
+    |                               ^^^^^^^^ unknown field
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/format.rs:300:31
+    |
+300 |                 &self.weights.negative,
+    |                               ^^^^^^^^ unknown field
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/format.rs:305:31
+    |
+305 |                 &self.weights.positive,
+    |                               ^^^^^^^^ unknown field
+
+error[E0609]: no field `negative` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/format.rs:306:31
+    |
+306 |                 &self.weights.negative,
+    |                               ^^^^^^^^ unknown field
+
+error[E0609]: no field `positive` on type `Vec<u8>`
+   --> crates/adapteros-single-file-adapter/src/format.rs:312:33
+    |
+312 |                 Ok(self.weights.positive.clone())
+    |                                 ^^^^^^^^ unknown field
+
+error[E0282]: type annotations needed for `Vec<_>`
+   --> crates/adapteros-single-file-adapter/src/packager.rs:187:9
+    |
+187 |     let mut tensors = Vec::new();
+    |         ^^^^^^^^^^^   ---------- type must be known at this point
+    |
+help: consider giving `tensors` an explicit type, where the type for type parameter `T` is specified
+    |
+187 |     let mut tensors: Vec<T> = Vec::new();
+    |                    ++++++++
+
+warning: unused variable: `operation`
+   --> crates/adapteros-storage/src/policy.rs:269:85
+    |
+269 |     fn evaluate_condition(&self, condition: &StorageCondition, file_path: &PathBuf, operation: &FileOperation) -> Result<bool> {
+    |                                                                                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_operation`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `file_path`
+   --> crates/adapteros-storage/src/policy.rs:309:54
+    |
+309 |     fn execute_action(&self, action: &StorageAction, file_path: &PathBuf, operation: &FileOperation) -> Result<()> {
+    |                                                      ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_file_path`
+
+warning: unused variable: `operation`
+   --> crates/adapteros-storage/src/policy.rs:309:75
+    |
+309 |     fn execute_action(&self, action: &StorageAction, file_path: &PathBuf, operation: &FileOperation) -> Result<()> {
+    |                                                                           ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_operation`
+
+Some errors have detailed explanations: E0061, E0277, E0308, E0382, E0596, E0599, E0733.
+For more information about an error, try `rustc --explain E0061`.
+warning: `adapteros-storage` (lib) generated 12 warnings
+error: could not compile `adapteros-storage` (lib) due to 13 previous errors; 12 warnings emitted
+Some errors have detailed explanations: E0107, E0277, E0282, E0308, E0425, E0432, E0433, E0599, E0609.
+warning: `adapteros-single-file-adapter` (lib) generated 2 warnings
+error: could not compile `adapteros-single-file-adapter` (lib) due to 48 previous errors; 2 warnings emitted

@@ -1,0 +1,64 @@
+---
+alwaysApply: true
+---
+
+# Duplication Prevention Rules
+
+**CRITICAL:** Always prevent code duplication. This is a core codebase requirement.
+
+## Before Writing Code
+
+1. **Search for existing patterns:**
+   - Check for similar functionality in the codebase
+   - Look for existing utilities/services/components
+   - Prefer reusing over creating new code
+
+2. **Review extraction patterns:**
+   - See [docs/DUPLICATION_PREVENTION_GUIDE.md](../../docs/DUPLICATION_PREVENTION_GUIDE.md)
+   - Check [docs/DUPLICATION_PREVENTION_SUMMARY.md](../../docs/DUPLICATION_PREVENTION_SUMMARY.md) for quick reference
+
+## While Writing Code
+
+**Extract proactively if:**
+- Code appears 3+ times
+- String literal >50 chars used 2+ times
+- Function logic >10 lines duplicated
+- Similar validation logic in multiple handlers
+- Test setup code duplicated across test files
+
+**Common Extraction Locations:**
+- **Rust services:** `crates/*/src/services/`
+- **Test utilities:** `tests/common/`
+- **UI constants:** `ui/src/components/ui/utils.ts`
+- **UI components:** `ui/src/components/ui/`
+- **Swift utilities:** `menu-bar-app/Sources/*/Utils/`
+
+## Before Committing
+
+1. **Run duplication check:**
+   ```bash
+   make dup
+   ```
+
+2. **Extract any detected duplicates:**
+   - Review jscpd report
+   - Extract shared code
+   - Update all call sites
+   - Add citations following codebase standards
+
+3. **Verify reduction:**
+   ```bash
+   make dup  # Should show reduction
+   ```
+
+## Citation Required
+
+All code extractions must include citations:
+- Format: `【YYYY-MM-DD†category†identifier】`
+- See [CITATIONS.md](../../CITATIONS.md) for standards
+
+## References
+
+- [DUPLICATION_PREVENTION_GUIDE.md](../../docs/DUPLICATION_PREVENTION_GUIDE.md) - Comprehensive guide
+- [DUPLICATION_PREVENTION_SUMMARY.md](../../docs/DUPLICATION_PREVENTION_SUMMARY.md) - Quick reference
+- [AGENTS.md](../../AGENTS.md) - Agent guidelines
