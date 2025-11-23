@@ -1,9 +1,9 @@
 {
-  "kernel_hash": "3e75c92f5c6f3ca1477c041696bed30cfe00380011e6694d788e03cd06b4b8c5",
+  "kernel_hash": "37c3cac121d4b42d111ef83c421f768261585a2f70902b77ece79444bd031dfe",
   "xcrun_version": "xcrun version 72.",
   "sdk_version": "26.1",
   "rust_version": "",
-  "build_timestamp": "2025-11-23T18:16:15.303922+00:00",
+  "build_timestamp": "2025-11-23T22:43:52.350171+00:00",
   "toolchain_metadata": {
     "xcode_version": "xcrun version 72.",
     "sdk_version": "26.1",

@@ -79,6 +79,18 @@ fn compile_metal_shaders() {
     // Create shaders directory if it doesn't exist
     std::fs::create_dir_all(shaders_dir).expect("Failed to create shaders directory");
 
+    // Verify Metal compiler is available
+    let metal_check = Command::new("xcrun")
+        .args(["--find", "metal"])
+        .output()
+        .expect("Failed to check for Metal compiler");
+
+    if !metal_check.status.success() {
+        eprintln!("\n❌ ERROR: Metal compiler not found");
+        eprintln!("Install Xcode Command Line Tools: xcode-select --install");
+        std::process::exit(1);
+    }
+
     // Compile to AIR
     let compile_output = Command::new("xcrun")
         .args([
@@ -96,10 +108,20 @@ fn compile_metal_shaders() {
         .expect("Failed to compile Metal shaders");
 
     if !compile_output.status.success() {
-        eprintln!(
-            "Metal compilation failed: {}",
-            String::from_utf8_lossy(&compile_output.stderr)
-        );
+        let stderr = String::from_utf8_lossy(&compile_output.stderr);
+        eprintln!("\n❌ Metal compilation failed:");
+        eprintln!("{}", stderr);
+
+        // Check if it's the Metal Toolchain error
+        if stderr.contains("missing Metal Toolchain") {
+            eprintln!("\n🔧 SOLUTION:");
+            eprintln!("Run the Metal Toolchain installer:");
+            eprintln!("  ./scripts/install-metal-toolchain.sh");
+            eprintln!("\nOr install manually:");
+            eprintln!("  xcodebuild -downloadComponent MetalToolchain");
+            eprintln!("\nFor more information, see: docs/METAL_TOOLCHAIN_SETUP.md");
+        }
+
         std::process::exit(1);
     }
 
@@ -143,6 +165,16 @@ fn compile_metal_shaders() {
     )
     .expect("Failed to copy metallib");
 
+    // Compile aos_kernels.metal from metal/ root directory
+    compile_additional_kernel(&metal_dir, "aos_kernels.metal", shaders_dir);
+
+    // Note: mplora_kernels is part of adapteros_kernels, create alias
+    std::fs::copy(
+        shaders_dir.join("adapteros_kernels.metallib"),
+        shaders_dir.join("mplora_kernels.metallib"),
+    )
+    .expect("Failed to copy mplora_kernels alias");
+
     // Record build metadata
     let xcrun_version = get_xcrun_version();
     let sdk_version = get_sdk_version();
@@ -163,6 +195,76 @@ fn compile_metal_shaders() {
 
     // Clean up intermediate files
     let _ = std::fs::remove_file(kernel_src_dir.join("adapteros_kernels.air"));
+}
+
+fn compile_additional_kernel(metal_dir: &Path, kernel_name: &str, shaders_dir: &Path) {
+    let kernel_path = metal_dir.join(kernel_name);
+
+    if !kernel_path.exists() {
+        println!("cargo:warning=Kernel {} not found, skipping", kernel_name);
+        return;
+    }
+
+    let kernel_stem = kernel_path.file_stem().unwrap().to_str().unwrap();
+    let air_file = format!("{}.air", kernel_stem);
+    let metallib_file = format!("{}.metallib", kernel_stem);
+
+    // Compile to AIR
+    let compile_output = Command::new("xcrun")
+        .args([
+            "-sdk",
+            "macosx",
+            "metal",
+            "-c",
+            kernel_name,
+            "-o",
+            &air_file,
+            "-std=metal3.1",
+        ])
+        .current_dir(metal_dir)
+        .output()
+        .expect("Failed to compile additional Metal shader");
+
+    if !compile_output.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_output.stderr);
+        eprintln!("\n❌ Metal compilation failed for {}:", kernel_name);
+        eprintln!("{}", stderr);
+        std::process::exit(1);
+    }
+
+    // Link metallib
+    let link_output = Command::new("xcrun")
+        .args([
+            "-sdk",
+            "macosx",
+            "metallib",
+            &air_file,
+            "-o",
+            &metallib_file,
+        ])
+        .current_dir(metal_dir)
+        .output()
+        .expect("Failed to link additional metallib");
+
+    if !link_output.status.success() {
+        eprintln!(
+            "Metallib linking failed for {}: {}",
+            kernel_name,
+            String::from_utf8_lossy(&link_output.stderr)
+        );
+        std::process::exit(1);
+    }
+
+    // Copy to shaders directory
+    std::fs::copy(
+        metal_dir.join(&metallib_file),
+        shaders_dir.join(&metallib_file),
+    )
+    .expect("Failed to copy additional metallib");
+
+    // Clean up intermediate files
+    let _ = std::fs::remove_file(metal_dir.join(&air_file));
+    let _ = std::fs::remove_file(metal_dir.join(&metallib_file));
 }
 
 fn get_xcrun_version() -> String {

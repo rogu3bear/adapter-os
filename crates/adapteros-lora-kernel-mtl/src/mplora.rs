@@ -28,7 +28,7 @@ impl MploraKernel {
 
         // Load the Metal library
         let library = device
-            .new_library_with_data(include_bytes!("../../../metal/aos_kernels.metallib"))
+            .new_library_with_data(include_bytes!("../shaders/aos_kernels.metallib"))
             .map_err(|e| AosError::Mtl(format!("Failed to load Metal library: {}", e)))?;
 
         // Get the MPLoRA function
