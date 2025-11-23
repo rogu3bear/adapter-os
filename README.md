@@ -1,8 +1,15 @@
 # AdapterOS: Deterministic ML Inference Runtime
 
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/license-Apache%202.0%2FMIT-blue.svg)](LICENSE)
+[![CI](https://github.com/rogu3bear/adapter-os/workflows/CI/badge.svg)](https://github.com/rogu3bear/adapter-os/actions)
+[![Security](https://github.com/rogu3bear/adapter-os/workflows/Security%20Regression%20Tests/badge.svg)](https://github.com/rogu3bear/adapter-os/actions)
+[![Stars](https://img.shields.io/github/stars/rogu3bear/adapter-os.svg)](https://github.com/rogu3bear/adapter-os/stargazers)
+[![Forks](https://img.shields.io/github/forks/rogu3bear/adapter-os.svg)](https://github.com/rogu3bear/adapter-os/network/members)
+
 **High-performance inference runtime with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.**
 
-AdapterOS (v0.1.0) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution, modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (v0.3-alpha) is a Rust-based ML inference engine optimized for Apple Silicon, featuring deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
@@ -19,6 +26,22 @@ AdapterOS enables **deterministic multi-adapter inference** on Apple Silicon by:
 - **Memory Management**: Intelligent adapter eviction with ≥15% headroom maintenance
 
 ---
+
+## Table of Contents
+
+- [🚀 Quick Start](#-quick-start)
+- [🏗️ Architecture](#️-architecture)
+- [📦 Components](#-components)
+- [🎛️ Key Features](#️-key-features)
+- [📊 Current Status](#-current-status)
+- [🖼️ Visual Diagrams](#️-visual-diagrams)
+- [🧪 Development](#-development)
+- [📈 Performance](#-performance)
+- [⚙️ Configuration](#️-configuration)
+- [📚 Documentation](#-documentation)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
 
 ## Architecture
 
@@ -85,28 +108,35 @@ graph TB
 
 ## Quick Start
 
-### Option 1: Graphical Installer (Recommended)
+### 🚀 **Getting Started**
 
-**Native macOS installer with hardware validation and guided setup:**
+For complete setup instructions, see **[QUICKSTART.md](QUICKSTART.md)** which provides:
+
+- **Hardware Requirements**: Apple Silicon (M1/M2/M3/M4), macOS 13.0+
+- **Installation Options**: Graphical installer or manual setup
+- **Model Setup**: Download and configure MLX models
+- **First Inference**: Run your first adapter inference
+- **GPU Training**: Set up LoRA fine-tuning pipeline
+
+### 📦 **Quick Manual Installation**
 
 ```bash
-# Build the installer
-make installer
+# Clone and build
+git clone https://github.com/rogu3bear/adapter-os.git
+cd adapter-os
+cargo build --release
 
-# Or open in Xcode
-make installer-open
+# Initialize database
+cargo run -p adapteros-server-api -- db migrate
+
+# Download a model (optional)
+huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
+    --include "*.safetensors" "*.json" \
+    --local-dir models/qwen2.5-7b-mlx
+
+# Start the server
+AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx cargo run -p adapteros-server-api
 ```
-
-The graphical installer provides:
-- **Hardware Pre-Checks**: Validates Apple Silicon (M1+), RAM (≥16GB), and disk space
-- **Installation Modes**: Full (with model download) or Minimal (binaries only)
-- **Air-Gapped Support**: Skip all network operations for offline installations
-- **Checkpoint Recovery**: Resume interrupted installations automatically
-- **Determinism Education**: Learn about cryptographic verification after install
-
-See [installer/README.md](installer/README.md) for details.
-
-### Option 2: Manual Installation
 
 ### Prerequisites
 
@@ -285,6 +315,70 @@ Unloaded -> Cold -> Warm -> Hot -> Resident
 
 See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentation.
 
+## 📊 Current Status (v0.3-alpha)
+
+### ✅ **Implemented Features**
+- **Multi-Backend Support**: CoreML (ANE), MLX (GPU), Metal (fallback) backends
+- **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
+- **Deterministic Execution**: HKDF seeding, reproducible results
+- **Policy Enforcement**: 28 canonical policy packs with runtime validation
+- **Adapter Lifecycle**: Hot-swap, pinning, TTL management, memory optimization
+- **REST API**: Complete inference endpoints with streaming support
+- **Database**: SQLite with migrations, adapter registry, telemetry
+- **CLI Tools**: Comprehensive `aosctl` command suite
+- **Security**: Ed25519 signing, audit trails, secure FFI boundaries
+
+### 🔄 **In Development**
+- **Training Pipeline**: Dataset management and LoRA fine-tuning
+- **Federation**: Cross-node adapter synchronization
+- **Advanced UI**: Web dashboard with real-time monitoring
+- **Production Deployment**: Kubernetes operators, service mesh integration
+
+### 🎯 **Architecture Highlights**
+- **Zero Network Egress**: Air-gapped inference with Unix domain sockets
+- **Memory Management**: Intelligent eviction with ≥15% headroom maintenance
+- **Content Addressing**: BLAKE3 hashing for all artifacts and configurations
+- **Hot-Swap**: Live adapter replacement without service interruption
+
+## 🖼️ Visual Diagrams
+
+AdapterOS includes comprehensive visual documentation. Here are key diagrams:
+
+### **System Architecture**
+- **[High-Level Architecture](docs/architecture.md)**: Mermaid diagram of core components
+- **[Precision Diagrams](docs/architecture/precision-diagrams.md)**: Code-verified architecture diagrams
+- **[Multi-Backend Strategy](docs/ADR_MULTI_BACKEND_STRATEGY.md)**: Backend selection rationale
+
+### **Data Flow & Processing**
+- **[Inference Flow](docs/INFERENCE_FLOW.md)**: Complete token processing pipeline
+- **[Hot Swap Scenarios](docs/HOT_SWAP_SCENARIOS.md)**: Live adapter replacement flows
+- **[Runtime Diagrams](docs/RUNTIME_DIAGRAMS.md)**: Execution state machines
+
+### **Database & Schema**
+- **[Database Schema](docs/database-schema.md)**: Complete entity relationships
+- **[Workflow Diagrams](docs/database-schema/workflows/)**: 10+ workflow visualizations
+- **[Route Map](docs/ROUTE_MAP_DIAGRAM.md)**: API endpoint relationships
+
+### **Component Details**
+- **[Lifecycle States](docs/LIFECYCLE.md)**: Adapter state machine visualization
+- **[MLX Integration](docs/MLX_INTEGRATION.md)**: Backend architecture diagrams
+- **[CoreML Integration](docs/COREML_INTEGRATION.md)**: ANE acceleration flows
+- **[Metal Kernels](docs/metal/)**: GPU compute pipeline diagrams
+
+### **Quick Diagram Reference**
+
+| Component | Diagram | Location |
+|-----------|---------|----------|
+| **System Overview** | Architecture Flow | [docs/architecture.md](docs/architecture.md) |
+| **Inference Pipeline** | Token Processing | [docs/INFERENCE_FLOW.md](docs/INFERENCE_FLOW.md) |
+| **Database Schema** | Entity Relationships | [docs/database-schema.md](docs/database-schema.md) |
+| **Adapter Lifecycle** | State Machine | [docs/LIFECYCLE.md](docs/LIFECYCLE.md) |
+| **Multi-Backend** | Selection Logic | [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) |
+| **Hot Swap** | Runtime Updates | [docs/HOT_SWAP.md](docs/HOT_SWAP.md) |
+| **API Routes** | Endpoint Map | [docs/ROUTE_MAP_DIAGRAM.md](docs/ROUTE_MAP_DIAGRAM.md) |
+
+**All diagrams are interactive Mermaid charts** - click any link above to explore the visual documentation!
+
 ---
 
 ## 🧪 Development
@@ -321,7 +415,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Performance
 
-Benchmarked on **M3 Max (128GB unified memory)** with v0.1.0:
+Benchmarked on **M3 Max (128GB unified memory)** with v0.3-alpha:
 
 | Configuration | Tokens/sec | Latency (p95) | Memory | Determinism |
 |--------------|-----------|---------------|---------|-------------|
@@ -366,7 +460,7 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ## 🛠️ Alpha Release Features
 
-AdapterOS v0.1.0 includes:
+AdapterOS v0.3-alpha includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
@@ -442,12 +536,33 @@ cargo bench
 
 ---
 
+## 🗺️ Roadmap & Vision
+
+### **Current Development Focus**
+- **Training Pipeline**: Complete dataset management and LoRA fine-tuning
+- **Federation System**: Cross-node adapter synchronization and consensus
+- **Advanced UI**: Real-time monitoring dashboard and adapter management
+- **Production Hardening**: Service mesh integration and zero-downtime deployments
+
+### **Long-term Vision**
+- **Multi-Modal Support**: Vision, audio, and multi-modal adapters
+- **Distributed Training**: Federated learning across edge devices
+- **Auto-Scaling**: Dynamic adapter deployment based on demand
+- **Model Marketplace**: Decentralized adapter sharing and monetization
+
+### **Community & Ecosystem**
+- **Plugin System**: Third-party adapter development framework
+- **Integration APIs**: REST, GraphQL, and WebSocket interfaces
+- **Documentation**: Interactive tutorials and video guides
+- **Tooling**: IDE integrations and development utilities
+
+---
+
 ## 📄 License
 
 Dual-licensed under Apache 2.0 or MIT at your option.
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
+See [LICENSE](LICENSE) for the complete license text.
 
 ---
 
