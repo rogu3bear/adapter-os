@@ -20,7 +20,8 @@ Cargo.lock
 # IDE
 .vscode/
 .idea/
-.cursor/   # Exclude Cursor IDE files (rules now consolidated in CLAUDE.md)
+.cursor/   # Exclude Cursor IDE files
+!.cursor/rules/  # Include Cursor rules (enforce CLAUDE.md consultation)
 *.swp
 *.swo
 *~
