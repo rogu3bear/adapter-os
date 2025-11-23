@@ -17,6 +17,7 @@ import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
 import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '../utils/retry';
+import { LoginResponseSchema } from '../schemas/common.schema';
 
 // Type-safe API error with extended properties
 export interface ApiError extends Error {
@@ -299,12 +300,41 @@ class ApiClient {
 
   // Authentication
   async login(credentials: authTypes.LoginRequest): Promise<authTypes.LoginResponse> {
-    const response = await this.request<authTypes.LoginResponse>('/v1/auth/login', {
+    const response = await this.request<unknown>('/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
-    // Token is now stored in httpOnly cookie by server
-    return response;
+
+    // Runtime validation of login response structure
+    try {
+      const validated = LoginResponseSchema.parse(response);
+      logger.info('User authentication successful', {
+        component: 'ApiClient',
+        operation: 'login',
+        user_id: validated.user_id,
+        tenant_id: validated.tenant_id,
+        email: credentials.email,
+      });
+      // Token is now stored in httpOnly cookie by server
+      return validated as authTypes.LoginResponse;
+    } catch (validationError) {
+      const error = toError(validationError);
+      logger.error('Login response validation failed', {
+        component: 'ApiClient',
+        operation: 'login',
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+        receivedResponse: typeof response === 'object' ? Object.keys(response as Record<string, unknown>) : String(response),
+      }, error);
+
+      // Create a more helpful error message
+      const validationError_ = new Error('Login response has invalid structure') as ApiError;
+      validationError_.code = 'RESPONSE_VALIDATION_ERROR';
+      validationError_.details = {
+        message: error.message,
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+      };
+      throw validationError_;
+    }
   }
 
   async logout(): Promise<void> {
@@ -313,7 +343,36 @@ class ApiClient {
   }
 
   async devBypass(): Promise<authTypes.LoginResponse> {
-    return this.request('/v1/auth/dev-bypass', { method: 'POST' });
+    const response = await this.request<unknown>('/v1/auth/dev-bypass', { method: 'POST' });
+
+    // Runtime validation of devBypass response structure
+    try {
+      const validated = LoginResponseSchema.parse(response);
+      logger.info('Dev bypass authentication successful', {
+        component: 'ApiClient',
+        operation: 'devBypass',
+        user_id: validated.user_id,
+        tenant_id: validated.tenant_id,
+      });
+      return validated as authTypes.LoginResponse;
+    } catch (validationError) {
+      const error = toError(validationError);
+      logger.error('Dev bypass response validation failed', {
+        component: 'ApiClient',
+        operation: 'devBypass',
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+        receivedResponse: typeof response === 'object' ? Object.keys(response as Record<string, unknown>) : String(response),
+      }, error);
+
+      // Create a more helpful error message
+      const validationError_ = new Error('Dev bypass returned invalid response structure') as ApiError;
+      validationError_.code = 'RESPONSE_VALIDATION_ERROR';
+      validationError_.details = {
+        message: error.message,
+        expectedFields: ['token', 'user_id', 'tenant_id', 'role', 'expires_in'],
+      };
+      throw validationError_;
+    }
   }
 
   async getCurrentUser(): Promise<authTypes.UserInfoResponse> {

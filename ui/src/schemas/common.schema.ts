@@ -332,6 +332,46 @@ export const LoginFormSchema = z.object({
 
 export type LoginFormData = z.infer<typeof LoginFormSchema>;
 
+/**
+ * Login response schema (matches backend LoginResponse)
+ *
+ * From: crates/adapteros-api-types/src/auth.rs::LoginResponse
+ * - schema_version: API version (default: "v1")
+ * - token: JWT token (Ed25519 signed)
+ * - user_id: Unique user identifier
+ * - tenant_id: Associated tenant ID (required by backend)
+ * - role: User role (admin, operator, sre, compliance, auditor, viewer)
+ * - expires_in: Token expiration in seconds (u64)
+ */
+export const LoginResponseSchema = z.object({
+  schema_version: z.string()
+    .default('v1')
+    .describe('API schema version'),
+
+  token: z.string()
+    .min(1, 'Token is required')
+    .describe('JWT authentication token'),
+
+  user_id: z.string()
+    .min(1, 'User ID is required')
+    .describe('Unique user identifier'),
+
+  tenant_id: z.string()
+    .min(1, 'Tenant ID is required')
+    .describe('Associated tenant ID'),
+
+  role: z.string()
+    .min(1, 'Role is required')
+    .describe('User role (admin, operator, sre, compliance, auditor, viewer)'),
+
+  expires_in: z.number()
+    .int('Expiration must be an integer')
+    .positive('Expiration must be positive')
+    .describe('Token expiration in seconds'),
+});
+
+export type LoginResponseData = z.infer<typeof LoginResponseSchema>;
+
 export const ValidationUtils = {
   /**
    * Check if string is a valid JSON

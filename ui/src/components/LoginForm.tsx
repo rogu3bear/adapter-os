@@ -57,13 +57,21 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
   const handleDevBypass = async () => {
     setIsDevBypassLoading(true);
     try {
-      await apiClient.devBypass();
+      // Dev bypass returns LoginResponse which should be validated
+      const response = await apiClient.devBypass();
+
+      // Verify required fields are present
+      if (!response.token || !response.user_id || !response.tenant_id || !response.role) {
+        throw new Error('Dev bypass response missing required authentication fields');
+      }
+
       // Call onDevBypass callback to update auth state
       if (onDevBypass) {
         await onDevBypass();
       }
     } catch (err) {
-      // Error will be shown via error prop
+      // Error handling is done by parent component and shown via error prop
+      console.error('Dev bypass failed:', err instanceof Error ? err.message : String(err));
     } finally {
       setIsDevBypassLoading(false);
     }
