@@ -473,6 +473,16 @@ pub async fn upload_dataset(
         total_size
     );
 
+    // Audit log: dataset uploaded
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DATASET_UPLOAD,
+        crate::audit_helper::resources::DATASET,
+        Some(&dataset_id),
+    )
+    .await;
+
     Ok(Json(UploadDatasetResponse {
         schema_version: "1.0".to_string(),
         dataset_id: dataset_id.clone(),
@@ -1119,6 +1129,16 @@ pub async fn delete_dataset(
     }
 
     info!("Deleted dataset {} and its files", dataset_id);
+
+    // Audit log: dataset deleted
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DATASET_DELETE,
+        crate::audit_helper::resources::DATASET,
+        Some(&dataset_id),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1895,6 +1915,16 @@ pub async fn cancel_chunked_upload(
     }
 
     info!("Cancelled chunked upload session {}", session_id);
+
+    // Audit log: chunked upload cancelled
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DATASET_CHUNKED_UPLOAD_CANCEL,
+        crate::audit_helper::resources::DATASET,
+        Some(&session_id),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

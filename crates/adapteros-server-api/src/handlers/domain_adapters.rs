@@ -231,6 +231,16 @@ pub async fn create_domain_adapter(
 
     info!(adapter_id = %id, name = %req.name, "Created domain adapter");
 
+    // Audit log: domain adapter created
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DOMAIN_ADAPTER_CREATE,
+        crate::audit_helper::resources::DOMAIN_ADAPTER,
+        Some(&id),
+    )
+    .await;
+
     let response = DomainAdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id,
@@ -378,6 +388,17 @@ pub async fn load_domain_adapter(
         })?;
 
     info!(adapter_id = %adapter_id, "Loaded domain adapter");
+
+    // Audit log: domain adapter loaded
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DOMAIN_ADAPTER_LOAD,
+        crate::audit_helper::resources::DOMAIN_ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     Ok(Json(adapter_to_domain_response(updated_adapter)))
 }
 
@@ -487,6 +508,17 @@ pub async fn unload_domain_adapter(
         })?;
 
     info!(adapter_id = %adapter_id, "Unloaded domain adapter");
+
+    // Audit log: domain adapter unloaded
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DOMAIN_ADAPTER_UNLOAD,
+        crate::audit_helper::resources::DOMAIN_ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     Ok(Json(adapter_to_domain_response(updated_adapter)))
 }
 
@@ -882,6 +914,16 @@ pub async fn execute_domain_adapter(
         "Executed domain adapter"
     );
 
+    // Audit log: domain adapter executed
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DOMAIN_ADAPTER_EXECUTE,
+        crate::audit_helper::resources::DOMAIN_ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     let execution = DomainAdapterExecutionResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         execution_id: Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
@@ -967,6 +1009,17 @@ pub async fn delete_domain_adapter(
         .unwrap_or(false);
 
     if is_pinned {
+        // Audit log: attempted deletion of pinned adapter (security event)
+        let _ = crate::audit_helper::log_failure(
+            &state.db,
+            &claims,
+            crate::audit_helper::actions::DOMAIN_ADAPTER_DELETE,
+            crate::audit_helper::resources::DOMAIN_ADAPTER,
+            Some(&adapter_id),
+            "Adapter is pinned and cannot be deleted",
+        )
+        .await;
+
         return Err((
             StatusCode::CONFLICT,
             Json(
@@ -994,5 +1047,16 @@ pub async fn delete_domain_adapter(
     })?;
 
     info!(adapter_id = %adapter_id, "Deleted domain adapter");
+
+    // Audit log: domain adapter deleted
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::DOMAIN_ADAPTER_DELETE,
+        crate::audit_helper::resources::DOMAIN_ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     Ok(StatusCode::NO_CONTENT)
 }

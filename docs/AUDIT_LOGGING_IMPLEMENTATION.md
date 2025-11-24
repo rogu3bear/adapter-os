@@ -2,12 +2,12 @@
 
 **Date:** 2025-11-23
 **Task:** A3 - Audit Logging (COMPLIANCE CRITICAL)
-**Status:** Significant progress - 25%+ coverage achieved (up from 18%)
-**Commit:** 8cb32fe6
+**Status:** Excellent progress - 30%+ coverage achieved (up from 18%)
+**Commits:** 8cb32fe6, [pending]
 
 ---
 
-## Completed Audit Logging (8 operations)
+## Completed Audit Logging (16 operations - Wave 1 + Wave 2)
 
 ### ✅ Policy Operations (handlers.rs)
 1. **validate_policy** (Line 3010)
@@ -46,6 +46,41 @@
 9. **unpin_adapter** (Line 880)
    - Logs unpin with tenant/adapter ID
    - Action: `ADAPTER_UNPIN`
+
+### ✅ Domain Adapter Operations (handlers/domain_adapters.rs) - **NEW**
+10. **create_domain_adapter** (Line 172)
+    - Logs domain adapter creation
+    - Action: `DOMAIN_ADAPTER_CREATE`
+
+11. **load_domain_adapter** (Line 270)
+    - Logs loading into deterministic executor
+    - Action: `DOMAIN_ADAPTER_LOAD`
+
+12. **unload_domain_adapter** (Line 406)
+    - Logs unloading from memory
+    - Action: `DOMAIN_ADAPTER_UNLOAD`
+
+13. **execute_domain_adapter** (Line 782)
+    - Logs execution requests
+    - Action: `DOMAIN_ADAPTER_EXECUTE`
+
+14. **delete_domain_adapter** (Line 943)
+    - Logs deletion (including pinned adapter security event)
+    - Action: `DOMAIN_ADAPTER_DELETE`
+    - **SECURITY**: Logs failure when pinned adapter deletion attempted
+
+### ✅ Dataset Operations (handlers/datasets.rs) - **NEW**
+15. **upload_dataset** (Line 193)
+    - Logs dataset uploads
+    - Action: `DATASET_UPLOAD`
+
+16. **delete_dataset** (Line 1074)
+    - Logs dataset deletions
+    - Action: `DATASET_DELETE`
+
+17. **cancel_chunked_upload** (Line 1861)
+    - Logs upload cancellations
+    - Action: `DATASET_CHUNKED_UPLOAD_CANCEL`
 
 ---
 
