@@ -261,7 +261,7 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 sysinfo = "0.30"
-prometheus = "0.13"
+prometheus = "0.14"
 
 # Code Analysis
 tree-sitter = "0.20"
