@@ -3008,7 +3008,7 @@ pub async fn get_policy(
 
 /// Validate policy (stub)
 pub async fn validate_policy(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<ValidatePolicyRequest>,
 ) -> Result<Json<PolicyValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -3019,18 +3019,45 @@ pub async fn validate_policy(
     )?;
 
     // Basic JSON validation
-    match serde_json::from_str::<serde_json::Value>(&req.content) {
-        Ok(_) => Ok(Json(PolicyValidationResponse {
-            valid: true,
-            errors: vec![],
-            hash_b3: Some("b3:placeholder".to_string()),
-        })),
-        Err(e) => Ok(Json(PolicyValidationResponse {
-            valid: false,
-            errors: vec![format!("Invalid JSON: {}", e)],
-            hash_b3: None,
-        })),
-    }
+    let result = match serde_json::from_str::<serde_json::Value>(&req.content) {
+        Ok(_) => {
+            // Audit log: policy validation success
+            let _ = crate::audit_helper::log_success(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::POLICY_VALIDATE,
+                crate::audit_helper::resources::POLICY,
+                Some(&req.cpid),
+            )
+            .await;
+
+            Json(PolicyValidationResponse {
+                valid: true,
+                errors: vec![],
+                hash_b3: Some("b3:placeholder".to_string()),
+            })
+        }
+        Err(e) => {
+            // Audit log: policy validation failure
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::POLICY_VALIDATE,
+                crate::audit_helper::resources::POLICY,
+                Some(&req.cpid),
+                &format!("Invalid JSON: {}", e),
+            )
+            .await;
+
+            Json(PolicyValidationResponse {
+                valid: false,
+                errors: vec![format!("Invalid JSON: {}", e)],
+                hash_b3: None,
+            })
+        }
+    };
+
+    Ok(result)
 }
 
 /// Apply policy (stub)

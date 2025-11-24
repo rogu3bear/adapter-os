@@ -180,6 +180,16 @@ pub async fn promote_adapter_lifecycle(
         "Adapter lifecycle promoted"
     );
 
+    // Audit log: adapter lifecycle promoted
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_LIFECYCLE_PROMOTE,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     Ok(Json(LifecycleTransitionResponse {
         adapter_id,
         old_state,
@@ -321,6 +331,16 @@ pub async fn demote_adapter_lifecycle(
         reason = %req.reason,
         "Adapter lifecycle demoted"
     );
+
+    // Audit log: adapter lifecycle demoted
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_LIFECYCLE_DEMOTE,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
 
     Ok(Json(LifecycleTransitionResponse {
         adapter_id,
@@ -821,6 +841,16 @@ pub async fn pin_adapter(
         "Adapter pinned"
     );
 
+    // Audit log: adapter pinned
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_PIN,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
+
     Ok(Json(PinAdapterResponse {
         adapter_id,
         pinned: true,
@@ -932,6 +962,16 @@ pub async fn unpin_adapter(
         actor = %actor,
         "Adapter unpinned"
     );
+
+    // Audit log: adapter unpinned
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_UNPIN,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&adapter_id),
+    )
+    .await;
 
     Ok(Json(UnpinAdapterResponse {
         adapter_id,

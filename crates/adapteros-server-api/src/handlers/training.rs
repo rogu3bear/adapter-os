@@ -184,11 +184,32 @@ pub async fn start_training(
         .await
         .map_err(|e| {
             error!(adapter_name = %request.adapter_name, error = %e, "Failed to start training job");
+
+            // Audit log: training start failure
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::TRAINING_START,
+                crate::audit_helper::resources::TRAINING_JOB,
+                Some(&request.adapter_name),
+                &e.to_string(),
+            );
+
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new(&format!("Failed to start training: {}", e)).with_code("TRAINING_ERROR")),
             )
         })?;
+
+    // Audit log: training start success
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TRAINING_START,
+        crate::audit_helper::resources::TRAINING_JOB,
+        Some(&job.id),
+    )
+    .await;
 
     info!(
         job_id = %job.id,
@@ -227,6 +248,17 @@ pub async fn cancel_training(
         .await
         .map_err(|e| {
             error!(job_id = %job_id, error = %e, "Failed to cancel training job");
+
+            // Audit log: training cancel failure
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::TRAINING_CANCEL,
+                crate::audit_helper::resources::TRAINING_JOB,
+                Some(&job_id),
+                &e.to_string(),
+            );
+
             let error_str = e.to_string();
             if error_str.contains("not found") || error_str.contains("NotFound") {
                 (
@@ -254,6 +286,16 @@ pub async fn cancel_training(
                 )
             }
         })?;
+
+    // Audit log: training cancel success
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::TRAINING_CANCEL,
+        crate::audit_helper::resources::TRAINING_JOB,
+        Some(&job_id),
+    )
+    .await;
 
     info!(job_id = %job_id, user_id = %claims.sub, "Cancelled training job");
     Ok(StatusCode::NO_CONTENT)

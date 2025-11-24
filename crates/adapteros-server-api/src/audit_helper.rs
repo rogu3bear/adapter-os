@@ -133,6 +133,10 @@ pub mod actions {
     pub const ADAPTER_DELETE: &str = "adapter.delete";
     pub const ADAPTER_LOAD: &str = "adapter.load";
     pub const ADAPTER_UNLOAD: &str = "adapter.unload";
+    pub const ADAPTER_LIFECYCLE_PROMOTE: &str = "adapter.lifecycle.promote";
+    pub const ADAPTER_LIFECYCLE_DEMOTE: &str = "adapter.lifecycle.demote";
+    pub const ADAPTER_PIN: &str = "adapter.pin";
+    pub const ADAPTER_UNPIN: &str = "adapter.unpin";
 
     // Training actions
     pub const TRAINING_START: &str = "training.start";
