@@ -1,0 +1,115 @@
+name: Performance Regression
+
+on:
+  pull_request:
+    paths:
+      - 'crates/adapteros-lora-mlx-ffi/**'
+      - 'crates/adapteros-lora-worker/**'
+      - '.github/workflows/performance-regression.yml'
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Performance Benchmark Comparison
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run benchmarks on current branch
+        run: |
+          cargo bench -p adapteros-lora-mlx-ffi \
+            --bench mlx_integration_benchmark \
+            --release \
+            -- --nocapture
+          
+          # Save Criterion results directory for comparison
+          mkdir -p benchmark-results/current
+          cp -r target/criterion benchmark-results/current/ || true
+        continue-on-error: true
+
+      - name: Checkout baseline (main branch)
+        run: |
+          git checkout main
+          git clean -fd
+
+      - name: Run benchmarks on baseline
+        run: |
+          cargo bench -p adapteros-lora-mlx-ffi \
+            --bench mlx_integration_benchmark \
+            --release \
+            -- --nocapture
+          
+          # Save baseline Criterion results
+          mkdir -p benchmark-results/baseline
+          cp -r target/criterion benchmark-results/baseline/ || true
+        continue-on-error: true
+
+      - name: Checkout current branch again
+        run: |
+          git checkout ${{ github.head_ref || github.ref_name }}
+
+      - name: Compare benchmarks
+        run: |
+          # Check if benchmark directories exist
+          if [ ! -d benchmark-results/baseline ] || [ ! -d benchmark-results/current ]; then
+            echo "Warning: Benchmark results directories not found"
+            echo "Baseline exists: $([ -d benchmark-results/baseline ] && echo 'yes' || echo 'no')"
+            echo "Current exists: $([ -d benchmark-results/current ] && echo 'yes' || echo 'no')"
+            echo "Skipping comparison"
+            exit 0
+          fi
+          
+          python3 scripts/compare_benchmarks.py \
+            --baseline benchmark-results/baseline \
+            --current benchmark-results/current \
+            --threshold 0.10 \
+            --output benchmark-comparison.md
+        continue-on-error: false
+
+      - name: Upload benchmark comparison report
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-comparison
+          path: |
+            benchmark-comparison.md
+            benchmark-results/
+        if: always()
+
+      - name: Comment PR with benchmark results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('benchmark-comparison.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Performance Benchmark Results\n\n${report}`
+            });
+

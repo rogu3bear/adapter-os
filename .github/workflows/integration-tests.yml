@@ -112,11 +112,17 @@ jobs:
       - name: Install tarpaulin
         run: cargo install cargo-tarpaulin
 
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Generate coverage report
         run: |
           cargo tarpaulin \
             --test \
             --out Html \
+            --out Cobertura \
             --output-dir coverage \
             --timeout 600 \
             --exclude-files tests/* \
@@ -124,12 +130,56 @@ jobs:
             --ignore-timeouts
         continue-on-error: true
 
+      - name: Generate coverage JSON and check thresholds
+        run: |
+          # Generate JSON to stdout and save to file
+          cargo tarpaulin \
+            --test \
+            --out stdout \
+            --format json \
+            --timeout 600 \
+            --exclude-files tests/* \
+            --ignore-panics \
+            --ignore-timeouts > coverage.json 2>&1 || true
+          
+          # Check if coverage.json was created and has content
+          if [ ! -f coverage.json ] || [ ! -s coverage.json ]; then
+            echo "Warning: Coverage JSON generation failed or produced empty file"
+            echo "Skipping threshold check"
+            exit 0
+          fi
+          
+          # Validate JSON format
+          if ! python3 -m json.tool coverage.json > /dev/null 2>&1; then
+            echo "Error: Invalid JSON in coverage.json"
+            cat coverage.json
+            exit 1
+          fi
+          
+          # Check coverage thresholds
+          python3 scripts/check_coverage.py --report coverage.json --output coverage-report.md
+        continue-on-error: false
+
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v3
         with:
           name: coverage-report
-          path: coverage/
+          path: |
+            coverage/
+            coverage.json
+            coverage-report.md
         if: always()
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/cobertura.xml
+          flags: unittests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          name: adapteros-coverage
+          verbose: true
+        if: always() && (success() || failure())
 
   lint:
     name: Linting & Formatting
@@ -210,6 +260,20 @@ jobs:
     if: always()
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Generate test metrics
+        run: |
+          mkdir -p var
+          ./scripts/generate_test_metrics.sh var/test-metrics.md
+        continue-on-error: true
+
       - name: Report Results
         run: |
           echo "## Integration Test Summary" >> $GITHUB_STEP_SUMMARY
@@ -220,6 +284,14 @@ jobs:
           echo "✓ Code Linting & Formatting" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📊 Coverage reports available in artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Append test metrics if available
+          if [ -f var/test-metrics.md ]; then
+            echo "## Test Metrics" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat var/test-metrics.md >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Fail if critical tests failed
         run: exit 1

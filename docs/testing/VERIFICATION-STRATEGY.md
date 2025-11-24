@@ -301,25 +301,37 @@ fn stress_test_hot_swap() {
 ## Regression Prevention
 
 ### Continuous Monitoring
-1. **Test Coverage:** Track per PR (Codecov or Coveralls)
-2. **Benchmark Regression:** Criterion baseline, fail if >10% slower
+1. **Test Coverage:** ✅ Track per PR via Codecov (configured in CI)
+   - Coverage thresholds enforced per component (80/85/95%)
+   - Script: `scripts/check_coverage.py`
+   - Workflow: `.github/workflows/integration-tests.yml` (coverage job)
+2. **Benchmark Regression:** ✅ Criterion baseline comparison, fail if >10% slower
+   - Script: `scripts/compare_benchmarks.py`
+   - Workflow: `.github/workflows/performance-regression.yml`
 3. **Memory Leaks:** Valgrind on Linux, Instruments on macOS (weekly)
 4. **Fuzz Testing:** Existing `fuzz/` crate (nightly)
+5. **E2E Testing:** ✅ Cypress tests automated in CI
+   - Workflow: `.github/workflows/e2e-ui-tests.yml`
+6. **Stress Testing:** ✅ Weekly automated stress tests
+   - Workflow: `.github/workflows/stress-tests.yml`
+   - Script: `scripts/collect_stress_results.sh`
 
 ### Pre-Commit Hooks
+**Status:** ✅ Implemented
+
+Pre-commit hooks are now available. Install with:
 ```bash
-#!/bin/bash
-# .git/hooks/pre-commit
-
-# Format check
-cargo fmt --all -- --check || exit 1
-
-# Lint
-cargo clippy --workspace -- -D warnings || exit 1
-
-# Unit tests (fast)
-cargo test --workspace --lib || exit 1
+./scripts/setup_pre_commit.sh
 ```
+
+The hook performs:
+- Format check: `cargo fmt --all -- --check`
+- Lint check: `cargo clippy --workspace -- -D warnings`
+- Fast unit tests: `cargo test --workspace --lib --quiet`
+
+**Location:** `scripts/pre-commit-template` (template), `.git/hooks/pre-commit` (installed)
+
+**Bypass:** `git commit --no-verify` (not recommended)
 
 ---
 

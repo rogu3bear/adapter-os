@@ -1,0 +1,106 @@
+name: E2E UI Tests
+
+on:
+  pull_request:
+    paths:
+      - 'ui/**'
+      - 'crates/adapteros-server-api/**'
+      - '.github/workflows/e2e-ui-tests.yml'
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cypress:
+    name: Cypress E2E Tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install UI dependencies
+        run: |
+          cd ui
+          pnpm install
+
+      - name: Build backend server
+        run: |
+          cargo build --release -p adapteros-server-api
+        continue-on-error: false
+
+      - name: Start backend server
+        run: |
+          ./target/release/aosctl serve --port 8080 > /tmp/aos-server.log 2>&1 &
+          echo $! > /tmp/aos-server.pid
+          
+          # Wait for server to be ready
+          echo "Waiting for server to start..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "Server is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Server failed to start after 30 seconds"
+              cat /tmp/aos-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+        continue-on-error: false
+
+      - name: Run Cypress tests
+        run: |
+          cd ui
+          # Set environment variables for Cypress
+          export CYPRESS_BASE_URL=http://localhost:3200
+          export CYPRESS_API_BASE_URL=http://localhost:8080
+          pnpm cypress:run
+        continue-on-error: false
+        env:
+          CYPRESS_BASE_URL: http://localhost:3200
+          CYPRESS_API_BASE_URL: http://localhost:8080
+
+      - name: Upload screenshots (on failure)
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: ui/e2e/cypress/screenshots
+          retention-days: 7
+
+      - name: Upload videos (on failure)
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: cypress-videos
+          path: ui/e2e/cypress/videos
+          retention-days: 7
+
+      - name: Stop backend server
+        if: always()
+        run: |
+          if [ -f /tmp/aos-server.pid ]; then
+            kill $(cat /tmp/aos-server.pid) || true
+          fi
+

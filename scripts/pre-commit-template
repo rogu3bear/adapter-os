@@ -1,0 +1,49 @@
+#!/bin/bash
+# Pre-commit hook for AdapterOS
+# Prevents commits with formatting issues, lint errors, or failing unit tests
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Format check
+echo "  ✓ Checking code formatting..."
+if ! cargo fmt --all -- --check; then
+    echo ""
+    echo "❌ Code formatting check FAILED"
+    echo ""
+    echo "To fix, run:"
+    echo "  cargo fmt --all"
+    echo ""
+    exit 1
+fi
+
+# Lint check
+echo "  ✓ Running clippy linter..."
+if ! cargo clippy --workspace -- -D warnings; then
+    echo ""
+    echo "❌ Clippy lint check FAILED"
+    echo ""
+    echo "Review the errors above and fix them before committing."
+    echo "To see detailed errors, run:"
+    echo "  cargo clippy --workspace -- -D warnings"
+    echo ""
+    exit 1
+fi
+
+# Fast unit tests (lib only, no integration tests)
+echo "  ✓ Running fast unit tests..."
+if ! cargo test --workspace --lib --quiet; then
+    echo ""
+    echo "❌ Unit tests FAILED"
+    echo ""
+    echo "Fix failing tests before committing."
+    echo "To see test output, run:"
+    echo "  cargo test --workspace --lib"
+    echo ""
+    exit 1
+fi
+
+echo "✅ Pre-commit checks passed"
+exit 0
+
