@@ -38,7 +38,7 @@ adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
-adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["real-mlx"] }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
@@ -46,6 +46,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -80,6 +81,7 @@ loom = "0.7"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = { workspace = true }
 proptest = "1.0"
+serial_test = "3.0"
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
 
 [[bench]]

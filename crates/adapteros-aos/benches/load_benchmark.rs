@@ -1,3 +1,4 @@
+#[cfg(feature = "mmap")]
 use adapteros_aos::MmapAdapterLoader;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ fn find_test_adapter() -> Option<PathBuf> {
         .map(|entry| entry.path())
 }
 
+#[cfg(feature = "mmap")]
 fn benchmark_load(c: &mut Criterion) {
     let Some(adapter_path) = find_test_adapter() else {
         eprintln!("No .aos files found, skipping benchmark");
@@ -34,6 +36,11 @@ fn benchmark_load(c: &mut Criterion) {
             black_box(result)
         });
     });
+}
+
+#[cfg(not(feature = "mmap"))]
+fn benchmark_load(_c: &mut Criterion) {
+    eprintln!("mmap feature not enabled, skipping benchmark");
 }
 
 criterion_group!(benches, benchmark_load);

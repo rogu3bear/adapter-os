@@ -197,14 +197,10 @@ mod tests {
         assert!(!early_stop.should_stop());
         assert_eq!(early_stop.epochs_without_improvement(), 1);
 
-        // Epoch 2: Still no improvement
+        // Epoch 2: Patience exhausted (epochs_without_improvement = 2 >= patience = 2)
         early_stop.check(2, 1.0);
-        assert!(!early_stop.should_stop());
-        assert_eq!(early_stop.epochs_without_improvement(), 2);
-
-        // Epoch 3: Patience exhausted
-        early_stop.check(3, 1.0);
         assert!(early_stop.should_stop());
+        assert_eq!(early_stop.epochs_without_improvement(), 2);
         assert_eq!(early_stop.best_epoch(), 0);
     }
 

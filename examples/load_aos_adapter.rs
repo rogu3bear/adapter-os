@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
 
     // Example 1: Direct loading with AdapterLoader
     println!("1. Direct loading with AdapterLoader:");
-    let mut loader = AdapterLoader::new(adapters_path.clone());
+    let mut loader = AdapterLoader::new(adapters_path.clone(), std::collections::HashMap::new());
 
     // This will now check for:
     // 1. ./adapters/my_adapter.aos (PREFERRED)
@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     println!("2. Using LifecycleManager:");
     let mut lifecycle_manager = LifecycleManager::new(
         vec!["base_adapter".to_string(), "code_adapter".to_string()],
+        std::collections::HashMap::new(),
         &Policies::default(),
         adapters_path,
         None,

@@ -5,7 +5,7 @@ use axum::{
     routing::get,
     Router,
 };
-use rust_embed::RustEmbed;
+use rust_embed::{EmbeddedFile, RustEmbed};
 
 // Note: This will be empty until web-ui is built with trunk
 #[derive(RustEmbed)]

@@ -31,14 +31,6 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
   - Worker architecture with UDS server and safety mechanisms
 
 
-- **[Branch Reconciliation Report](../BRANCH_RECONCILIATION_REPORT.md)** - Repository maintenance and verification
-  - Complete branch cleanup documentation
-  - Feature implementation verification
-  - Deterministic reconciliation process
-  - Exact source citations for all changes
-
-
->
 - **[Diagram Reference Guide](DIAGRAM_REFERENCE.md)** - Quick lookup and navigation
   - Diagram locations and quick links
   - Search by topic or role
@@ -47,17 +39,13 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 
 #### **System Documentation**
 
+- **[Architecture Index](ARCHITECTURE_INDEX.md)** - Complete architecture documentation hub
+- **[Architecture Patterns](ARCHITECTURE_PATTERNS.md)** - Detailed patterns with code references
 - **[System Architecture](ARCHITECTURE.md)** - High-level system design and component overview
   - Worker architecture and inference pipeline
   - Router and adapter management
   - Memory management and eviction
   - Policy enforcement system
-
-- **[Branch Reconciliation Report](../BRANCH_RECONCILIATION_REPORT.md)** - Complete branch cleanup and feature verification
-  - Deterministic branch reconciliation process
-  - Feature completion verification
-  - Repository cleanup results
-  - Exact source citations
 
 - **[Control Plane](CONTROL-PLANE.md)** - Control plane architecture and APIs
   - Tenant management
@@ -172,21 +160,15 @@ Start here if you're evaluating AdapterOS for compliance:
 ## API Documentation
 
 ### REST API
-- **[Routes Reference](ROUTES_REFERENCE.md)** - Complete API endpoint documentation
-  - All frontend and backend routes
-  - Route-to-API mappings
-  - Authentication requirements
-  - Developer guide for adding routes
-- **[Route Map Diagrams](ROUTE_MAP_DIAGRAM.md)** - Visual route architecture
-  - Frontend route hierarchy
-  - API endpoint categories
-  - Data flow diagrams
-  - Authentication and RBAC flows
-- **[Routes Improvements](ROUTES_IMPROVEMENTS.md)** - Identified issues and recommendations
+- **[API Reference](API_REFERENCE.md)** - Complete API endpoint documentation
+  - All REST API endpoints (225 total)
+  - Authentication and authorization
+  - Request/response formats
+  - Route-to-handler mappings
 - **[Postman Collection](postman/AdapterOS_API.postman_collection.json)** - API testing collection
-- Control Plane API: See [control-plane.md](CONTROL-PLANE.md)
+- Control Plane API: See [CONTROL-PLANE.md](CONTROL-PLANE.md)
 - Authentication API: See [AUTHENTICATION.md](AUTHENTICATION.md)
-- Code Intelligence API: See [code-intelligence/code-api-registry.md](code-intelligence/CODE-API-REGISTRY.md)
+- Code Intelligence API: See [code-intelligence/CODE-API-REGISTRY.md](code-intelligence/CODE-API-REGISTRY.md)
 - OpenAPI Specification: See [api.md](API.md) (auto-generated)
 
 ### Rust API
@@ -261,12 +243,6 @@ Event logging system for observability:
 - BLAKE3 hashing for integrity
 - Bundle rotation and signing
 
-## Implementation History
-
-Previous implementation tracking documents have been archived to keep the main documentation clean:
-- Location: `../archive/implementation-history/`
-- Includes: Phase completion docs, status updates, implementation plans
-- Purpose: Historical reference for development process
 
 ## Contributing to Documentation
 

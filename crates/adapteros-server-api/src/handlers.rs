@@ -1585,11 +1585,11 @@ pub async fn mark_node_offline(
 
     // Update node status in database
     let timestamp = chrono::Utc::now().to_rfc3339();
-    sqlx::query!(
-        "UPDATE nodes SET status = 'offline', last_seen_at = ? WHERE id = ?",
-        timestamp,
-        node_id
+    sqlx::query(
+        "UPDATE nodes SET status = 'offline', last_seen_at = ? WHERE id = ?"
     )
+    .bind(&timestamp)
+    .bind(&node_id)
     .execute(state.db.pool())
     .await
     .map_err(|e| {
@@ -1650,7 +1650,8 @@ pub async fn evict_node(
     }
 
     // Delete node from database
-    sqlx::query!("DELETE FROM nodes WHERE id = ?", node_id)
+    sqlx::query("DELETE FROM nodes WHERE id = ?")
+        .bind(&node_id)
         .execute(state.db.pool())
         .await
         .map_err(|e| {
@@ -3022,12 +3023,14 @@ pub async fn validate_policy(
     let result = match serde_json::from_str::<serde_json::Value>(&req.content) {
         Ok(_) => {
             // Audit log: policy validation success
+            // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
+            let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
             let _ = crate::audit_helper::log_success(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::POLICY_VALIDATE,
                 crate::audit_helper::resources::POLICY,
-                Some(&req.cpid),
+                Some(&content_hash),
             )
             .await;
 
@@ -3039,12 +3042,14 @@ pub async fn validate_policy(
         }
         Err(e) => {
             // Audit log: policy validation failure
+            // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
+            let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
             let _ = crate::audit_helper::log_failure(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::POLICY_VALIDATE,
                 crate::audit_helper::resources::POLICY,
-                Some(&req.cpid),
+                Some(&content_hash),
                 &format!("Invalid JSON: {}", e),
             )
             .await;
@@ -5312,12 +5317,12 @@ pub async fn promote_adapter_state(
 
     // Update adapter tier in database
     let timestamp = chrono::Utc::now().to_rfc3339();
-    sqlx::query!(
-        "UPDATE adapters SET tier = ?, updated_at = ? WHERE adapter_id = ?",
-        new_tier,
-        timestamp,
-        adapter_id
+    sqlx::query(
+        "UPDATE adapters SET tier = ?, updated_at = ? WHERE adapter_id = ?"
     )
+    .bind(&new_tier)
+    .bind(&timestamp)
+    .bind(&adapter_id)
     .execute(state.db.pool())
     .await
     .map_err(|e| {
@@ -8859,7 +8864,7 @@ pub async fn enhanced_system_metrics_stream(
             };
 
         // Fetch worker health status
-        let workers = match sqlx::query!("SELECT id, status FROM workers WHERE status = 'active'")
+        let workers = match sqlx::query("SELECT id, status FROM workers WHERE status = 'active'")
             .fetch_all(state.db.pool())
             .await
         {

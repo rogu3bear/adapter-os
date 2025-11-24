@@ -14,7 +14,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::debug;
 
 /// Supported API versions
@@ -156,10 +155,10 @@ pub fn check_deprecation(path: &str, _version: ApiVersion) -> Option<Deprecation
 /// Extracts API version from path or Accept header and adds version
 /// information to response headers. Also adds deprecation warnings if needed.
 pub async fn versioning_middleware(req: Request, next: Next) -> Response {
-    let path = req.uri().path();
+    let path = req.uri().path().to_string();
 
     // Extract version from path (primary method)
-    let path_version = ApiVersion::from_path(path);
+    let path_version = ApiVersion::from_path(&path);
 
     // Extract version from Accept header (secondary method)
     let accept_version = req
@@ -180,6 +179,9 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
     // Process request
     let mut response = next.run(req).await;
 
+    // Check status before borrowing headers
+    let status = response.status();
+    
     // Add version headers to response
     let headers = response.headers_mut();
 
@@ -189,7 +191,7 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
     }
 
     // Add deprecation warning if applicable
-    if let Some(deprecation) = check_deprecation(path, version) {
+    if let Some(deprecation) = check_deprecation(&path, version) {
         if let Ok(deprecation_header) = HeaderValue::from_str(&deprecation.to_header_value()) {
             headers.insert("X-API-Deprecation", deprecation_header);
         }
@@ -203,7 +205,7 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
     }
 
     // Add Content-Type with version if not already set
-    if !headers.contains_key("content-type") && response.status() == StatusCode::OK {
+    if !headers.contains_key("content-type") && status == StatusCode::OK {
         let content_type = format!("application/vnd.aos.{}+json", version.as_str());
         if let Ok(content_type_header) = HeaderValue::from_str(&content_type) {
             headers.insert("Content-Type", content_type_header);

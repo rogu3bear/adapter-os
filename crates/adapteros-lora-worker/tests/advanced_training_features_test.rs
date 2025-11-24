@@ -191,15 +191,35 @@ fn test_training_cancellation_flag() {
 #[test]
 fn test_training_templates() {
     // Test that training config presets work
-    let quick = adapteros_types::training::TrainingConfig::quick_training();
+    let quick = TrainingConfig {
+        rank: 8,
+        alpha: 16.0,
+        learning_rate: 1e-3,
+        batch_size: 4,
+        epochs: 1,
+        hidden_dim: 768,
+        preferred_backend: None,
+        require_gpu: false,
+        max_gpu_memory_mb: 0,
+    };
     assert_eq!(quick.rank, 8);
     assert_eq!(quick.epochs, 1);
 
-    let deep = adapteros_types::training::TrainingConfig::deep_training();
+    let deep = TrainingConfig {
+        rank: 32,
+        alpha: 64.0,
+        learning_rate: 5e-5,
+        batch_size: 2,
+        epochs: 5,
+        hidden_dim: 2048,
+        preferred_backend: None,
+        require_gpu: true,
+        max_gpu_memory_mb: 8192,
+    };
     assert_eq!(deep.rank, 32);
     assert_eq!(deep.epochs, 5);
 
-    let default = adapteros_types::training::TrainingConfig::default();
+    let default = TrainingConfig::default();
     assert_eq!(default.rank, 16);
     assert_eq!(default.epochs, 3);
 }

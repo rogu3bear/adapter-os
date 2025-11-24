@@ -551,25 +551,21 @@ impl PageMigrationTracker {
     #[cfg(target_os = "macos")]
     pub fn new() -> crate::Result<Self> {
         // Initialize IOKit monitoring
-        unsafe {
-            if iokit_vm_init() == 0 {
-                return Err(crate::MemoryWatchdogError::HeapObservationFailed(
-                    "Failed to initialize IOKit VM monitoring".to_string(),
-                ));
-            }
+        if iokit_vm_init() == 0 {
+            return Err(crate::MemoryWatchdogError::HeapObservationFailed(
+                "Failed to initialize IOKit VM monitoring".to_string(),
+            ));
         }
 
         // Check if system supports unified memory
-        let supports_unified = unsafe { iokit_unified_memory_supported() != 0 };
+        let supports_unified = iokit_unified_memory_supported() != 0;
 
         if supports_unified {
             info!("Unified memory (Apple Silicon) detected and supported");
         }
 
         // Enable memory pressure monitoring
-        unsafe {
-            let _ = iokit_memory_pressure_enable();
-        }
+        let _ = iokit_memory_pressure_enable();
 
         debug!("Page migration tracker initialized");
 
@@ -604,17 +600,15 @@ impl PageMigrationTracker {
     pub fn update_vm_stats(&self) -> crate::Result<VMStatistics> {
         let mut ffi_stats = unsafe { std::mem::zeroed::<FFIVMStats>() };
 
-        unsafe {
-            if iokit_vm_get_stats(&mut ffi_stats) != 0 {
-                return Err(crate::MemoryWatchdogError::HeapObservationFailed(
-                    "Failed to get VM statistics".to_string(),
-                ));
-            }
+        if iokit_vm_get_stats(&mut ffi_stats) != 0 {
+            return Err(crate::MemoryWatchdogError::HeapObservationFailed(
+                "Failed to get VM statistics".to_string(),
+            ));
         }
 
         // Get deltas
-        let pagein_delta = unsafe { iokit_vm_get_pagein_delta() as u64 };
-        let pageout_delta = unsafe { iokit_vm_get_pageout_delta() as u64 };
+        let pagein_delta = iokit_vm_get_pagein_delta() as u64;
+        let pageout_delta = iokit_vm_get_pageout_delta() as u64;
 
         let stats = VMStatistics {
             page_ins: ffi_stats.page_ins,
@@ -664,10 +658,8 @@ impl PageMigrationTracker {
 
         let mut ffi_info = unsafe { std::mem::zeroed::<FFIUnifiedMemoryInfo>() };
 
-        unsafe {
-            if iokit_unified_memory_info(&mut ffi_info) != 0 {
-                return Ok(None);
-            }
+        if iokit_unified_memory_info(&mut ffi_info) != 0 {
+            return Ok(None);
         }
 
         let info = UnifiedMemoryInfo {
@@ -700,7 +692,7 @@ impl PageMigrationTracker {
     pub fn detect_migrations(&self) -> crate::Result<()> {
         let mut events: [FFIPageMigrationInfo; 256] = unsafe { std::mem::zeroed() };
 
-        let count = unsafe { iokit_migration_get_events(events.as_mut_ptr(), 256) };
+        let count = iokit_migration_get_events(events.as_mut_ptr(), 256);
 
         if count < 0 {
             return Err(crate::MemoryWatchdogError::HeapObservationFailed(
@@ -755,9 +747,7 @@ impl PageMigrationTracker {
         }
 
         // Clear the IOKit buffer
-        unsafe {
-            let _ = iokit_migration_clear_events();
-        }
+        let _ = iokit_migration_clear_events();
 
         Ok(())
     }
@@ -765,7 +755,7 @@ impl PageMigrationTracker {
     /// Update memory pressure level
     #[cfg(target_os = "macos")]
     pub fn update_memory_pressure(&self) -> crate::Result<()> {
-        let level_raw = unsafe { iokit_memory_pressure_level() };
+        let level_raw = iokit_memory_pressure_level();
 
         if let Some(level) = MemoryPressureLevel::from_iokit(level_raw) {
             {
@@ -879,7 +869,7 @@ impl Default for PageMigrationTracker {
 impl Drop for PageMigrationTracker {
     fn drop(&mut self) {
         #[cfg(target_os = "macos")]
-        unsafe {
+        {
             let _ = iokit_memory_pressure_disable();
             let _ = iokit_vm_cleanup();
         }

@@ -234,14 +234,17 @@ pub async fn create_workspace(
         })?;
 
     // Audit log successful creation
-    log_success(
+    if let Err(e) = log_success(
         &state.db,
         &claims,
         actions::WORKSPACE_CREATE,
         resources::WORKSPACE,
         Some(&workspace_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!("Failed to log audit event: {}", e);
+    }
 
     Ok(Json(WorkspaceResponse {
         id: workspace.id,
@@ -428,14 +431,17 @@ pub async fn update_workspace(
         })?;
 
     // Audit log successful update
-    log_success(
+    if let Err(e) = log_success(
         &state.db,
         &claims,
         actions::WORKSPACE_UPDATE,
         resources::WORKSPACE,
         Some(&workspace_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!("Failed to log audit event: {}", e);
+    }
 
     Ok(Json(WorkspaceResponse {
         id: workspace.id,
@@ -514,14 +520,17 @@ pub async fn delete_workspace(
         })?;
 
     // Audit log successful deletion
-    log_success(
+    if let Err(e) = log_success(
         &state.db,
         &claims,
         actions::WORKSPACE_DELETE,
         resources::WORKSPACE,
         Some(&workspace_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!("Failed to log audit event: {}", e);
+    }
 
     Ok(Json(
         serde_json::json!({"status": "deleted", "id": workspace_id}),

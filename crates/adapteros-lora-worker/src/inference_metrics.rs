@@ -279,6 +279,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_metrics_collector_basic() {
         let collector = InferenceMetricsCollector::new(100);
 
@@ -313,6 +314,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_metrics_percentiles() {
         let collector = InferenceMetricsCollector::new(100);
 
@@ -356,6 +358,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_adapter_selection_tracking() {
         let collector = InferenceMetricsCollector::new(100);
 
@@ -390,6 +393,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_rolling_window() {
         let collector = InferenceMetricsCollector::new(5); // Small window
 
@@ -411,6 +415,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_success_failure_tracking() {
         let collector = InferenceMetricsCollector::new(100);
 
@@ -436,6 +441,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_tokens_per_second() {
         let collector = InferenceMetricsCollector::new(100);
 
@@ -466,6 +472,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_reset() {
         let collector = InferenceMetricsCollector::new(100);
 

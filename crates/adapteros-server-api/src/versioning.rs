@@ -162,28 +162,28 @@ pub fn add_version_headers(mut response: Response, version: ApiVersion) -> Respo
 
     // Add API version header
     headers.insert(
-        HeaderValue::from_static("X-API-Version"),
+        "X-API-Version",
         HeaderValue::from_static(version.as_str()),
     );
 
     // Add deprecation warning if deprecated
     if let Some(deprecation) = version.deprecation_info() {
         headers.insert(
-            HeaderValue::from_static("Deprecation"),
+            "Deprecation",
             HeaderValue::from_str(&deprecation.deprecated_at).unwrap_or_else(|_| {
                 HeaderValue::from_static("true")
             }),
         );
 
         headers.insert(
-            HeaderValue::from_static("Sunset"),
+            "Sunset",
             HeaderValue::from_str(&deprecation.sunset_at).unwrap_or_else(|_| {
                 HeaderValue::from_static("2025-12-31")
             }),
         );
 
         headers.insert(
-            HeaderValue::from_static("Link"),
+            "Link",
             HeaderValue::from_str(&format!(
                 r#"<{}>; rel="deprecation""#,
                 deprecation.migration_guide

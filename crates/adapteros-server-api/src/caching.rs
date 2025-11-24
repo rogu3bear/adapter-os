@@ -11,18 +11,16 @@
 //! - ETag generation: Content-based hashing
 
 use axum::{
-    body::Body,
     extract::Request,
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    http::{header, HeaderValue, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use blake3::Hasher;
+use adapteros_core::B3Hash;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::debug;
 
 /// Cache entry
 #[derive(Clone, Debug)]
@@ -52,9 +50,7 @@ impl ResponseCache {
 
     /// Generate ETag from content
     pub fn generate_etag(content: &[u8]) -> String {
-        let mut hasher = Hasher::new();
-        hasher.update(content);
-        let hash = hasher.finalize();
+        let hash = B3Hash::hash(content);
         format!(r#""{:x}""#, hash)
     }
 
@@ -102,32 +98,17 @@ pub async fn caching_middleware(request: Request, next: Next) -> Response {
         return next.run(request).await;
     }
 
-    // Check for conditional request headers
-    let if_none_match = request
-        .headers()
-        .get(header::IF_NONE_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-
-    let if_modified_since = request
-        .headers()
-        .get(header::IF_MODIFIED_SINCE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| httpdate::parse_http_date(s).ok());
-
     // Process request
     let response = next.run(request).await;
 
     // Add caching headers
-    add_cache_headers(response, &path, if_none_match, if_modified_since)
+    add_cache_headers(response, &path)
 }
 
 /// Add cache headers to response
 fn add_cache_headers(
     mut response: Response,
     path: &str,
-    if_none_match: Option<String>,
-    if_modified_since: Option<std::time::SystemTime>,
 ) -> Response {
     let status = response.status();
 

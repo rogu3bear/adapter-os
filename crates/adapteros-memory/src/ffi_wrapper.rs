@@ -218,20 +218,18 @@ impl HeapObserverHandle {
     ) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
-            unsafe {
-                let result = crate::heap_observer::ffi_metal_heap_record_allocation(
-                    heap_id,
-                    buffer_id,
-                    size,
-                    offset,
-                    addr,
-                    storage_mode,
-                );
-                if result == 0 {
-                    return Err(MemoryWatchdogError::HeapObservationFailed(
-                        "Failed to record allocation".to_string(),
-                    ));
-                }
+            let result = crate::heap_observer::ffi_metal_heap_record_allocation(
+                heap_id,
+                buffer_id,
+                size,
+                offset,
+                addr,
+                storage_mode,
+            );
+            if result == 0 {
+                return Err(MemoryWatchdogError::HeapObservationFailed(
+                    "Failed to record allocation".to_string(),
+                ));
             }
         }
 
@@ -254,13 +252,11 @@ impl HeapObserverHandle {
     pub fn record_deallocation(&self, buffer_id: u64) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
-            unsafe {
-                let result = crate::heap_observer::ffi_metal_heap_record_deallocation(buffer_id);
-                if result == 0 {
-                    return Err(MemoryWatchdogError::HeapObservationFailed(
-                        "Failed to record deallocation".to_string(),
-                    ));
-                }
+            let result = crate::heap_observer::ffi_metal_heap_record_deallocation(buffer_id);
+            if result == 0 {
+                return Err(MemoryWatchdogError::HeapObservationFailed(
+                    "Failed to record deallocation".to_string(),
+                ));
             }
         }
 
@@ -470,13 +466,11 @@ impl HeapObserverHandle {
     pub fn clear(&self) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
-            unsafe {
-                let result = crate::heap_observer::ffi_metal_heap_clear();
-                if result != 0 {
-                    return Err(MemoryWatchdogError::HeapObservationFailed(
-                        "Failed to clear observer data".to_string(),
-                    ));
-                }
+            let result = crate::heap_observer::ffi_metal_heap_clear();
+            if result != 0 {
+                return Err(MemoryWatchdogError::HeapObservationFailed(
+                    "Failed to clear observer data".to_string(),
+                ));
             }
         }
 

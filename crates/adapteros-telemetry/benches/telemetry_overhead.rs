@@ -10,7 +10,7 @@ use adapteros_telemetry::{
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use tokio::runtime::Runtime;
 
-fn create_test_event(id: u64) -> adapteros_telemetry::UnifiedTelemetryEvent {
+fn create_test_event(id: u64) -> adapteros_telemetry::TelemetryEvent {
     let identity = IdentityEnvelope::new(
         "bench".to_string(),
         "telemetry".to_string(),
@@ -25,6 +25,7 @@ fn create_test_event(id: u64) -> adapteros_telemetry::UnifiedTelemetryEvent {
         identity,
     )
     .build()
+    .expect("Failed to build telemetry event")
 }
 
 fn bench_ring_buffer_push(c: &mut Criterion) {

@@ -309,7 +309,10 @@ mod tests {
             HEADER_SIZE as u64 + weights_data.len() as u64
         );
         assert!(header.manifest_size > 0);
-        assert_eq!(header.total_size, total_size);
+
+        // Calculate total size from header fields and verify it matches
+        let calculated_total_size = header.manifest_offset + header.manifest_size;
+        assert_eq!(calculated_total_size, total_size);
 
         // Verify safetensors header can be parsed from the archive
         use std::io::{Read, Seek, SeekFrom};

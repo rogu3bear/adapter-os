@@ -75,11 +75,11 @@ pub async fn create_test_app_state() -> AppState {
         MetricsExporter::new(vec![0.1, 0.5, 1.0]).expect("failed to create metrics exporter"),
     );
     let metrics_collector = Arc::new(
-        adapteros_telemetry::MetricsCollector::new().expect("failed to create metrics collector"),
+        adapteros_telemetry::MetricsCollector::new(
+            adapteros_telemetry::metrics::MetricsConfig::default()
+        )
     );
-    let metrics_registry = Arc::new(adapteros_telemetry::MetricsRegistry::new(
-        metrics_collector.clone(),
-    ));
+    let metrics_registry = Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new());
     for name in DEFAULT_METRIC_SERIES {
         metrics_registry.get_or_create_series(name.to_string(), 1_000, 1_024);
     }

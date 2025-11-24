@@ -4,6 +4,7 @@ use crate::state::AppState;
 use adapteros_telemetry::events::{InferenceEvent, RouterDecisionEvent};
 
 /// Extension trait for attaching stack metadata from AppState
+#[allow(async_fn_in_trait)] // Valid use case for async extension methods
 pub trait StackMetadataExt {
     /// Attach stack metadata from the active stack for the given tenant
     ///

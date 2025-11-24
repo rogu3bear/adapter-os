@@ -1424,6 +1424,13 @@ pub fn training_config_from_request(
         max_seq_length: req.max_seq_length,
         gradient_accumulation_steps: req.gradient_accumulation_steps,
         weight_group_config: None,
+        lr_schedule: None,
+        final_lr: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
+        checkpoint_frequency: None,
+        max_checkpoints: None,
     }
 }
 

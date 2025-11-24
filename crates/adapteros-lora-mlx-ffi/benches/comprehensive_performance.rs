@@ -181,7 +181,9 @@ fn bench_generation_throughput(c: &mut Criterion) {
                 b.iter(|| {
                     // Simulate token generation loop
                     for _ in 0..tokens {
-                        let mut io_copy = io.clone();
+                        let mut io_copy = IoBuffers::new(io.output_logits.len());
+                        io_copy.input_ids = io.input_ids.clone();
+                        io_copy.position = io.position;
                         let _ = backend.run_step(&ring, &mut io_copy);
                     }
                 });

@@ -1,6 +1,6 @@
 use super::chunked_upload::{
-    ChunkAssembler, ChunkUploadResult, ChunkWriter, CompressionFormat, FileValidator, ResumeToken,
-    UploadSession, UploadSessionManager, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
+    ChunkAssembler, ChunkWriter, CompressionFormat, FileValidator, ResumeToken,
+    DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
@@ -295,7 +295,6 @@ pub async fn upload_dataset(
                 })?;
 
                 let mut hasher = Hasher::new();
-                let mut file_size = 0usize;
                 let data = field.bytes().await.map_err(|e| {
                     (
                         StatusCode::BAD_REQUEST,
@@ -303,7 +302,7 @@ pub async fn upload_dataset(
                     )
                 })?;
 
-                file_size = data.len();
+                let file_size = data.len();
 
                 // Check file size limits
                 if file_size > MAX_FILE_SIZE {
@@ -1083,6 +1082,7 @@ pub async fn preview_dataset(
 )]
 pub async fn delete_dataset(
     State(state): State<AppState>,
+    Extension(claims): Extension<crate::auth::Claims>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Get dataset to find storage path

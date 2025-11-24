@@ -16,17 +16,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting AdapterOS metrics collector example");
 
     // Create metrics collector
-    let collector = Arc::new(MetricsCollector::new()?);
+    let collector = Arc::new(MetricsCollector::new(
+        adapteros_telemetry::metrics::MetricsConfig::default()
+    ));
     println!("Created metrics collector");
 
-    // Start metrics server in background
-    let server_port = 9090;
-    let server = MetricsServer::new(collector.clone(), server_port);
-    let server_handle = tokio::spawn(async move {
-        if let Err(e) = server.start().await {
-            println!("Metrics server error: {}", e);
-        }
-    });
+    // Note: MetricsServer API has changed - server functionality is now handled differently
+    // This example focuses on metrics collection only
 
     println!("Started metrics server on port {}", server_port);
 
@@ -106,20 +102,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     println!("Metrics collection started");
-    println!(
-        "Prometheus endpoint: http://localhost:{}/metrics",
-        server_port
-    );
-    println!(
-        "JSON endpoint: http://localhost:{}/metrics/json",
-        server_port
-    );
-    println!("Health endpoint: http://localhost:{}/health", server_port);
+    println!("Collecting metrics for 10 seconds...");
 
-    // Wait for either task to complete
+    // Wait for metrics task
     tokio::select! {
-        _ = server_handle => {
-            println!("Metrics server stopped");
+        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+            println!("Collection period complete");
         }
         _ = metrics_task => {
             println!("Metrics collection stopped");
@@ -135,7 +123,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_collector_example() {
-        let collector = MetricsCollector::new().expect("Should create metrics collector");
+        let collector = MetricsCollector::new(
+            adapteros_telemetry::metrics::MetricsConfig::default()
+        );
 
         // Test basic metrics recording
         collector.record_inference_latency("test_tenant", "test_adapter", 0.025);

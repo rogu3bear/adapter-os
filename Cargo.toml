@@ -333,7 +333,7 @@ adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
 adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
 # adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
-# adapteros-server-api = { path = "crates/adapteros-server-api" }  # 62 compilation errors
+adapteros-server-api = { path = "crates/adapteros-server-api" }
 adapteros-db = { path = "crates/adapteros-db" }
 adapteros-config = { path = "crates/adapteros-config" }
 adapteros-codegraph = { path = "crates/adapteros-codegraph" }
@@ -371,3 +371,4 @@ uuid = { version = "1.6", features = ["v7", "serde"] }
 blake3 = { workspace = true }
 hex = { workspace = true }
 metal = { workspace = true }
+rusqlite = "0.31"

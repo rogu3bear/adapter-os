@@ -21,21 +21,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             input: vec![1, 2, 3, 4, 5],
             target: vec![6, 7, 8, 9, 10],
             metadata: Default::default(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![11, 12, 13, 14, 15],
             target: vec![16, 17, 18, 19, 20],
             metadata: Default::default(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![21, 22, 23, 24, 25],
             target: vec![26, 27, 28, 29, 30],
             metadata: Default::default(),
+            weight: 1.0,
         },
         TrainingExample {
             input: vec![31, 32, 33, 34, 35],
             target: vec![36, 37, 38, 39, 40],
             metadata: Default::default(),
+            weight: 1.0,
         },
     ];
     println!("   Created {} training examples", examples.len());
@@ -49,6 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         batch_size: 2,
         epochs: 3,
         hidden_dim: 64, // Small dimension for testing
+        preferred_backend: None,
+        require_gpu: false,
+        max_gpu_memory_mb: 0,
     };
     println!(
         "   Config: rank={}, alpha={}, lr={}, epochs={}",
@@ -70,8 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 4: Quantize to Q15 format
     println!("\nStep 4: Quantizing weights to Q15...");
-    let quantizer = LoRAQuantizer::new();
-    let quantized = quantizer.quantize(&result.weights)?;
+    let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
     println!(
         "   ✅ Quantized: {} lora_a matrices, {} lora_b matrices",
         quantized.lora_a_quantized.len(),

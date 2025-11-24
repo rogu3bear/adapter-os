@@ -478,3 +478,61 @@ AdapterOS includes a comprehensive authentication management interface accessibl
 
 **Note**: These enhancements should be implemented with careful consideration of the stateless JWT design and performance implications.
 
+---
+
+## Performance Characteristics
+
+### Performance Benchmarks
+
+#### Token Refresh Performance
+- **Endpoint**: `POST /v1/auth/refresh`
+- **Expected Performance**:
+  - Average response time: < 500ms
+  - P95 response time: < 750ms
+  - Throughput: > 100 requests/second (single client)
+
+#### Token Metadata Retrieval
+- **Endpoint**: `GET /v1/auth/token`
+- **Expected Performance**:
+  - Average response time: < 100ms
+  - P95 response time: < 200ms
+  - Throughput: > 500 requests/second (single client)
+
+#### Session Management
+- **Endpoint**: `GET /v1/auth/sessions`
+- **Expected Performance**:
+  - Average response time: < 150ms
+  - P95 response time: < 300ms
+
+### Performance Testing
+
+```bash
+# Run auth performance tests
+cargo test --features extended-tests test_auth_performance_characteristics -- --nocapture
+```
+
+### Optimization Opportunities
+
+- **JWT Processing**: HMAC-SHA256 validation is computationally inexpensive; Ed25519 has higher CPU cost but better security
+- **Database Operations**: User lookup by email should use indexed queries
+- **Middleware Overhead**: Authentication middleware runs on every protected request; consider short-lived token caching
+
+### Security vs Performance Trade-offs
+
+- **Stateless JWT Design**: No server-side session storage reduces attack surface but requires validation on each request
+- **Token Refresh Strategy**: Short-lived tokens reduce exposure window but require database lookup for user validation
+
+### Monitoring and Alerting
+
+**Key Performance Indicators (KPIs):**
+1. Authentication Success Rate: >99.9%
+2. Average Token Refresh Time: <500ms
+3. P95 Token Validation Time: <200ms
+4. Failed Authentication Rate: <0.1%
+
+**Alert Thresholds:**
+- Token refresh >1s (warning)
+- Token refresh >5s (critical)
+- Authentication failure rate >1% (warning)
+- Authentication failure rate >5% (critical)
+

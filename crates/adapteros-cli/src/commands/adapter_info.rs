@@ -83,28 +83,9 @@ async fn get_provenance_sqlite(
     pool: &sqlx::SqlitePool,
     adapter_id: &str,
 ) -> Result<Option<ProvenanceInfo>> {
-    let row = sqlx::query!(
-        r#"
-        SELECT signer_key, registered_by, registered_uid, registered_at, bundle_b3
-        FROM adapter_provenance
-        WHERE adapter_id = ?
-        "#,
-        adapter_id
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|row| {
-        let key_name = extract_key_name(&row.signer_key);
-        ProvenanceInfo {
-            signer_key: row.signer_key,
-            key_name,
-            registered_by: row.registered_by,
-            registered_uid: row.registered_uid.map(|u| u as u32),
-            registered_at: row.registered_at,
-            bundle_b3: row.bundle_b3,
-        }
-    }))
+    // Temporarily disabled until migrations are run
+    // TODO: Re-enable after running database migrations
+    Ok(None)
 }
 
 /// Extract key name from signer key string

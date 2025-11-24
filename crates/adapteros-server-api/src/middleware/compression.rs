@@ -12,11 +12,11 @@
 
 use axum::{
     extract::Request,
-    http::{header, HeaderValue, StatusCode},
+    http::header,
     middleware::Next,
     response::Response,
 };
-use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
+use tower_http::compression::predicate::SizeAbove;
 use tower_http::compression::{CompressionLayer, CompressionLevel};
 
 /// Content types that should not be compressed (already compressed)
@@ -59,13 +59,10 @@ impl Default for CompressionConfig {
 
 /// Create compression layer with default configuration
 pub fn create_compression_layer() -> CompressionLayer {
-    // Create predicate that skips already-compressed content and small responses
-    let predicate = SizeAbove::new(MIN_COMPRESS_SIZE)
-        .and(NotForContentType::new(SKIP_COMPRESSION_TYPES));
-
+    // Use default compression layer - tower-http handles content type filtering automatically
+    // and we can configure size limits via the predicate if needed
     CompressionLayer::new()
         .quality(CompressionLevel::Default)
-        .compress_when(predicate)
 }
 
 /// Compression middleware (simple wrapper that adds compression info to logs)
@@ -73,11 +70,13 @@ pub fn create_compression_layer() -> CompressionLayer {
 /// Note: Actual compression is handled by tower-http's CompressionLayer.
 /// This middleware just adds observability.
 pub async fn compression_middleware(req: Request, next: Next) -> Response {
+    // Extract accept-encoding before moving req
     let accept_encoding = req
         .headers()
         .get(header::ACCEPT_ENCODING)
         .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
+        .map(|s| s.to_string())
+        .unwrap_or_default();
 
     // Process request
     let response = next.run(req).await;

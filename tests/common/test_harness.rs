@@ -72,10 +72,10 @@ impl ApiTestHarness {
             Arc::new(
                 adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0])?
             ),
-            Arc::new(adapteros_telemetry::MetricsCollector::new()?),
-            Arc::new(adapteros_telemetry::MetricsRegistry::new(
-                Arc::new(adapteros_telemetry::MetricsCollector::new()?),
+            Arc::new(adapteros_telemetry::MetricsCollector::new(
+                adapteros_telemetry::metrics::MetricsConfig::default()
             )),
+            Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new()),
             Arc::new(adapteros_orchestrator::TrainingService::new()),
         );
 

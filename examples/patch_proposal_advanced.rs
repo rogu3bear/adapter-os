@@ -355,13 +355,8 @@ async fn validate_patch_advanced(
 fn create_advanced_policies() -> Policies {
     use adapteros_core::B3Hash;
     use adapteros_manifest::{
-<<<<<<< HEAD
-        ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy,
-        IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
-=======
         ArtifactsPolicy, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
         MemoryPolicy, NumericPolicy, PerformancePolicy, RagPolicy, RefusalPolicy,
->>>>>>> integration-branch
     };
 
     Policies {

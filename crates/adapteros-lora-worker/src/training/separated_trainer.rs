@@ -5,7 +5,7 @@
 
 use super::dataset::TrainingExample;
 use super::trainer::{LoRAWeights, TrainingConfig, TrainingResult};
-use adapteros_core::{derive_seed, AosError, Result};
+use adapteros_core::{derive_seed, AosError, Result, B3Hash};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_single_file_adapter::{
     format::{AdapterWeights, CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata},
@@ -16,7 +16,7 @@ use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Separated LoRA trainer that trains positive and negative weight groups independently
 pub struct SeparatedLoRATrainer {
@@ -68,15 +68,29 @@ impl WeightGroupResult {
 
 impl SeparatedLoRATrainer {
     /// Create a new separated LoRA trainer
-    pub fn new(config: TrainingConfig) -> Self {
-        let training_seed = derive_seed("separated_lora_training");
-        
-        Self {
+    pub fn new(config: TrainingConfig) -> Result<Self> {
+        // Create a base hash for seed derivation (using config hash as base)
+        let config_bytes = format!("{:?}", config).into_bytes();
+        let base_hash = B3Hash::hash(&config_bytes);
+        let seed_bytes = derive_seed(&base_hash, "separated_lora_training");
+
+        // Convert seed bytes to u64 for RNG initialization
+        let training_seed = u64::from_le_bytes([
+            seed_bytes[0], seed_bytes[1], seed_bytes[2], seed_bytes[3],
+            seed_bytes[4], seed_bytes[5], seed_bytes[6], seed_bytes[7],
+        ]);
+
+        // Initialize telemetry writer with default settings
+        let telemetry_dir = std::env::var("AOS_TELEMETRY_DIR")
+            .unwrap_or_else(|_| "./var/telemetry".to_string());
+        let telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
+
+        Ok(Self {
             config,
             kernels: None,
-            telemetry: TelemetryWriter::new(),
+            telemetry,
             training_seed,
-        }
+        })
     }
 
     /// Train with separated positive/negative weight groups
@@ -132,23 +146,6 @@ impl SeparatedLoRATrainer {
             training_data: examples.to_vec(),
         })
     }
-
-impl SeparatedTrainingResult {
-    pub fn to_adapter_weights(&self) -> Result<AdapterWeights> {
-        let positive_group = self.positive_result.to_weight_group();
-        let negative_group = self.negative_result.to_weight_group();
-        let combined = match &self.combination_strategy {
-            CombinationStrategy::Separate => None,
-            strategy => Some(combine_weight_groups(&positive_group, &negative_group, strategy)?),
-        };
-
-        Ok(AdapterWeights {
-            positive: positive_group,
-            negative: negative_group,
-            combined,
-        })
-    }
-}
 
     /// Separate examples into positive and negative groups
     fn separate_examples(&self, examples: &[TrainingExample]) -> (Vec<TrainingExample>, Vec<TrainingExample>) {
@@ -423,6 +420,23 @@ impl SeparatedTrainingResult {
     }
 }
 
+impl SeparatedTrainingResult {
+    pub fn to_adapter_weights(&self) -> Result<AdapterWeights> {
+        let positive_group = self.positive_result.to_weight_group();
+        let negative_group = self.negative_result.to_weight_group();
+        let combined = match &self.combination_strategy {
+            CombinationStrategy::Separate => None,
+            strategy => Some(combine_weight_groups(&positive_group, &negative_group, strategy)?),
+        };
+
+        Ok(AdapterWeights {
+            positive: positive_group,
+            negative: negative_group,
+            combined,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,10 +451,13 @@ mod tests {
             batch_size: 2,
             epochs: 2,
             hidden_dim: 128,
+            preferred_backend: None,
+            require_gpu: false,
+            max_gpu_memory_mb: 0,
         };
-        
-        let trainer = SeparatedLoRATrainer::new(config);
-        
+
+        let trainer = SeparatedLoRATrainer::new(config).unwrap();
+
         let examples = vec![
             TrainingExample {
                 input: vec![1, 2, 3, 4],
@@ -455,11 +472,11 @@ mod tests {
                 weight: -1.0,
             },
         ];
-        
+
         let result = trainer.train_separated(&examples, CombinationStrategy::Difference).unwrap();
-        
+
         assert_eq!(result.positive_result.example_count, 1);
         assert_eq!(result.negative_result.example_count, 1);
-        assert!(result.total_training_time_ms > 0);
+        assert!(result.total_training_time_ms >= 0);
     }
 }

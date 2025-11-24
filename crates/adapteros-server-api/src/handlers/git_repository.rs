@@ -507,6 +507,13 @@ pub async fn train_repository_adapter(
         max_seq_length: None,
         gradient_accumulation_steps: None,
         weight_group_config: None,
+        lr_schedule: None,
+        final_lr: None,
+        early_stopping: None,
+        patience: None,
+        min_delta: None,
+        checkpoint_frequency: None,
+        max_checkpoints: None,
     };
 
     let training_job = state

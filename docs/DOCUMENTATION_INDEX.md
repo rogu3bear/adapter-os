@@ -1,7 +1,7 @@
 # AdapterOS Documentation Index
 
-**Last Updated**: 2025-11-22
-**Total Documentation Files**: 878 (excluding node_modules)
+**Last Updated**: 2025-01-27 (post-consolidation)
+**Total Documentation Files**: ~126 active + 47 archived (down from 825)
 **Maintained By**: AdapterOS Team
 
 ---
@@ -22,12 +22,14 @@
 
 | Location | File Count | Description |
 |----------|------------|-------------|
-| `/docs/` (active) | 228 | Active documentation |
-| `/docs/archive/` | 292 | Historical/archived documents |
-| Root level (`/`) | 67 | Deliverables, summaries, guides |
-| `/crates/` | 80 | Crate-specific documentation |
-| `/tests/` | 22 | Test documentation |
-| `/ui/` | 61 | UI component documentation |
+| `/docs/` (active) | ~126 | Essential active documentation |
+| `/docs/archive/minimal/` | 47 | Minimal historical archive |
+| Root level (`/`) | ~70 | Project documentation (README, QUICKSTART, etc.) |
+| `/crates/` | ~80 | Crate-specific documentation |
+| `/tests/` | ~22 | Test documentation |
+| `/ui/` | ~61 | UI component documentation |
+
+**Note:** Archive directories (ai-generated, completed-phases, historical-reports) were removed during consolidation (2025-01-27). See [CONSOLIDATION_LOG.md](CONSOLIDATION_LOG.md) for details.
 
 ---
 
@@ -58,13 +60,12 @@
 
 | Document | Path | Description |
 |----------|------|-------------|
-| **CoreML Integration** | [COREML_INTEGRATION.md](COREML_INTEGRATION.md) | CoreML setup and ANE optimization |
-| **CoreML Activation** | [COREML_ACTIVATION.md](COREML_ACTIVATION.md) | CoreML operational status |
+| **CoreML Integration** | [COREML_INTEGRATION.md](COREML_INTEGRATION.md) | CoreML setup, ANE optimization, and operational status |
 | **MLX Integration** | [MLX_INTEGRATION.md](MLX_INTEGRATION.md) | MLX framework integration |
 | **MLX Quick Reference** | [MLX_QUICK_REFERENCE.md](MLX_QUICK_REFERENCE.md) | MLX quick start |
 | **MLX Deployment Guide** | [MLX_BACKEND_DEPLOYMENT_GUIDE.md](MLX_BACKEND_DEPLOYMENT_GUIDE.md) | MLX deployment steps |
 | **MLX Router Integration** | [MLX_ROUTER_HOTSWAP_INTEGRATION.md](MLX_ROUTER_HOTSWAP_INTEGRATION.md) | Router hot-swap |
-| **MLX Memory Management** | [MLX_MEMORY_QUICK_REFERENCE.md](MLX_MEMORY_QUICK_REFERENCE.md) | Memory management |
+| **MLX Memory** | [MLX_MEMORY.md](MLX_MEMORY.md) | Memory management, usage, and quick reference |
 | **MLX HKDF Seeding** | [MLX_HKDF_SEEDING.md](MLX_HKDF_SEEDING.md) | Deterministic seeding |
 | **MLX Integration Checklist** | [MLX_INTEGRATION_CHECKLIST.md](MLX_INTEGRATION_CHECKLIST.md) | Integration checklist |
 | **Adding New Backend** | [ADDING_NEW_BACKEND.md](ADDING_NEW_BACKEND.md) | Backend template |
@@ -144,7 +145,7 @@
 | Document | Path | Description |
 |----------|------|-------------|
 | **CLI Guide** | [CLI_GUIDE.md](CLI_GUIDE.md) | CLI overview |
-| **CLI Reference** | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Command reference |
+| **CLI Guide** | [CLI_GUIDE.md](CLI_GUIDE.md) | Complete CLI guide with command reference |
 | **AOSCTL Manual** | [cli/AOSCTL.md](cli/AOSCTL.md) | aosctl commands |
 | **AOS Command** | [cli/AOS.md](cli/AOS.md) | aos command |
 | **AOS Launch** | [cli/AOS-LAUNCH.md](cli/AOS-LAUNCH.md) | Launch options |
@@ -182,7 +183,7 @@
 | **Policy Enforcement** | [POLICY_ENFORCEMENT.md](POLICY_ENFORCEMENT.md) | Policy engine |
 | **AOS Runtime Policy** | [AOS_RUNTIME_POLICY.md](AOS_RUNTIME_POLICY.md) | Runtime policies |
 | **Authentication** | [AUTHENTICATION.md](AUTHENTICATION.md) | Auth system |
-| **Auth Performance** | [AUTH_PERFORMANCE.md](AUTH_PERFORMANCE.md) | Auth optimization |
+| **Authentication** | [AUTHENTICATION.md](AUTHENTICATION.md) | Authentication architecture and performance |
 | **Crypto** | [CRYPTO.md](CRYPTO.md) | Cryptography |
 | **Keychain Integration** | [KEYCHAIN-INTEGRATION.md](KEYCHAIN-INTEGRATION.md) | macOS Keychain |
 | **Azure KeyVault** | [AZURE_KEYVAULT_INTEGRATION.md](AZURE_KEYVAULT_INTEGRATION.md) | Azure KMS |

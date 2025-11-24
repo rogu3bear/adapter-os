@@ -679,7 +679,7 @@ impl MicroLoRATrainer {
 
     /// Train one epoch with deterministic execution
     fn train_epoch_deterministic(
-        &self,
+        &mut self,
         weights: &mut LoRAWeights,
         examples: &[TrainingExample],
         epoch: usize,
@@ -722,15 +722,15 @@ impl MicroLoRATrainer {
 
     /// Train one batch with deterministic RNG (GPU-accelerated if kernels available)
     fn train_batch_deterministic(
-        &self,
+        &mut self,
         weights: &mut LoRAWeights,
         batch: &[TrainingExample],
         rng: &mut impl Rng,
     ) -> Result<f32> {
         // Check if GPU kernels are available
-        if let Some(ref kernels) = self.kernels {
+        if self.kernels.is_some() {
             // GPU-accelerated training path
-            self.train_batch_gpu(weights, batch, rng, kernels)
+            self.train_batch_gpu(weights, batch, rng)
         } else {
             // CPU-only training path (fallback)
             self.train_batch_cpu(weights, batch, rng)
@@ -739,11 +739,10 @@ impl MicroLoRATrainer {
 
     /// Train one batch on GPU (using FusedKernels)
     fn train_batch_gpu(
-        &self,
+        &mut self,
         weights: &mut LoRAWeights,
         batch: &[TrainingExample],
         rng: &mut impl Rng,
-        kernels: &Box<dyn FusedKernels>,
     ) -> Result<f32> {
         use adapteros_lora_kernel_api::{RouterRing, IoBuffers};
 
@@ -766,13 +765,10 @@ impl MicroLoRATrainer {
             // Measure GPU forward pass time
             let gpu_start = Instant::now();
 
-            // GPU forward pass through kernels (mutable borrow required)
-            // Note: We cast away const here because FusedKernels::run_step requires &mut
-            // This is safe because we're only using kernels for inference, not mutation
-            let kernels_mut = unsafe {
-                &mut *(kernels as *const Box<dyn FusedKernels> as *mut Box<dyn FusedKernels>)
-            };
-            kernels_mut.run_step(&ring, &mut io)?;
+            // GPU forward pass through kernels
+            if let Some(ref mut kernels) = self.kernels {
+                kernels.run_step(&ring, &mut io)?;
+            }
 
             gpu_time_us += gpu_start.elapsed().as_micros() as u64;
 

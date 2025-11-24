@@ -7,6 +7,8 @@ use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
 use adapteros_core::{AosError, Result};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -2047,7 +2049,7 @@ impl KmsBackend for HashicorpVaultBackend {
 
     async fn sign(&self, key_id: &str, data: &[u8]) -> Result<Vec<u8>> {
         let url = self.transit_url(&format!("sign/{}", key_id));
-        let data_b64 = base64::encode(data);
+        let data_b64 = STANDARD.encode(data);
 
         let body = serde_json::json!({
             "input": data_b64,
@@ -2073,14 +2075,14 @@ impl KmsBackend for HashicorpVaultBackend {
             signature
         };
 
-        base64::decode(sig_bytes).map_err(|e| {
+        STANDARD.decode(sig_bytes).map_err(|e| {
             AosError::Crypto(format!("Failed to decode Vault signature: {}", e))
         })
     }
 
     async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         let url = self.transit_url(&format!("encrypt/{}", key_id));
-        let plaintext_b64 = base64::encode(plaintext);
+        let plaintext_b64 = STANDARD.encode(plaintext);
 
         let body = serde_json::json!({
             "plaintext": plaintext_b64,
@@ -2121,7 +2123,7 @@ impl KmsBackend for HashicorpVaultBackend {
                 AosError::Crypto("Vault response missing plaintext".to_string())
             })?;
 
-        base64::decode(plaintext_b64).map_err(|e| {
+        STANDARD.decode(plaintext_b64).map_err(|e| {
             AosError::Crypto(format!("Failed to decode Vault plaintext: {}", e))
         })
     }

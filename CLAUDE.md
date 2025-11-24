@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-23 (Cursor AI integration rules added, repository metadata enhancements, v0.3-alpha status updates)
+**Last Updated:** 2025-11-24 (System information accuracy updates: migration count, crate count, endpoint count, feature status)
 **Maintained by:** James KC Auchterlonie
 
 **AI Assistant Integration:** This file (CLAUDE.md) serves as the single source of truth for both human developers and AI assistants. No separate rule files exist - all standards and protocols are documented here.
@@ -102,8 +102,9 @@ make dup  # Run duplication check
 All code extractions require citations: `【YYYY-MM-DD†category†identifier】` (see CITATIONS.md)
 
 **References:**
-- [docs/DUPLICATION_PREVENTION_GUIDE.md](docs/DUPLICATION_PREVENTION_GUIDE.md)
 - [CITATIONS.md](CITATIONS.md)
+
+**Note:** For duplication prevention guidelines, see the "Duplication Prevention" section above and follow the extraction patterns documented in CITATIONS.md.
 
 ---
 
@@ -117,21 +118,21 @@ All code extractions require citations: `【YYYY-MM-DD†category†identifier�
 - REST API with streaming inference support
 - SQLite database with comprehensive migrations
 - CLI tools (`aosctl`) with full feature set
+- Training pipeline and dataset management (all 5 steps: ingest, generate, dataset, train, package)
+- Federation system for cross-node synchronization (peer discovery, signatures, consensus)
 
 ### 🔄 **In Development**
-- Training pipeline and dataset management
-- Federation system for cross-node synchronization
 - Advanced UI with real-time monitoring
 - Production deployment hardening
 
 **Completion Plan:** See [docs/PRD-COMPLETION-V03-ALPHA.md](docs/PRD-COMPLETION-V03-ALPHA.md) for the comprehensive 12-week plan to complete all features (70 tasks, 6-7 teams, 15-19 engineers)
 
 ### 📊 **Architecture Scale**
-- 69 crates in workspace
+- 51 crates in workspace (plus xtask, fuzz)
 - 386,890+ lines of Rust code
 - 200+ documentation files
 - 11 active CI/CD workflows
-- 189 REST API endpoints
+- 225 REST API endpoints
 
 ---
 
@@ -362,7 +363,7 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 ### Migration Management
 
 **Canonical Migration Directory:** `/migrations/` (root)
-**Migration Count:** 80 migrations (0001-0080, complete sequence)
+**Migration Count:** 83 migrations (0001-0083, complete sequence)
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 **Status:** PRD-01 conflict resolution completed (2025-11-19)
 
@@ -391,6 +392,9 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 - **0078** - Federation consensus ledger
 - **0079** - Stack versioning extensions
 - **0080** - Tenant adapter stack isolation
+- **0081** - Query performance indexes
+- **0082** - Adapter activations table
+- **0083** - AOS file columns
 
 **Creating New Migrations:**
 ```bash
@@ -522,9 +526,9 @@ See `docs/DEPRECATED_PATTERNS.md` for historical examples.
 | **Metal** | **Implemented** (precompiled Metal kernels, GPU acceleration) | **Guaranteed** | Legacy, non-ANE systems | `adapteros-lora-kernel-mtl` |
 
 **Implementation Status:**
-- CoreML: Fully implemented and operational. Supports model loading, inference, ANE detection, memory pooling, and MLTensor bridge (macOS 15+). Guaranteed determinism with ANE, graceful fallback to GPU on older systems. See [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) for operational guide.
+- CoreML: Fully implemented and operational. Supports model loading, inference, ANE detection, memory pooling, and MLTensor bridge (macOS 15+). Guaranteed determinism with ANE, graceful fallback to GPU on older systems. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) for operational guide.
 - MLX: Fully implemented. Supports model loading from file or buffer, text generation, health tracking with circuit breaker, and memory pool integration.
-- Multi-adapter routing: Implemented with K-sparse selection and Q15 quantized gates (see MULTI_ADAPTER_ROUTING.md)
+- Multi-adapter routing: Implemented with K-sparse selection and Q15 quantized gates (see [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) for routing details)
 
 **Backend Selection:**
 ```rust
@@ -566,8 +570,7 @@ xcode-select --install  # If swiftc not found
 
 **Full details:**
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](docs/ADR_MULTI_BACKEND_STRATEGY.md) - Backend selection rationale
-- [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) - CoreML operational status & verification procedures
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML setup & ANE optimization
+- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML setup, ANE optimization, operational status & verification procedures
 - [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX complete integration guide
 - [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) - MLX quick start and configuration patterns
 - [docs/MLX_BACKEND_DEPLOYMENT_GUIDE.md](docs/MLX_BACKEND_DEPLOYMENT_GUIDE.md) - MLX production deployment steps
@@ -644,7 +647,7 @@ See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start a
 
 > **Maintenance:** Update this section when adding/removing routes in `crates/adapteros-server-api/src/routes.rs`. Verify OpenAPI annotations match with `cargo doc`.
 
-**Source:** `crates/adapteros-server-api/src/routes.rs` | **Total Endpoints:** ~189 | **Auth:** JWT (Ed25519) required except where noted
+**Source:** `crates/adapteros-server-api/src/routes.rs` | **Total Endpoints:** 225 | **Auth:** JWT (Ed25519) required except where noted
 
 ### Health & Auth (Public)
 | Method | Path | Description |
@@ -993,7 +996,7 @@ Key benchmark locations:
 
 ## Quick Start UX Flow
 
-Complete workflow from startup to inference with trained adapters. For detailed steps, see [QUICKSTART.md](QUICKSTART.md) and [docs/QUICKSTART_COMPLETE_SYSTEM.md](docs/QUICKSTART_COMPLETE_SYSTEM.md).
+Complete workflow from startup to inference with trained adapters. For detailed steps, see [QUICKSTART.md](QUICKSTART.md) and [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ### 1. Start the System
 
@@ -1091,7 +1094,7 @@ curl http://localhost:8080/v1/adapters
 curl http://localhost:8080/v1/metrics/system
 ```
 
-**Full guides:** [QUICKSTART.md](QUICKSTART.md) | [docs/QUICKSTART_COMPLETE_SYSTEM.md](docs/QUICKSTART_COMPLETE_SYSTEM.md) | [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md)
+**Full guides:** [QUICKSTART.md](QUICKSTART.md) | [docs/QUICKSTART.md](docs/QUICKSTART.md) | [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md)
 
 ---
 
@@ -1100,18 +1103,18 @@ curl http://localhost:8080/v1/metrics/system
 **Status:** 40+ crates building successfully
 
 **Backend Implementation Status:**
-- `adapteros-lora-kernel-coreml` - Fully implemented and operational. Supports model loading, inference, ANE detection, memory pool integration, and Swift bridge (macOS 15+). Guaranteed determinism with ANE, graceful GPU fallback. See [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md). Priority: Operational
+- `adapteros-lora-kernel-coreml` - Fully implemented and operational. Supports model loading, inference, ANE detection, memory pool integration, and Swift bridge (macOS 15+). Guaranteed determinism with ANE, graceful GPU fallback. See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md). Priority: Operational
 - `adapteros-lora-mlx-ffi` - Fully implemented. Supports model loading, text generation, health tracking, and memory pool integration. Priority: Operational
 - `adapteros-lora-kernel-mtl` - In workspace, builds successfully. Priority: Low
 
 **Workspace crates with issues:**
 1. `adapteros-lora-worker` - In workspace, library compiles. 29 test errors (tests need fixes). Priority: High
 
-**Excluded from workspace:**
-1. `adapteros-server` - Excluded for stable main merge. REST API available in `adapteros-server-api`. Priority: Low
+**Included in workspace:**
+1. `adapteros-server` - Re-enabled for building. REST API available in `adapteros-server-api`. Priority: Low
 
 **Routing Implementation:**
-- Multi-adapter routing fully implemented with K-sparse selection and Q15 quantized gates (see MULTI_ADAPTER_ROUTING.md)
+- Multi-adapter routing fully implemented with K-sparse selection and Q15 quantized gates (see [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md))
 
 **Note:** `adapteros-server-api`, `adapteros-system-metrics`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-mtl`, and `adapteros-codegraph` are workspace members and building successfully.
 
@@ -1130,7 +1133,7 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 ## References
 
 - [QUICKSTART.md](QUICKSTART.md) - Quick start guide
-- [docs/QUICKSTART_COMPLETE_SYSTEM.md](docs/QUICKSTART_COMPLETE_SYSTEM.md) - Complete system setup
+- [docs/QUICKSTART.md](docs/QUICKSTART.md) - Complete system setup
 - [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md) - GPU training quick start
 - [CONTRIBUTING.md](CONTRIBUTING.md) - PR guidelines
 - [README.md](README.md) - Project overview
@@ -1145,10 +1148,9 @@ See [CITATIONS.md](CITATIONS.md) for standards.
 - [docs/UI_INTEGRATION.md](docs/UI_INTEGRATION.md) - UI integration
 - [docs/RBAC.md](docs/RBAC.md) - RBAC permission matrix
 - [docs/DEPRECATED_PATTERNS.md](docs/DEPRECATED_PATTERNS.md) - Anti-patterns
-- [docs/COREML_ACTIVATION.md](docs/COREML_ACTIVATION.md) - CoreML activation & operational status
-- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend implementation guide
+- [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend implementation guide (includes activation & operational status)
 - [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) - **MLX FFI benchmark results** (update after running benchmarks)
-- `crates/adapteros-lora-mlx-ffi/MLX_FFI_INTEGRATION_PROOF.md` - MLX FFI integration proof document
+- [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend integration guide
 - `crates/adapteros-policy/` - Policy implementations
 - `crates/adapteros-core/src/error.rs` - Error definitions
 

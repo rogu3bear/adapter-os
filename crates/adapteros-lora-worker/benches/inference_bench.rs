@@ -33,14 +33,15 @@ fn bench_router_decision(c: &mut Criterion) {
     let mut group = c.benchmark_group("router_decision");
     // Router with 8 adapters
     let seed = [0u8; 32];
-    let mut router = Router::new(vec![1.0; 8], 4, 1.0, 0.01, seed);
+    let mut router = Router::new(vec![1.0; 8], 4, 1.0, 0.01, seed).unwrap();
     // Simple feature vector and uniform priors
     let features = vec![0.1f32; 64];
     let priors = vec![1.0f32; 8];
+    let adapter_info = vec![]; // Empty adapter info for basic routing
 
     group.bench_function("route_8x64", |b| {
         b.iter(|| {
-            let _ = router.route(&features, &priors);
+            let _ = router.route_with_adapter_info(&features, &priors, &adapter_info);
         });
     });
     group.finish();

@@ -386,7 +386,7 @@ fn create_mlx_backend(
     }
 
     // Load the model
-    let model = MLXFFIModel::load(&model_path_str).map_err(|e| {
+    let model = MLXFFIModel::load(&*model_path_str).map_err(|e| {
         AosError::Config(format!(
             "Failed to load MLX model from '{}': {}",
             model_path_str, e

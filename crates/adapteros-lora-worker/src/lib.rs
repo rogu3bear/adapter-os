@@ -33,7 +33,7 @@
 use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
-use adapteros_lora_router::{Router, AdapterInfo};
+use adapteros_lora_router::{features::CodeFeatures, Router, AdapterInfo};
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
@@ -676,9 +676,9 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         // Snapshot current stack and increment refcounts
         let stack_handle = self.hotswap.table().get_current_stack_handle();
 
-        // Uncomment
+        // Increment refcounts for all active adapters (reuse table reference)
+        let table = self.hotswap.table();
         for name in stack_handle.active.keys() {
-            let table = self.hotswap.table();
             table.inc_ref(name).await;
         }
 
@@ -697,8 +697,18 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             };
 
             // Run router to get active adapters
-            // Create dummy features from token embeddings (simplified for now)
-            let features = vec![1.0; 32]; // Simplified feature vector
+            // Extract features from the current prompt context for adaptive routing
+            let features = if step == 0 {
+                // For the first step, use the full prompt for feature extraction
+                CodeFeatures::from_context(&request.prompt).to_vector()
+            } else {
+                // For subsequent steps, use the current token context
+                // Decode recent tokens to get meaningful context for routing
+                let context_tokens = &generated_tokens[generated_tokens.len().saturating_sub(10)..];
+                let context_text = self.tokenizer.decode(context_tokens)
+                    .unwrap_or_else(|_| "".to_string());
+                CodeFeatures::from_context(&context_text).to_vector()
+            };
             let priors = vec![1.0; self.manifest.adapters.len()];
             // Create dummy adapter info for route_with_adapter_info
             let adapter_info: Vec<AdapterInfo> = self.manifest.adapters.iter().enumerate()
