@@ -32,7 +32,7 @@ async-trait = { workspace = true }
 rand = { workspace = true }
 zstd = "0.13"
 flate2 = "1.0"
-lz4_flex = "0.11"
+lz4_flex = "0.12"
 
 [dev-dependencies]
 tempfile = { workspace = true }
