@@ -1981,7 +1981,7 @@ impl HashicorpVaultBackend {
         &self,
         method: &str,
         url: &str,
-        body: Option<serde_json::Value>,
+        _body: Option<serde_json::Value>,
     ) -> Result<serde_json::Value> {
         // In a real implementation, this would use reqwest or hyper
         // For now, return mock data since we don't have HTTP client dependency
@@ -2013,16 +2013,8 @@ impl KmsBackend for HashicorpVaultBackend {
             "exportable": false,
         });
 
-        self.with_retry(|| {
-            let url = url.clone();
-            let body = body.clone();
-            Box::pin(async move {
-                // POST /v1/{mount}/keys/{name}
-                let _ = self.vault_request("POST", &url, Some(body)).await?;
-                Ok(())
-            })
-        })
-        .await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let _ = self.vault_request("POST", &url, Some(body)).await?;
 
         // Cache metadata
         let mut cache = self.key_cache.write().await;
@@ -2062,35 +2054,28 @@ impl KmsBackend for HashicorpVaultBackend {
             "signature_algorithm": "pkcs1v15",
         });
 
-        self.with_retry(|| {
-            let url = url.clone();
-            let body = body.clone();
-            Box::pin(async move {
-                // POST /v1/{mount}/sign/{name}
-                let response = self.vault_request("POST", &url, Some(body)).await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let response = self.vault_request("POST", &url, Some(body)).await?;
 
-                // Extract signature from response
-                let signature = response
-                    .get("data")
-                    .and_then(|d| d.get("signature"))
-                    .and_then(|s| s.as_str())
-                    .ok_or_else(|| {
-                        AosError::Crypto("Vault response missing signature".to_string())
-                    })?;
+        // Extract signature from response
+        let signature = response
+            .get("data")
+            .and_then(|d| d.get("signature"))
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| {
+                AosError::Crypto("Vault response missing signature".to_string())
+            })?;
 
-                // Vault signatures are prefixed with "vault:v1:"
-                let sig_bytes = if signature.starts_with("vault:v") {
-                    signature.split(':').last().unwrap_or(signature)
-                } else {
-                    signature
-                };
+        // Vault signatures are prefixed with "vault:v1:"
+        let sig_bytes = if signature.starts_with("vault:v") {
+            signature.split(':').last().unwrap_or(signature)
+        } else {
+            signature
+        };
 
-                base64::decode(sig_bytes).map_err(|e| {
-                    AosError::Crypto(format!("Failed to decode Vault signature: {}", e))
-                })
-            })
+        base64::decode(sig_bytes).map_err(|e| {
+            AosError::Crypto(format!("Failed to decode Vault signature: {}", e))
         })
-        .await
     }
 
     async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
@@ -2101,26 +2086,19 @@ impl KmsBackend for HashicorpVaultBackend {
             "plaintext": plaintext_b64,
         });
 
-        self.with_retry(|| {
-            let url = url.clone();
-            let body = body.clone();
-            Box::pin(async move {
-                // POST /v1/{mount}/encrypt/{name}
-                let response = self.vault_request("POST", &url, Some(body)).await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let response = self.vault_request("POST", &url, Some(body)).await?;
 
-                // Extract ciphertext from response
-                let ciphertext = response
-                    .get("data")
-                    .and_then(|d| d.get("ciphertext"))
-                    .and_then(|c| c.as_str())
-                    .ok_or_else(|| {
-                        AosError::Crypto("Vault response missing ciphertext".to_string())
-                    })?;
+        // Extract ciphertext from response
+        let ciphertext = response
+            .get("data")
+            .and_then(|d| d.get("ciphertext"))
+            .and_then(|c| c.as_str())
+            .ok_or_else(|| {
+                AosError::Crypto("Vault response missing ciphertext".to_string())
+            })?;
 
-                Ok(ciphertext.as_bytes().to_vec())
-            })
-        })
-        .await
+        Ok(ciphertext.as_bytes().to_vec())
     }
 
     async fn decrypt(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
@@ -2131,42 +2109,28 @@ impl KmsBackend for HashicorpVaultBackend {
             "ciphertext": ciphertext_str,
         });
 
-        self.with_retry(|| {
-            let url = url.clone();
-            let body = body.clone();
-            Box::pin(async move {
-                // POST /v1/{mount}/decrypt/{name}
-                let response = self.vault_request("POST", &url, Some(body)).await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let response = self.vault_request("POST", &url, Some(body)).await?;
 
-                // Extract plaintext from response
-                let plaintext_b64 = response
-                    .get("data")
-                    .and_then(|d| d.get("plaintext"))
-                    .and_then(|p| p.as_str())
-                    .ok_or_else(|| {
-                        AosError::Crypto("Vault response missing plaintext".to_string())
-                    })?;
+        // Extract plaintext from response
+        let plaintext_b64 = response
+            .get("data")
+            .and_then(|d| d.get("plaintext"))
+            .and_then(|p| p.as_str())
+            .ok_or_else(|| {
+                AosError::Crypto("Vault response missing plaintext".to_string())
+            })?;
 
-                base64::decode(plaintext_b64).map_err(|e| {
-                    AosError::Crypto(format!("Failed to decode Vault plaintext: {}", e))
-                })
-            })
+        base64::decode(plaintext_b64).map_err(|e| {
+            AosError::Crypto(format!("Failed to decode Vault plaintext: {}", e))
         })
-        .await
     }
 
     async fn rotate_key(&self, key_id: &str) -> Result<KeyHandle> {
         let url = self.transit_url(&format!("keys/{}/rotate", key_id));
 
-        self.with_retry(|| {
-            let url = url.clone();
-            Box::pin(async move {
-                // POST /v1/{mount}/keys/{name}/rotate
-                let _ = self.vault_request("POST", &url, None).await?;
-                Ok(())
-            })
-        })
-        .await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let _ = self.vault_request("POST", &url, None).await?;
 
         // Update cached version
         let mut cache = self.key_cache.write().await;
@@ -2207,19 +2171,13 @@ impl KmsBackend for HashicorpVaultBackend {
 
         let url = self.transit_url(&format!("keys/{}", key_id));
 
-        self.with_retry(|| {
-            let url = url.clone();
-            Box::pin(async move {
-                // GET /v1/{mount}/keys/{name}
-                let response = self.vault_request("GET", &url, None).await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let _response = self.vault_request("GET", &url, None).await?;
 
-                // Extract public key from response (Vault returns keys object)
-                // In real Vault, public keys are in data.keys.{version}
-                let mock_pubkey = vec![0u8; 32]; // Mock 32-byte ed25519 public key
-                Ok(mock_pubkey)
-            })
-        })
-        .await
+        // Extract public key from response (Vault returns keys object)
+        // In real Vault, public keys are in data.keys.{version}
+        let mock_pubkey = vec![0u8; 32]; // Mock 32-byte ed25519 public key
+        Ok(mock_pubkey)
     }
 
     async fn key_exists(&self, key_id: &str) -> Result<bool> {
@@ -2244,15 +2202,8 @@ impl KmsBackend for HashicorpVaultBackend {
         // Then delete the key
         let delete_url = self.transit_url(&format!("keys/{}", key_id));
 
-        self.with_retry(|| {
-            let url = delete_url.clone();
-            Box::pin(async move {
-                // DELETE /v1/{mount}/keys/{name}
-                let _ = self.vault_request("DELETE", &url, None).await?;
-                Ok(())
-            })
-        })
-        .await?;
+        // Direct call without retry wrapper to avoid lifetime issues
+        let _ = self.vault_request("DELETE", &delete_url, None).await?;
 
         // Remove from cache
         let mut cache = self.key_cache.write().await;
@@ -2479,7 +2430,8 @@ impl KmsBackend for LocalKmsBackend {
 
         match key_data.algorithm {
             KeyAlgorithm::Aes256Gcm => {
-                use aes_gcm::{Aes256Gcm, KeyInit, AeadCore, Aead};
+                use aes_gcm::{Aes256Gcm, KeyInit};
+                use aes_gcm::aead::Aead;
                 use rand::RngCore;
 
                 let key_bytes: &[u8; 32] = key_data.key_material[..32]
@@ -2518,7 +2470,8 @@ impl KmsBackend for LocalKmsBackend {
 
         match key_data.algorithm {
             KeyAlgorithm::Aes256Gcm => {
-                use aes_gcm::{Aes256Gcm, KeyInit, Aead};
+                use aes_gcm::{Aes256Gcm, KeyInit};
+                use aes_gcm::aead::Aead;
 
                 if ciphertext.len() < 12 {
                     return Err(AosError::Crypto(

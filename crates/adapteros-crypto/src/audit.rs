@@ -29,7 +29,7 @@ use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 /// Cryptographic operation type
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

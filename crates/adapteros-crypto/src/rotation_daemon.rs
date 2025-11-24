@@ -20,8 +20,8 @@
 //! - Atomic rotation (all-or-nothing)
 //! - Zero downtime during rotation
 
-use crate::key_provider::{KeyAlgorithm, KeyHandle, KeyProvider, RotationReceipt};
-use adapteros_core::{AosError, Result};
+use crate::key_provider::{KeyAlgorithm, KeyHandle, KeyProvider};
+use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -210,7 +210,7 @@ impl RotationDaemon {
         info!(key_id = %key_id, reason = %reason, "Starting key rotation");
 
         // Generate new key
-        let new_key = self
+        let _new_key = self
             .provider
             .generate(key_id, KeyAlgorithm::Aes256Gcm)
             .await?;
@@ -297,11 +297,13 @@ impl RotationDaemon {
 
     /// Update rotation policy
     pub async fn update_policy(&self, new_policy: RotationPolicy) {
+        let rotation_interval_days = new_policy.rotation_interval_secs / 86400;
+        let auto_rotate = new_policy.auto_rotate;
         let mut policy = self.policy.write().await;
         *policy = new_policy;
         info!(
-            rotation_interval_days = new_policy.rotation_interval_secs / 86400,
-            auto_rotate = new_policy.auto_rotate,
+            rotation_interval_days = rotation_interval_days,
+            auto_rotate = auto_rotate,
             "Rotation policy updated"
         );
     }

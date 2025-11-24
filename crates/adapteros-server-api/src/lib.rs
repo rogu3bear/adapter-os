@@ -1,6 +1,8 @@
 pub mod audit_helper;
 pub mod auth;
 pub mod cab_workflow;
+pub mod caching;
+pub mod compression;
 pub mod errors;
 pub mod handlers;
 pub mod health;
@@ -11,6 +13,7 @@ pub mod middleware_security;
 pub mod operation_tracker;
 pub mod permissions;
 pub mod plugin_registry;
+pub mod request_id;
 pub mod routes;
 pub mod security;
 pub mod signing;
@@ -21,6 +24,7 @@ pub mod telemetry_ext;
 pub mod types;
 pub mod uds_client;
 pub mod validation;
+pub mod versioning;
 
 pub use plugin_registry::PluginRegistry;
 

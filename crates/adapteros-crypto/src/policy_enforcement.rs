@@ -16,14 +16,14 @@
 //! - Logs policy violations to audit trail
 //! - Supports policy versioning and hot-reload
 
-use crate::audit::{CryptoAuditLogger, CryptoOperation, OperationResult};
+use crate::audit::{CryptoAuditLogger, CryptoOperation};
 use crate::key_provider::KeyAlgorithm;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Cryptographic policy configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -413,11 +413,12 @@ impl CryptoPolicyEnforcer {
     pub async fn update_policy(&self, new_policy: CryptoPolicy) {
         let mut policy = self.policy.write().await;
         let old_version = policy.version.clone();
-        *policy = new_policy.clone();
+        let new_version = new_policy.version.clone();
+        *policy = new_policy;
 
         info!(
             old_version = %old_version,
-            new_version = %new_policy.version,
+            new_version = %new_version,
             "Crypto policy updated"
         );
     }
@@ -431,6 +432,7 @@ impl CryptoPolicyEnforcer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::OperationResult;
 
     #[tokio::test]
     async fn test_default_policy() {

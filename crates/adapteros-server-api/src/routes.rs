@@ -6,12 +6,15 @@ use crate::middleware_security::{
     cors_layer, rate_limiting_middleware, request_size_limit_middleware,
     security_headers_middleware,
 };
+use crate::request_id;
 use crate::state::AppState;
+use crate::versioning;
 use axum::{
     middleware,
     routing::{delete, get, post, put},
     Router,
 };
+use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -402,7 +405,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/dev-bypass",
             post(handlers::auth_enhanced::dev_bypass_handler),
         )
-        .route("/v1/meta", get(handlers::meta));
+        .route("/v1/meta", get(handlers::meta))
+        .route("/v1/version", get(|| async {
+            axum::Json(versioning::get_version_info())
+        }));
 
     // Metrics endpoint (custom auth, not JWT)
     let metrics_route = Router::new()
@@ -1138,6 +1144,8 @@ pub fn build(state: AppState) -> Router {
         )) // Rate limiting
         .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
         .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers
+        .layer(axum::middleware::from_fn(versioning::versioning_middleware)) // API versioning
+        .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking
         .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP (outermost)
         .with_state(state)
 }
