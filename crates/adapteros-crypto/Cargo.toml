@@ -48,7 +48,7 @@ hyper-rustls = { version = "0.24", optional = true }
 
 # Azure Key Vault support (optional)
 azure_identity = { version = "0.18", optional = true }
-azure_security_keyvault = { version = "0.18", optional = true }
+azure_security_keyvault = { version = "0.21", optional = true }
 azure_core = { version = "0.18", optional = true }
 
 [dev-dependencies]
