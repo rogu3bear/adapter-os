@@ -111,10 +111,17 @@ impl From<TrainingConfigRequest> for TrainingConfig {
             epochs: req.epochs,
             learning_rate: req.learning_rate,
             batch_size: req.batch_size,
-            warmup_steps: None,
-            max_seq_length: None,
-            gradient_accumulation_steps: None,
+            warmup_steps: req.warmup_steps,
+            max_seq_length: req.max_seq_length,
+            gradient_accumulation_steps: req.gradient_accumulation_steps,
             weight_group_config: None,
+            lr_schedule: Some("cosine".to_string()),
+            final_lr: Some(req.learning_rate * 0.1),
+            early_stopping: Some(false),
+            patience: Some(5),
+            min_delta: Some(0.001),
+            checkpoint_frequency: Some(5),
+            max_checkpoints: Some(3),
         }
     }
 }

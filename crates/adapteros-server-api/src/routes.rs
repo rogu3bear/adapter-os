@@ -1,3 +1,4 @@
+use crate::caching;
 use crate::handlers;
 use crate::handlers::auth;
 use crate::handlers::domain_adapters;
@@ -1137,6 +1138,7 @@ pub fn build(state: AppState) -> Router {
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Apply layers (innermost to outermost):
         .layer(TraceLayer::new_for_http()) // Request tracing (innermost)
+        .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)
         .layer(cors_layer()) // CORS configuration
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -1144,6 +1146,7 @@ pub fn build(state: AppState) -> Router {
         )) // Rate limiting
         .layer(axum::middleware::from_fn(request_size_limit_middleware)) // Limit request sizes
         .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers
+        .layer(axum::middleware::from_fn(caching::caching_middleware)) // HTTP caching
         .layer(axum::middleware::from_fn(versioning::versioning_middleware)) // API versioning
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking
         .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP (outermost)
