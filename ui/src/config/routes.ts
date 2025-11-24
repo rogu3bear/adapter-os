@@ -76,6 +76,8 @@ const SystemNodesPage = lazy(() => import('@/pages/System/NodesTab'));
 const SystemWorkersPage = lazy(() => import('@/pages/System/WorkersTab'));
 const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
 const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
+const CodeIntelligencePage = lazy(() => import('@/pages/CodeIntelligencePage'));
+const AdvancedMetricsPage = lazy(() => import('@/pages/AdvancedMetricsPage'));
 
 export interface RouteConfig {
   path: string;
@@ -550,6 +552,28 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Base Models',
+  },
+  {
+    path: '/code-intelligence',
+    component: CodeIntelligencePage,
+    requiresAuth: true,
+    navGroup: 'Operations',
+    navTitle: 'Code Intelligence',
+    navIcon: FileCode,
+    navOrder: 4,
+    skeletonVariant: 'table',
+    breadcrumb: 'Code Intelligence',
+  },
+  {
+    path: '/metrics/advanced',
+    component: AdvancedMetricsPage,
+    requiresAuth: true,
+    navGroup: 'Monitoring',
+    navTitle: 'Advanced Metrics',
+    navIcon: BarChart3,
+    navOrder: 4,
+    skeletonVariant: 'dashboard',
+    breadcrumb: 'Advanced Metrics',
   },
 ];
 
