@@ -75,7 +75,7 @@ impl QueryPerformanceMonitor {
 
         self.metrics
             .entry(metric.query_name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(metric);
     }
 

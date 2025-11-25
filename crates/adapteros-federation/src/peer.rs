@@ -24,14 +24,16 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 /// Peer health status
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerHealthStatus {
     /// Peer is responsive and healthy
+    #[default]
     Healthy,
     /// Peer is slow but responding
     Degraded,
@@ -41,28 +43,17 @@ pub enum PeerHealthStatus {
     Isolated,
 }
 
-impl Default for PeerHealthStatus {
-    fn default() -> Self {
-        Self::Healthy
-    }
-}
-
 /// Peer discovery status
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DiscoveryStatus {
     /// Peer is known and registered
+    #[default]
     Registered,
     /// Peer discovery is in progress
     Discovering,
     /// Peer failed discovery
     Failed,
-}
-
-impl Default for DiscoveryStatus {
-    fn default() -> Self {
-        Self::Registered
-    }
 }
 
 /// Peer information for a federated host
@@ -153,9 +144,6 @@ pub struct PeerRegistry {
     db: Arc<Db>,
     cache: Arc<RwLock<HashMap<String, PeerInfo>>>,
     local_host_id: Arc<Mutex<String>>,
-    partition_tracker: Arc<Mutex<HashMap<String, PartitionEvent>>>,
-    consensus_quorum_size: usize,
-    heartbeat_timeout_secs: u64,
     max_failed_heartbeats: u32,
 }
 
@@ -175,17 +163,14 @@ impl PeerRegistry {
     /// * `max_failed_heartbeats` - Maximum failed heartbeats before marking unhealthy
     pub fn with_config(
         db: Arc<Db>,
-        consensus_quorum_size: usize,
-        heartbeat_timeout_secs: u64,
+        _consensus_quorum_size: usize,
+        _heartbeat_timeout_secs: u64,
         max_failed_heartbeats: u32,
     ) -> Self {
         Self {
             db,
             cache: Arc::new(RwLock::new(HashMap::new())),
             local_host_id: Arc::new(Mutex::new(String::new())),
-            partition_tracker: Arc::new(Mutex::new(HashMap::new())),
-            consensus_quorum_size,
-            heartbeat_timeout_secs,
             max_failed_heartbeats,
         }
     }

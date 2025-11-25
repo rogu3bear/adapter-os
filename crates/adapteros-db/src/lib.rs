@@ -855,7 +855,10 @@ impl Db {
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                AosError::Database(format!("Failed to optimize database during shutdown: {}", e))
+                AosError::Database(format!(
+                    "Failed to optimize database during shutdown: {}",
+                    e
+                ))
             })?;
 
         info!("Database connection pool closed successfully");
@@ -915,8 +918,8 @@ pub use training_datasets::{DatasetFile, DatasetStatistics, TrainingDataset};
 pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
-pub mod models;
 pub mod model_operations;
+pub mod models;
 pub use model_operations::ModelOperation;
 pub mod nodes;
 pub mod patch_proposals;
@@ -944,12 +947,12 @@ pub use models::Worker;
 // Workspace, notifications, dashboard, and tutorial modules
 pub mod dashboard_configs;
 pub mod notifications;
-pub mod workspaces;
 pub mod tutorials;
+pub mod workspaces;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
-pub use workspaces::{ResourceType, Workspace, WorkspaceMember, WorkspaceResource, WorkspaceRole};
 pub use tutorials::TutorialStatus;
+pub use workspaces::{ResourceType, Workspace, WorkspaceMember, WorkspaceResource, WorkspaceRole};
 
 // Re-export unified access types
 pub use unified_access::{

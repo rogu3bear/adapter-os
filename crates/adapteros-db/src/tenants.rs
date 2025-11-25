@@ -75,21 +75,25 @@ impl Db {
 
     /// Pause a tenant
     pub async fn pause_tenant(&self, id: &str) -> Result<()> {
-        sqlx::query("UPDATE tenants SET status = 'paused', updated_at = datetime('now') WHERE id = ?")
-            .bind(id)
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        sqlx::query(
+            "UPDATE tenants SET status = 'paused', updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
     /// Archive a tenant
     pub async fn archive_tenant(&self, id: &str) -> Result<()> {
-        sqlx::query("UPDATE tenants SET status = 'archived', updated_at = datetime('now') WHERE id = ?")
-            .bind(id)
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        sqlx::query(
+            "UPDATE tenants SET status = 'archived', updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -270,10 +274,15 @@ impl Db {
     }
 
     /// Assign a policy to a tenant
-    pub async fn assign_policy_to_tenant(&self, tenant_id: &str, policy_id: &str, assigned_by: &str) -> Result<()> {
+    pub async fn assign_policy_to_tenant(
+        &self,
+        tenant_id: &str,
+        policy_id: &str,
+        assigned_by: &str,
+    ) -> Result<()> {
         sqlx::query(
             "INSERT OR REPLACE INTO tenant_policies (tenant_id, cpid, assigned_by, assigned_at)
-             VALUES (?, ?, ?, datetime('now'))"
+             VALUES (?, ?, ?, datetime('now'))",
         )
         .bind(tenant_id)
         .bind(policy_id)
@@ -285,7 +294,12 @@ impl Db {
     }
 
     /// Assign an adapter to a tenant
-    pub async fn assign_adapter_to_tenant(&self, tenant_id: &str, adapter_id: &str, assigned_by: &str) -> Result<()> {
+    pub async fn assign_adapter_to_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        assigned_by: &str,
+    ) -> Result<()> {
         sqlx::query(
             "INSERT OR REPLACE INTO tenant_adapters (tenant_id, adapter_id, assigned_by, assigned_at)
              VALUES (?, ?, ?, datetime('now'))"

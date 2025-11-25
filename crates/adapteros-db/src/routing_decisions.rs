@@ -406,13 +406,13 @@ impl Db {
         for decision in &decisions {
             if let Some(selected_ids) = &decision.selected_adapter_ids {
                 // Check if this adapter was selected in this decision
-                let adapter_selected = selected_ids
-                    .split(',')
-                    .any(|id| id.trim() == adapter_id);
+                let adapter_selected = selected_ids.split(',').any(|id| id.trim() == adapter_id);
 
                 if adapter_selected {
                     // Parse candidates and collect gate values from selected candidates
-                    if let Ok(candidates) = serde_json::from_str::<Vec<RouterCandidate>>(&decision.candidate_adapters) {
+                    if let Ok(candidates) =
+                        serde_json::from_str::<Vec<RouterCandidate>>(&decision.candidate_adapters)
+                    {
                         // Get top-K candidates (selected ones) and average their gates
                         let mut sorted_candidates = candidates.clone();
                         sorted_candidates.sort_by(|a, b| b.gate_q15.cmp(&a.gate_q15));
