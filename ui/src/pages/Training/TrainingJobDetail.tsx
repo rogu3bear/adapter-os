@@ -25,10 +25,13 @@ import {
   AlertTriangle,
   ExternalLink,
   Box,
+  Layers,
 } from 'lucide-react';
 import apiClient from '@/api/client';
 import { useSSE } from '@/hooks/useSSE';
 import { logger } from '@/utils/logger';
+import { useToast } from '@/hooks/use-toast';
+import { StackFormModal } from '@/pages/Admin/StackFormModal';
 import type {
   TrainingJob,
   TrainingMetrics,
@@ -40,6 +43,7 @@ import type { TrainingProgressEvent } from '@/api/streaming-types';
 function TrainingJobDetailContent() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const [job, setJob] = useState<TrainingJob | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -48,6 +52,7 @@ function TrainingJobDetailContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [stackModalOpen, setStackModalOpen] = useState(false);
 
   // SSE for real-time updates when job is active
   const isJobActive = job?.status === 'running' || job?.status === 'pending';
@@ -129,6 +134,21 @@ function TrainingJobDetailContent() {
     fetchJobDetails();
   }, [fetchJobDetails]);
 
+  const handleStackCreated = useCallback((stackId: string) => {
+    setStackModalOpen(false);
+    toast({
+      title: 'Stack created',
+      description: 'Your adapter has been added to the stack.',
+    });
+    // Show a follow-up action to use the stack in chat
+    setTimeout(() => {
+      toast({
+        title: 'Ready to use',
+        description: 'Navigate to Chat to use your new stack.',
+      });
+    }, 2000);
+  }, [toast]);
+
   // Auto-refresh logs for active jobs
   useEffect(() => {
     if (!isJobActive || !jobId) return;
@@ -204,13 +224,22 @@ function TrainingJobDetailContent() {
         </div>
         <div className="flex items-center gap-2">
           {job.status === 'completed' && job.adapter_id && (
-            <Button
-              onClick={() => navigate(`/adapters/${job.adapter_id}`)}
-              variant="default"
-            >
-              <Box className="h-4 w-4 mr-2" />
-              View Adapter
-            </Button>
+            <>
+              <Button
+                onClick={() => navigate(`/adapters/${job.adapter_id}`)}
+                variant="default"
+              >
+                <Box className="h-4 w-4 mr-2" />
+                View Adapter
+              </Button>
+              <Button
+                onClick={() => setStackModalOpen(true)}
+                variant="outline"
+              >
+                <Layers className="h-4 w-4 mr-2" />
+                Add to Stack
+              </Button>
+            </>
           )}
           <Badge variant="outline" className={`gap-1 ${statusClass}`}>
             <StatusIcon className="h-4 w-4" />
@@ -495,6 +524,16 @@ function TrainingJobDetailContent() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Stack Form Modal */}
+      {job.status === 'completed' && job.adapter_id && (
+        <StackFormModal
+          open={stackModalOpen}
+          onOpenChange={setStackModalOpen}
+          initialAdapterId={job.adapter_id}
+          onStackCreated={handleStackCreated}
+        />
+      )}
     </div>
   );
 }

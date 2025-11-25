@@ -129,7 +129,7 @@ export default function DatasetDetailPage() {
 
   if (isLoading) {
     return (
-      <FeatureLayout>
+      <FeatureLayout title="Dataset Details">
         <LoadingState message="Loading dataset details..." />
       </FeatureLayout>
     );
@@ -137,18 +137,17 @@ export default function DatasetDetailPage() {
 
   if (error || !dataset) {
     return (
-      <FeatureLayout>
+      <FeatureLayout title="Dataset Details">
         <ErrorRecovery
-          error={error || new Error('Dataset not found')}
+          error={(error as Error)?.message || 'Dataset not found'}
           onRetry={() => refetch()}
-          onBack={() => navigate('/training/datasets')}
         />
       </FeatureLayout>
     );
   }
 
   return (
-    <FeatureLayout>
+    <FeatureLayout title={dataset.name}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

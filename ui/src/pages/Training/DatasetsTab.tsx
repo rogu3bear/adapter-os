@@ -36,6 +36,8 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
 import { TrainingWizard } from '@/components/TrainingWizard';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { TERMS, formatSourceType, formatValidationStatus } from '@/constants/terminology';
 import {
   Database,
   Upload,
@@ -59,22 +61,22 @@ const STATUS_CONFIG: Record<DatasetValidationStatus, {
   draft: {
     icon: Clock,
     className: 'text-yellow-500',
-    label: 'Draft',
+    label: formatValidationStatus('draft'),
   },
   validating: {
     icon: RefreshCw,
     className: 'text-blue-500 animate-spin',
-    label: 'Validating',
+    label: formatValidationStatus('validating'),
   },
   valid: {
     icon: CheckCircle,
     className: 'text-green-500',
-    label: 'Valid',
+    label: formatValidationStatus('valid'),
   },
   invalid: {
     icon: XCircle,
     className: 'text-red-500',
-    label: 'Invalid',
+    label: formatValidationStatus('invalid'),
   },
   failed: {
     icon: AlertCircle,
@@ -105,6 +107,7 @@ export function DatasetsTab() {
   const [deleteDatasetId, setDeleteDatasetId] = useState<string | null>(null);
   const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
   const [initialDatasetId, setInitialDatasetId] = useState<string | undefined>(undefined);
+  const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
 
   const {
     data: datasetsData,
@@ -188,11 +191,17 @@ export function DatasetsTab() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {can('dataset:upload') && (
-            <Button onClick={() => setIsUploadDialogOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Upload Dataset
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setIsUploadDialogOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                {TERMS.uploadDataset}
+              </Button>
+              <HelpTooltip content="For large or complex collections. Use Training Wizard for simple uploads." />
+            </div>
           )}
+          <p className="text-xs text-muted-foreground">
+            Tip: Training Wizard handles simple uploads; use this builder for complex/large collections.
+          </p>
         </div>
 
         <Button
@@ -211,7 +220,7 @@ export function DatasetsTab() {
       {error && (
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive">Failed to load datasets: {error.message}</p>
+            <p className="text-destructive">Failed to load {TERMS.datasets}: {error.message}</p>
             <Button variant="outline" onClick={() => refetch()} className="mt-2">
               Retry
             </Button>
@@ -219,12 +228,12 @@ export function DatasetsTab() {
         </Card>
       )}
 
-      {/* Datasets Table */}
+      {/* Document Collections Table */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Database className="h-5 w-5" />
-            Datasets
+            Document Collections
             {datasets.length > 0 && (
               <span className="text-sm font-normal text-muted-foreground">
                 ({datasets.length} total)
@@ -236,25 +245,25 @@ export function DatasetsTab() {
           {isLoading && datasets.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-              Loading datasets...
+              Loading {TERMS.datasets}...
             </div>
           ) : datasets.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No datasets found</p>
-              <p className="text-sm mt-1">Upload a dataset to get started</p>
+              <p>{TERMS.noDatasets}</p>
+              <p className="text-sm mt-1">{TERMS.noDatasetsDescription}</p>
             </div>
           ) : (
             <div className="max-h-[600px] overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <TableHead>{TERMS.datasetName}</TableHead>
                     <TableHead>Source Type</TableHead>
                     <TableHead>Language</TableHead>
-                    <TableHead>Files</TableHead>
+                    <TableHead>{TERMS.documents}</TableHead>
                     <TableHead>Tokens</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>{TERMS.datasetStatus}</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -274,10 +283,7 @@ export function DatasetsTab() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {dataset.source_type === 'uploaded_files' ? 'Uploaded' :
-                           dataset.source_type === 'code_repo' ? 'Code Repository' :
-                           dataset.source_type === 'generated' ? 'Generated' :
-                           dataset.source_type}
+                          {formatSourceType(dataset.source_type)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -301,7 +307,7 @@ export function DatasetsTab() {
                             size="sm"
                             variant="outline"
                             onClick={() => navigate(`/training/datasets/${dataset.id}`)}
-                            title="View dataset details"
+                            title="View collection details"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -314,7 +320,7 @@ export function DatasetsTab() {
                                 setInitialDatasetId(dataset.id);
                                 setIsTrainingWizardOpen(true);
                               }}
-                              title="Start training with this dataset"
+                              title="Start training with this collection"
                             >
                               <Play className="h-4 w-4 mr-1" />
                               Train
@@ -326,7 +332,7 @@ export function DatasetsTab() {
                               size="sm"
                               variant="outline"
                               onClick={() => handleValidateDataset(dataset.id)}
-                              title="Validate dataset"
+                              title="Validate collection"
                             >
                               <CheckCircle className="h-4 w-4" />
                             </Button>
@@ -337,7 +343,7 @@ export function DatasetsTab() {
                               size="sm"
                               variant="destructive"
                               onClick={() => setDeleteDatasetId(dataset.id)}
-                              title="Delete dataset"
+                              title="Delete collection"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -353,11 +359,11 @@ export function DatasetsTab() {
         </CardContent>
       </Card>
 
-      {/* Upload Dataset Dialog */}
+      {/* Upload Documents Dialog */}
       <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Upload Dataset</DialogTitle>
+            <DialogTitle>{TERMS.uploadDataset}</DialogTitle>
           </DialogHeader>
           <UploadDatasetForm
             onSuccess={() => {
@@ -373,9 +379,9 @@ export function DatasetsTab() {
       <AlertDialog open={!!deleteDatasetId} onOpenChange={() => setDeleteDatasetId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Dataset</AlertDialogTitle>
+            <AlertDialogTitle>{TERMS.deleteDataset}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this dataset? This action cannot be undone.
+              Are you sure you want to delete this collection? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -391,11 +397,11 @@ export function DatasetsTab() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dataset Detail Dialog */}
+      {/* Collection Detail Dialog */}
       <Dialog open={!!selectedDataset} onOpenChange={() => setSelectedDataset(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Dataset Details</DialogTitle>
+            <DialogTitle>Collection Details</DialogTitle>
           </DialogHeader>
           {selectedDataset && (
             <div className="space-y-4">
@@ -503,12 +509,12 @@ function UploadDatasetForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <Label htmlFor="name">Dataset Name</Label>
+        <Label htmlFor="name">{TERMS.datasetName}</Label>
         <Input
           id="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="my-dataset"
+          placeholder="my-collection"
           required
         />
       </div>
@@ -520,9 +526,9 @@ function UploadDatasetForm({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="uploaded_files">Uploaded Files</SelectItem>
-            <SelectItem value="code_repo">Code Repository</SelectItem>
-            <SelectItem value="generated">Generated</SelectItem>
+            <SelectItem value="uploaded_files">{formatSourceType('uploaded_files')}</SelectItem>
+            <SelectItem value="code_repo">{formatSourceType('code_repo')}</SelectItem>
+            <SelectItem value="generated">{formatSourceType('generated')}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -549,13 +555,13 @@ function UploadDatasetForm({
 
       {sourceType === 'uploaded_files' && (
         <div>
-          <Label htmlFor="files">Files</Label>
+          <Label htmlFor="files">{TERMS.documents}</Label>
           <Input
             id="files"
             type="file"
             multiple
             onChange={(e) => setFiles(e.target.files)}
-            accept=".py,.js,.ts,.tsx,.jsx,.json,.txt"
+            accept=".py,.js,.ts,.tsx,.jsx,.json,.txt,.pdf,.md"
           />
         </div>
       )}
@@ -565,7 +571,7 @@ function UploadDatasetForm({
           Cancel
         </Button>
         <Button type="submit" disabled={isPending}>
-          {isPending ? 'Creating...' : 'Create Dataset'}
+          {isPending ? 'Creating...' : TERMS.createDataset}
         </Button>
       </div>
     </form>

@@ -7,7 +7,7 @@
 //! - FeatureLayout with sections
 //! - Card-based settings groups
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
@@ -25,8 +25,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LoadingState } from '@/components/ui/loading-state';
 import { useRBAC } from '@/hooks/useRBAC';
 import { useTheme } from '@/layout/LayoutProvider';
+import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
+import * as securityApi from '@/api/security';
+import type { UpdateSettingsRequest, GeneralSettings, ServerSettings, SecuritySettings, PerformanceSettings } from '@/api/document-types';
 import {
   Settings,
   RefreshCw,
@@ -50,7 +53,7 @@ import {
   Upload,
 } from 'lucide-react';
 
-// Settings sections
+// Settings sections mapped to backend structure
 interface SettingsSection {
   id: string;
   title: string;
@@ -66,22 +69,22 @@ const settingsSections: SettingsSection[] = [
     icon: <Settings className="h-5 w-5" />,
   },
   {
+    id: 'server',
+    title: 'Server',
+    description: 'Server configuration and networking',
+    icon: <Server className="h-5 w-5" />,
+  },
+  {
     id: 'security',
     title: 'Security',
     description: 'Authentication and authorization settings',
     icon: <Shield className="h-5 w-5" />,
   },
   {
-    id: 'inference',
-    title: 'Inference',
-    description: 'Model inference configuration',
+    id: 'performance',
+    title: 'Performance',
+    description: 'Performance tuning and resource limits',
     icon: <Zap className="h-5 w-5" />,
-  },
-  {
-    id: 'notifications',
-    title: 'Notifications',
-    description: 'Alert and notification preferences',
-    icon: <Bell className="h-5 w-5" />,
   },
 ];
 
@@ -90,39 +93,93 @@ export function SettingsPage() {
   const { can, userRole } = useRBAC();
   const { theme, setTheme } = useTheme();
   const [activeSection, setActiveSection] = useState('general');
-  const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [restartRequired, setRestartRequired] = useState(false);
 
-  // Local state for settings (would normally be fetched from API)
-  const [settings, setSettings] = useState({
-    // General
-    systemName: 'AdapterOS',
-    defaultTenant: 'default',
-    maxConcurrentJobs: 4,
-    enableTelemetry: true,
-    debugMode: false,
+  // Fetch settings from backend
+  const { data: settings, isLoading, error } = useSettings();
+  const updateSettings = useUpdateSettings();
 
-    // Security
-    sessionTimeout: 480, // minutes
-    mfaRequired: false,
-    allowPasswordReset: true,
-    maxLoginAttempts: 5,
-    tokenRotationInterval: 24, // hours
-    requireHttps: true,
+  // Local form state for editing (initialized from backend)
+  const [formData, setFormData] = useState<UpdateSettingsRequest>({});
 
-    // Inference
-    defaultModel: 'llama3.2-3b',
-    maxTokens: 4096,
-    temperature: 0.7,
-    enableStreaming: true,
-    kSparseLimit: 8,
-    memoryHeadroom: 15,
+  // Fetch security info from API (for JWT config and key rotation)
+  const { data: securityInfo, isLoading: securityLoading, error: securityError } = useQuery({
+    queryKey: ['security-info'],
+    queryFn: securityApi.getSecurityInfo,
+    refetchInterval: 60000, // Refresh every minute
+  });
 
-    // Notifications
-    enableEmailNotifications: true,
-    enableSlackIntegration: false,
-    alertThreshold: 'high',
-    digestFrequency: 'daily',
+  // JWT configuration state (separate from other settings, managed by API)
+  const [jwtConfig, setJwtConfig] = useState<securityApi.JwtConfig>({
+    mode: securityInfo?.jwtMode || 'eddsa',
+    ttlMinutes: securityInfo?.tokenTtlMinutes || 480,
+    requireHttps: securityInfo?.requireHttps || false,
+  });
+
+  // Initialize form data when settings load
+  useEffect(() => {
+    if (settings) {
+      setFormData({
+        general: { ...settings.general },
+        server: { ...settings.server },
+        security: { ...settings.security },
+        performance: { ...settings.performance },
+      });
+    }
+  }, [settings]);
+
+  // Update JWT config when security info loads
+  useEffect(() => {
+    if (securityInfo) {
+      setJwtConfig({
+        mode: securityInfo.jwtMode,
+        ttlMinutes: securityInfo.tokenTtlMinutes,
+        requireHttps: securityInfo.requireHttps,
+      });
+    }
+  }, [securityInfo]);
+
+  // Mutation for updating JWT config
+  const updateJwtConfigMutation = useMutation({
+    mutationFn: securityApi.updateJwtConfig,
+    onSuccess: (data) => {
+      toast.success('JWT configuration updated successfully');
+      queryClient.invalidateQueries({ queryKey: ['security-info'] });
+      logger.info('JWT config updated', {
+        component: 'SettingsPage',
+        operation: 'updateJwtConfig',
+        mode: data.jwtMode,
+      });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to update JWT configuration');
+      logger.error('Failed to update JWT config', {
+        component: 'SettingsPage',
+        operation: 'updateJwtConfig',
+      }, error instanceof Error ? error : new Error(String(error)));
+    },
+  });
+
+  // Mutation for key rotation
+  const rotateKeysMutation = useMutation({
+    mutationFn: securityApi.rotateKeys,
+    onSuccess: (data) => {
+      toast.success(`Keys rotated successfully. New fingerprint: ${data.newFingerprint}`);
+      queryClient.invalidateQueries({ queryKey: ['security-info'] });
+      logger.info('Keys rotated', {
+        component: 'SettingsPage',
+        operation: 'rotateKeys',
+        newFingerprint: data.newFingerprint,
+      });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to rotate keys');
+      logger.error('Failed to rotate keys', {
+        component: 'SettingsPage',
+        operation: 'rotateKeys',
+      }, error instanceof Error ? error : new Error(String(error)));
+    },
   });
 
   // Check admin permissions
@@ -146,36 +203,65 @@ export function SettingsPage() {
     );
   }
 
-  const updateSetting = <K extends keyof typeof settings>(key: K, value: typeof settings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+  // Update general settings
+  const updateGeneralSetting = <K extends keyof GeneralSettings>(key: K, value: GeneralSettings[K]) => {
+    setFormData(prev => ({
+      ...prev,
+      general: { ...prev.general, [key]: value },
+    }));
+    setHasChanges(true);
+  };
+
+  // Update server settings
+  const updateServerSetting = <K extends keyof ServerSettings>(key: K, value: ServerSettings[K]) => {
+    setFormData(prev => ({
+      ...prev,
+      server: { ...prev.server, [key]: value },
+    }));
+    setHasChanges(true);
+  };
+
+  // Update security settings
+  const updateSecuritySetting = <K extends keyof SecuritySettings>(key: K, value: SecuritySettings[K]) => {
+    setFormData(prev => ({
+      ...prev,
+      security: { ...prev.security, [key]: value },
+    }));
+    setHasChanges(true);
+  };
+
+  // Update performance settings
+  const updatePerformanceSetting = <K extends keyof PerformanceSettings>(key: K, value: PerformanceSettings[K]) => {
+    setFormData(prev => ({
+      ...prev,
+      performance: { ...prev.performance, [key]: value },
+    }));
     setHasChanges(true);
   };
 
   const handleSave = async () => {
-    setSaving(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await updateSettings.mutateAsync(formData);
 
-      toast.success('Settings saved successfully');
       logger.info('Settings saved', {
         component: 'SettingsPage',
         operation: 'saveSettings',
         section: activeSection,
       });
+
       setHasChanges(false);
+      setRestartRequired(response.restart_required);
     } catch (error) {
-      toast.error('Failed to save settings');
       logger.error('Failed to save settings', {
         component: 'SettingsPage',
         operation: 'saveSettings',
       }, error instanceof Error ? error : new Error(String(error)));
-    } finally {
-      setSaving(false);
     }
   };
 
   const handleExportSettings = () => {
+    if (!settings) return;
+
     const exportData = JSON.stringify(settings, null, 2);
     const blob = new Blob([exportData], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -188,6 +274,38 @@ export function SettingsPage() {
     URL.revokeObjectURL(url);
     toast.success('Settings exported successfully');
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <DensityProvider pageKey="settings">
+        <FeatureLayout title="Settings">
+          <LoadingState message="Loading settings..." />
+        </FeatureLayout>
+      </DensityProvider>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <DensityProvider pageKey="settings">
+        <FeatureLayout title="Settings">
+          <PageHeader
+            title="System Settings"
+            description="Configure system-wide settings"
+          />
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error Loading Settings</AlertTitle>
+            <AlertDescription>
+              {error instanceof Error ? error.message : 'Failed to load settings'}
+            </AlertDescription>
+          </Alert>
+        </FeatureLayout>
+      </DensityProvider>
+    );
+  }
 
   return (
     <DensityProvider pageKey="settings">
@@ -212,9 +330,9 @@ export function SettingsPage() {
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={!hasChanges || saving}
+              disabled={!hasChanges || updateSettings.isPending}
             >
-              {saving ? (
+              {updateSettings.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Saving...
@@ -228,6 +346,16 @@ export function SettingsPage() {
             </Button>
           </div>
         </PageHeader>
+
+        {restartRequired && (
+          <Alert className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Restart Required</AlertTitle>
+            <AlertDescription>
+              Some changes require a server restart to take effect. Please restart the server when convenient.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {hasChanges && (
           <Alert className="mb-6">
@@ -267,8 +395,8 @@ export function SettingsPage() {
                     <Label htmlFor="systemName">System Name</Label>
                     <Input
                       id="systemName"
-                      value={settings.systemName}
-                      onChange={(e) => updateSetting('systemName', e.target.value)}
+                      value={formData.general?.system_name || ''}
+                      onChange={(e) => updateGeneralSetting('system_name', e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
                       Display name for this installation
@@ -276,29 +404,35 @@ export function SettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="defaultTenant">Default Tenant</Label>
-                    <Input
-                      id="defaultTenant"
-                      value={settings.defaultTenant}
-                      onChange={(e) => updateSetting('defaultTenant', e.target.value)}
-                    />
+                    <Label htmlFor="environment">Environment</Label>
+                    <Select
+                      value={formData.general?.environment || 'development'}
+                      onValueChange={(value) => updateGeneralSetting('environment', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="development">Development</SelectItem>
+                        <SelectItem value="staging">Staging</SelectItem>
+                        <SelectItem value="production">Production</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <p className="text-xs text-muted-foreground">
-                      Default tenant for new users
+                      Current deployment environment
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="maxConcurrentJobs">Max Concurrent Jobs</Label>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="apiBaseUrl">API Base URL</Label>
                     <Input
-                      id="maxConcurrentJobs"
-                      type="number"
-                      min={1}
-                      max={16}
-                      value={settings.maxConcurrentJobs}
-                      onChange={(e) => updateSetting('maxConcurrentJobs', parseInt(e.target.value))}
+                      id="apiBaseUrl"
+                      value={formData.general?.api_base_url || ''}
+                      onChange={(e) => updateGeneralSetting('api_base_url', e.target.value)}
+                      placeholder="http://localhost:8080"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Maximum simultaneous training jobs
+                      Base URL for API endpoints
                     </p>
                   </div>
 
@@ -315,7 +449,69 @@ export function SettingsPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      UI color theme preference
+                      UI color theme preference (local only)
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Server Settings */}
+          <TabsContent value="server" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Server className="h-5 w-5" />
+                  Server Configuration
+                </CardTitle>
+                <CardDescription>
+                  Server ports and networking settings
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="httpPort">HTTP Port</Label>
+                    <Input
+                      id="httpPort"
+                      type="number"
+                      min={1024}
+                      max={65535}
+                      value={formData.server?.http_port || 8080}
+                      onChange={(e) => updateServerSetting('http_port', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Port for HTTP server
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="httpsPort">HTTPS Port</Label>
+                    <Input
+                      id="httpsPort"
+                      type="number"
+                      min={1024}
+                      max={65535}
+                      value={formData.server?.https_port || ''}
+                      onChange={(e) => updateServerSetting('https_port', e.target.value ? parseInt(e.target.value) : null)}
+                      placeholder="Optional"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Port for HTTPS server (optional)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="udsSocket">UDS Socket Path</Label>
+                    <Input
+                      id="udsSocket"
+                      value={formData.server?.uds_socket_path || ''}
+                      onChange={(e) => updateServerSetting('uds_socket_path', e.target.value || null)}
+                      placeholder="/var/run/adapteros.sock"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Unix domain socket path (required in production mode)
                     </p>
                   </div>
                 </div>
@@ -325,30 +521,17 @@ export function SettingsPage() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Enable Telemetry</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Collect anonymous usage statistics
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.enableTelemetry}
-                      onCheckedChange={(checked) => updateSetting('enableTelemetry', checked)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
                       <Label className="flex items-center gap-2">
-                        Debug Mode
-                        <Badge variant="outline" className="text-xs">Development</Badge>
+                        <Lock className="h-4 w-4" />
+                        Production Mode
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Enable verbose logging and debugging features
+                        Enable production security policies
                       </p>
                     </div>
                     <Switch
-                      checked={settings.debugMode}
-                      onCheckedChange={(checked) => updateSetting('debugMode', checked)}
+                      checked={formData.server?.production_mode || false}
+                      onCheckedChange={(checked) => updateServerSetting('production_mode', checked)}
                     />
                   </div>
                 </div>
@@ -358,60 +541,225 @@ export function SettingsPage() {
 
           {/* Security Settings */}
           <TabsContent value="security" className="space-y-6">
+            {/* JWT & Key Management */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Key className="h-5 w-5" />
+                  JWT Configuration
+                </CardTitle>
+                <CardDescription>
+                  JSON Web Token settings and key management
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {securityLoading ? (
+                  <LoadingState message="Loading security configuration..." />
+                ) : securityError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Error Loading Security Info</AlertTitle>
+                    <AlertDescription>
+                      {securityError instanceof Error ? securityError.message : 'Unknown error'}
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <>
+                    {/* Key Fingerprint Display */}
+                    <div className="space-y-2">
+                      <Label>Current Key Fingerprint</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={securityInfo?.keyFingerprint || 'Loading...'}
+                          readOnly
+                          className="font-mono text-sm"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (securityInfo?.keyFingerprint) {
+                              navigator.clipboard.writeText(securityInfo.keyFingerprint);
+                              toast.success('Fingerprint copied to clipboard');
+                            }
+                          }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Ed25519 public key fingerprint for JWT signing
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      {/* JWT Mode */}
+                      <div className="space-y-2">
+                        <Label htmlFor="jwtMode">JWT Signing Mode</Label>
+                        <Select
+                          value={jwtConfig.mode}
+                          onValueChange={(value: 'eddsa' | 'hmac') => {
+                            setJwtConfig({ ...jwtConfig, mode: value });
+                            setHasChanges(true);
+                          }}
+                        >
+                          <SelectTrigger id="jwtMode">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="eddsa">Ed25519 (EdDSA)</SelectItem>
+                            <SelectItem value="hmac">HMAC-SHA256</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Current: {securityInfo?.jwtMode.toUpperCase()}
+                        </p>
+                      </div>
+
+                      {/* Token TTL */}
+                      <div className="space-y-2">
+                        <Label htmlFor="tokenTtl">Token TTL (minutes)</Label>
+                        <Input
+                          id="tokenTtl"
+                          type="number"
+                          min={15}
+                          max={1440}
+                          value={jwtConfig.ttlMinutes}
+                          onChange={(e) => {
+                            setJwtConfig({ ...jwtConfig, ttlMinutes: parseInt(e.target.value) || 480 });
+                            setHasChanges(true);
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Current: {securityInfo?.tokenTtlMinutes} minutes
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Key Metadata */}
+                    <div className="space-y-2 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Created:</span>
+                        <span className="font-mono">
+                          {securityInfo?.createdAt ? new Date(securityInfo.createdAt).toLocaleString() : 'N/A'}
+                        </span>
+                      </div>
+                      {securityInfo?.lastRotated && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Last Rotated:</span>
+                          <span className="font-mono">
+                            {new Date(securityInfo.lastRotated).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Production Mode:</span>
+                        <Badge variant={securityInfo?.productionMode ? 'default' : 'secondary'}>
+                          {securityInfo?.productionMode ? 'Enabled' : 'Disabled'}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-4">
+                      <Button
+                        onClick={() => updateJwtConfigMutation.mutate(jwtConfig)}
+                        disabled={!hasChanges || updateJwtConfigMutation.isPending}
+                      >
+                        {updateJwtConfigMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Updating...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-4 w-4 mr-2" />
+                            Update JWT Config
+                          </>
+                        )}
+                      </Button>
+
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          if (confirm('Rotate signing keys? This will invalidate all existing tokens.')) {
+                            rotateKeysMutation.mutate();
+                          }
+                        }}
+                        disabled={rotateKeysMutation.isPending}
+                      >
+                        {rotateKeysMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Rotating...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Rotate Keys
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    <Alert>
+                      <Info className="h-4 w-4" />
+                      <AlertTitle>Key Rotation Warning</AlertTitle>
+                      <AlertDescription>
+                        Rotating keys will invalidate all existing JWT tokens. All users will need to re-authenticate.
+                      </AlertDescription>
+                    </Alert>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Other Security Settings */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5" />
-                  Security Settings
+                  Access Control
                 </CardTitle>
                 <CardDescription>
-                  Authentication and authorization configuration
+                  Authentication and authorization policies
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="sessionTimeout">Session Timeout (minutes)</Label>
+                    <Label htmlFor="tokenTtl">Token TTL (seconds)</Label>
                     <Input
-                      id="sessionTimeout"
+                      id="tokenTtl"
                       type="number"
-                      min={15}
-                      max={1440}
-                      value={settings.sessionTimeout}
-                      onChange={(e) => updateSetting('sessionTimeout', parseInt(e.target.value))}
+                      min={900}
+                      max={86400}
+                      value={formData.security?.token_ttl_seconds || 28800}
+                      onChange={(e) => updateSecuritySetting('token_ttl_seconds', parseInt(e.target.value))}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Idle session timeout (15-1440 minutes)
+                      JWT token time-to-live (15 min - 24 hours)
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="maxLoginAttempts">Max Login Attempts</Label>
-                    <Input
-                      id="maxLoginAttempts"
-                      type="number"
-                      min={3}
-                      max={10}
-                      value={settings.maxLoginAttempts}
-                      onChange={(e) => updateSetting('maxLoginAttempts', parseInt(e.target.value))}
-                    />
+                    <Label htmlFor="jwtMode">JWT Mode</Label>
+                    <Select
+                      value={formData.security?.jwt_mode || 'eddsa'}
+                      onValueChange={(value: 'eddsa' | 'hmac') => updateSecuritySetting('jwt_mode', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="eddsa">EdDSA (Ed25519)</SelectItem>
+                        <SelectItem value="hmac">HMAC-SHA256</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <p className="text-xs text-muted-foreground">
-                      Account lockout threshold
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="tokenRotationInterval">Token Rotation (hours)</Label>
-                    <Input
-                      id="tokenRotationInterval"
-                      type="number"
-                      min={1}
-                      max={168}
-                      value={settings.tokenRotationInterval}
-                      onChange={(e) => updateSetting('tokenRotationInterval', parseInt(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      JWT token rotation interval
+                      JWT signing algorithm
                     </p>
                   </div>
                 </div>
@@ -430,37 +778,37 @@ export function SettingsPage() {
                       </p>
                     </div>
                     <Switch
-                      checked={settings.mfaRequired}
-                      onCheckedChange={(checked) => updateSetting('mfaRequired', checked)}
+                      checked={formData.security?.require_mfa || false}
+                      onCheckedChange={(checked) => updateSecuritySetting('require_mfa', checked)}
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label className="flex items-center gap-2">
-                        <Key className="h-4 w-4" />
-                        Allow Password Reset
+                        <Server className="h-4 w-4" />
+                        Enable Egress
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Enable self-service password reset
+                        Allow outbound network connections
                       </p>
                     </div>
                     <Switch
-                      checked={settings.allowPasswordReset}
-                      onCheckedChange={(checked) => updateSetting('allowPasswordReset', checked)}
+                      checked={formData.security?.egress_enabled || false}
+                      onCheckedChange={(checked) => updateSecuritySetting('egress_enabled', checked)}
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Require HTTPS</Label>
+                      <Label>Require PF Deny</Label>
                       <p className="text-sm text-muted-foreground">
-                        Enforce HTTPS for all connections
+                        Require packet filter deny rules
                       </p>
                     </div>
                     <Switch
-                      checked={settings.requireHttps}
-                      onCheckedChange={(checked) => updateSetting('requireHttps', checked)}
+                      checked={formData.security?.require_pf_deny || false}
+                      onCheckedChange={(checked) => updateSecuritySetting('require_pf_deny', checked)}
                     />
                   </div>
                 </div>
@@ -468,212 +816,89 @@ export function SettingsPage() {
             </Card>
           </TabsContent>
 
-          {/* Inference Settings */}
-          <TabsContent value="inference" className="space-y-6">
+          {/* Performance Settings */}
+          <TabsContent value="performance" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Zap className="h-5 w-5" />
-                  Inference Settings
+                  Performance Configuration
                 </CardTitle>
                 <CardDescription>
-                  Model inference and generation configuration
+                  Resource limits and performance tuning
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="defaultModel">Default Model</Label>
-                    <Select
-                      value={settings.defaultModel}
-                      onValueChange={(value) => updateSetting('defaultModel', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="llama3.2-3b">Llama 3.2 3B</SelectItem>
-                        <SelectItem value="llama3.2-1b">Llama 3.2 1B</SelectItem>
-                        <SelectItem value="mistral-7b">Mistral 7B</SelectItem>
-                        <SelectItem value="phi-3-mini">Phi-3 Mini</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Default base model for inference
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="maxTokens">Max Tokens</Label>
+                    <Label htmlFor="maxAdapters">Max Adapters</Label>
                     <Input
-                      id="maxTokens"
-                      type="number"
-                      min={256}
-                      max={32768}
-                      value={settings.maxTokens}
-                      onChange={(e) => updateSetting('maxTokens', parseInt(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Maximum tokens per generation
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="temperature">Default Temperature</Label>
-                    <Input
-                      id="temperature"
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      value={settings.temperature}
-                      onChange={(e) => updateSetting('temperature', parseFloat(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Sampling temperature (0.0 - 2.0)
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="kSparseLimit">K-Sparse Limit</Label>
-                    <Input
-                      id="kSparseLimit"
+                      id="maxAdapters"
                       type="number"
                       min={1}
-                      max={8}
-                      value={settings.kSparseLimit}
-                      onChange={(e) => updateSetting('kSparseLimit', parseInt(e.target.value))}
+                      max={100}
+                      value={formData.performance?.max_adapters || 8}
+                      onChange={(e) => updatePerformanceSetting('max_adapters', parseInt(e.target.value))}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Maximum active adapters (MAX_K)
+                      Maximum number of concurrent adapters
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="memoryHeadroom">Memory Headroom (%)</Label>
+                    <Label htmlFor="maxWorkers">Max Workers</Label>
                     <Input
-                      id="memoryHeadroom"
+                      id="maxWorkers"
                       type="number"
-                      min={5}
-                      max={30}
-                      value={settings.memoryHeadroom}
-                      onChange={(e) => updateSetting('memoryHeadroom', parseInt(e.target.value))}
+                      min={1}
+                      max={32}
+                      value={formData.performance?.max_workers || 4}
+                      onChange={(e) => updatePerformanceSetting('max_workers', parseInt(e.target.value))}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Reserved memory percentage
-                    </p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Enable Streaming</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Enable token-by-token streaming responses
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.enableStreaming}
-                      onCheckedChange={(checked) => updateSetting('enableStreaming', checked)}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Notification Settings */}
-          <TabsContent value="notifications" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Bell className="h-5 w-5" />
-                  Notification Settings
-                </CardTitle>
-                <CardDescription>
-                  Alert and notification preferences
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label>Alert Threshold</Label>
-                    <Select
-                      value={settings.alertThreshold}
-                      onValueChange={(value) => updateSetting('alertThreshold', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low (All alerts)</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High (Critical only)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Minimum severity for notifications
+                      Maximum number of worker threads
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Digest Frequency</Label>
-                    <Select
-                      value={settings.digestFrequency}
-                      onValueChange={(value) => updateSetting('digestFrequency', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="realtime">Real-time</SelectItem>
-                        <SelectItem value="hourly">Hourly</SelectItem>
-                        <SelectItem value="daily">Daily</SelectItem>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="memoryThreshold">Memory Threshold (%)</Label>
+                    <Input
+                      id="memoryThreshold"
+                      type="number"
+                      min={50}
+                      max={95}
+                      value={formData.performance?.memory_threshold_pct || 85}
+                      onChange={(e) => updatePerformanceSetting('memory_threshold_pct', parseInt(e.target.value))}
+                    />
                     <p className="text-xs text-muted-foreground">
-                      Summary email frequency
+                      Memory usage threshold for eviction (50-95%)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="cacheSize">Cache Size (MB)</Label>
+                    <Input
+                      id="cacheSize"
+                      type="number"
+                      min={128}
+                      max={8192}
+                      value={formData.performance?.cache_size_mb || 1024}
+                      onChange={(e) => updatePerformanceSetting('cache_size_mb', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Cache size for adapter weights (128-8192 MB)
                     </p>
                   </div>
                 </div>
 
-                <Separator />
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Email Notifications</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Send notifications via email
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.enableEmailNotifications}
-                      onCheckedChange={(checked) => updateSetting('enableEmailNotifications', checked)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label className="flex items-center gap-2">
-                        Slack Integration
-                        <Badge variant="outline" className="text-xs">Coming Soon</Badge>
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        Send notifications to Slack channels
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.enableSlackIntegration}
-                      onCheckedChange={(checked) => updateSetting('enableSlackIntegration', checked)}
-                      disabled
-                    />
-                  </div>
-                </div>
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Performance Impact</AlertTitle>
+                  <AlertDescription>
+                    Changing these settings may affect system performance and memory usage.
+                    Adjust carefully based on available resources.
+                  </AlertDescription>
+                </Alert>
               </CardContent>
             </Card>
           </TabsContent>

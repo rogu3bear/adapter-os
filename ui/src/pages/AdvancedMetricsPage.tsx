@@ -79,13 +79,14 @@ function AdvancedMetricsPageInner() {
 
   // Fetch metrics series
   const fetchMetricsSeries = useCallback(async () => {
+    const startTime = new Date(getStartTime(timeRange)).getTime();
+    const endTime = new Date().getTime();
     return await apiClient.getMetricsSeries({
-      metric: selectedMetric,
-      start_time: getStartTime(timeRange),
-      end_time: new Date().toISOString(),
-      aggregation: aggregation as 'avg' | 'min' | 'max' | 'sum',
+      series_name: selectedMetric,
+      start_ms: startTime,
+      end_ms: endTime,
     });
-  }, [selectedMetric, timeRange, aggregation]);
+  }, [selectedMetric, timeRange]);
 
   const {
     data: metricsSeries = [],
@@ -117,21 +118,23 @@ function AdvancedMetricsPageInner() {
     }
   }
 
-  // Transform series data for charts
-  const chartData = metricsSeries.map((point) => ({
-    timestamp: new Date(point.timestamp).toLocaleTimeString(),
-    value: point.value,
-  }));
+  // Transform series data for charts - flatten data_points from all series
+  const chartData = metricsSeries.flatMap((series) =>
+    series.data_points.map((point) => ({
+      timestamp: new Date(point.timestamp).toLocaleTimeString(),
+      value: point.value,
+    }))
+  );
 
   // Export data as CSV
   const handleExportCSV = () => {
-    if (metricsSeries.length === 0) {
+    if (chartData.length === 0) {
       toast.error('No data to export');
       return;
     }
 
     const csvHeader = 'Timestamp,Value\n';
-    const csvRows = metricsSeries
+    const csvRows = chartData
       .map((point) => `${point.timestamp},${point.value}`)
       .join('\n');
     const csvContent = csvHeader + csvRows;
@@ -149,12 +152,12 @@ function AdvancedMetricsPageInner() {
     toast.success('Metrics exported successfully');
   };
 
-  // Calculate statistics
-  const stats = metricsSeries.length > 0 ? {
-    min: Math.min(...metricsSeries.map((p) => p.value)),
-    max: Math.max(...metricsSeries.map((p) => p.value)),
-    avg: metricsSeries.reduce((sum, p) => sum + p.value, 0) / metricsSeries.length,
-    latest: metricsSeries[metricsSeries.length - 1].value,
+  // Calculate statistics from flattened chart data
+  const stats = chartData.length > 0 ? {
+    min: Math.min(...chartData.map((p) => p.value)),
+    max: Math.max(...chartData.map((p) => p.value)),
+    avg: chartData.reduce((sum, p) => sum + p.value, 0) / chartData.length,
+    latest: chartData[chartData.length - 1].value,
   } : null;
 
   return (

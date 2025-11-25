@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { AdapterStack, LifecycleHistoryEvent } from '@/api/types';
+import type { AdapterStack, LifecycleHistoryEvent, PolicyPreflightResponse } from '@/api/types';
 import { Layers, Calendar, History, ArrowRight, MessageSquare, Power, PowerOff, AlertTriangle, HardDrive } from 'lucide-react';
 import apiClient from '@/api/client';
 import { formatDistanceToNow, parseISO } from 'date-fns';
@@ -22,6 +22,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { logger } from '@/utils/logger';
 import { useChatSessions } from '@/hooks/useChatSessions';
 import { useTenant } from '@/layout/LayoutProvider';
+import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 
 interface StackDetailModalProps {
   stack: AdapterStack;
@@ -36,6 +37,8 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [showPreflightDialog, setShowPreflightDialog] = useState(false);
+  const [preflightData, setPreflightData] = useState<PolicyPreflightResponse | null>(null);
 
   // Get tenant ID from context
   const tenantId = selectedTenant || 'default';
@@ -94,6 +97,27 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
   const isActive = (stack.lifecycle_state || 'active').toLowerCase() === 'active';
 
   const handleActivate = async () => {
+    setIsActivating(true);
+    try {
+      // Run preflight policy checks
+      const preflight = await apiClient.preflightStackActivation(stack.id);
+      setPreflightData(preflight);
+
+      if (!preflight.can_proceed || preflight.checks.some(c => !c.passed)) {
+        // Show preflight dialog if there are concerns
+        setShowPreflightDialog(true);
+        setIsActivating(false);
+      } else {
+        // All checks passed, proceed with activation
+        await doActivateStack();
+      }
+    } catch (error) {
+      toast.error(`Failed to run preflight checks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsActivating(false);
+    }
+  };
+
+  const doActivateStack = async () => {
     setIsActivating(true);
     try {
       await apiClient.activateAdapterStack(stack.id);
@@ -472,6 +496,28 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
           </Card>
         </div>
       </DialogContent>
+
+      {/* Policy Preflight Dialog */}
+      {preflightData && (
+        <PolicyPreflightDialog
+          open={showPreflightDialog}
+          onOpenChange={setShowPreflightDialog}
+          title="Policy Validation - Activate Stack"
+          description={`Review policy checks before activating stack "${stack.name}"`}
+          checks={preflightData.checks}
+          canProceed={preflightData.can_proceed}
+          onProceed={async () => {
+            setShowPreflightDialog(false);
+            await doActivateStack();
+          }}
+          onCancel={() => {
+            setShowPreflightDialog(false);
+            setIsActivating(false);
+          }}
+          isAdmin={false} // TODO: Get from user context
+          isLoading={isActivating}
+        />
+      )}
     </Dialog>
   );
 }

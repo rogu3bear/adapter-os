@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, Edit, Trash2, Play, Square, Eye, Star, StarOff } from 'lucide-react';
-import type { AdapterStack } from '@/api/types';
+import type { AdapterStack, PolicyPreflightResponse } from '@/api/types';
 import type { ColumnDef } from '@/components/shared/DataTable/types';
 import { StackFormModal } from './StackFormModal';
 import { StackDetailModal } from './StackDetailModal';
@@ -30,6 +30,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useTenant } from '@/layout/LayoutProvider';
+import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
+import apiClient from '@/api/client';
+import { toast } from 'sonner';
 
 interface StackTableProps {
   stacks: AdapterStack[];
@@ -41,6 +44,9 @@ export function StackTable({ stacks }: StackTableProps) {
   const [editingStack, setEditingStack] = useState<AdapterStack | null>(null);
   const [viewingStack, setViewingStack] = useState<AdapterStack | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdapterStack | null>(null);
+  const [showPreflightDialog, setShowPreflightDialog] = useState(false);
+  const [preflightData, setPreflightData] = useState<PolicyPreflightResponse | null>(null);
+  const [pendingActivation, setPendingActivation] = useState<AdapterStack | null>(null);
   const deleteStack = useDeleteAdapterStack();
   const activateStack = useActivateAdapterStack();
   const deactivateStack = useDeactivateAdapterStack();
@@ -49,7 +55,34 @@ export function StackTable({ stacks }: StackTableProps) {
   const { data: defaultStack } = useGetDefaultStack(tenantId);
 
   const handleActivate = async (stack: AdapterStack) => {
-    await activateStack.mutateAsync(stack.id);
+    try {
+      // Run preflight policy checks
+      const preflight = await apiClient.preflightStackActivation(stack.id);
+      setPreflightData(preflight);
+      setPendingActivation(stack);
+
+      if (!preflight.can_proceed || preflight.checks.some(c => !c.passed)) {
+        // Show preflight dialog if there are concerns
+        setShowPreflightDialog(true);
+      } else {
+        // All checks passed, proceed with activation
+        await activateStack.mutateAsync(stack.id);
+      }
+    } catch (error) {
+      toast.error(`Failed to run preflight checks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const doActivateStack = async () => {
+    if (!pendingActivation) return;
+
+    try {
+      await activateStack.mutateAsync(pendingActivation.id);
+      setShowPreflightDialog(false);
+      setPendingActivation(null);
+    } catch (error) {
+      toast.error(`Failed to activate stack: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handleDeactivate = async () => {
@@ -277,6 +310,25 @@ export function StackTable({ stacks }: StackTableProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Policy Preflight Dialog */}
+      {preflightData && pendingActivation && (
+        <PolicyPreflightDialog
+          open={showPreflightDialog}
+          onOpenChange={setShowPreflightDialog}
+          title="Policy Validation - Activate Stack"
+          description={`Review policy checks before activating stack "${pendingActivation.name}"`}
+          checks={preflightData.checks}
+          canProceed={preflightData.can_proceed}
+          onProceed={doActivateStack}
+          onCancel={() => {
+            setShowPreflightDialog(false);
+            setPendingActivation(null);
+          }}
+          isAdmin={false} // TODO: Get from user context
+          isLoading={activateStack.isPending}
+        />
+      )}
     </>
   );
 }

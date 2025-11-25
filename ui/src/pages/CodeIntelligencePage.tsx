@@ -94,9 +94,8 @@ function CodeIntelligencePageInner() {
     setIsRegistering(true);
     try {
       await apiClient.registerRepository({
+        repo_id: repoName.trim(), // Use name as repo_id
         path: repoPath.trim(),
-        name: repoName.trim(),
-        description: repoDescription.trim() || undefined,
       });
 
       toast.success('Repository registered successfully');
@@ -318,11 +317,11 @@ function CodeIntelligencePageInner() {
                     {repositories.map((repo) => (
                       <TableRow key={repo.id}>
                         <TableCell className="font-medium">{repo.name}</TableCell>
-                        <TableCell className="font-mono text-sm">{repo.path}</TableCell>
+                        <TableCell className="font-mono text-sm">{repo.url}</TableCell>
                         <TableCell className="max-w-md truncate">
-                          {repo.description || '-'}
+                          -
                         </TableCell>
-                        <TableCell>{getScanStatusBadge(repo.scan_status)}</TableCell>
+                        <TableCell>{getScanStatusBadge(repo.status)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex gap-2 justify-end">
                             <Button

@@ -3,7 +3,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, MoreHorizontal, Power, PowerOff, Pin, Trash2, Radio } from 'lucide-react';
+import { ArrowLeft, RefreshCw, MoreHorizontal, Power, PowerOff, Pin, Trash2, Radio, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -35,14 +35,25 @@ import AdapterActivations from './AdapterActivations';
 import AdapterLineage from './AdapterLineage';
 import AdapterManifest from './AdapterManifest';
 import AdapterLifecycle from './AdapterLifecycle';
+import { TrainingSnapshotPanel } from '@/components/adapters/TrainingSnapshotPanel';
+import { AddToStackModal } from '@/components/AddToStackModal';
+import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
+import type { PolicyPreflightResponse } from '@/api/policyTypes';
 
-type TabValue = 'overview' | 'activations' | 'lineage' | 'manifest' | 'lifecycle';
+type TabValue = 'overview' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
 
 export default function AdapterDetailPage() {
   const { adapterId } = useParams<{ adapterId: string }>();
   const navigate = useNavigate();
   const { can } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabValue>('overview');
+  const [showAddToStackModal, setShowAddToStackModal] = useState(false);
+
+  // Preflight dialog state
+  const [showPreflightDialog, setShowPreflightDialog] = useState(false);
+  const [preflightResult, setPreflightResult] = useState<PolicyPreflightResponse | null>(null);
+  const [preflightOperation, setPreflightOperation] = useState<'load' | 'unload'>('load');
+  const [preflightResolve, setPreflightResolve] = useState<((value: boolean) => void) | null>(null);
 
   // Streaming state for real-time adapter updates
   const [streamingState, setStreamingState] = useState<{
@@ -125,6 +136,38 @@ export default function AdapterDetailPage() {
     setStreamingState(null);
   }, [adapterId]);
 
+  // Preflight dialog handler
+  const handleShowPreflight = async (
+    id: string,
+    operation: 'load' | 'unload',
+    result: PolicyPreflightResponse
+  ): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setPreflightResult(result);
+      setPreflightOperation(operation);
+      setPreflightResolve(() => resolve);
+      setShowPreflightDialog(true);
+    });
+  };
+
+  // Handle preflight dialog proceed
+  const handlePreflightProceed = () => {
+    if (preflightResolve) {
+      preflightResolve(true);
+      setPreflightResolve(null);
+    }
+    setShowPreflightDialog(false);
+  };
+
+  // Handle preflight dialog cancel
+  const handlePreflightCancel = () => {
+    if (preflightResolve) {
+      preflightResolve(false);
+      setPreflightResolve(null);
+    }
+    setShowPreflightDialog(false);
+  };
+
   // Adapter operations
   const {
     loadAdapter,
@@ -134,12 +177,14 @@ export default function AdapterDetailPage() {
     isOperationLoading,
   } = useAdapterOperations({
     onDataRefresh: refetch,
+    onShowPreflight: handleShowPreflight,
   });
 
   // Permission checks
   const canLoad = can('adapter:load');
   const canUnload = can('adapter:unload');
   const canDelete = can('adapter:delete');
+  const canManageStacks = can('adapter:register'); // Use adapter:register as proxy for stack management
 
   // Handle back navigation
   const handleBack = () => {
@@ -319,6 +364,16 @@ export default function AdapterDetailPage() {
               Refresh
             </Button>
 
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAddToStackModal(true)}
+              disabled={!canManageStacks}
+            >
+              <Layers className="h-4 w-4 mr-2" />
+              Add to Stack
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" disabled={isOperationLoading}>
@@ -348,6 +403,14 @@ export default function AdapterDetailPage() {
                   {isPinned ? 'Unpin Adapter' : 'Pin Adapter'}
                   <HelpTooltip content={isPinned ? 'Allow eviction under memory pressure' : 'Prevent eviction'} />
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setShowAddToStackModal(true)}
+                  disabled={!canManageStacks}
+                >
+                  <Layers className="h-4 w-4 mr-2" />
+                  Add to Stack
+                  <HelpTooltip content="Add this adapter to an existing or new stack" />
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleDelete}
@@ -365,12 +428,13 @@ export default function AdapterDetailPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="activations">Activations</TabsTrigger>
             <TabsTrigger value="lineage">Lineage</TabsTrigger>
             <TabsTrigger value="manifest">Manifest</TabsTrigger>
             <TabsTrigger value="lifecycle">Lifecycle</TabsTrigger>
+            <TabsTrigger value="provenance">Provenance</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
@@ -416,8 +480,37 @@ export default function AdapterDetailPage() {
               isDemoting={isDemoting}
             />
           </TabsContent>
+
+          <TabsContent value="provenance" className="mt-6">
+            <TrainingSnapshotPanel adapterId={adapterId} />
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Add to Stack Modal */}
+      {adapterId && (
+        <AddToStackModal
+          open={showAddToStackModal}
+          onOpenChange={setShowAddToStackModal}
+          adapterId={adapterId}
+        />
+      )}
+
+      {/* Policy Preflight Dialog */}
+      {preflightResult && (
+        <PolicyPreflightDialog
+          open={showPreflightDialog}
+          onOpenChange={setShowPreflightDialog}
+          title={`Policy Validation - ${preflightOperation === 'load' ? 'Load' : 'Unload'} Adapter`}
+          description={`The following policies will be enforced when ${preflightOperation === 'load' ? 'loading' : 'unloading'} this adapter`}
+          checks={preflightResult.checks}
+          canProceed={preflightResult.canProceed}
+          onProceed={handlePreflightProceed}
+          onCancel={handlePreflightCancel}
+          isAdmin={can('policy:override')}
+          isLoading={isOperationLoading}
+        />
+      )}
     </FeatureLayout>
   );
 }

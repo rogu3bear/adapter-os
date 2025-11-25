@@ -198,14 +198,14 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
         )}
 
         {/* ETA */}
-        {(status === 'running' || status === 'pending') && (
+        {(status === 'running' || status === 'pending' || status === 'paused') && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" />
               Estimated Time Remaining
             </span>
             <span className="font-medium">
-              {status === 'paused' 
+              {status === 'paused'
                 ? 'Paused'
                 : progress.eta_seconds !== undefined && progress.eta_seconds > 0
                 ? formatDuration(progress.eta_seconds)
