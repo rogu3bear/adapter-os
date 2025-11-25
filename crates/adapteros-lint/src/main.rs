@@ -1,21 +1,22 @@
 //! AdapterOS Lint Driver
 //!
-//! This binary provides a command-line interface for running AdapterOS determinism
+//! This binary provides a command-line interface for running AdapterOS architectural
 //! lint rules. It can be used as a standalone tool or integrated into CI/CD pipelines.
 
 use std::env;
+use std::path::Path;
 use std::process;
-use tracing::error;
+use adapteros_lint::architectural::{check_file, check_directory, ArchitecturalViolation};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        error!("Usage: {} <command> [args...]", args[0]);
-        error!("Commands:");
-        error!("  check <path>     - Check a single file for determinism violations");
-        error!("  check-dir <path> - Check all Rust files in a directory");
-        error!("  help             - Show this help message");
+        eprintln!("Usage: {} <command> [args...]", args[0]);
+        eprintln!("Commands:");
+        eprintln!("  check <path>     - Check a single file for architectural violations");
+        eprintln!("  check-all        - Check all handlers for architectural violations");
+        eprintln!("  help             - Show this help message");
         process::exit(1);
     }
 
@@ -24,73 +25,121 @@ fn main() {
     match command.as_str() {
         "check" => {
             if args.len() < 3 {
-                error!("Error: check command requires a file path");
+                eprintln!("Error: check command requires a file or directory path");
                 process::exit(1);
             }
-            let file_path = &args[2];
-            check_file(file_path);
+            let path = &args[2];
+            let path_obj = Path::new(path);
+            if path_obj.is_file() {
+                check_file_path(path);
+            } else if path_obj.is_dir() {
+                check_directory_path(path);
+            } else {
+                eprintln!("Error: path does not exist: {}", path);
+                process::exit(1);
+            }
         }
-        "check-dir" => {
-            if args.len() < 3 {
-                error!("Error: check-dir command requires a directory path");
-                process::exit(1);
-            }
-            let dir_path = &args[2];
-            check_directory(dir_path);
+        "check-all" => {
+            check_all_handlers();
         }
         "help" => {
             print_help();
         }
         _ => {
-            error!("Unknown command: {}", command);
-            error!("Use 'help' to see available commands");
+            eprintln!("Unknown command: {}", command);
+            eprintln!("Use 'help' to see available commands");
             process::exit(1);
         }
     }
 }
 
-fn check_file(file_path: &str) {
-    println!("Checking file: {}", file_path);
-
-    // In a real implementation, this would:
-    // 1. Parse the Rust file
-    // 2. Run the determinism lint rules
-    // 3. Report violations
-
-    println!("✓ File check completed (placeholder implementation)");
+fn check_file_path(file_path: &str) {
+    let path = Path::new(file_path);
+    let violations = check_file(path);
+    report_violations(&violations, file_path);
+    if !violations.is_empty() {
+        process::exit(1);
+    }
 }
 
-fn check_directory(dir_path: &str) {
-    println!("Checking directory: {}", dir_path);
+fn check_directory_path(dir_path: &str) {
+    let path = Path::new(dir_path);
+    let violations = check_directory(path);
+    report_violations(&violations, dir_path);
+    if !violations.is_empty() {
+        process::exit(1);
+    }
+}
 
-    // In a real implementation, this would:
-    // 1. Find all Rust files in the directory
-    // 2. Run the determinism lint rules on each file
-    // 3. Aggregate and report violations
+fn check_all_handlers() {
+    let handlers_path = Path::new("crates/adapteros-server-api/src/handlers");
+    if !handlers_path.exists() {
+        eprintln!("Error: handlers directory not found: {}", handlers_path.display());
+        process::exit(1);
+    }
+    
+    let violations = check_directory(handlers_path);
+    report_violations(&violations, "all handlers");
+    if !violations.is_empty() {
+        process::exit(1);
+    }
+}
 
-    println!("✓ Directory check completed (placeholder implementation)");
+fn report_violations(violations: &[ArchitecturalViolation], context: &str) {
+    if violations.is_empty() {
+        println!("✓ No architectural violations found in {}", context);
+        return;
+    }
+
+    eprintln!("Found {} architectural violation(s) in {}:", violations.len(), context);
+    eprintln!();
+
+    for violation in violations {
+        match violation {
+            ArchitecturalViolation::LifecycleManagerBypass { file, line, context } => {
+                eprintln!("  [Lifecycle Manager Bypass] {}:{}", file, line);
+                eprintln!("    Context: {}", context);
+            }
+            ArchitecturalViolation::NonTransactionalFallback { file, line, context } => {
+                eprintln!("  [Non-Transactional Fallback] {}:{}", file, line);
+                eprintln!("    Context: {}", context);
+                eprintln!("    Fix: Use update_adapter_state_tx() instead of update_adapter_state()");
+            }
+            ArchitecturalViolation::DirectSqlInHandler { file, line, query } => {
+                eprintln!("  [Direct SQL in Handler] {}:{}", file, line);
+                eprintln!("    Query: {}", query);
+                eprintln!("    Fix: Use Db trait method instead");
+            }
+            ArchitecturalViolation::NonDeterministicSpawn { file, line, context } => {
+                eprintln!("  [Non-Deterministic Spawn] {}:{}", file, line);
+                eprintln!("    Context: {}", context);
+                eprintln!("    Fix: Use spawn_deterministic() instead");
+            }
+        }
+        eprintln!();
+    }
 }
 
 fn print_help() {
-    println!("AdapterOS Determinism Lint Tool");
+    println!("AdapterOS Architectural Lint Tool");
     println!();
-    println!("This tool helps detect nondeterminism in AdapterOS code.");
+    println!("This tool helps detect architectural violations in AdapterOS code.");
     println!();
-    println!("Usage: adapteros-lint-driver <command> [args...]");
+    println!("Usage: adapteros-lint <command> [args...]");
     println!();
     println!("Commands:");
-    println!("  check <path>     - Check a single Rust file for determinism violations");
-    println!("  check-dir <path> - Check all Rust files in a directory recursively");
+    println!("  check <path>     - Check a single file or directory for violations");
+    println!("  check-all        - Check all handlers for violations");
     println!("  help             - Show this help message");
     println!();
     println!("Examples:");
-    println!("  adapteros-lint-driver check src/main.rs");
-    println!("  adapteros-lint-driver check-dir crates/");
+    println!("  adapteros-lint check crates/adapteros-server-api/src/handlers.rs");
+    println!("  adapteros-lint check crates/adapteros-server-api/src/handlers/");
+    println!("  adapteros-lint check-all");
     println!();
     println!("The tool detects:");
-    println!("  - tokio::task::spawn_blocking calls");
-    println!("  - Wall-clock time usage (SystemTime::now(), Instant::now())");
-    println!("  - Random number generation without proper seeding");
-    println!("  - File I/O operations");
-    println!("  - System calls");
+    println!("  - Lifecycle manager bypasses (direct DB updates before lifecycle manager)");
+    println!("  - Non-transactional fallbacks (should use update_adapter_state_tx)");
+    println!("  - Direct SQL queries in handlers (should use Db trait methods)");
+    println!("  - Non-deterministic spawns in deterministic contexts");
 }
