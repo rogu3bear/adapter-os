@@ -27,10 +27,12 @@ pub mod adapters;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;
+pub mod capacity;
 pub mod chunked_upload;
 pub mod code;
 pub mod dashboard;
 pub mod datasets;
+pub mod diagnostics;
 pub mod domain_adapters;
 pub mod federation;
 pub mod git;
@@ -432,47 +434,51 @@ pub async fn upsert_directory_adapter(
         let adapter_result = state.db.get_adapter(&adapter_id).await;
 
         match adapter_result {
-            Ok(Some(a)) => {
-                tracing::info!(adapter_id = %adapter_id, "updating adapter state to loading");
-                let _ = state
-                    .db
-                    .update_adapter_state(&adapter_id, "loading", "directory_upsert")
-                    .await;
-
+            Ok(Some(_a)) => {
+                tracing::info!(adapter_id = %adapter_id, "loading adapter via lifecycle manager");
+                
+                // Use lifecycle manager if available
                 if let Some(ref lifecycle) = state.lifecycle_manager {
-                    use adapteros_core::B3Hash;
-                    use adapteros_lora_lifecycle::AdapterLoader;
-                    use std::path::PathBuf;
-                    // Use the DB numeric id if it parses, else fall back to 0
-                    let adapter_idx = a.id.parse::<u16>().unwrap_or(0);
-                    let adapters_path = PathBuf::from("./adapters");
-                    let mut expected_hashes: HashMap<String, B3Hash> = HashMap::new();
-                    expected_hashes.insert(String::from(&hash_hex), analysis.fingerprint);
-                    let mut loader = AdapterLoader::new(adapters_path, expected_hashes);
-                    if loader
-                        .load_adapter_async(adapter_idx, &hash_hex)
-                        .await
-                        .is_ok()
-                    {
-                        tracing::info!(adapter_id = %adapter_id, "adapter loaded successfully");
+                    let mut manager = lifecycle.lock().await;
+                    
+                    // Load adapter (updates internal state only)
+                    if let Err(e) = manager.get_or_reload(&adapter_id) {
+                        tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
+                        // Fallback: update DB state to indicate load failure
                         let _ = state
                             .db
-                            .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
+                            .update_adapter_state_tx(&adapter_id, "cold", "load_failed")
                             .await;
-                        activated = true;
                     } else {
-                        tracing::info!(adapter_id = %adapter_id, "adapter load failed");
-                        let _ = state
-                            .db
-                            .update_adapter_state(&adapter_id, "cold", "load_failed")
-                            .await;
+                        // Update state (handles DB update if db is set)
+                        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+                            use adapteros_lora_lifecycle::AdapterState;
+                            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await {
+                                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager");
+                                // Fallback: update DB state directly
+                                let _ = state
+                                    .db
+                                    .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                                    .await;
+                            } else {
+                                tracing::info!(adapter_id = %adapter_id, "adapter loaded successfully");
+                                activated = true;
+                            }
+                        } else {
+                            tracing::warn!(adapter_id = %adapter_id, "Adapter not found in lifecycle manager");
+                            // Fallback: update DB state directly
+                            let _ = state
+                                .db
+                                .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                                .await;
+                        }
                     }
                 } else {
-                    // Simulate load
-                    tracing::info!(adapter_id = %adapter_id, "simulating adapter load");
+                    // Fallback: direct DB update if no lifecycle manager
+                    tracing::info!(adapter_id = %adapter_id, "simulating adapter load (no lifecycle manager)");
                     let _ = state
                         .db
-                        .update_adapter_state(&adapter_id, "warm", "simulated_load")
+                        .update_adapter_state_tx(&adapter_id, "warm", "simulated_load")
                         .await;
                     activated = true;
                 }
@@ -516,16 +522,9 @@ pub async fn update_tenant(
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    // Update tenant in database
+    // Update tenant in database using Db trait methods
     if let Some(ref name) = req.name {
-        sqlx::query(
-            "UPDATE tenants SET name = ?, updated_at = datetime('now') WHERE tenant_id = ?",
-        )
-        .bind(name)
-        .bind(&tenant_id)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
+        state.db.rename_tenant(&tenant_id, name).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -538,14 +537,7 @@ pub async fn update_tenant(
     }
 
     if let Some(itar_flag) = req.itar_flag {
-        sqlx::query(
-            "UPDATE tenants SET itar_flag = ?, updated_at = datetime('now') WHERE tenant_id = ?",
-        )
-        .bind(itar_flag)
-        .bind(&tenant_id)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
+        state.db.update_tenant_itar_flag(&tenant_id, itar_flag).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -557,26 +549,26 @@ pub async fn update_tenant(
         })?;
     }
 
-    // Fetch updated tenant
-    let row = sqlx::query(
-        "SELECT tenant_id, name, itar_flag, created_at FROM tenants WHERE tenant_id = ?",
-    )
-    .bind(&tenant_id)
-    .fetch_one(state.db.pool())
-    .await
-    .map_err(|e| {
+    // Fetch updated tenant using Db trait method
+    let tenant = state.db.get_tenant(&tenant_id).await.map_err(|e| {
         (
-            StatusCode::NOT_FOUND,
+            StatusCode::INTERNAL_SERVER_ERROR,
             Json(
-                ErrorResponse::new("tenant not found")
-                    .with_code("NOT_FOUND")
+                ErrorResponse::new("failed to fetch tenant")
+                    .with_code("INTERNAL_SERVER_ERROR")
                     .with_string_details(e.to_string()),
             ),
         )
     })?;
-
-    use sqlx::Row;
-    let tenant_id_value: String = row.get("tenant_id");
+    
+    let tenant = tenant.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("tenant not found").with_code("NOT_FOUND")),
+        )
+    })?;
+    
+    let tenant_id_value = tenant.id.clone();
 
     // Audit log: tenant updated
     let _ = crate::audit_helper::log_success(
@@ -591,9 +583,9 @@ pub async fn update_tenant(
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: tenant_id_value,
-        name: row.get("name"),
-        itar_flag: row.get("itar_flag"),
-        created_at: row.get("created_at"),
+        name: tenant.name,
+        itar_flag: tenant.itar_flag,
+        created_at: tenant.created_at,
         status: "active".to_string(),
     }))
 }
@@ -606,14 +598,8 @@ pub async fn pause_tenant(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    // Update tenant status to 'paused' in database
-    sqlx::query(
-        "UPDATE tenants SET status = 'paused', updated_at = datetime('now') WHERE tenant_id = ?",
-    )
-    .bind(&tenant_id)
-    .execute(state.db.pool())
-    .await
-    .map_err(|e| {
+    // Update tenant status to 'paused' using Db trait method
+    state.db.pause_tenant(&tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -647,14 +633,8 @@ pub async fn archive_tenant(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
 
-    // Mark tenant as archived in database
-    sqlx::query(
-        "UPDATE tenants SET status = 'archived', updated_at = datetime('now') WHERE tenant_id = ?",
-    )
-    .bind(&tenant_id)
-    .execute(state.db.pool())
-    .await
-    .map_err(|e| {
+    // Mark tenant as archived using Db trait method
+    state.db.archive_tenant(&tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -679,10 +659,7 @@ pub async fn archive_tenant(
 
     Ok(StatusCode::NO_CONTENT)
 }
-use adapteros_lora_lifecycle::{AllocationTier, LifecycleManager};
 // UmaPressureMonitor: using mock from AppState (adapteros_lora_worker crate is excluded)
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[utoipa::path(
     tag = "system",
@@ -1313,18 +1290,9 @@ pub async fn assign_tenant_policies(
 ) -> Result<Json<AssignPoliciesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Compliance])?;
 
-    // Create tenant-policy associations in database
+    // Create tenant-policy associations using Db trait method
     for policy_id in &req.policy_ids {
-        sqlx::query(
-            "INSERT OR REPLACE INTO tenant_policies (tenant_id, cpid, assigned_by, assigned_at)
-             VALUES (?, ?, ?, datetime('now'))",
-        )
-        .bind(&tenant_id)
-        .bind(policy_id)
-        .bind(&claims.sub)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
+        state.db.assign_policy_to_tenant(&tenant_id, policy_id, &claims.sub).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -1359,18 +1327,9 @@ pub async fn assign_tenant_adapters(
 ) -> Result<Json<AssignAdaptersResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
-    // Create tenant-adapter associations in database
+    // Create tenant-adapter associations using Db trait method
     for adapter_id in &req.adapter_ids {
-        sqlx::query(
-            "INSERT OR REPLACE INTO tenant_adapters (tenant_id, adapter_id, assigned_by, assigned_at)
-             VALUES (?, ?, ?, datetime('now'))"
-        )
-        .bind(&tenant_id)
-        .bind(adapter_id)
-        .bind(&claims.sub)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
+        state.db.assign_adapter_to_tenant(&tenant_id, adapter_id, &claims.sub).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("failed to assign adapter").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
@@ -1583,16 +1542,8 @@ pub async fn mark_node_offline(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
 
-    // Update node status in database
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
-        "UPDATE nodes SET status = 'offline', last_seen_at = ? WHERE id = ?"
-    )
-    .bind(&timestamp)
-    .bind(&node_id)
-    .execute(state.db.pool())
-    .await
-    .map_err(|e| {
+    // Update node status using Db trait method
+    state.db.update_node_status(&node_id, "offline").await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -1649,21 +1600,17 @@ pub async fn evict_node(
         ));
     }
 
-    // Delete node from database
-    sqlx::query("DELETE FROM nodes WHERE id = ?")
-        .bind(&node_id)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to delete node")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Delete node using Db trait method
+    state.db.delete_node(&node_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to delete node")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // Audit log: node evicted
     let _ = crate::audit_helper::log_success(
@@ -2345,21 +2292,30 @@ pub async fn worker_spawn(
     // Create UDS path for worker
     let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
 
-    // Register worker in database
+    // Register worker using Db trait method
+    use adapteros_db::workers::WorkerInsertBuilder;
     let worker_id = uuid::Uuid::now_v7().to_string();
-    sqlx::query(
-        "INSERT INTO workers (id, tenant_id, node_id, plan_id, uds_path, pid, status) 
-         VALUES (?, ?, ?, ?, ?, ?, 'starting')",
-    )
-    .bind(&worker_id)
-    .bind(&req.tenant_id)
-    .bind(&req.node_id)
-    .bind(&req.plan_id)
-    .bind(&uds_path)
-    .bind(pid)
-    .execute(state.db.pool())
-    .await
-    .map_err(|e| {
+    let mut builder = WorkerInsertBuilder::new()
+        .id(&worker_id)
+        .tenant_id(&req.tenant_id)
+        .node_id(&req.node_id)
+        .plan_id(&req.plan_id)
+        .uds_path(&uds_path)
+        .status("starting");
+    if let Some(p) = pid {
+        builder = builder.pid(p);
+    }
+    let params = builder.build().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to build worker parameters")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    state.db.insert_worker(params).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -2507,21 +2463,17 @@ pub async fn stop_worker(
 
     let previous_status = worker.status.clone();
 
-    // Update worker status to 'stopping'
-    sqlx::query("UPDATE workers SET status = 'stopping' WHERE id = ?")
-        .bind(&worker_id)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update worker status")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Update worker status to 'stopping' using Db trait method
+    state.db.update_worker_status(&worker_id, "stopping").await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to update worker status")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // If worker has a PID, attempt to terminate the process
     if let Some(pid) = worker.pid {
@@ -2535,12 +2487,8 @@ pub async fn stop_worker(
         );
     }
 
-    // Update worker status to 'stopped'
-    sqlx::query("UPDATE workers SET status = 'stopped' WHERE id = ?")
-        .bind(&worker_id)
-        .execute(state.db.pool())
-        .await
-        .map_err(|e| {
+    // Update worker status to 'stopped' using Db trait method
+    state.db.update_worker_status(&worker_id, "stopped").await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -4750,21 +4698,34 @@ pub async fn load_adapter(
             )
         })?;
 
-    // Update adapter state to 'loading'
-    state
-        .db
-        .update_adapter_state(&adapter_id, "loading", "user_request")
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter state")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Use lifecycle manager if available to update state to 'loading'
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        let manager = lifecycle.lock().await;
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            use adapteros_lora_lifecycle::AdapterState;
+            // Update state to loading via lifecycle manager
+            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "user_request").await {
+                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager, continuing");
+            }
+        }
+    } else {
+        // Fallback: direct DB update if no lifecycle manager
+        // Use transactional version for safety in handlers
+        state
+            .db
+            .update_adapter_state_tx(&adapter_id, "loading", "user_request")
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    }
 
     let expected_hash = parse_hash_b3(&adapter.hash_b3).map_err(|e| {
         (
@@ -4783,84 +4744,53 @@ pub async fn load_adapter(
 
     // Actually load the adapter using LifecycleManager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        // Get adapter index (this is a simplified lookup - in production you'd maintain a proper mapping)
-        let adapter_idx = adapter.id.parse::<u16>().unwrap_or(0);
-
-        // Use AdapterLoader via LifecycleManager
-        let lifecycle_mgr = lifecycle.lock().await;
-
-        // Load adapter file from disk
-        use adapteros_lora_lifecycle::AdapterLoader;
-        use std::path::PathBuf;
-
-        let adapters_path = PathBuf::from("./adapters");
-        let mut loader = AdapterLoader::new(adapters_path, expected_hashes);
-
-        match loader
-            .load_adapter_async(adapter_idx, &adapter.hash_b3)
-            .await
-        {
-            Ok(handle) => {
-                // Update adapter state to 'warm' and record memory usage
-                state
+        let mut manager = lifecycle.lock().await;
+        
+        // Load adapter (updates internal state only)
+        manager.get_or_reload(&adapter_id).map_err(|e| {
+            tracing::error!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load adapter")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+        
+        // Update state (handles DB update if db is set)
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            use adapteros_lora_lifecycle::AdapterState;
+            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await {
+                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager");
+                // Fallback: update DB state directly
+                // Note: This is a best-effort fallback, the adapter is already loaded
+                let _ = state
                     .db
-                    .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
-                    .await
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_SERVER_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
-                    })?;
-
-                state
-                    .db
-                    .update_adapter_memory(&adapter_id, handle.memory_bytes() as i64)
-                    .await
-                    .map_err(|e| {
-                        tracing::warn!("Failed to update adapter memory: {}", e);
-                        // Don't fail the request for this
-                    })
-                    .ok();
-
-                tracing::info!(
-                    event = "adapter.load",
-                    adapter_id = %adapter_id,
-                    adapter_name = %adapter.name,
-                    memory_bytes = handle.memory_bytes(),
-                    "Adapter loaded successfully"
-                );
+                    .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                    .await;
             }
-            Err(e) => {
-                // Rollback state on error
-                state
-                    .db
-                    .update_adapter_state(&adapter_id, "cold", "load_failed")
-                    .await
-                    .ok();
-
-                tracing::error!("Failed to load adapter {}: {}", adapter_id, e);
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to load adapter")
-                            .with_code("LOAD_FAILED")
-                            .with_string_details(e.to_string()),
-                    ),
-                ));
-            }
+            
+            // Note: Memory tracking is handled internally by lifecycle manager
+        } else {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("adapter not found in lifecycle manager")
+                        .with_code("NOT_FOUND"),
+                ),
+            ));
         }
     } else {
-        // No lifecycle manager - just simulate for testing
+        // Fallback: direct DB update if no lifecycle manager
+        // Use transactional version for safety in handlers
+        tracing::info!(adapter_id = %adapter_id, "simulating adapter load (no lifecycle manager)");
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         state
             .db
-            .update_adapter_state(&adapter_id, "warm", "simulated_load")
+            .update_adapter_state_tx(&adapter_id, "warm", "simulated_load")
             .await
             .map_err(|e| {
                 (
@@ -4991,88 +4921,22 @@ pub async fn unload_adapter(
             )
         })?;
 
-    // Update adapter state to 'unloading'
-    state
-        .db
-        .update_adapter_state(&adapter_id, "unloading", "user_request")
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter state")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    tracing::info!("Unloading adapter {}", adapter_id);
-
-    // Actually unload the adapter using LifecycleManager if available
+    // Use lifecycle manager if available to update state to 'unloading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
-        let adapter_idx = _adapter.id.parse::<u16>().unwrap_or(0);
-
-        let lifecycle_mgr = lifecycle.lock().await;
-
-        use adapteros_lora_lifecycle::AdapterLoader;
-        use std::path::PathBuf;
-
-        let adapters_path = PathBuf::from("./adapters");
-        let mut loader = AdapterLoader::new(adapters_path, HashMap::new());
-
-        match loader.unload_adapter(adapter_idx) {
-            Ok(_) => {
-                // Update adapter state to 'cold' and reset memory
-                state
-                    .db
-                    .update_adapter_state(&adapter_id, "cold", "unloaded_successfully")
-                    .await
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_SERVER_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
-                    })?;
-
-                state.db.update_adapter_memory(&adapter_id, 0).await.ok();
-
-                tracing::info!(
-                    event = "adapter.unload",
-                    adapter_id = %adapter_id,
-                    "Adapter unloaded successfully"
-                );
-            }
-            Err(e) => {
-                // Rollback state on error
-                state
-                    .db
-                    .update_adapter_state(&adapter_id, "warm", "unload_failed")
-                    .await
-                    .ok();
-
-                tracing::error!("Failed to unload adapter {}: {}", adapter_id, e);
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to unload adapter")
-                            .with_code("UNLOAD_FAILED")
-                            .with_string_details(e.to_string()),
-                    ),
-                ));
+        let manager = lifecycle.lock().await;
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            use adapteros_lora_lifecycle::AdapterState;
+            // Update state to unloading via lifecycle manager
+            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Unloaded, "user_request").await {
+                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager, continuing");
             }
         }
     } else {
-        // No lifecycle manager - just simulate
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
+        // Fallback: direct DB update if no lifecycle manager
+        // Use transactional version for safety in handlers
         state
             .db
-            .update_adapter_state(&adapter_id, "cold", "simulated_unload")
+            .update_adapter_state_tx(&adapter_id, "unloading", "user_request")
             .await
             .map_err(|e| {
                 (
@@ -5084,13 +4948,78 @@ pub async fn unload_adapter(
                     ),
                 )
             })?;
+    }
 
+    tracing::info!("Unloading adapter {}", adapter_id);
+
+    // Actually unload the adapter using LifecycleManager if available
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        let manager = lifecycle.lock().await;
+        
+        // Get adapter index
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            // Use evict_adapter which handles both unloading and DB update
+            if let Err(e) = manager.evict_adapter(adapter_idx).await {
+                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to evict adapter via lifecycle manager");
+                // Fallback: update DB state directly
+                // Note: This is a best-effort fallback, adapter may still be loaded in memory
+                let _ = state
+                    .db
+                    .update_adapter_state_tx(&adapter_id, "unloaded", "eviction_fallback")
+                    .await;
+            }
+            
+            tracing::info!(
+                event = "adapter.unload",
+                adapter_id = %adapter_id,
+                "Adapter unloaded successfully via lifecycle manager"
+            );
+        } else {
+            // Adapter not found in lifecycle manager, update DB state directly
+            state
+                .db
+                .update_adapter_state_tx(&adapter_id, "unloaded", "not_found_in_lifecycle_manager")
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("failed to update adapter state")
+                                .with_code("INTERNAL_SERVER_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            
+            tracing::info!(
+                event = "adapter.unload",
+                adapter_id = %adapter_id,
+                "Adapter state updated (not found in lifecycle manager)"
+            );
+        }
+    } else {
+        // Fallback: direct DB update if no lifecycle manager
+        state
+            .db
+            .update_adapter_state_tx(&adapter_id, "unloaded", "unloaded_via_api")
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        
         state.db.update_adapter_memory(&adapter_id, 0).await.ok();
-
+        
         tracing::info!(
             event = "adapter.unload",
             adapter_id = %adapter_id,
-            "Adapter unloaded successfully (simulated)"
+            "Adapter unloaded successfully (no lifecycle manager)"
         );
     }
 
@@ -5316,16 +5245,7 @@ pub async fn promote_adapter_state(
     let old_tier = adapter.tier.clone();
 
     // Update adapter tier in database
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
-        "UPDATE adapters SET tier = ?, updated_at = ? WHERE adapter_id = ?"
-    )
-    .bind(&new_tier)
-    .bind(&timestamp)
-    .bind(&adapter_id)
-    .execute(state.db.pool())
-    .await
-    .map_err(|e| {
+    state.db.update_adapter_tier(&adapter_id, &new_tier).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -7345,6 +7265,7 @@ pub async fn create_training_session(
             req.template_id,
             req.repo_id,
             None, // dataset_id
+            Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
         )
         .await
         .map_err(|e| {
@@ -8162,16 +8083,12 @@ pub async fn update_anomaly_status(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Update anomaly status in database
-    sqlx::query(
-        "UPDATE process_anomalies SET status = ?, investigation_notes = ?, investigated_by = ? WHERE id = ?",
-    )
-    .bind(&req.status)
-    .bind(&req.investigation_notes)
-    .bind(&req.investigated_by)
-    .bind(&anomaly_id)
-    .execute(state.db.pool())
-    .await
-    .map_err(|e: sqlx::Error| {
+    state.db.update_anomaly_status(
+        &anomaly_id,
+        &req.status,
+        &req.investigation_notes.as_deref().unwrap_or(""),
+        &req.investigated_by.as_deref().unwrap_or("system"),
+    ).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("database error").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),

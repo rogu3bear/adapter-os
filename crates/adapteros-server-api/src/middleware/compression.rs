@@ -16,7 +16,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tower_http::compression::predicate::SizeAbove;
 use tower_http::compression::{CompressionLayer, CompressionLevel};
 
 /// Content types that should not be compressed (already compressed)

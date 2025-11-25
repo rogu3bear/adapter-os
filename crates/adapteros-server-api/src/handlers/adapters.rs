@@ -114,7 +114,7 @@ pub async fn promote_adapter_lifecycle(
     let old_state = adapter.current_state.clone();
 
     // Determine next state
-    let new_state = match old_state.as_str() {
+    let new_state_str = match old_state.as_str() {
         "unloaded" => "cold",
         "cold" => "warm",
         "warm" => "hot",
@@ -134,22 +134,94 @@ pub async fn promote_adapter_lifecycle(
         }
     };
 
-    // Update state in database
-    state
-        .db
-        .update_adapter_state_tx(&adapter_id, new_state, &req.reason)
-        .await
-        .map_err(|e| {
-            error!("Failed to update adapter state: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter state")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Use lifecycle manager if available
+    let new_state = if let Some(ref lifecycle) = state.lifecycle_manager {
+        let mut manager = lifecycle.lock().await;
+        
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            // Promote adapter via lifecycle manager
+            manager.promote_adapter(adapter_idx).map_err(|e| {
+                error!("Failed to promote adapter via lifecycle manager: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to promote adapter")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+            
+            // Get the new state and sync with database
+            use adapteros_lora_lifecycle::AdapterState;
+            let new_state_enum = match new_state_str {
+                "cold" => AdapterState::Cold,
+                "warm" => AdapterState::Warm,
+                "hot" => AdapterState::Hot,
+                "resident" => AdapterState::Resident,
+                _ => AdapterState::Cold,
+            };
+            
+            // Sync with database via lifecycle manager
+            if let Err(e) = manager.update_adapter_state(adapter_idx, new_state_enum, &req.reason).await {
+                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
+                // Fallback: update DB directly
+                state
+                    .db
+                    .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to update adapter state: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to update adapter state")
+                                    .with_code("INTERNAL_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+            }
+            
+            new_state_str.to_string()
+        } else {
+            // Adapter not found in lifecycle manager, update DB directly
+            state
+                .db
+                .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
+                .await
+                .map_err(|e| {
+                    error!("Failed to update adapter state: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("failed to update adapter state")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            new_state_str.to_string()
+        }
+    } else {
+        // Fallback: direct DB update if no lifecycle manager
+        state
+            .db
+            .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
+            .await
+            .map_err(|e| {
+                error!("Failed to update adapter state: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        new_state_str.to_string()
+    };
 
     let timestamp = chrono::Utc::now().to_rfc3339();
     let actor = claims.sub.clone();
@@ -266,7 +338,7 @@ pub async fn demote_adapter_lifecycle(
     let old_state = adapter.current_state.clone();
 
     // Determine previous state
-    let new_state = match old_state.as_str() {
+    let new_state_str = match old_state.as_str() {
         "resident" => "hot",
         "hot" => "warm",
         "warm" => "cold",
@@ -286,22 +358,94 @@ pub async fn demote_adapter_lifecycle(
         }
     };
 
-    // Update state in database
-    state
-        .db
-        .update_adapter_state_tx(&adapter_id, new_state, &req.reason)
-        .await
-        .map_err(|e| {
-            error!("Failed to update adapter state: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter state")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Use lifecycle manager if available
+    let new_state = if let Some(ref lifecycle) = state.lifecycle_manager {
+        let mut manager = lifecycle.lock().await;
+        
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            // Demote adapter via lifecycle manager
+            manager.demote_adapter(adapter_idx).map_err(|e| {
+                error!("Failed to demote adapter via lifecycle manager: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to demote adapter")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+            
+            // Get the new state and sync with database
+            use adapteros_lora_lifecycle::AdapterState;
+            let new_state_enum = match new_state_str {
+                "unloaded" => AdapterState::Unloaded,
+                "cold" => AdapterState::Cold,
+                "warm" => AdapterState::Warm,
+                "hot" => AdapterState::Hot,
+                _ => AdapterState::Unloaded,
+            };
+            
+            // Sync with database via lifecycle manager
+            if let Err(e) = manager.update_adapter_state(adapter_idx, new_state_enum, &req.reason).await {
+                tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
+                // Fallback: update DB directly
+                state
+                    .db
+                    .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to update adapter state: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to update adapter state")
+                                    .with_code("INTERNAL_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+            }
+            
+            new_state_str.to_string()
+        } else {
+            // Adapter not found in lifecycle manager, update DB directly
+            state
+                .db
+                .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
+                .await
+                .map_err(|e| {
+                    error!("Failed to update adapter state: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("failed to update adapter state")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+            new_state_str.to_string()
+        }
+    } else {
+        // Fallback: direct DB update if no lifecycle manager
+        state
+            .db
+            .update_adapter_state_tx(&adapter_id, new_state_str, &req.reason)
+            .await
+            .map_err(|e| {
+                error!("Failed to update adapter state: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        new_state_str.to_string()
+    };
 
     let timestamp = chrono::Utc::now().to_rfc3339();
     let actor = claims.sub.clone();
@@ -1235,74 +1379,130 @@ pub async fn swap_adapters(
         }));
     }
 
-    // Execute the swap: unload old, load new
-    // Update old adapter state to 'unloading'
-    state
-        .db
-        .update_adapter_state(&req.old_adapter_id, "unloading", "swap_request")
-        .await
-        .map_err(|e| {
-            error!("Failed to update old adapter state: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter state")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // Simulate unload (in production, this would use the lifecycle manager)
-    state
-        .db
-        .update_adapter_state(&req.old_adapter_id, "cold", "swapped_out")
-        .await
-        .map_err(|e| {
-            error!("Failed to complete unload: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to unload old adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // Update new adapter state to 'loading'
-    state
-        .db
-        .update_adapter_state(&req.new_adapter_id, "loading", "swap_request")
-        .await
-        .map_err(|e| {
-            error!("Failed to update new adapter state: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter state")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // Simulate load completion
-    state
-        .db
-        .update_adapter_state(&req.new_adapter_id, "warm", "swapped_in")
-        .await
-        .map_err(|e| {
-            error!("Failed to complete load: {}", e);
-            (
+    // Execute the swap: unload old, load new using lifecycle manager
+    // Unload old adapter via lifecycle manager
+    if let Some(ref lifecycle) = state.lifecycle_manager {
+        let mut manager = lifecycle.lock().await;
+        
+        // Unload old adapter
+        if let Some(old_adapter_idx) = manager.get_adapter_idx(&req.old_adapter_id) {
+            // Use evict_adapter which handles both unloading and DB update
+            if let Err(e) = manager.evict_adapter(old_adapter_idx).await {
+                tracing::warn!(adapter_id = %req.old_adapter_id, error = %e, "Failed to evict old adapter via lifecycle manager");
+                // Fallback: update DB state directly
+                state
+                    .db
+                    .update_adapter_state_tx(&req.old_adapter_id, "unloaded", "swap_eviction_fallback")
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to update old adapter state: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to update adapter state")
+                                    .with_code("INTERNAL_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+            }
+        } else {
+            // Adapter not found in lifecycle manager, update DB directly
+            state
+                .db
+                .update_adapter_state_tx(&req.old_adapter_id, "unloaded", "swap_not_found_in_lifecycle")
+                .await
+                .map_err(|e| {
+                    error!("Failed to update old adapter state: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("failed to update adapter state")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+        }
+        
+        // Load new adapter via lifecycle manager
+        if let Err(e) = manager.get_or_reload(&req.new_adapter_id) {
+            tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to load new adapter via lifecycle manager");
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
                     ErrorResponse::new("failed to load new adapter")
                         .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            )
-        })?;
+            ));
+        }
+        
+        // Update new adapter state via lifecycle manager
+        if let Some(new_adapter_idx) = manager.get_adapter_idx(&req.new_adapter_id) {
+            use adapteros_lora_lifecycle::AdapterState;
+            if let Err(e) = manager.update_adapter_state(new_adapter_idx, AdapterState::Warm, "swapped_in").await {
+                tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to update new adapter state via lifecycle manager");
+                // Fallback: update DB state directly
+                state
+                    .db
+                    .update_adapter_state_tx(&req.new_adapter_id, "warm", "swap_load_fallback")
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to update new adapter state: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("failed to update adapter state")
+                                    .with_code("INTERNAL_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+            }
+        } else {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("new adapter not found in lifecycle manager")
+                        .with_code("NOT_FOUND"),
+                ),
+            ));
+        }
+    } else {
+        // Fallback: direct DB updates if no lifecycle manager
+        state
+            .db
+            .update_adapter_state_tx(&req.old_adapter_id, "unloaded", "swap_no_lifecycle_manager")
+            .await
+            .map_err(|e| {
+                error!("Failed to update old adapter state: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        
+        state
+            .db
+            .update_adapter_state_tx(&req.new_adapter_id, "warm", "swap_no_lifecycle_manager")
+            .await
+            .map_err(|e| {
+                error!("Failed to update new adapter state: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update adapter state")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+    }
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
 

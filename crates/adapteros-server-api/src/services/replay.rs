@@ -1,11 +1,20 @@
+//! Replay service utilities
+//! 【2025-01-27†refactor(server)†extract-replay-service】
+//!
+//! Extracted from handlers.rs to centralize replay session management.
+
 use sqlx::Row;
 use adapteros_deterministic_exec::GlobalSeed;
 use uuid::Uuid;
 use rand::RngCore;
 use adapteros_replay::session::ReplaySession;
 use adapteros_core::AosError;
+use adapteros_db::Db;
+use crate::state::AppState;
 use tracing::info;
 
+/// Fetch bundle metadata for replay session
+/// 【2025-01-27†refactor(server)†extract-replay-service】
 pub async fn fetch_bundle_metadata(db: &Db, bundle_id: &str) -> Result<(String, String), sqlx::Error> {
     let row = sqlx::query("SELECT metadata_json FROM telemetry_bundles WHERE id = ?")
         .bind(bundle_id)
@@ -24,6 +33,8 @@ pub async fn fetch_bundle_metadata(db: &Db, bundle_id: &str) -> Result<(String, 
     Ok((cpid, plan_id))
 }
 
+/// Reconstruct bundle from replay session
+/// 【2025-01-27†refactor(server)†extract-replay-service】
 pub async fn reconstruct_bundle(bundle_id: &str, state: &AppState) -> Result<String, AosError> {
     let session = ReplaySession::from_bundle(bundle_id, &state.db).await?;
     let trace = session.replay().await?;

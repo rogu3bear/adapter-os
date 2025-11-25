@@ -4,9 +4,8 @@
 //! Workspaces enable cross-tenant collaboration while maintaining tenant isolation.
 
 use crate::audit_helper::{actions, log_success, resources};
-use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
+use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
-use adapteros_db::users::Role;
 use adapteros_db::workspaces::{ResourceType, WorkspaceRole};
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -15,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use utoipa::ToSchema;
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -205,7 +204,7 @@ pub async fn create_workspace(
         )
         .await
         .map_err(|e| {
-            warn!("Failed to add creator as workspace owner: {}", e);
+            tracing::warn!("Failed to add creator as workspace owner: {}", e);
             // Non-fatal, workspace was created
         })
         .ok();

@@ -9,7 +9,6 @@
 
 use anyhow::{anyhow, Context, Result};
 use blake3::Hasher;
-use flate2::Compression;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Read;
@@ -501,39 +500,86 @@ impl FileValidator {
     }
 
     /// Quick content validation without full parse
+    /// Returns detailed error messages with file name, line numbers, and encoding info
     pub async fn quick_validate(file_path: &Path, format: &str, max_bytes: usize) -> Result<()> {
+        let file_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        
         let metadata = fs::metadata(file_path)
             .await
-            .context("Failed to read file metadata")?;
+            .context(format!("Failed to read file metadata for {}", file_name))?;
 
         if metadata.len() == 0 {
-            return Err(anyhow!("File is empty"));
+            return Err(anyhow!("File {} is empty (size: 0 bytes)", file_name));
         }
 
         // Read first chunk for validation
-        let mut file = File::open(file_path).await.context("Failed to open file")?;
+        let mut file = File::open(file_path)
+            .await
+            .context(format!("Failed to open file {}", file_name))?;
 
         let read_size = (metadata.len() as usize).min(max_bytes);
         let mut buffer = vec![0u8; read_size];
         let n = file
             .read(&mut buffer)
             .await
-            .context("Failed to read file")?;
+            .context(format!("Failed to read file {}", file_name))?;
 
         buffer.truncate(n);
 
+        // Check encoding - use lossy conversion to detect invalid UTF-8
+        let content = String::from_utf8_lossy(&buffer);
+        if content.chars().any(|c| c == '\u{FFFD}') {
+            // Found replacement character, indicates invalid UTF-8
+            return Err(anyhow!(
+                "File {} has invalid UTF-8 encoding (contains non-UTF-8 bytes)",
+                file_name
+            ));
+        }
+
         match format {
             "jsonl" => {
-                for line in String::from_utf8_lossy(&buffer).lines() {
+                for (line_num, line) in content.lines().enumerate() {
                     if !line.trim().is_empty() {
-                        serde_json::from_str::<serde_json::Value>(line)
-                            .context("Invalid JSONL format")?;
+                        match serde_json::from_str::<serde_json::Value>(line) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                // Try to extract column number from error
+                                let col_info = if let Some(pos) = e.line() {
+                                    format!("line {}, column {}", line_num + 1, pos)
+                                } else {
+                                    format!("line {}", line_num + 1)
+                                };
+                                return Err(anyhow!(
+                                    "File {}: Invalid JSON at {}: {}",
+                                    file_name,
+                                    col_info,
+                                    e
+                                ));
+                            }
+                        }
                     }
                 }
             }
             "json" => {
-                serde_json::from_slice::<serde_json::Value>(&buffer)
-                    .context("Invalid JSON format")?;
+                match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        let line_info = if let Some(line) = e.line() {
+                            format!("line {}, column {}", line, e.column())
+                        } else {
+                            "unknown position".to_string()
+                        };
+                        return Err(anyhow!(
+                            "File {}: Invalid JSON at {}: {}",
+                            file_name,
+                            line_info,
+                            e
+                        ));
+                    }
+                }
             }
             _ => {
                 // No validation for other formats

@@ -118,7 +118,7 @@ pub async fn ingest_router_decision(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<IngestRouterDecisionRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
 
     debug!(
@@ -208,7 +208,9 @@ pub async fn ingest_router_decision(
             )
         })?;
 
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
+    // Return 200 OK (consistent with other ingestion endpoints)
+    // Status code can be set via response builder if 201 is required
+    Ok(Json(serde_json::json!({ "id": id })))
 }
 
 /// GET /v1/routing/decisions - Query routing decisions with filters
@@ -335,6 +337,238 @@ pub async fn get_routing_decision_by_id(
     })?;
 
     Ok(Json(convert_decision_to_response(decision)))
+}
+
+/// Adapter usage statistics response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdapterUsageResponse {
+    pub adapter_id: String,
+    pub call_count: i64,
+    pub average_gate_value: f64,
+    pub last_used: Option<String>,
+}
+
+/// Adapter fired in a step
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdapterFired {
+    pub adapter_idx: u16,
+    pub gate_value: f32,
+    pub selected: bool,
+}
+
+/// Step in a chat session
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SessionStep {
+    pub step: i64,
+    pub timestamp: String,
+    pub input_token_id: Option<i64>,
+    pub adapters_fired: Vec<AdapterFired>,
+    pub entropy: f64,
+    pub tau: f64,
+}
+
+/// Chat session router view response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SessionRouterViewResponse {
+    pub request_id: String,
+    pub stack_id: Option<String>,
+    pub stack_hash: Option<String>,
+    pub steps: Vec<SessionStep>,
+    pub total_steps: usize,
+}
+
+/// GET /v1/adapters/:adapter_id/usage - Get adapter usage statistics
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/usage",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter usage statistics", body = AdapterUsageResponse),
+        (status = 404, description = "Adapter not found")
+    ),
+    tag = "adapters",
+    security(("bearer_token" = []))
+)]
+pub async fn get_adapter_usage(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<AdapterUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(
+        &claims,
+        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+    )?;
+
+    debug!(adapter_id = %adapter_id, "Querying adapter usage statistics");
+
+    // Verify adapter exists
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, adapter_id = %adapter_id, "Failed to query adapter");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to query adapter")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if adapter.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("Adapter not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!("Adapter '{}' not found", adapter_id)),
+            ),
+        ));
+    }
+
+    // Get usage statistics from routing decisions
+    let (call_count, avg_gate, last_used) = state
+        .db
+        .get_adapter_usage_stats(&adapter_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, adapter_id = %adapter_id, "Failed to get adapter usage stats");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get adapter usage statistics")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(AdapterUsageResponse {
+        adapter_id,
+        call_count,
+        average_gate_value: avg_gate,
+        last_used,
+    }))
+}
+
+/// GET /v1/routing/sessions/:request_id - Get router decisions for a chat session
+#[utoipa::path(
+    get,
+    path = "/v1/routing/sessions/{request_id}",
+    params(
+        ("request_id" = String, Path, description = "Request ID (session identifier)")
+    ),
+    responses(
+        (status = 200, description = "Session router view", body = SessionRouterViewResponse),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "routing",
+    security(("bearer_token" = []))
+)]
+pub async fn get_session_router_view(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(request_id): Path<String>,
+) -> Result<Json<SessionRouterViewResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(
+        &claims,
+        &[Role::Admin, Role::Operator, Role::Viewer, Role::SRE],
+    )?;
+
+    debug!(request_id = %request_id, "Querying session router view");
+
+    // Get routing decisions for this session
+    let decisions = state
+        .db
+        .get_session_routing_decisions(&request_id, Some(1000))
+        .await
+        .map_err(|e| {
+            warn!(error = %e, request_id = %request_id, "Failed to query session routing decisions");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to query session routing decisions")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    if decisions.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("Session not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!("No routing decisions found for request_id '{}'", request_id)),
+            ),
+        ));
+    }
+
+    // Extract stack_id from first decision (all should have same stack_id for a session)
+    let stack_id = decisions.first().and_then(|d| d.stack_id.clone());
+    let stack_hash = decisions.first().and_then(|d| d.stack_hash.clone());
+
+    // Convert decisions to steps, ordered by step ASC
+    let mut steps: Vec<SessionStep> = decisions
+        .into_iter()
+        .map(|decision| {
+            // Parse candidate adapters to extract adapters fired
+            let adapters_fired: Vec<AdapterFired> =
+                serde_json::from_str(&decision.candidate_adapters)
+                    .ok()
+                    .map(|candidates: Vec<DbRouterCandidate>| {
+                        // Determine which candidates are selected (top-K)
+                        let mut sorted_candidates = candidates.clone();
+                        sorted_candidates.sort_by(|a, b| b.gate_q15.cmp(&a.gate_q15));
+                        let k = decision.k_value.unwrap_or(0) as usize;
+                        let selected_indices: std::collections::HashSet<u16> = sorted_candidates
+                            .iter()
+                            .take(k)
+                            .map(|c| c.adapter_idx)
+                            .collect();
+
+                        candidates
+                            .into_iter()
+                            .map(|c| {
+                                let selected = selected_indices.contains(&c.adapter_idx);
+                                let gate_float = (c.gate_q15 as f32) / 32767.0;
+                                AdapterFired {
+                                    adapter_idx: c.adapter_idx,
+                                    gate_value: gate_float,
+                                    selected,
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+            SessionStep {
+                step: decision.step,
+                timestamp: decision.timestamp,
+                input_token_id: decision.input_token_id,
+                adapters_fired,
+                entropy: decision.entropy,
+                tau: decision.tau,
+            }
+        })
+        .collect();
+
+    // Sort by step ASC for timeline view
+    steps.sort_by(|a, b| a.step.cmp(&b.step));
+
+    Ok(Json(SessionRouterViewResponse {
+        request_id,
+        stack_id,
+        stack_hash,
+        total_steps: steps.len(),
+        steps,
+    }))
 }
 
 /// Convert database routing decision to API response

@@ -1,8 +1,16 @@
+//! Retry utilities with deterministic exponential backoff
+//! 【2025-01-27†refactor(server)†extract-retry-logic】
+//!
+//! Extracted from handlers.rs to centralize retry logic with deterministic seeding.
+
 use tokio::time::{sleep, Duration};
 use adapteros_deterministic_exec::GlobalSeed;
 use rand::RngCore;
 use tracing::warn;
+use std::future::Future;
 
+/// Exponential backoff retry with deterministic jitter
+/// 【2025-01-27†refactor(server)†extract-retry-logic】
 pub async fn exponential_backoff<T, E, F, Fut>(max_attempts: usize, initial_delay: Duration, operation: F) -> Result<T, E> where F: Fn(usize) -> Fut, Fut: Future<Output = Result<T, E>> {
     let seed = GlobalSeed::get_or_init(b"retry_seed"); // Deterministic seed
     let mut rng = seed.rng();

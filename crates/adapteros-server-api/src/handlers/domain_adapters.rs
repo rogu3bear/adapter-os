@@ -173,7 +173,7 @@ pub async fn create_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateDomainAdapterRequest>,
-) -> Result<(StatusCode, Json<DomainAdapterResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
 
     // Validate inputs
@@ -261,7 +261,9 @@ pub async fn create_domain_adapter(
         updated_at: Utc::now().to_rfc3339(),
     };
 
-    Ok((StatusCode::CREATED, Json(response)))
+    // Return 200 OK (consistent with create_tenant pattern)
+    // Status code can be set via response builder if 201 is required
+    Ok(Json(response))
 }
 
 /// Load a domain adapter into the deterministic executor
@@ -331,6 +333,8 @@ pub async fn load_domain_adapter(
     // Use lifecycle manager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
         let mut manager = lifecycle.lock().await;
+        
+        // Load adapter (updates internal state only)
         manager.get_or_reload(&adapter_id).map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to load adapter via lifecycle manager");
             (
@@ -342,24 +346,65 @@ pub async fn load_domain_adapter(
                 ),
             )
         })?;
+        
+        // Update state (handles DB update if db is set)
+        if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+            use adapteros_lora_lifecycle::AdapterState;
+            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await {
+                error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state via lifecycle manager");
+                // Fallback: update DB state directly
+                state
+                    .db
+                    .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                    .await
+                    .map_err(|e| {
+                        error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new("Failed to update adapter state")
+                                    .with_code("INTERNAL_ERROR")
+                                    .with_string_details(e.to_string()),
+                            ),
+                        )
+                    })?;
+            }
+        } else {
+            // Adapter not found in lifecycle manager, update DB state directly
+            state
+                .db
+                .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                .await
+                .map_err(|e| {
+                    error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to update adapter state")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
+        }
+    } else {
+        // Fallback: direct DB update if no lifecycle manager
+        state
+            .db
+            .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+            .await
+            .map_err(|e| {
+                error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to update adapter state")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
     }
-
-    // Update adapter state to loaded in database
-    state
-        .db
-        .update_adapter_state_tx(&adapter_id, "warm", "Loaded via API")
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to update adapter state")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
 
     // Fetch updated adapter
     let updated_adapter = state

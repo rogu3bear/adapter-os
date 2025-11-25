@@ -42,6 +42,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::unload_adapter,
         handlers::verify_gpu_integrity,
         handlers::get_adapter_activations,
+        handlers::routing_decisions::get_adapter_usage,
         handlers::promote_adapter_state,
         handlers::list_repositories,
         handlers::get_quality_metrics,
@@ -128,7 +129,11 @@ use utoipa_swagger_ui::SwaggerUi;
         // Routing decision handlers (PRD-04)
         handlers::routing_decisions::get_routing_decisions,
         handlers::routing_decisions::get_routing_decision_by_id,
+        handlers::routing_decisions::get_session_router_view,
         handlers::routing_decisions::ingest_router_decision,
+        handlers::diagnostics::get_determinism_status,
+        handlers::diagnostics::get_quarantine_status,
+        handlers::capacity::get_capacity,
         // Trace handlers
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
@@ -190,6 +195,18 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::tutorials::unmark_tutorial_completed,
         handlers::tutorials::mark_tutorial_dismissed,
         handlers::tutorials::unmark_tutorial_dismissed,
+        // Tenant default stack handlers
+        handlers::get_default_stack,
+        handlers::set_default_stack,
+        handlers::clear_default_stack,
+        // Adapter stack handlers
+        handlers::adapter_stacks::list_stacks,
+        handlers::adapter_stacks::create_stack,
+        handlers::adapter_stacks::get_stack,
+        handlers::adapter_stacks::delete_stack,
+        handlers::adapter_stacks::get_stack_history,
+        handlers::adapter_stacks::activate_stack,
+        handlers::adapter_stacks::deactivate_stack,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -201,6 +218,12 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::health::SystemHealthResponse,
         crate::types::TenantResponse,
         crate::types::CreateTenantRequest,
+        crate::types::SetDefaultStackRequest,
+        crate::types::DefaultStackResponse,
+        handlers::adapter_stacks::StackResponse,
+        handlers::adapter_stacks::CreateStackRequest,
+        handlers::adapter_stacks::WorkflowType,
+        handlers::adapter_stacks::LifecycleHistoryResponse,
         crate::types::ProposePatchRequest,
         crate::types::ProposePatchResponse,
         crate::types::InferRequest,
@@ -239,6 +262,20 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::RoutingDecisionsQuery,
         crate::types::RoutingDecision,
         crate::types::RoutingDecisionsResponse,
+        handlers::routing_decisions::AdapterUsageResponse,
+        handlers::routing_decisions::SessionRouterViewResponse,
+        handlers::routing_decisions::SessionStep,
+        handlers::routing_decisions::AdapterFired,
+        handlers::diagnostics::DeterminismStatusResponse,
+        handlers::diagnostics::QuarantineStatusResponse,
+        handlers::diagnostics::QuarantinedAdapter,
+        handlers::capacity::CapacityResponse,
+        handlers::capacity::CapacityResponse,
+        handlers::capacity::CapacityUsage,
+        handlers::capacity::NodeHealth,
+        crate::state::CapacityLimits,
+        handlers::capacity::CapacityUsage,
+        handlers::capacity::NodeHealth,
         crate::types::AuditsQuery,
         crate::types::AuditExtended,
         crate::types::AuditsResponse,
@@ -456,6 +493,12 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/tenants/{tenant_id}/usage",
             get(handlers::get_tenant_usage),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/default-stack",
+            get(handlers::get_default_stack)
+                .put(handlers::set_default_stack)
+                .delete(handlers::clear_default_stack),
         )
         .route("/v1/nodes", get(handlers::list_nodes))
         .route("/v1/nodes/register", post(handlers::register_node))
@@ -675,6 +718,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapters/{adapter_id}/activations",
             get(handlers::get_adapter_activations),
         )
+        .route(
+            "/v1/adapters/{adapter_id}/usage",
+            get(handlers::routing_decisions::get_adapter_usage),
+        )
         // PRD-07: Lifecycle promotion/demotion (distinct from tier-based promotion)
         .route(
             "/v1/adapters/{adapter_id}/lifecycle/promote",
@@ -750,11 +797,19 @@ pub fn build(state: AppState) -> Router {
         // Adapter stacks routes
         .route(
             "/v1/adapter-stacks",
-            get(handlers::adapter_stacks::list_stacks).post(handlers::adapter_stacks::create_stack),
+            get(handlers::adapter_stacks::list_stacks),
+        )
+        .route(
+            "/v1/adapter-stacks",
+            post(handlers::adapter_stacks::create_stack),
         )
         .route(
             "/v1/adapter-stacks/{id}",
             get(handlers::adapter_stacks::get_stack).delete(handlers::adapter_stacks::delete_stack),
+        )
+        .route(
+            "/v1/adapter-stacks/{id}/history",
+            get(handlers::adapter_stacks::get_stack_history),
         )
         .route(
             "/v1/adapter-stacks/{id}/activate",
@@ -921,8 +976,21 @@ pub fn build(state: AppState) -> Router {
             get(handlers::routing_decisions::get_routing_decision_by_id),
         )
         .route(
+            "/v1/routing/sessions/{request_id}",
+            get(handlers::routing_decisions::get_session_router_view),
+        )
+        .route(
             "/v1/telemetry/routing",
             post(handlers::routing_decisions::ingest_router_decision),
+        )
+        // Diagnostics routes (PRD G2)
+        .route(
+            "/v1/diagnostics/determinism-status",
+            get(handlers::diagnostics::get_determinism_status),
+        )
+        .route(
+            "/v1/diagnostics/quarantine-status",
+            get(handlers::diagnostics::get_quarantine_status),
         )
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))

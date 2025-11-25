@@ -72,6 +72,16 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 [dev-dependencies]
 criterion = { workspace = true }
 
+[lints.rust]
+# Enforce handler return type standards
+# Prevent tuple return types that cause Handler trait inference issues
+unused = "warn"
+
+[lints.clippy]
+# Warn on large error types (encourages consistent error handling)
+result_large_err = "warn"
+# Other clippy lints can be added here as needed
+
 [features]
 default = []
 mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]

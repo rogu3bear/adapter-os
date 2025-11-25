@@ -4,7 +4,7 @@
 //! Follows evidence-first philosophy and security-first principles established in the codebase.
 
 use crate::handlers::{require_any_role, AppState, Claims, ErrorResponse};
-use adapteros_core::error::AosError;
+use adapteros_core::{error::AosError, Result};
 use adapteros_db::users::Role;
 use axum::{
     extract::{Extension, Path, State},
@@ -524,6 +524,7 @@ pub async fn train_repository_adapter(
             None, // template_id
             Some(repo_id.clone()),
             None, // dataset_id
+            Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
         )
         .await
         .map_err(|e| {
@@ -826,11 +827,12 @@ fn contains_path_traversal(path: &str) -> bool {
 async fn analyze_repository(
     path: &str,
     repo_id: &str,
-) -> Result<RepositoryAnalysis, Box<dyn std::error::Error>> {
+) -> Result<RepositoryAnalysis> {
     let repo_path = StdPath::new(path);
 
     // Open Git repository
-    let repo = Repository::open(repo_path)?;
+    let repo = Repository::open(repo_path)
+        .map_err(|e| AosError::Io(format!("Failed to open git repository at {}: {}", path, e)))?;
 
     // Get Git information
     let git_info = get_git_info(&repo)?;
@@ -855,13 +857,16 @@ async fn analyze_repository(
 }
 
 /// Get Git repository information
-fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>> {
-    let head = repo.head()?;
+fn get_git_info(repo: &Repository) -> Result<GitInfo> {
+    let head = repo.head()
+        .map_err(|e| AosError::Io(format!("Failed to get git HEAD: {}", e)))?;
     let branch_name = head.shorthand().unwrap_or("unknown").to_string();
 
     // Get commit count
-    let mut revwalk = repo.revwalk()?;
-    revwalk.push_head()?;
+    let mut revwalk = repo.revwalk()
+        .map_err(|e| AosError::Io(format!("Failed to create git revwalk: {}", e)))?;
+    revwalk.push_head()
+        .map_err(|e| AosError::Io(format!("Failed to push HEAD to revwalk: {}", e)))?;
     let commit_count = revwalk.count();
 
     // Get last commit
@@ -878,8 +883,10 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>
     // Extract unique authors from commit history
     let authors = {
         let mut author_set = std::collections::HashSet::new();
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push_head()?;
+        let mut revwalk = repo.revwalk()
+            .map_err(|e| AosError::Io(format!("Failed to create git revwalk for authors: {}", e)))?;
+        revwalk.push_head()
+            .map_err(|e| AosError::Io(format!("Failed to push HEAD to revwalk for authors: {}", e)))?;
 
         for oid in revwalk {
             if let Ok(oid) = oid {
@@ -911,7 +918,7 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo, Box<dyn std::error::Error>
 /// Analyze code structure for languages and frameworks
 fn analyze_code_structure(
     repo_path: &StdPath,
-) -> Result<(Vec<LanguageInfo>, Vec<FrameworkInfo>), Box<dyn std::error::Error>> {
+) -> Result<(Vec<LanguageInfo>, Vec<FrameworkInfo>)> {
     let mut language_counts: HashMap<String, usize> = HashMap::new();
     let mut framework_hints: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -981,7 +988,7 @@ fn analyze_code_structure(
 /// Perform security scan on repository
 fn perform_security_scan(
     repo_path: &StdPath,
-) -> Result<SecurityScanResult, Box<dyn std::error::Error>> {
+) -> Result<SecurityScanResult> {
     let mut violations = Vec::new();
 
     // Simple security scan for common patterns
@@ -1023,7 +1030,7 @@ fn perform_security_scan(
 /// Extract evidence spans from repository
 fn extract_evidence_spans(
     repo_path: &StdPath,
-) -> Result<Vec<EvidenceSpan>, Box<dyn std::error::Error>> {
+) -> Result<Vec<EvidenceSpan>> {
     let mut evidence_spans = Vec::new();
 
     // Extract function definitions as evidence spans
@@ -1104,7 +1111,7 @@ fn estimate_training_duration(config: &TrainingConfig, analysis: &RepositoryAnal
 async fn basic_analyze_repository(
     path: &str,
     repo_id: &str,
-) -> Result<RepositoryAnalysis, Box<dyn std::error::Error>> {
+) -> Result<RepositoryAnalysis, adapteros_core::AosError> {
     let repo_path = StdPath::new(path);
 
     let git_info = GitInfo {
@@ -1114,7 +1121,8 @@ async fn basic_analyze_repository(
         authors: vec![],
     };
 
-    let (languages, frameworks) = analyze_code_structure(repo_path)?;
+    let (languages, frameworks) = analyze_code_structure(repo_path)
+        .map_err(|e| AosError::Io(format!("Failed to analyze code structure: {}", e)))?;
 
     let security_scan = SecurityScanResult {
         violations: vec![],
@@ -1122,7 +1130,8 @@ async fn basic_analyze_repository(
         status: "basic".to_string(),
     };
 
-    let evidence_spans = extract_evidence_spans(repo_path)?;
+    let evidence_spans = extract_evidence_spans(repo_path)
+        .map_err(|e| AosError::Io(format!("Failed to extract evidence spans: {}", e)))?;
 
     Ok(RepositoryAnalysis {
         repo_id: repo_id.to_string(),

@@ -17,6 +17,27 @@ use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
 
+/// Capacity limits configuration
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CapacityLimits {
+    /// Maximum models per worker
+    pub models_per_worker: Option<usize>,
+    /// Maximum models per tenant
+    pub models_per_tenant: Option<usize>,
+    /// Maximum concurrent requests
+    pub concurrent_requests: Option<usize>,
+}
+
+impl Default for CapacityLimits {
+    fn default() -> Self {
+        Self {
+            models_per_worker: Some(10),
+            models_per_tenant: Some(5),
+            concurrent_requests: Some(100),
+        }
+    }
+}
+
 /// Runtime configuration subset needed by API handlers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
@@ -24,6 +45,9 @@ pub struct ApiConfig {
     /// Timeout in seconds for directory analysis operations (default: 120)
     #[serde(default = "default_directory_analysis_timeout")]
     pub directory_analysis_timeout_secs: u64,
+    /// Capacity limits configuration
+    #[serde(default)]
+    pub capacity_limits: CapacityLimits,
 }
 
 fn default_directory_analysis_timeout() -> u64 {

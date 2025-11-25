@@ -8,6 +8,7 @@ use crate::permissions::{require_permission, Permission};
 use crate::state::{AppState, DatasetProgressEvent};
 use crate::types::*;
 use adapteros_db::training_datasets::DatasetFile;
+use adapteros_deterministic_exec::spawn_deterministic;
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
@@ -45,6 +46,14 @@ const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 
 /// Validation batch size to reduce database transaction overhead
 const VALIDATION_BATCH_SIZE: usize = 10;
+
+/// Map validation status: 'pending' → 'draft' for API responses
+fn map_validation_status(status: &str) -> String {
+    match status {
+        "pending" => "draft".to_string(),
+        other => other.to_string(),
+    }
+}
 
 /// Helper function to send progress events
 fn send_progress_event(
@@ -622,7 +631,7 @@ pub async fn list_datasets(
             format: d.format,
             hash: d.hash_b3,
             storage_path: d.storage_path,
-            validation_status: d.validation_status,
+            validation_status: map_validation_status(&d.validation_status),
             validation_errors: d.validation_errors,
             created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
             created_at: d.created_at,
@@ -673,7 +682,7 @@ pub async fn get_dataset(
         format: dataset.format,
         hash: dataset.hash_b3,
         storage_path: dataset.storage_path,
-        validation_status: dataset.validation_status,
+        validation_status: map_validation_status(&dataset.validation_status),
         validation_errors: dataset.validation_errors,
         created_by: dataset.created_by.unwrap_or_else(|| "system".to_string()),
         created_at: dataset.created_at,
@@ -830,6 +839,18 @@ pub async fn validate_dataset(
             )
         })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+
+    // Set status to 'validating' at start
+    state
+        .db
+        .update_dataset_validation(&dataset_id, "validating", None)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to update validation status: {}", e),
+            )
+        })?;
 
     // Send initial validation event
     send_progress_event(
@@ -1674,23 +1695,39 @@ pub async fn complete_chunked_upload(
     let (file_hash, total_bytes) = assembler.assemble().await.map_err(|e| {
         let error_msg = e.to_string();
         error!("Failed to assemble chunks: {}", error_msg);
-        // Log audit failure
-        let _ = tokio::spawn({
-            let db = state.db.clone();
-            let claims = claims.clone();
-            let error_msg_clone = error_msg.clone();
+        // Log audit failure (background task - acceptable as tokio::spawn per CLAUDE.md,
+        // but using deterministic spawn for consistency)
+        let db = state.db.clone();
+        let claims_clone = claims.clone();
+        let error_msg_clone = error_msg.clone();
+        if let Err(e) = spawn_deterministic(
+            format!("audit-log:dataset-upload-failure"),
             async move {
                 let _ = log_failure(
                     &db,
-                    &claims,
+                    &claims_clone,
                     actions::DATASET_UPLOAD,
                     resources::DATASET,
                     None,
                     &error_msg_clone,
                 )
                 .await;
-            }
-        });
+            },
+        ) {
+            // Fallback: use tokio::spawn if deterministic executor not available
+            // Audit logging is acceptable as background task per CLAUDE.md
+            let _ = tokio::spawn(async move {
+                let _ = log_failure(
+                    &state.db,
+                    &claims,
+                    actions::DATASET_UPLOAD,
+                    resources::DATASET,
+                    None,
+                    &error_msg,
+                )
+                .await;
+            });
+        }
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to assemble file: {}", error_msg),
@@ -1928,3 +1965,4 @@ pub async fn cancel_chunked_upload(
 
     Ok(StatusCode::NO_CONTENT)
 }
+

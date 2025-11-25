@@ -2,14 +2,15 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use adapteros_api_types::adapters::*;
 use adapteros_core::B3Hash;
 use adapteros_core::StackName;
+use adapteros_db::LifecycleHistoryEvent;
+use adapteros_lora_worker::memory::MemoryPressureLevel;
 use adapteros_lora_worker::signal::{Signal, SignalPriority, SignalType};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
-    Json,
+    response::{Json, Response, IntoResponse},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -43,6 +44,11 @@ pub struct StackResponse {
     pub is_active: bool,
     /// Stack version for telemetry correlation (PRD-03)
     pub version: i64,
+    /// Lifecycle state: active, deprecated, retired, draft
+    pub lifecycle_state: String,
+    /// Warnings about capacity or memory pressure (PRD G3)
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 fn default_schema_version() -> String {
@@ -73,9 +79,12 @@ pub async fn create_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateStackRequest>,
-) -> Result<(StatusCode, Json<StackResponse>), (StatusCode, String)> {
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+        .map_err(|_| (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Insufficient permissions").with_code("FORBIDDEN"))
+        ))?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -83,7 +92,8 @@ pub async fn create_stack(
     let stack_name = StackName::parse(&req.name).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            format!("Invalid stack name: {}", e),
+            Json(ErrorResponse::new(&format!("Invalid stack name: {}", e))
+                .with_code("VALIDATION_ERROR")),
         )
     })?;
 
@@ -94,10 +104,94 @@ pub async fn create_stack(
         "Creating adapter stack"
     );
 
+    // Guardrail: Warn if stack creation would likely exceed capacity limits (PRD G3)
+    let uma_stats = state.uma_monitor.get_uma_stats().await;
+    let pressure = state.uma_monitor.get_current_pressure();
+    
+    // Collect warnings to return in API response
+    let mut warnings = Vec::new();
+    
+    // Check if adding this stack would exceed limits
+    let current_adapters_loaded: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM adapters WHERE load_state IN ('loaded', 'warm', 'hot', 'resident')"
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0);
+
+    let estimated_new_adapters = req.adapter_ids.len() as i64;
+    let total_after_stack = current_adapters_loaded + estimated_new_adapters;
+    
+    // Check capacity limits from config (drop guard before await)
+    let capacity_limits = {
+        let config = state.config.read().unwrap();
+        config.capacity_limits.clone()
+    };
+    
+    // Warn if memory pressure is high or if we're approaching limits
+    if pressure == MemoryPressureLevel::High || pressure == MemoryPressureLevel::Critical {
+        let warning_msg = format!(
+            "High memory pressure detected ({}): {:.1}% headroom remaining. Consider reducing concurrent operations.",
+            pressure.to_string(),
+            uma_stats.headroom_pct
+        );
+        warnings.push(warning_msg.clone());
+        warn!(
+            tenant_id = %tenant_id,
+            stack_name = %stack_name,
+            adapter_count = req.adapter_ids.len(),
+            pressure = ?pressure,
+            headroom_pct = uma_stats.headroom_pct,
+            "Stack creation warning: {}", warning_msg
+        );
+    }
+    
+    // Warn if stack would exceed configured adapter limits
+    if let Some(max_adapters) = capacity_limits.models_per_tenant {
+        if total_after_stack > max_adapters as i64 {
+            let warning_msg = format!(
+                "Stack would exceed configured adapter limit: {} adapters (limit: {}). Current: {}, Adding: {}",
+                total_after_stack,
+                max_adapters,
+                current_adapters_loaded,
+                estimated_new_adapters
+            );
+            warnings.push(warning_msg.clone());
+            warn!(
+                tenant_id = %tenant_id,
+                stack_name = %stack_name,
+                current_adapters = current_adapters_loaded,
+                new_adapters = estimated_new_adapters,
+                total_after = total_after_stack,
+                limit = max_adapters,
+                "Stack creation warning: {}", warning_msg
+            );
+        }
+    } else if total_after_stack > 50 {
+        // Fallback warning if no limit configured
+        let warning_msg = format!(
+            "Stack would exceed recommended adapter limit: {} adapters total (recommended max: 50)",
+            total_after_stack
+        );
+        warnings.push(warning_msg.clone());
+        warn!(
+            tenant_id = %tenant_id,
+            stack_name = %stack_name,
+            current_adapters = current_adapters_loaded,
+            new_adapters = estimated_new_adapters,
+            total_after = total_after_stack,
+            "Stack creation warning: {}", warning_msg
+        );
+    }
+
     let id = uuid::Uuid::now_v7().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     let adapter_ids_json = serde_json::to_string(&req.adapter_ids)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(&format!("Failed to serialize adapter IDs: {}", e))
+                .with_code("SERIALIZATION_ERROR")),
+        ))?;
     let workflow_type_str = req.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
     let db_req = adapteros_db::traits::CreateStackRequest {
@@ -112,31 +206,41 @@ pub async fn create_stack(
         if e.to_string().contains("UNIQUE constraint failed") {
             (
                 StatusCode::CONFLICT,
-                format!("Stack name '{}' already exists for tenant", req.name),
+                Json(ErrorResponse::new(&format!("Stack name '{}' already exists for tenant", req.name))
+                    .with_code("CONFLICT")),
             )
         } else {
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(&format!("Failed to create stack: {}", e))
+                    .with_code("DATABASE_ERROR")),
+            )
         }
     })?;
 
     info!(stack_id = %id, stack_name = %stack_name, tenant_id = %tenant_id, "Adapter stack created");
 
-    Ok((
-        StatusCode::CREATED,
-        Json(StackResponse {
-            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-            id: id.clone(),
-            tenant_id,
-            name: req.name,
-            description: req.description,
-            adapter_ids: req.adapter_ids,
-            workflow_type: req.workflow_type,
-            created_at: now.clone(),
-            updated_at: now,
-            is_active: false,
-            version: 1, // New stacks start at version 1
-        }),
-    ))
+    // Return 201 CREATED - use IntoResponse trait
+    // Note: We return Response directly to avoid Handler trait inference issues
+    // while still setting the correct status code
+    let json_response = Json(StackResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        id: id.clone(),
+        tenant_id,
+        name: req.name,
+        description: req.description,
+        adapter_ids: req.adapter_ids,
+        workflow_type: req.workflow_type,
+        created_at: now.clone(),
+        updated_at: now,
+        is_active: false,
+        version: 1, // New stacks start at version 1
+        lifecycle_state: "active".to_string(), // New stacks default to active
+        warnings, // Include warnings in response (PRD G3)
+    });
+    
+    // Convert to Response with 201 status code
+    Ok((StatusCode::CREATED, json_response).into_response())
 }
 
 /// List all adapter stacks
@@ -187,6 +291,8 @@ pub async fn list_stacks(
             updated_at: row.updated_at,
             is_active: false,
             version: row.version,
+            lifecycle_state: row.lifecycle_state,
+            warnings: vec![], // No warnings for existing stacks
         });
     }
 
@@ -260,6 +366,8 @@ pub async fn get_stack(
         updated_at: row.updated_at,
         is_active: false,
         version: row.version,
+        lifecycle_state: row.lifecycle_state,
+        warnings: vec![], // No warnings for existing stacks
     }))
 }
 
@@ -400,9 +508,9 @@ pub async fn activate_stack(
 
     if hash_changed {
         if let Some(worker_arc) = &state.worker {
-            let mut worker = worker_arc.lock().await;
+            let worker = worker_arc.lock().await;
             let old_ids = if let Some(old_id) = &previous_stack {
-                let old_stack = state
+                let stack = state
                     .db
                     .get_stack(&tenant_id, old_id)
                     .await
@@ -413,7 +521,7 @@ pub async fn activate_stack(
                             format!("Previous stack {} not found", old_id),
                         )
                     })?;
-                serde_json::from_str::<Vec<String>>(&old_stack.adapter_ids_json).map_err(|e| {
+                serde_json::from_str::<Vec<String>>(&stack.adapter_ids_json).map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("Parse old: {}", e),
@@ -661,4 +769,89 @@ async fn compute_stack_hash(
 
     // Use canonical compute_stack_hash from adapteros-core
     Ok(adapteros_core::compute_stack_hash(pairs))
+}
+
+/// Lifecycle history event response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LifecycleHistoryResponse {
+    pub id: String,
+    pub entity_id: String,
+    pub version: String,
+    pub lifecycle_state: String,
+    pub previous_lifecycle_state: Option<String>,
+    pub reason: Option<String>,
+    pub initiated_by: String,
+    pub metadata_json: Option<String>,
+    pub created_at: String,
+}
+
+impl From<LifecycleHistoryEvent> for LifecycleHistoryResponse {
+    fn from(event: LifecycleHistoryEvent) -> Self {
+        Self {
+            id: event.id,
+            entity_id: event.entity_id,
+            version: event.version,
+            lifecycle_state: event.lifecycle_state,
+            previous_lifecycle_state: event.previous_lifecycle_state,
+            reason: event.reason,
+            initiated_by: event.initiated_by,
+            metadata_json: event.metadata_json,
+            created_at: event.created_at,
+        }
+    }
+}
+
+/// Get version history for an adapter stack
+#[utoipa::path(
+    get,
+    path = "/v1/adapter-stacks/{id}/history",
+    params(
+        ("id" = String, Path, description = "Stack ID")
+    ),
+    responses(
+        (status = 200, description = "Stack version history", body = Vec<LifecycleHistoryResponse>),
+        (status = 404, description = "Stack not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_stack_history(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<LifecycleHistoryResponse>>, (StatusCode, String)> {
+    require_permission(&claims, Permission::AdapterView)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+
+    let tenant_id = claims.tenant_id;
+
+    // Verify stack exists and belongs to tenant
+    let stack = state
+        .db
+        .get_stack(&tenant_id, &id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Stack with id '{}' not found for tenant '{}'", id, tenant_id),
+            )
+        })?;
+
+    if stack.tenant_id != tenant_id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Stack does not belong to your tenant".to_string(),
+        ));
+    }
+
+    // Get lifecycle history
+    let history = state
+        .db
+        .get_stack_lifecycle_history(&id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let response: Vec<LifecycleHistoryResponse> = history.into_iter().map(Into::into).collect();
+
+    Ok(Json(response))
 }

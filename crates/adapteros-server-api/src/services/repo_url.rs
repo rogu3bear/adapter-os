@@ -1,11 +1,15 @@
 //! Repository URL inference service
+//! 【2025-01-27†refactor(server)†extract-repo-url】
 //!
 //! Handles extracting repository URLs from git remotes with proper error handling
 //! and timeout protection.
+//!
+//! Extracted from handlers.rs to reduce duplication of git remote URL extraction logic.
 
 use tracing::{debug, warn};
 
 /// Infer repository URL from git remote origin
+/// 【2025-01-27†refactor(server)†extract-repo-url】
 ///
 /// Returns the origin URL if available, otherwise None.
 /// All errors are logged but not propagated to avoid breaking the listing.
@@ -44,6 +48,7 @@ pub fn infer_repo_url(path: &str) -> Option<String> {
 }
 
 /// Infer URLs for multiple repositories in parallel
+/// 【2025-01-27†refactor(server)†extract-repo-url】
 ///
 /// Uses tokio::task::spawn_blocking to parallelize git operations
 /// without blocking the async runtime.

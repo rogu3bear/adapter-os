@@ -18,7 +18,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tracing::{debug, warn};
 
 /// Supported API versions

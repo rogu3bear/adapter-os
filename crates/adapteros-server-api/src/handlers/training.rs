@@ -9,13 +9,14 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_lora_worker::memory::MemoryPressureLevel;
 use axum::{
     extract::State,
     extract::{Extension, Path, Query},
     http::StatusCode,
     response::Json,
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// List training jobs with optional filters
 #[utoipa::path(
@@ -65,6 +66,12 @@ pub async fn list_training_jobs(
             // Filter by template ID
             if let Some(ref template) = params.template_id {
                 if job.template_id.as_ref() != Some(template) {
+                    return false;
+                }
+            }
+            // Filter by dataset ID
+            if let Some(ref dataset_id) = params.dataset_id {
+                if job.dataset_id.as_ref() != Some(dataset_id) {
                     return false;
                 }
             }
@@ -160,6 +167,24 @@ pub async fn start_training(
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
 
+    // Guardrail: Block training jobs when node is in Critical memory state (PRD G3)
+    let pressure = state.uma_monitor.get_current_pressure();
+    if pressure == MemoryPressureLevel::Critical {
+        warn!(
+            user_id = %claims.sub,
+            adapter_name = %request.adapter_name,
+            "Training job blocked due to Critical memory pressure"
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(
+                ErrorResponse::new("Training jobs are currently blocked due to critical memory pressure. Please wait for memory pressure to decrease before starting new training jobs.")
+                    .with_code("MEMORY_PRESSURE_CRITICAL")
+                    .with_string_details("Node health is Critical. Training jobs require sufficient memory headroom."),
+            ),
+        ));
+    }
+
     // Validate adapter name
     if request.adapter_name.is_empty() {
         return Err((
@@ -180,6 +205,7 @@ pub async fn start_training(
             request.template_id.clone(),
             request.repo_id.clone(),
             request.dataset_id.clone(),
+            Some(claims.tenant_id.clone()),
         )
         .await
         .map_err(|e| {
