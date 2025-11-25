@@ -44,8 +44,8 @@ class LRUCache<K> {
   }
 }
 
-const globalNotifiedJobs = new LRUCache<string>(1000);
-const globalNotifiedAdapters = new LRUCache<string>(1000);
+export const globalNotifiedJobs = new LRUCache<string>(1000);
+export const globalNotifiedAdapters = new LRUCache<string>(1000);
 
 // Cleanup old entries every hour
 if (typeof window !== 'undefined') {
@@ -85,8 +85,8 @@ export function useTrainingNotifications({
     enabled: enabled && !!jobId,
     refetchInterval: (query) => {
       const job = query.state.data as TrainingJob | null;
-      // Poll every 5 seconds if job is running, otherwise stop
-      return job?.status === 'running' || job?.status === 'queued' ? 5000 : false;
+      // Poll every 5 seconds if job is running or pending, otherwise stop
+      return job?.status === 'running' || job?.status === 'pending' ? 5000 : false;
     },
   });
 

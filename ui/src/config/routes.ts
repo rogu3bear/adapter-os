@@ -33,9 +33,11 @@ import {
   GitBranch,
   PlusCircle,
   MessageSquare,
+  Crown,
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
+const OwnerHomePage = lazy(() => import('@/pages/OwnerHome'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
 const TenantDetailPage = lazy(() => import('@/pages/Admin/TenantDetailPage').then(m => ({ default: m.TenantDetailPage })));
@@ -82,6 +84,8 @@ const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
 const CodeIntelligencePage = lazy(() => import('@/pages/CodeIntelligencePage'));
 const AdvancedMetricsPage = lazy(() => import('@/pages/AdvancedMetricsPage'));
 const GuidedFlowPage = lazy(() => import('@/pages/GuidedFlowPage'));
+const DocumentLibraryPage = lazy(() => import('@/pages/DocumentLibrary'));
+const DocumentChatPage = lazy(() => import('@/pages/DocumentLibrary/DocumentChatPage'));
 
 export interface RouteConfig {
   path: string;
@@ -101,6 +105,18 @@ export interface RouteConfig {
 }
 
 export const routes: RouteConfig[] = [
+  {
+    path: '/owner',
+    component: OwnerHomePage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    navGroup: 'Home',
+    navTitle: 'Owner Home',
+    navIcon: Crown,
+    navOrder: 0,
+    skeletonVariant: 'dashboard',
+    breadcrumb: 'Owner Home',
+  },
   {
     path: '/dashboard',
     component: DashboardPage,
@@ -425,13 +441,32 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Chat',
   },
   {
+    path: '/documents',
+    component: DocumentLibraryPage,
+    requiresAuth: true,
+    navGroup: 'Operations',
+    navTitle: 'Documents',
+    navIcon: FileText,
+    navOrder: 3,
+    skeletonVariant: 'table',
+    breadcrumb: 'Documents',
+  },
+  {
+    path: '/documents/:documentId/chat',
+    component: DocumentChatPage,
+    requiresAuth: true,
+    skeletonVariant: 'form',
+    breadcrumb: 'Document Chat',
+    parentPath: '/documents',
+  },
+  {
     path: '/telemetry',
     component: TelemetryPage,
     requiresAuth: true,
     navGroup: 'Operations',
     navTitle: 'Event History',
     navIcon: Eye,
-    navOrder: 2,
+    navOrder: 4,
     skeletonVariant: 'table',
     breadcrumb: 'Telemetry',
   },
@@ -442,7 +477,7 @@ export const routes: RouteConfig[] = [
     navGroup: 'Operations',
     navTitle: 'Inference History',
     navIcon: RotateCcw,
-    navOrder: 3,
+    navOrder: 5,
     skeletonVariant: 'default',
     breadcrumb: 'Replay',
   },
@@ -602,7 +637,7 @@ export const routes: RouteConfig[] = [
     navGroup: 'Operations',
     navTitle: 'Code Intelligence',
     navIcon: FileCode,
-    navOrder: 4,
+    navOrder: 6,
     skeletonVariant: 'table',
     breadcrumb: 'Code Intelligence',
   },

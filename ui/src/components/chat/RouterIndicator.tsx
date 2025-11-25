@@ -41,7 +41,7 @@ export function RouterIndicator({ decision, className }: RouterIndicatorProps) {
             nameMap.set(adapterId, adapter.name || adapterId);
           } catch (error) {
             // If adapter not found or error, fall back to ID
-            logger.warn('Failed to fetch adapter name', {
+            logger.error('Failed to fetch adapter name', {
               component: 'RouterIndicator',
               adapterId,
             }, error instanceof Error ? error : new Error('Unknown error'));

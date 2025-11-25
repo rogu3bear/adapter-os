@@ -5,6 +5,7 @@ import apiClient from '../api/client';
 import { errorRecoveryTemplates } from '../components/ui/error-recovery';
 import { useCancellableOperation } from './useCancellableOperation';
 import type { AdapterCategory, CategoryPolicy } from '../api/types';
+import type { PolicyPreflightResponse } from '../api/policyTypes';
 
 export interface UseAdapterOperationsOptions {
   onAdapterUpdate?: (adapterId: string, updates: Partial<any>) => void;
@@ -12,6 +13,8 @@ export interface UseAdapterOperationsOptions {
   onAdapterPin?: (adapterId: string, pinned: boolean) => void;
   onPolicyUpdate?: (category: AdapterCategory, policy: CategoryPolicy) => void;
   onDataRefresh?: () => void | Promise<void>;
+  /** Callback to show preflight dialog - return true to proceed, false to cancel */
+  onShowPreflight?: (adapterId: string, operation: 'load' | 'unload', preflightResult: PolicyPreflightResponse) => Promise<boolean>;
 }
 
 export interface UseAdapterOperationsReturn {
@@ -56,6 +59,7 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     onAdapterPin,
     onPolicyUpdate,
     onDataRefresh,
+    onShowPreflight,
   } = options;
 
   const evictAdapter = async (adapterId: string) => {
@@ -206,6 +210,84 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     }
   };
 
+  const loadAdapter = async (adapterId: string) => {
+    setIsOperationLoading(true);
+    setOperationError(null);
+    try {
+      // Run preflight check if callback is provided
+      if (onShowPreflight) {
+        const preflightResult = await apiClient.preflightAdapterLoad(adapterId, 'load');
+        const shouldProceed = await onShowPreflight(adapterId, 'load', preflightResult);
+
+        if (!shouldProceed) {
+          logger.info('Load adapter cancelled by preflight check', { adapterId });
+          return;
+        }
+      }
+
+      // Proceed with load
+      await apiClient.loadAdapter(adapterId);
+      toast.success('Adapter loaded successfully');
+      onAdapterUpdate?.(adapterId, { current_state: 'resident' });
+      await onDataRefresh?.();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setOperationError(
+        errorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMessage),
+          () => loadAdapter(adapterId)
+        )
+      );
+      logger.error('Failed to load adapter', {
+        operation: 'loadAdapter',
+        adapterId,
+        error: errorMessage
+      });
+      throw err;
+    } finally {
+      setIsOperationLoading(false);
+    }
+  };
+
+  const unloadAdapter = async (adapterId: string) => {
+    setIsOperationLoading(true);
+    setOperationError(null);
+    try {
+      // Run preflight check if callback is provided
+      if (onShowPreflight) {
+        const preflightResult = await apiClient.preflightAdapterLoad(adapterId, 'unload');
+        const shouldProceed = await onShowPreflight(adapterId, 'unload', preflightResult);
+
+        if (!shouldProceed) {
+          logger.info('Unload adapter cancelled by preflight check', { adapterId });
+          return;
+        }
+      }
+
+      // Proceed with unload
+      await apiClient.unloadAdapter(adapterId);
+      toast.success('Adapter unloaded successfully');
+      onAdapterUpdate?.(adapterId, { current_state: 'unloaded' });
+      await onDataRefresh?.();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setOperationError(
+        errorRecoveryTemplates.genericError(
+          err instanceof Error ? err : new Error(errorMessage),
+          () => unloadAdapter(adapterId)
+        )
+      );
+      logger.error('Failed to unload adapter', {
+        operation: 'unloadAdapter',
+        adapterId,
+        error: errorMessage
+      });
+      throw err;
+    } finally {
+      setIsOperationLoading(false);
+    }
+  };
+
   return {
     isOperationLoading,
     operationError,
@@ -222,5 +304,8 @@ export function useAdapterOperations(options: UseAdapterOperationsOptions = {}):
     promoteAdapter,
     deleteAdapter,
     updateCategoryPolicy,
+    // Adapter load/unload with preflight checks
+    loadAdapter,
+    unloadAdapter,
   };
 }

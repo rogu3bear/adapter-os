@@ -731,6 +731,33 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </CardContent>
               </Card>
 
+              {/* Training Wizard Quick Start */}
+              <Card className="border-primary/40">
+                <CardHeader>
+                  <CardTitle>Training Wizard</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Guided: upload or pick a dataset, auto-validate, then start training.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Best for the common path. For complex datasets, jump to advanced tools.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild>
+                      <Link to="/training" state={{ openTrainingWizard: true }}>
+                        Start Training Wizard
+                      </Link>
+                    </Button>
+                    <Button variant="outline" asChild>
+                      <Link to="/training/datasets" state={{ openUpload: true }}>
+                        Advanced dataset tools
+                      </Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Adapters & stacks */}
               <Card>
                 <CardHeader>

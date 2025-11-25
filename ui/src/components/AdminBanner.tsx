@@ -5,32 +5,16 @@ import { Button } from './ui/button';
 import { AlertTriangle, CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
 import apiClient from '../api/client';
 import { formatDistanceToNow } from 'date-fns';
-
-interface DeterminismStatus {
-  last_run: string | null;
-  result: 'pass' | 'fail' | null;
-  runs?: number;
-  divergences?: number;
-}
-
-interface QuarantineStatus {
-  quarantined_count: number;
-  quarantined_adapters: Array<{
-    id: string;
-    reason: string;
-    created_at: string;
-  }>;
-  in_active_stacks: boolean;
-}
+import type { DeterminismStatusResponse, AdapterQuarantineStatusResponse } from '../api/types';
 
 export function AdminBanner() {
-  const { data: determinismStatus } = useQuery<DeterminismStatus>({
+  const { data: determinismStatus } = useQuery<DeterminismStatusResponse>({
     queryKey: ['determinism-status'],
     queryFn: () => apiClient.getDeterminismStatus(),
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const { data: quarantineStatus } = useQuery<QuarantineStatus>({
+  const { data: quarantineStatus } = useQuery<AdapterQuarantineStatusResponse>({
     queryKey: ['quarantine-status'],
     queryFn: () => apiClient.getDiagnosticsQuarantineStatus(),
     refetchInterval: 30000, // Refresh every 30 seconds

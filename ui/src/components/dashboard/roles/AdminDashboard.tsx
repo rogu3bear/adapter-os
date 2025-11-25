@@ -1,0 +1,564 @@
+/**
+ * Admin Dashboard
+ *
+ * Role-specific dashboard for Admin users providing:
+ * - Tenant summary (total tenants, active, paused)
+ * - User activity (recent logins, active users)
+ * - Security overview (policy violations, audit events)
+ * - System resource usage
+ * - Quick actions for common admin tasks
+ *
+ * Citations:
+ * - CLAUDE.md: RBAC section (5 Roles, 40 Permissions)
+ * - docs/RBAC.md: Admin role permissions
+ * - ui/src/components/Dashboard.tsx: Dashboard patterns
+ */
+
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
+import { Button } from '../../ui/button';
+import { Badge } from '../../ui/badge';
+import { Progress } from '../../ui/progress';
+import { Skeleton } from '../../ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '../../ui/alert';
+import { PageHeader } from '../../ui/page-header';
+import { KpiGrid, ContentGrid } from '../../ui/grid';
+import { ActionGrid } from '../../ui/action-grid';
+import { HelpTooltip } from '../../ui/help-tooltip';
+import { SectionErrorBoundary } from '../../ui/section-error-boundary';
+import {
+  Users,
+  UserPlus,
+  Shield,
+  Settings,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Activity,
+  Cpu,
+  HardDrive,
+  Database,
+  ShieldAlert,
+  FileText,
+  TrendingUp,
+  UserCheck,
+  Building2,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import apiClient from '@/api/client';
+import { useTenants } from '@/hooks/useAdmin';
+import { useAuth } from '@/providers/CoreProviders';
+import { logger } from '@/utils/logger';
+import type { Tenant, User, AuditLog, SystemMetrics } from '@/api/types';
+
+interface TenantSummary {
+  total: number;
+  active: number;
+  paused: number;
+  archived: number;
+}
+
+interface UserActivity {
+  totalUsers: number;
+  activeUsers: number;
+  recentLogins: number;
+  newUsersThisWeek: number;
+}
+
+interface SecurityOverview {
+  policyViolations: number;
+  auditEvents: number;
+  failedLogins: number;
+  suspiciousActivity: number;
+}
+
+export default function AdminDashboard() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Fetch tenants
+  const {
+    data: tenantsData,
+    isLoading: tenantsLoading,
+    error: tenantsError,
+    refetch: refetchTenants,
+  } = useTenants();
+
+  // Fetch users
+  const {
+    data: usersData,
+    isLoading: usersLoading,
+    error: usersError,
+    refetch: refetchUsers,
+  } = useQuery({
+    queryKey: ['admin-users', refreshTrigger],
+    queryFn: () => apiClient.listUsers({ page: 1, page_size: 100 }),
+    staleTime: 30000,
+  });
+
+  // Fetch audit logs
+  const {
+    data: auditLogs,
+    isLoading: auditLoading,
+    error: auditError,
+  } = useQuery({
+    queryKey: ['admin-audit-logs', refreshTrigger],
+    queryFn: () => apiClient.queryAuditLogs({ limit: 50 }),
+    staleTime: 30000,
+  });
+
+  // Fetch system metrics
+  const {
+    data: systemMetrics,
+    isLoading: metricsLoading,
+    error: metricsError,
+  } = useQuery({
+    queryKey: ['admin-system-metrics', refreshTrigger],
+    queryFn: () => apiClient.getSystemMetrics(),
+    refetchInterval: 30000,
+    staleTime: 10000,
+  });
+
+  // Calculate tenant summary
+  const tenantSummary: TenantSummary = React.useMemo(() => {
+    const tenants = tenantsData || [];
+    return {
+      total: tenants.length,
+      active: tenants.filter((t) => t.status === 'active' || !t.status).length,
+      paused: tenants.filter((t) => t.status === 'paused').length,
+      archived: tenants.filter((t) => t.status === 'archived').length,
+    };
+  }, [tenantsData]);
+
+  // Calculate user activity
+  const userActivity: UserActivity = React.useMemo(() => {
+    const users = usersData?.users || [];
+    const now = Date.now();
+    const oneWeek = 7 * 24 * 60 * 60 * 1000;
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    return {
+      totalUsers: users.length,
+      activeUsers: users.filter((u) => {
+        const lastLogin = u.last_login_at || u.last_login;
+        if (!lastLogin) return false;
+        return now - new Date(lastLogin).getTime() < oneWeek;
+      }).length,
+      recentLogins: users.filter((u) => {
+        const lastLogin = u.last_login_at || u.last_login;
+        if (!lastLogin) return false;
+        return now - new Date(lastLogin).getTime() < oneDay;
+      }).length,
+      newUsersThisWeek: users.filter((u) => {
+        if (!u.created_at) return false;
+        return now - new Date(u.created_at).getTime() < oneWeek;
+      }).length,
+    };
+  }, [usersData]);
+
+  // Calculate security overview
+  const securityOverview: SecurityOverview = React.useMemo(() => {
+    const logs = auditLogs || [];
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    return {
+      policyViolations: logs.filter(
+        (log) => log.status === 'failure' && log.action?.includes('policy')
+      ).length,
+      auditEvents: logs.length,
+      failedLogins: logs.filter(
+        (log) => log.action === 'auth.login' && log.status === 'failure'
+      ).length,
+      suspiciousActivity: logs.filter(
+        (log) =>
+          log.status === 'failure' &&
+          now - new Date(log.timestamp).getTime() < oneDay
+      ).length,
+    };
+  }, [auditLogs]);
+
+  // Quick actions
+  const quickActions = [
+    {
+      label: 'Create Tenant',
+      icon: Building2,
+      color: 'text-blue-600',
+      helpId: 'admin-create-tenant',
+      onClick: () => navigate('/admin/tenants?action=create'),
+    },
+    {
+      label: 'Manage Users',
+      icon: Users,
+      color: 'text-purple-600',
+      helpId: 'admin-manage-users',
+      onClick: () => navigate('/admin/users'),
+    },
+    {
+      label: 'System Settings',
+      icon: Settings,
+      color: 'text-gray-600',
+      helpId: 'admin-system-settings',
+      onClick: () => navigate('/settings'),
+    },
+    {
+      label: 'Security Audit',
+      icon: Shield,
+      color: 'text-amber-600',
+      helpId: 'admin-security-audit',
+      onClick: () => navigate('/audit'),
+    },
+  ];
+
+  // Refresh all data
+  const handleRefresh = async () => {
+    setRefreshTrigger((prev) => prev + 1);
+    await Promise.all([refetchTenants(), refetchUsers()]);
+    toast.success('Dashboard refreshed');
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <PageHeader
+        title="Admin Dashboard"
+        description={`Welcome back, ${user?.display_name || user?.email}. You have full system access.`}
+        badges={[
+          { label: 'Admin', variant: 'default' },
+          { label: 'Full Access', variant: 'outline' },
+        ]}
+      >
+        <Button variant="outline" size="sm" onClick={handleRefresh} className="w-full sm:w-auto">
+          <Activity className="h-4 w-4 mr-2" />
+          <span className="hidden sm:inline">Refresh</span>
+        </Button>
+      </PageHeader>
+
+      {/* Tenant Summary */}
+      <SectionErrorBoundary sectionName="Tenant Summary">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                <span>Tenant Summary</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tenants')}>
+                View All
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {tenantsLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ) : tenantsError ? (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Failed to load tenants</AlertTitle>
+                <AlertDescription>
+                  {tenantsError instanceof Error
+                    ? tenantsError.message
+                    : 'Unknown error occurred'}
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <KpiGrid>
+                <div className="space-y-1">
+                  <p className="text-2xl font-bold text-blue-600">
+                    {tenantSummary.total}
+                  </p>
+                  <p className="text-sm text-muted-foreground">Total Tenants</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-2xl font-bold text-green-600">
+                    {tenantSummary.active}
+                  </p>
+                  <p className="text-sm text-muted-foreground">Active</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-2xl font-bold text-amber-600">
+                    {tenantSummary.paused}
+                  </p>
+                  <p className="text-sm text-muted-foreground">Paused</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-2xl font-bold text-gray-600">
+                    {tenantSummary.archived}
+                  </p>
+                  <p className="text-sm text-muted-foreground">Archived</p>
+                </div>
+              </KpiGrid>
+            )}
+          </CardContent>
+        </Card>
+      </SectionErrorBoundary>
+
+      {/* User Activity & Security Overview */}
+      <ContentGrid>
+        {/* User Activity */}
+        <SectionErrorBoundary sectionName="User Activity">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCheck className="h-5 w-5" />
+                <span>User Activity</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {usersLoading ? (
+                <Skeleton className="h-32 w-full" />
+              ) : usersError ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Failed to load user data
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xl sm:text-2xl font-bold">{userActivity.totalUsers}</p>
+                      <p className="text-xs text-muted-foreground">Total Users</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xl sm:text-2xl font-bold text-green-600">
+                        {userActivity.activeUsers}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Active (7d)</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">Recent Logins</span>
+                      </div>
+                      <span className="text-lg font-semibold">
+                        {userActivity.recentLogins}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <UserPlus className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">New (7d)</span>
+                      </div>
+                      <span className="text-lg font-semibold">
+                        {userActivity.newUsersThisWeek}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => navigate('/admin/users')}
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Manage Users
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </SectionErrorBoundary>
+
+        {/* Security Overview */}
+        <SectionErrorBoundary sectionName="Security Overview">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5" />
+                <span>Security Overview</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {auditLoading ? (
+                <Skeleton className="h-32 w-full" />
+              ) : auditError ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Failed to load audit data
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xl sm:text-2xl font-bold text-red-600">
+                        {securityOverview.policyViolations}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Policy Violations
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xl sm:text-2xl font-bold text-amber-600">
+                        {securityOverview.failedLogins}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Failed Logins
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <span className="text-sm">Audit Events (24h)</span>
+                      <Badge variant="outline">
+                        {securityOverview.auditEvents}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <span className="text-sm">Suspicious Activity</span>
+                      <Badge
+                        variant={
+                          securityOverview.suspiciousActivity > 0
+                            ? 'destructive'
+                            : 'outline'
+                        }
+                      >
+                        {securityOverview.suspiciousActivity}
+                      </Badge>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => navigate('/audit')}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    View Audit Logs
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </SectionErrorBoundary>
+      </ContentGrid>
+
+      {/* System Resource Usage */}
+      <SectionErrorBoundary sectionName="System Resources">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              <span>System Resource Usage</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {metricsLoading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : metricsError ? (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load system metrics
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <>
+                {/* CPU Usage */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <Cpu className="h-5 w-5 text-muted-foreground" />
+                      <HelpTooltip helpId="cpu-usage">
+                        <span className="text-sm font-medium cursor-help">
+                          CPU Usage
+                        </span>
+                      </HelpTooltip>
+                    </div>
+                    <span className="text-sm font-semibold">
+                      {systemMetrics?.cpu_usage_percent?.toFixed(1) || 0}%
+                    </span>
+                  </div>
+                  <Progress
+                    value={systemMetrics?.cpu_usage_percent || 0}
+                    className="h-3"
+                  />
+                </div>
+
+                {/* Memory Usage */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="h-5 w-5 text-muted-foreground" />
+                      <HelpTooltip helpId="memory-usage">
+                        <span className="text-sm font-medium cursor-help">
+                          Memory Usage
+                        </span>
+                      </HelpTooltip>
+                    </div>
+                    <span className="text-sm font-semibold">
+                      {systemMetrics?.memory_usage_percent?.toFixed(1) || 0}%
+                    </span>
+                  </div>
+                  <Progress
+                    value={systemMetrics?.memory_usage_percent || 0}
+                    className="h-3"
+                  />
+                </div>
+
+                {/* Disk Usage */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-5 w-5 text-muted-foreground" />
+                      <HelpTooltip helpId="disk-usage">
+                        <span className="text-sm font-medium cursor-help">
+                          Disk Usage
+                        </span>
+                      </HelpTooltip>
+                    </div>
+                    <span className="text-sm font-semibold">
+                      {systemMetrics?.disk_usage_percent?.toFixed(1) || 0}%
+                    </span>
+                  </div>
+                  <Progress
+                    value={systemMetrics?.disk_usage_percent || 0}
+                    className="h-3"
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </SectionErrorBoundary>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base sm:text-lg">Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <Button
+                  key={action.label}
+                  variant="outline"
+                  className="flex items-center justify-start gap-2 h-auto p-4"
+                  onClick={action.onClick}
+                >
+                  <Icon className={`h-5 w-5 ${action.color}`} />
+                  <span className="text-sm font-medium">{action.label}</span>
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

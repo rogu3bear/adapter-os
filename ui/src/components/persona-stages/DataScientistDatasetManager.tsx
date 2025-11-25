@@ -34,6 +34,7 @@ export default function DataScientistDatasetManager() {
           language: 'python',
           framework: 'pytorch',
           file_count: 1250,
+          total_size_bytes: 52428800, // 50MB
           total_tokens: 2500000,
           validation_status: 'valid' as DatasetValidationStatus,
           created_at: '2025-01-15T10:30:00Z',
@@ -47,6 +48,7 @@ export default function DataScientistDatasetManager() {
           language: 'typescript',
           framework: 'react',
           file_count: 340,
+          total_size_bytes: 18874368, // 18MB
           total_tokens: 890000,
           validation_status: 'valid' as DatasetValidationStatus,
           created_at: '2025-01-14T08:00:00Z',
@@ -59,8 +61,9 @@ export default function DataScientistDatasetManager() {
           source_type: 'code_repo' as DatasetSourceType,
           language: 'rust',
           file_count: 89,
+          total_size_bytes: 9437184, // 9MB
           total_tokens: 450000,
-          validation_status: 'pending' as DatasetValidationStatus,
+          validation_status: 'draft' as DatasetValidationStatus,
           created_at: '2025-01-16T14:00:00Z',
           updated_at: '2025-01-16T14:00:00Z',
         },
@@ -70,6 +73,7 @@ export default function DataScientistDatasetManager() {
           hash_b3: 'jkl901mno234',
           source_type: 'generated' as DatasetSourceType,
           file_count: 500,
+          total_size_bytes: 26214400, // 25MB
           total_tokens: 1200000,
           validation_status: 'invalid' as DatasetValidationStatus,
           created_at: '2025-01-13T16:30:00Z',
@@ -101,11 +105,11 @@ export default function DataScientistDatasetManager() {
             Invalid
           </Badge>
         );
-      case 'pending':
+      case 'draft':
         return (
-          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
             <Clock className="h-3 w-3 mr-1" />
-            Pending
+            Draft
           </Badge>
         );
       case 'validating':

@@ -6,15 +6,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import RouterSummaryView from './RouterSummaryView';
+import RouterTechnicalView from './RouterTechnicalView';
 import type { ExtendedRouterDecision } from '@/api/types';
 
 interface RouterDetailsModalProps {
@@ -32,9 +28,83 @@ export function RouterDetailsModal({
   const scores = decision.scores || {};
   const candidates = decision.candidates || [];
 
+  // Calculate average confidence from scores
+  const calculateConfidence = () => {
+    const selectedScores = adapters.map(id => scores[id] || 0);
+    if (selectedScores.length === 0) return 0;
+    return selectedScores.reduce((a, b) => a + b, 0) / selectedScores.length;
+  };
+
+  // Export audit data as JSON file
+  const handleExportAudit = () => {
+    const auditData = {
+      timestamp: decision.timestamp,
+      request_id: decision.request_id,
+      selected_adapters: decision.selected_adapters,
+      scores: decision.scores,
+      k_value: decision.k_value,
+      entropy: decision.entropy,
+      tau: decision.tau,
+      latency_ms: decision.latency_ms,
+      candidates: decision.candidates,
+      stack_hash: decision.stack_hash,
+    };
+
+    const blob = new Blob([JSON.stringify(auditData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `router-audit-${decision.request_id || Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Transform data for RouterSummaryView
+  const summaryData = {
+    confidence: calculateConfidence() * 100, // Convert to 0-100 scale
+    selectedAdapters: adapters.map(id => {
+      const candidate = candidates.find((c: any) => c.adapter_id === id);
+      return {
+        id,
+        name: id, // Use adapter ID as name for now
+        score: scores[id] || candidate?.raw_score || 0,
+        state: undefined, // Optional field
+      };
+    }),
+    reasoning: undefined, // Can be added if available in future
+    timestamp: decision.timestamp,
+  };
+
+  // Transform data for RouterTechnicalView
+  const technicalData = {
+    q15Gates: candidates
+      .filter((c: any) => adapters.includes(c.adapter_id))
+      .map((c: any, idx: number) => ({
+        adapterId: c.adapter_id,
+        adapterName: c.adapter_id,
+        gateValue: c.gate_float || 0,
+        rank: idx + 1,
+      })),
+    entropy: decision.entropy || 0,
+    hashChain: {
+      inputHash: decision.stack_hash || 'N/A',
+      outputHash: decision.request_id || 'N/A',
+      timestamp: decision.timestamp,
+    },
+    allCandidates: candidates.map((c: any) => ({
+      id: c.adapter_id,
+      name: c.adapter_id,
+      score: c.raw_score || 0,
+      selected: c.selected || adapters.includes(c.adapter_id),
+    })),
+    rawDecision: decision as unknown as Record<string, unknown>,
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Router Decision Details</DialogTitle>
           <DialogDescription>
@@ -42,111 +112,32 @@ export function RouterDetailsModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 mt-4">
-          {/* Summary */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">K-sparse Value</p>
-              <p className="text-lg font-semibold">{decision.k_value || adapters.length}</p>
-            </div>
-            {decision.entropy !== undefined && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Entropy</p>
-                <p className="text-lg font-semibold">{decision.entropy.toFixed(4)}</p>
-              </div>
-            )}
-            {decision.tau !== undefined && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Temperature (τ)</p>
-                <p className="text-lg font-semibold">{decision.tau.toFixed(4)}</p>
-              </div>
-            )}
-            {decision.latency_ms !== undefined && (
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Router Latency</p>
-                <p className="text-lg font-semibold">{decision.latency_ms.toFixed(2)}ms</p>
-              </div>
-            )}
+        <Tabs defaultValue="summary" className="mt-4">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="summary">Summary</TabsTrigger>
+            <TabsTrigger value="technical">Technical Proof</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="summary" className="mt-4">
+            <RouterSummaryView
+              decision={summaryData}
+              onExportAudit={handleExportAudit}
+            />
+          </TabsContent>
+
+          <TabsContent value="technical" className="mt-4">
+            <RouterTechnicalView data={technicalData} />
+          </TabsContent>
+        </Tabs>
+
+        {/* Request ID footer (preserved from original) */}
+        {decision.request_id && (
+          <div className="pt-2 mt-4 border-t">
+            <p className="text-xs text-muted-foreground">
+              Request ID: <span className="font-mono">{decision.request_id}</span>
+            </p>
           </div>
-
-          {/* Selected Adapters */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2">Selected Adapters</h3>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Adapter ID</TableHead>
-                  <TableHead>Score</TableHead>
-                  {candidates.length > 0 && candidates[0]?.gate_q15 !== undefined && (
-                    <TableHead>Gate (Q15)</TableHead>
-                  )}
-                  {candidates.length > 0 && candidates[0]?.gate_float !== undefined && (
-                    <TableHead>Gate (Float)</TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {adapters.map((adapterId, idx) => {
-                  const candidate = candidates.find((c: any) => c.adapter_id === adapterId);
-                  const score = scores[adapterId] || candidate?.raw_score || 0;
-                  
-                  return (
-                    <TableRow key={adapterId}>
-                      <TableCell className="font-mono text-sm">{adapterId}</TableCell>
-                      <TableCell>{score.toFixed(4)}</TableCell>
-                      {candidate?.gate_q15 !== undefined && (
-                        <TableCell>{candidate.gate_q15}</TableCell>
-                      )}
-                      {candidate?.gate_float !== undefined && (
-                        <TableCell>{candidate.gate_float.toFixed(4)}</TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* All Candidates (if available) */}
-          {candidates.length > adapters.length && (
-            <div>
-              <h3 className="text-sm font-semibold mb-2">All Candidates</h3>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Adapter ID</TableHead>
-                    <TableHead>Score</TableHead>
-                    <TableHead>Selected</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {candidates.map((candidate: any) => (
-                    <TableRow key={candidate.adapter_id}>
-                      <TableCell className="font-mono text-sm">{candidate.adapter_id}</TableCell>
-                      <TableCell>{candidate.raw_score?.toFixed(4) || '-'}</TableCell>
-                      <TableCell>
-                        {candidate.selected ? (
-                          <Badge variant="default">Selected</Badge>
-                        ) : (
-                          <Badge variant="outline">Not Selected</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {/* Request ID */}
-          {decision.request_id && (
-            <div className="pt-2 border-t">
-              <p className="text-xs text-muted-foreground">
-                Request ID: <span className="font-mono">{decision.request_id}</span>
-              </p>
-            </div>
-          )}
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );

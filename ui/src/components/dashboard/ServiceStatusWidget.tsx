@@ -10,7 +10,10 @@ import type { ServiceStatus } from '@/api/types';
 export function ServiceStatusWidget() {
   const { status, isLoading } = useServiceStatus();
 
-  const failedServices = status?.services?.filter(s => s.state === 'failed') || [];
+  const failedServices = React.useMemo(
+    () => status?.services?.filter(s => s.state === 'failed') || [],
+    [status?.services]
+  );
   const hasFailures = failedServices.length > 0;
   const totalServices = status?.services?.length || 0;
 
@@ -25,7 +28,7 @@ export function ServiceStatusWidget() {
         }
       );
     }
-  }, [hasFailures, failedServices.length]);
+  }, [hasFailures, failedServices]);
 
   if (isLoading) {
     return (
