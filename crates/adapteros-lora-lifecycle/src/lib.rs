@@ -1133,6 +1133,15 @@ impl LifecycleManager {
         Ok(())
     }
 
+    /// Get adapter index by adapter ID
+    pub fn get_adapter_idx(&self, adapter_id: &str) -> Option<u16> {
+        let states = self.states.read();
+        states
+            .iter()
+            .find(|(_, record)| record.adapter_id == adapter_id)
+            .map(|(idx, _)| *idx)
+    }
+
     /// Get or reload adapter with automatic reload on cache miss
     pub fn get_or_reload(&mut self, adapter_id: &str) -> Result<()> {
         let mut states = self.states.write();

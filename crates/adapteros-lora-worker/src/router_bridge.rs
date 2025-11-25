@@ -16,7 +16,7 @@
 
 use adapteros_lora_kernel_api::RouterRing;
 use adapteros_lora_router::Decision;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 /// Convert router Decision to canonical RouterRing format
 ///

@@ -72,8 +72,8 @@ impl TrainerMetricsExt for MicroLoRATrainer {
 
 /// Helper function to create a metrics-enabled training session
 pub fn create_metrics_enabled_trainer(
-    trainer: &mut MicroLoRATrainer,
-    examples: &[TrainingExample],
+    _trainer: &mut MicroLoRATrainer,
+    _examples: &[TrainingExample],
     metrics_config: Option<MetricsConfig>,
 ) -> TrainingMetricsSession {
     let config = metrics_config.unwrap_or_default();

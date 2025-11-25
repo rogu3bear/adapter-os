@@ -1,6 +1,6 @@
 //! LoRA adapter implementation for MLX FFI
 
-use adapteros_core::B3Hash;
+use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -157,16 +157,16 @@ impl LoRAAdapter {
         path: P,
         id: String,
         config: LoRAConfig,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self> {
         let mut adapter = Self::new(id, config);
         let path = path.as_ref();
 
         // Load safetensors file
         let data = std::fs::read(path)
-            .map_err(|e| format!("Failed to read LoRA file {}: {}", path.display(), e))?;
+            .map_err(|e| AosError::Io(format!("Failed to read LoRA file {}: {}", path.display(), e)))?;
 
         let tensors = safetensors::SafeTensors::deserialize(&data)
-            .map_err(|e| format!("Failed to parse safetensors: {}", e))?;
+            .map_err(|e| AosError::Validation(format!("Failed to parse safetensors: {}", e)))?;
 
         // Extract LoRA weights for each target module
         for module_name in &adapter.config().target_modules.clone() {
@@ -206,12 +206,12 @@ impl LoRAAdapter {
 /// Convert safetensors tensor view to nested Vec<Vec<f32>>
 fn tensor_to_nested_vec(
     tensor: &safetensors::tensor::TensorView,
-) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error>> {
+) -> Result<Vec<Vec<f32>>> {
     let shape = tensor.shape();
     let data = tensor.data();
 
     if shape.len() != 2 {
-        return Err(format!("Expected 2D tensor, got shape {:?}", shape).into());
+        return Err(AosError::Validation(format!("Expected 2D tensor, got shape {:?}", shape)));
     }
 
     let rows = shape[0];
@@ -226,12 +226,11 @@ fn tensor_to_nested_vec(
     };
 
     if float_data.len() != rows * cols {
-        return Err(format!(
+        return Err(AosError::Validation(format!(
             "Data size mismatch: expected {} elements, got {}",
             rows * cols,
             float_data.len()
-        )
-        .into());
+        )));
     }
 
     // Convert to nested vec

@@ -4,7 +4,7 @@
 //! enabling better control over reinforcement learning and adversarial training.
 
 use super::dataset::TrainingExample;
-use super::trainer::{LoRAWeights, TrainingConfig, TrainingResult};
+use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_core::{derive_seed, AosError, Result, B3Hash};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_single_file_adapter::{
@@ -12,8 +12,6 @@ use adapteros_single_file_adapter::{
     weights::combine_weight_groups,
 };
 use adapteros_telemetry::TelemetryWriter;
-use chrono::Utc;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tracing::{debug, info};
@@ -205,7 +203,7 @@ impl SeparatedLoRATrainer {
         &self,
         weights: &mut LoRAWeights,
         examples: &[TrainingExample],
-        epoch: usize,
+        _epoch: usize,
     ) -> Result<f32> {
         let mut total_loss = 0.0;
         let mut batch_count = 0;

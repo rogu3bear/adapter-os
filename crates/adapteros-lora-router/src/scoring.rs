@@ -47,8 +47,18 @@ impl ScoringFunction for WeightedScorer {
         _tau: f32,
         _eps: f32,
     ) -> Decision {
-        // Use the existing router logic
-        self.router.route(features, priors)
+        // Use the existing router logic with empty adapter_info (fallback)
+        // Create empty adapter_info vector matching priors length
+        use crate::AdapterInfo;
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
+        self.router.route_with_adapter_info(features, priors, &adapter_info)
     }
 }
 

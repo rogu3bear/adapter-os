@@ -6,11 +6,6 @@
 //! - Attention masking (causal and arbitrary masks)
 //! - Numerically stable softmax computation
 
-use crate::{
-    mlx_add, mlx_array_copy, mlx_array_data, mlx_array_free, mlx_array_from_data, mlx_array_shape,
-    mlx_array_size, mlx_array_t, mlx_clear_error, mlx_divide, mlx_get_last_error, mlx_matmul,
-    mlx_mean, mlx_multiply, mlx_sqrt, mlx_sum,
-};
 use adapteros_core::{AosError, Result};
 
 use crate::MLXFFITensor;
@@ -305,8 +300,6 @@ fn apply_attention_mask(scores: &MLXFFITensor, mask: &MLXFFITensor) -> Result<ML
 ///
 /// Creates a lower-triangular mask that prevents attention to future positions.
 fn apply_causal_mask(scores: &MLXFFITensor, seq_len: usize) -> Result<MLXFFITensor> {
-    let shape = scores.shape().to_vec();
-
     // Create causal mask: lower triangular matrix with -inf above diagonal
     let mut mask_data = vec![0.0; seq_len * seq_len];
 

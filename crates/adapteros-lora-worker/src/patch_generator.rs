@@ -671,7 +671,7 @@ impl LlmBackend for RuleBasedLlmBackend {
         let file_content = context.file_contexts.get(&file).map(|s| s.as_str());
 
         // Generate actual code transformation
-        let (old_code, new_code, start_line, end_line) = self.generate_transformation(
+        let (old_code, new_code, start_line, _end_line) = self.generate_transformation(
             &transform_type,
             &context.request.description,
             file_content,

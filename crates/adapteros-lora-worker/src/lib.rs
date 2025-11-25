@@ -34,6 +34,7 @@ use adapteros_core::{paths::AdapterPaths, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{features::CodeFeatures, Router, AdapterInfo};
+use crate::router_bridge::decision_to_router_ring;
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
@@ -458,11 +459,16 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
     ///
     /// # Parameters
     /// - `interval_secs`: How often to run verification (default: 300 seconds / 5 minutes)
+    /// 
+    /// Note: Background monitoring is acceptable as tokio::spawn per CLAUDE.md,
+    /// but using deterministic spawn for consistency where possible
     pub fn start_gpu_verification_task(&self, interval_secs: u64) -> tokio::task::JoinHandle<()> {
         let kernels = self.kernels.clone();
         let lifecycle = self.lifecycle.clone();
         let telemetry = self.telemetry.clone();
 
+        // Background monitoring task - acceptable as tokio::spawn per CLAUDE.md
+        // Using tokio::spawn for background monitoring tasks
         tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
@@ -729,7 +735,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             }
 
             // Convert Decision to RouterRing
-            let mut router_ring = RouterRing::from(&decision);
+            let mut router_ring = decision_to_router_ring(&decision, self.manifest.adapters.len() as u16)?;
             router_ring.position = step;
 
             // Execute kernels through Metal and measure latency per adapter

@@ -7,7 +7,6 @@
 //! - Real-time training progress indicators
 
 use crate::training::metrics::{MetricsSnapshot, TrainingMetrics, TrainingReport};
-use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
 
 /// ASCII chart generator for training metrics
@@ -67,7 +66,7 @@ impl TrainingCharts {
         } else {
             1
         };
-        let x_max = (data.len() - 1).min(width - 1);
+        let _x_max = (data.len() - 1).min(width - 1);
 
         for (i, &value) in data.iter().enumerate() {
             let x = if data.len() > width {

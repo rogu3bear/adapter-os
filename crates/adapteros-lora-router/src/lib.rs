@@ -782,6 +782,7 @@ impl Router {
                 priors.len(),
                 adapter_info.len()
             );
+            #[allow(deprecated)] // Intentional fallback to deprecated method
             return self.route(features, priors);
         }
 
@@ -1090,8 +1091,8 @@ impl Router {
         // Convert code features to vector
         let feature_vec = code_features.to_vector();
 
-        // Route using the computed priors
-        self.route(&feature_vec, &priors)
+        // Route using the computed priors with adapter info
+        self.route_with_adapter_info(&feature_vec, &priors, adapter_info)
     }
 
     /// Get scoring explanation for debugging/audit
@@ -1242,8 +1243,16 @@ mod tests {
 
         let features = vec![0.5; 10];
         let priors = vec![0.1, 0.9, 0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6, 0.0];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
 
-        let decision = router.route(&features, &priors);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
 
         assert_eq!(decision.indices.len(), 3);
         assert_eq!(decision.gates_q15.len(), 3);
@@ -1260,8 +1269,16 @@ mod tests {
 
         let features = vec![0.0; 5];
         let priors = vec![1.0, 0.0, 0.0, 0.0, 0.0]; // One dominant prior
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
 
-        let decision = router.route(&features, &priors);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
         let gates = decision.gates_f32();
 
         // All gates should be >= entropy floor / k
@@ -1305,8 +1322,8 @@ mod tests {
 
         // Django adapter should likely be selected due to framework prior
         // (though exact ordering depends on weights)
-        println!("Selected indices: {:?}", decision.indices);
-        println!("Gates: {:?}", decision.gates_f32());
+        tracing::debug!("Selected indices: {:?}", decision.indices);
+        tracing::debug!("Gates: {:?}", decision.gates_f32());
     }
 
     #[test]
@@ -1345,8 +1362,8 @@ mod tests {
             "Language-weighted router should prioritize language score"
         );
 
-        println!("Heavy language weights: {}", explanation1.format());
-        println!("\nHeavy framework weights: {}", explanation2.format());
+        tracing::debug!("Heavy language weights: {}", explanation1.format());
+        tracing::debug!("Heavy framework weights: {}", explanation2.format());
 
         // Language contribution should be much higher in router1
         assert!(
@@ -1465,8 +1482,16 @@ mod tests {
 
         let features = vec![0.0; 5];
         let priors = vec![1.0, 0.0, 0.0, 0.0, 0.0]; // One dominant prior
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
 
-        let decision = router.route(&features, &priors);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
         let gates = decision.gates_f32();
 
         // All gates should be >= entropy floor / k
@@ -1499,9 +1524,17 @@ mod tests {
         // Same input
         let features = vec![0.1; 5];
         let priors = vec![0.9, 0.05, 0.03, 0.02, 0.0];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+            })
+            .collect();
 
-        let decision_low = router_low.route(&features, &priors);
-        let decision_high = router_high.route(&features, &priors);
+        let decision_low = router_low.route_with_adapter_info(&features, &priors, &adapter_info);
+        let decision_high = router_high.route_with_adapter_info(&features, &priors, &adapter_info);
 
         let gates_low = decision_low.gates_f32();
         let gates_high = decision_high.gates_f32();
