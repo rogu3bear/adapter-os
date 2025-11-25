@@ -8,13 +8,14 @@ use adapteros_lora_mlx_ffi::{
     kv_cache::{KVCacheConfig, MLXKVCache},
     tensor::MLXFFITensor,
 };
+use adapteros_core::Result;
 
 // ============================================================================
 // Example 1: Basic KV Cache FFI Usage
 // ============================================================================
 
 /// Example: Initialize and use KV cache
-pub fn example_kv_cache_basic_usage() -> Result<(), Box<dyn std::error::Error>> {
+pub fn example_kv_cache_basic_usage() -> Result<()> {
     // Step 1: Create cache configuration
     let config = KVCacheConfig {
         num_layers: 32,
@@ -63,7 +64,7 @@ pub fn example_kv_cache_basic_usage() -> Result<(), Box<dyn std::error::Error>> 
 // ============================================================================
 
 /// Example: Apply and verify RoPE transformations
-pub fn example_rope_application() -> Result<(), Box<dyn std::error::Error>> {
+pub fn example_rope_application() -> Result<()> {
     // Step 1: Create RoPE frequencies
     let head_dim = 64;
     let rope_freq = RoPEFrequencies::new(head_dim, 10000.0);
@@ -111,7 +112,7 @@ pub fn example_rope_application() -> Result<(), Box<dyn std::error::Error>> {
 // ============================================================================
 
 /// Example: Compute scaled dot-product attention
-pub fn example_attention_computation() -> Result<(), Box<dyn std::error::Error>> {
+pub fn example_attention_computation() -> Result<()> {
     // Configuration
     let batch_size = 1;
     let seq_len = 4;
@@ -195,7 +196,7 @@ pub fn example_attention_computation() -> Result<(), Box<dyn std::error::Error>>
 // ============================================================================
 
 /// Example: Simulate KV cache usage during token generation
-pub fn example_kv_cache_generation_simulation() -> Result<(), Box<dyn std::error::Error>> {
+pub fn example_kv_cache_generation_simulation() -> Result<()> {
     let config = KVCacheConfig {
         num_layers: 4,
         max_seq_length: 128,
@@ -256,7 +257,7 @@ pub fn example_kv_cache_generation_simulation() -> Result<(), Box<dyn std::error
 // ============================================================================
 
 /// Example: Verify causal masking in attention
-pub fn example_causal_attention() -> Result<(), Box<dyn std::error::Error>> {
+pub fn example_causal_attention() -> Result<()> {
     let hidden_size = 32;
     let seq_len = 4;
     let num_heads = 2;
