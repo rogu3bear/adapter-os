@@ -1,6 +1,6 @@
 //! Replay session management and state tracking
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::AosError;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -18,6 +18,9 @@ use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
 use adapteros_trace::{reader::read_trace_bundle, schema::TraceBundle};
 
 use crate::verification::VerificationMode;
+
+/// Local Result type alias for ReplayError
+type Result<T> = std::result::Result<T, ReplayError>;
 
 #[derive(Error, Debug)]
 pub enum ReplayError {
@@ -65,14 +68,14 @@ pub struct ReplaySession {
 }
 
 impl ReplaySession {
-    pub fn from_log(trace_path: &Path) -> Result<Self, ReplayError> {
+    pub fn from_log(trace_path: &Path) -> std::result::Result<Self, ReplayError> {
         Self::from_log_with_mode(trace_path, VerificationMode::Strict)
     }
 
     pub fn from_log_with_mode(
         trace_path: &Path,
         mode: VerificationMode,
-    ) -> Result<Self, ReplayError> {
+    ) -> std::result::Result<Self, ReplayError> {
         info!("Loading trace bundle from: {}", trace_path.display());
         let trace_bundle = read_trace_bundle(trace_path)?;
 
@@ -110,7 +113,7 @@ impl ReplaySession {
         self
     }
 
-    pub async fn step(&self) -> Result<(), ReplayError> {
+    pub async fn step(&self) -> std::result::Result<(), ReplayError> {
         let mut stats = self.stats.lock().await;
         let current_idx = self.current_event_index.load(Ordering::Relaxed) as usize;
 
@@ -158,7 +161,7 @@ impl ReplaySession {
         &self,
         expected_states: &[adapteros_telemetry::replay::RngCheckpoint],
         actual_states: &[adapteros_telemetry::replay::RngCheckpoint],
-    ) -> Result<(), ReplayError> {
+    ) -> std::result::Result<(), ReplayError> {
         if expected_states.len() != actual_states.len() {
             return Err(ReplayError::InitializationError(format!(
                 "RNG checkpoint count mismatch: expected {}, got {}",
@@ -217,7 +220,7 @@ impl ReplaySession {
     ///
     /// Validates the trace bundle signature against the trusted public key.
     /// Returns error if no trusted public key is set or signature verification fails.
-    pub fn verify_replay_signature(&self) -> Result<(), ReplayError> {
+    pub fn verify_replay_signature(&self) -> std::result::Result<(), ReplayError> {
         let pubkey = self.trusted_pubkey.as_ref().ok_or_else(|| {
             ReplayError::AosError(adapteros_core::AosError::Verification(
                 "No trusted public key configured for signature verification".to_string(),
@@ -276,7 +279,7 @@ impl ReplaySession {
     pub async fn run_with_progress<F>(
         &mut self,
         mut progress_callback: F,
-    ) -> Result<(), ReplayError>
+    ) -> std::result::Result<(), ReplayError>
     where
         F: FnMut(ReplayStats),
     {
@@ -338,7 +341,7 @@ impl ReplaySession {
         Ok(())
     }
 
-    pub async fn run(&mut self) -> Result<(), ReplayError> {
+    pub async fn run(&mut self) -> std::result::Result<(), ReplayError> {
         self.run_with_progress(|_| {}).await
     }
 
@@ -371,7 +374,7 @@ impl ReplaySession {
     pub fn compare_outputs(
         &self,
         expected_events: &[adapteros_trace::schema::Event],
-    ) -> Result<(), ReplayError> {
+    ) -> std::result::Result<(), ReplayError> {
         let actual_events = self.executor.get_event_log();
 
         if expected_events.len() != actual_events.len() {
@@ -401,7 +404,7 @@ impl ReplaySession {
     }
 
     /// Validate determinism by comparing executor state with trace bundle
-    pub fn validate_determinism(&self) -> Result<(), ReplayError> {
+    pub fn validate_determinism(&self) -> std::result::Result<(), ReplayError> {
         let executor_tick = self.executor.current_tick();
         let current_idx = self.current_event_index.load(Ordering::Relaxed) as usize;
 
@@ -448,7 +451,7 @@ impl ReplaySession {
         &self.trace_bundle
     }
 
-    pub fn jump_to_step(&mut self, step: usize) -> Result<(), ReplayError> {
+    pub fn jump_to_step(&mut self, step: usize) -> std::result::Result<(), ReplayError> {
         if step > self.trace_bundle.events.len() {
             return Err(ReplayError::StepError(format!(
                 "Step {} is out of bounds (total events: {})",
@@ -479,7 +482,7 @@ pub struct ExecutorState {
     pub pending_tasks: usize,
 }
 
-pub async fn replay_trace(trace_path: &Path) -> Result<ReplayStats, ReplayError> {
+pub async fn replay_trace(trace_path: &Path) -> std::result::Result<ReplayStats, ReplayError> {
     let mut session = ReplaySession::from_log(trace_path)?;
     session.run().await?;
     Ok(session.stats().await)

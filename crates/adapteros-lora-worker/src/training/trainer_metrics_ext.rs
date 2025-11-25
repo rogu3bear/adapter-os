@@ -6,7 +6,6 @@
 use super::metrics::{MetricsConfig, TrainingMetrics};
 use super::trainer::{MicroLoRATrainer, TrainingExample};
 use adapteros_core::Result;
-use std::time::Instant;
 use tracing::{info, warn};
 
 /// Extension trait for MicroLoRATrainer to add metrics tracking

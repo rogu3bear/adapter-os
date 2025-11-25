@@ -19,6 +19,7 @@
 //! ```
 
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
+use adapteros_deterministic_exec::spawn_deterministic;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -463,7 +464,8 @@ impl MLXStreamingGenerator {
         let _keep_alive_handle = if self.config.keep_alive {
             let tx_clone = tx.clone();
             let interval = self.config.keep_alive_interval;
-            Some(tokio::spawn(async move {
+            let task_name = format!("mlx-stream-keep-alive-{}", self.tokens_generated);
+            Some(spawn_deterministic(task_name, async move {
                 let mut ticker = tokio::time::interval(interval);
                 loop {
                     ticker.tick().await;
@@ -471,7 +473,7 @@ impl MLXStreamingGenerator {
                         break;
                     }
                 }
-            }))
+            }).map_err(|e| AosError::DeterminismViolation(format!("Failed to spawn keep-alive task: {}", e)))?)
         } else {
             None
         };

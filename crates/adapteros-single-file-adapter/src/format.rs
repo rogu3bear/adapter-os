@@ -71,8 +71,7 @@ pub enum WeightGroupType {
 }
 
 /// Compression level for .aos packaging
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompressionLevel {
     /// No compression (fastest)
     Store,

@@ -247,27 +247,19 @@ impl CpClient for WasmClient {
 
     // Code Policy - STUB (endpoint not implemented in API)
     async fn get_code_policy(&self) -> Result<GetCodePolicyResponse> {
-        Err(anyhow::anyhow!(
-            "Code policy endpoint not available"
-        ))
+        Err(anyhow::anyhow!("Code policy endpoint not available"))
     }
 
     async fn update_code_policy(&self, _req: UpdateCodePolicyRequest) -> Result<()> {
-        Err(anyhow::anyhow!(
-            "Code policy endpoint not available"
-        ))
+        Err(anyhow::anyhow!("Code policy endpoint not available"))
     }
 
     // Metrics Dashboard - STUB (endpoints not implemented in API)
     async fn get_code_metrics(&self, _req: CodeMetricsRequest) -> Result<CodeMetricsResponse> {
-        Err(anyhow::anyhow!(
-            "Code metrics endpoint not available"
-        ))
+        Err(anyhow::anyhow!("Code metrics endpoint not available"))
     }
 
     async fn compare_metrics(&self, _req: CompareMetricsRequest) -> Result<CompareMetricsResponse> {
-        Err(anyhow::anyhow!(
-            "Metrics comparison endpoint not available"
-        ))
+        Err(anyhow::anyhow!("Metrics comparison endpoint not available"))
     }
 }

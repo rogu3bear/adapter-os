@@ -23,7 +23,8 @@ pub use embeddings::{
     EmbeddingModel, ProductionEmbeddingModel, SimpleEmbeddingModel, EMBEDDING_DIMENSION,
 };
 pub use rag_integration::{
-    generate_revision, prepare_document_for_rag, prepare_documents_for_rag, RagChunkParams,
+    generate_revision, index_document_with_provenance, prepare_document_for_rag,
+    prepare_documents_for_rag, RagChunkParams,
 };
 pub use training_gen::{
     generate_training_data, generate_training_data_from_documents, TrainingData, TrainingExample,

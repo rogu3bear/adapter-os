@@ -17,6 +17,8 @@ use crate::unified_tracker::{
     BackendType, EvictionStrategy, MemoryLimits, PressureLevel, UnifiedMemoryTracker,
 };
 use adapteros_core::{AosError, Result};
+// TODO: Re-enable when adapteros-deterministic-exec is available
+// use adapteros_deterministic_exec::spawn_deterministic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -151,39 +153,53 @@ impl MemoryPressureManager {
 
         // Try channel sender first (preferred, async)
         if let Some(sender) = &self.k_reduction_sender {
-            // Spawn async task to send request to avoid blocking
-            let sender_clone = sender.clone();
-            let request_clone = request.clone();
-
-            tokio::spawn(async move {
-                match sender_clone.send(request_clone.clone()).await {
+            // Spawn async task to send request to avoid blocking.
+            // Prefer deterministic executor; fall back to Tokio if not initialized (e.g., CLI tools).
+            let send_once = |sender: KReductionRequestSender, request: KReductionRequest| async move {
+                match sender.send(request.clone()).await {
                     Ok(()) => {
                         info!(
-                            request_id = %request_clone.request_id,
-                            target_k = request_clone.target_k,
+                            request_id = %request.request_id,
+                            target_k = request.target_k,
                             "K reduction request sent through channel"
                         );
                     }
                     Err(SendError::ChannelFull) => {
                         warn!(
-                            request_id = %request_clone.request_id,
+                            request_id = %request.request_id,
                             "K reduction channel buffer full, request dropped"
                         );
                     }
                     Err(SendError::ChannelClosed) => {
                         error!(
-                            request_id = %request_clone.request_id,
+                            request_id = %request.request_id,
                             "K reduction channel closed, lifecycle manager not available"
                         );
                     }
                     Err(SendError::SendTimeout) => {
                         warn!(
-                            request_id = %request_clone.request_id,
+                            request_id = %request.request_id,
                             "K reduction channel send timed out"
                         );
                     }
                 }
-            });
+            };
+
+            let sender_clone = sender.clone();
+            let request_clone = request.clone();
+
+            // TODO: Re-enable deterministic execution when available
+            // if let Err(e) = spawn_deterministic(
+            //     format!("k-reduction-send:{}", request_clone.request_id),
+            //     send_once(sender_clone, request_clone.clone()),
+            // ) {
+            //     debug!(
+            //         error = %e,
+            //         request_id = %request_clone.request_id,
+            //         "Deterministic executor unavailable for K reduction; falling back to Tokio"
+            //     );
+            tokio::spawn(send_once(sender.clone(), request.clone()));
+            // }
 
             return Ok(MemoryPressureReport {
                 pressure_level: pressure.level,

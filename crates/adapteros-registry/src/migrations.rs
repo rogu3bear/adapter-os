@@ -16,8 +16,8 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             registered_at TEXT NOT NULL
         )",
         [],
-        )
-        .map_err(|e| AosError::Registry(format!("Failed to create adapters table: {}", e)))?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create adapters table: {}", e)))?;
 
     // Create tenants table
     conn.execute(
@@ -71,7 +71,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_adapters_activation ON adapters(activation_pct)",
         [],
     )
-    .map_err(|e| AosError::Registry(format!("Failed to create adapters activation index: {}", e)))?;
+    .map_err(|e| {
+        AosError::Registry(format!("Failed to create adapters activation index: {}", e))
+    })?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_config_hash ON models(config_hash)",
@@ -82,12 +84,19 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_models_tokenizer_hash ON models(tokenizer_hash)",
         [],
     )
-    .map_err(|e| AosError::Registry(format!("Failed to create models tokenizer hash index: {}", e)))?;
+    .map_err(|e| {
+        AosError::Registry(format!(
+            "Failed to create models tokenizer hash index: {}",
+            e
+        ))
+    })?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_weights_hash ON models(weights_hash)",
         [],
     )
-    .map_err(|e| AosError::Registry(format!("Failed to create models weights hash index: {}", e)))?;
+    .map_err(|e| {
+        AosError::Registry(format!("Failed to create models weights hash index: {}", e))
+    })?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_created_at ON models(created_at)",
         [],

@@ -6,7 +6,6 @@
 use super::dataset::TrainingExample;
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
-use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_single_file_adapter::{
     format::{AdapterWeights, CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata},
     weights::combine_weight_groups,
@@ -67,7 +66,7 @@ impl SeparatedLoRATrainer {
         let seed_bytes = derive_seed(&base_hash, "separated_lora_training");
 
         // Convert seed bytes to u64 for RNG initialization
-        let training_seed = u64::from_le_bytes([
+        let _training_seed = u64::from_le_bytes([
             seed_bytes[0],
             seed_bytes[1],
             seed_bytes[2],
@@ -81,7 +80,7 @@ impl SeparatedLoRATrainer {
         // Initialize telemetry writer with default settings
         let telemetry_dir =
             std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
-        let telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
+        let _telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
 
         Ok(Self { config })
     }

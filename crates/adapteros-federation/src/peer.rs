@@ -24,9 +24,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
+
+#[cfg(test)]
+use std::time::{Duration, UNIX_EPOCH};
 
 /// Peer health status
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

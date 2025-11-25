@@ -158,6 +158,8 @@ impl TrainingService {
         repo_id: Option<String>,
         dataset_id: Option<String>,
         tenant_id: Option<String>,
+        initiated_by: Option<String>,
+        initiated_by_role: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
 
@@ -166,6 +168,8 @@ impl TrainingService {
         job.repo_id = repo_id;
         job.dataset_id = dataset_id;
         job.tenant_id = tenant_id.clone();
+        job.initiated_by = initiated_by;
+        job.initiated_by_role = initiated_by_role;
 
         {
             let mut jobs = self.jobs.write().await;
@@ -181,9 +185,8 @@ impl TrainingService {
         let tenant_id_for_run = tenant_id;
         let db_for_run = self.db.clone();
         let storage_for_run = self.storage_root.clone();
-        if let Err(e) = spawn_deterministic(
-            format!("training-job:{}", job_id_for_run),
-            async move {
+        if let Err(e) =
+            spawn_deterministic(format!("training-job:{}", job_id_for_run), async move {
                 if let Err(err) = run_training_job(
                     jobs_ref,
                     job_id_for_run.clone(),
@@ -198,14 +201,15 @@ impl TrainingService {
                 {
                     tracing::error!("Training job {} failed: {}", job_id_for_run, err);
                 }
-            },
-        ) {
+            })
+        {
             tracing::error!("Failed to spawn deterministic training task: {}", e);
             // Training operations require deterministic execution - fail rather than fallback
             return Err(adapteros_core::AosError::DeterminismViolation(format!(
                 "Training job {} requires deterministic executor: {}",
                 job_id, e
-            )).into());
+            ))
+            .into());
         }
 
         tracing::info!("Training job created: {}", job_id);
@@ -376,8 +380,7 @@ async fn run_training_job(
     storage_root: Option<PathBuf>,
 ) -> Result<()> {
     use adapteros_lora_worker::training::{
-        AdapterPackager, LoRAQuantizer,
-        TrainingConfig as WorkerTrainingConfigType,
+        AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfigType,
     };
 
     // Transition to running
@@ -406,7 +409,8 @@ async fn run_training_job(
     let db_for_packaging = db.clone();
 
     // Load training examples from dataset if available, otherwise use synthetic fallback
-    let examples: Vec<WorkerTrainingExample> = match (dataset_id, db, storage_root.clone()) {
+    let examples: Vec<WorkerTrainingExample> = match (dataset_id, db.clone(), storage_root.clone())
+    {
         (Some(ds_id), Some(database), Some(storage)) => {
             use crate::training_dataset_integration::TrainingDatasetManager;
             let dataset_manager = TrainingDatasetManager::new(database, storage, None);
@@ -592,12 +596,15 @@ async fn run_training_job(
                         // Step 4: Auto-create stack with adapter and set as default
                         let tenant_id = tenant_id.as_deref().unwrap_or("default");
                         let stack_name = format!("stack.{}.{}", tenant_id, adapter_name);
-                        
+
                         use adapteros_db::traits::CreateStackRequest;
                         let stack_request = CreateStackRequest {
                             tenant_id: tenant_id.to_string(),
                             name: stack_name.clone(),
-                            description: Some(format!("Auto-created stack for adapter {}", adapter_name)),
+                            description: Some(format!(
+                                "Auto-created stack for adapter {}",
+                                adapter_name
+                            )),
                             adapter_ids: vec![packaged.adapter_id.clone()],
                             workflow_type: Some("sequential".to_string()),
                         };
@@ -612,7 +619,9 @@ async fn run_training_job(
                                 );
 
                                 // Set as default stack for tenant
-                                if let Err(e) = database.set_default_stack(tenant_id, &stack_id).await {
+                                if let Err(e) =
+                                    database.set_default_stack(tenant_id, &stack_id).await
+                                {
                                     tracing::warn!(
                                         job_id = %job_id,
                                         stack_id = %stack_id,
@@ -666,7 +675,7 @@ async fn run_training_job(
             }
 
             // Step 5: Update job status to completed with artifact info
-            {
+            let (initiated_by, initiated_by_role, tenant_id_for_audit) = {
                 let mut jobs = jobs_ref.write().await;
                 if let Some(job) = jobs.get_mut(&job_id) {
                     job.status = TrainingJobStatus::Completed;
@@ -675,6 +684,45 @@ async fn run_training_job(
                     job.artifact_path = Some(packaged.weights_path.to_string_lossy().to_string());
                     job.adapter_id = Some(packaged.adapter_id.clone());
                     job.weights_hash_b3 = Some(packaged.hash_b3.clone());
+
+                    // Extract audit context for logging
+                    (
+                        job.initiated_by.clone(),
+                        job.initiated_by_role.clone(),
+                        job.tenant_id.clone(),
+                    )
+                } else {
+                    (None, None, None)
+                }
+            };
+
+            // Audit log: training completion (if we have user context and database)
+            if let (Some(database), Some(user_id), Some(user_role)) =
+                (&db, initiated_by, initiated_by_role)
+            {
+                // Create a minimal Claims-like structure for audit logging
+                let tenant_id_str = tenant_id_for_audit.unwrap_or_else(|| "system".to_string());
+
+                if let Err(e) = database
+                    .log_audit(
+                        &user_id,
+                        &user_role,
+                        &tenant_id_str,
+                        "training.complete",
+                        "training_job",
+                        Some(&job_id),
+                        "success",
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to log training completion audit event"
+                    );
                 }
             }
 
@@ -708,7 +756,16 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None, None, None)
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -725,7 +782,16 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None, None, None)
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -741,7 +807,16 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None, None, None)
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 

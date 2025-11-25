@@ -497,6 +497,12 @@ impl AdapterOSClient for UdsClient {
             itar_flag: false,
             created_at: "2025-01-01T00:00:00Z".to_string(),
             status: "active".to_string(),
+            updated_at: None,
+            default_stack_id: None,
+            max_adapters: None,
+            max_training_jobs: None,
+            max_storage_gb: None,
+            rate_limit_rpm: None,
         }])
     }
 

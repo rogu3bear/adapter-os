@@ -10,6 +10,7 @@ repository.workspace = true
 # Workspace dependencies
 adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true

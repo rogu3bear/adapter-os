@@ -14,7 +14,7 @@
 
 #[allow(unused_imports)]
 use crate::unified_events::{EventType, LogLevel, TelemetryEvent};
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -132,8 +132,8 @@ impl EventSampler {
         // Debug events (1% sampling)
         strategies.insert("debug".to_string(), SamplingStrategy::Fixed(0.01));
 
-        use rand::SeedableRng;
-        let rng = rand::rngs::StdRng::from_entropy();
+        // Deterministic seed to align with HKDF requirements for reproducibility
+        let rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
         Self {
             strategies: Arc::new(RwLock::new(strategies)),

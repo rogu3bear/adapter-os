@@ -250,6 +250,9 @@ mod tests {
 
         let result = loader.load_from_path(temp_file.path()).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid AOS magic"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid AOS magic"));
     }
 }

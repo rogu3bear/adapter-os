@@ -58,7 +58,8 @@ impl ScoringFunction for WeightedScorer {
                 tier: "default".to_string(),
             })
             .collect();
-        self.router.route_with_adapter_info(features, priors, &adapter_info)
+        self.router
+            .route_with_adapter_info(features, priors, &adapter_info)
     }
 }
 

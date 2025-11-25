@@ -5,8 +5,8 @@
 
 #[cfg(all(feature = "secure-enclave", target_os = "macos"))]
 mod hardware_tests {
-    use adapteros_secd::HardwareSecureEnclaveConnection;
     use adapteros_core::Result;
+    use adapteros_secd::HardwareSecureEnclaveConnection;
 
     #[tokio::test]
     async fn test_secure_enclave_signing_integration() -> Result<()> {
