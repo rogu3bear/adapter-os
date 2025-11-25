@@ -1276,7 +1276,7 @@ export interface DeterminismStatusResponse {
   divergences?: number;
 }
 
-export interface QuarantineStatusResponse {
+export interface AdapterQuarantineStatusResponse {
   quarantined_count: number;
   quarantined_adapters: Array<{
     id: string;
@@ -1371,6 +1371,7 @@ export interface AlertFilters {
   limit?: number;
   tenant_id?: string;
   worker_id?: string;
+  sort?: string;
 }
 
 export interface AcknowledgeAlertRequest {

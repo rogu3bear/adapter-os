@@ -151,12 +151,26 @@ export interface Dataset {
   format?: string;
   storage_path?: string;
   validation_errors?: string;
+  description?: string;
+  // PRD-DATA-01: Dataset Lab extensions
+  dataset_type?: DatasetType;
+  purpose?: string;
+  source_location?: string;
+  collection_method?: CollectionMethod;
+  ownership?: string;
+  tenant_id?: string;
+  // Usage and evidence counts (computed)
+  usage_count?: number;
+  evidence_count?: number;
+  linked_adapters?: string[];
 }
 
 export type TrainingDataset = Dataset;
 
 export type DatasetSourceType = 'code_repo' | 'uploaded_files' | 'generated';
 export type DatasetValidationStatus = 'draft' | 'validating' | 'valid' | 'invalid' | 'failed';
+export type DatasetType = 'training' | 'eval' | 'red_team' | 'logs' | 'other';
+export type CollectionMethod = 'manual' | 'sync' | 'api' | 'pipeline' | 'scrape' | 'other';
 export type Strictness = 'strict' | 'epsilon-tolerant' | 'relaxed';
 
 export interface CreateDatasetRequest {
@@ -417,5 +431,30 @@ export interface TrainingSession {
   error_message?: string;
   config?: TrainingConfig;
   metrics?: TrainingMetrics;
+}
+
+// PRD-DATA-01: Evidence entries for datasets and adapters
+export type EvidenceType = 'doc' | 'ticket' | 'commit' | 'policy_approval' | 'data_agreement' | 'review' | 'audit' | 'other';
+export type EvidenceConfidence = 'high' | 'medium' | 'low';
+
+export interface EvidenceEntry {
+  id: string;
+  dataset_id?: string;
+  adapter_id?: string;
+  evidence_type: EvidenceType;
+  reference: string;
+  description?: string;
+  confidence: EvidenceConfidence;
+  created_by?: string;
+  created_at: string;
+  metadata_json?: string;
+}
+
+export interface DatasetAdapterLink {
+  id: string;
+  dataset_id: string;
+  adapter_id: string;
+  link_type: 'training' | 'eval' | 'validation' | 'test';
+  created_at: string;
 }
 

@@ -13,6 +13,10 @@ import * as trainingTypes from './training-types';
 import * as apiTypes from './api-types';
 import * as federationTypes from './federation-types';
 import * as pluginTypes from './plugin-types';
+import * as chatTypes from './chat-types';
+import * as documentTypes from './document-types';
+import * as policyTypes from './policyTypes';
+import * as ownerTypes from './owner-types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
@@ -496,6 +500,19 @@ class ApiClient {
     if (params?.framework) qs.append('framework', params.framework);
     const query = qs.toString() ? `?${qs.toString()}` : '';
     return this.request<types.Adapter[]>(`/v1/adapters${query}`);
+  }
+
+  async preflightAdapterLoad(
+    adapterId: string,
+    operation: 'load' | 'unload' = 'load'
+  ): Promise<policyTypes.PolicyPreflightResponse> {
+    return this.request<policyTypes.PolicyPreflightResponse>(
+      `/v1/adapters/${encodeURIComponent(adapterId)}/load/preflight`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ operation, includeDetails: true }),
+      }
+    );
   }
 
   async loadAdapter(adapterId: string): Promise<types.Adapter> {
@@ -1232,6 +1249,10 @@ class ApiClient {
     return this.request<types.AdapterMetrics[]>('/v1/metrics/adapters');
   }
 
+  async getSystemOverview(): Promise<ownerTypes.SystemOverview> {
+    return this.request('/v1/system/overview');
+  }
+
   // Base Model Status
   async getBaseModelStatus(tenantId?: string): Promise<types.BaseModelStatus> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
@@ -1755,6 +1776,17 @@ class ApiClient {
     return response.stack;
   }
 
+  /**
+   * Run preflight policy checks before activating an adapter stack
+   * 【2025-11-25†ui†stack-preflight-checks】
+   */
+  async preflightStackActivation(stackId: string): Promise<types.PolicyPreflightResponse> {
+    return this.request<types.PolicyPreflightResponse>(
+      `/v1/adapter-stacks/${encodeURIComponent(stackId)}/activate/preflight`,
+      { method: 'POST' }
+    );
+  }
+
   async activateAdapterStack(id: string): Promise<types.AdapterStack> {
     const response = await this.request<types.AdapterStackResponse>(`/v1/adapter-stacks/${id}/activate`, {
       method: 'POST',
@@ -2213,12 +2245,35 @@ class ApiClient {
     return this.request<types.DeterminismStatusResponse>('/v1/diagnostics/determinism-status');
   }
 
-  async getDiagnosticsQuarantineStatus(): Promise<types.QuarantineStatusResponse> {
-    return this.request<types.QuarantineStatusResponse>('/v1/diagnostics/quarantine-status');
+  async getDiagnosticsQuarantineStatus(): Promise<types.AdapterQuarantineStatusResponse> {
+    return this.request<types.AdapterQuarantineStatusResponse>('/v1/diagnostics/quarantine-status');
   }
 
   async getCapacity(): Promise<types.CapacityResponse> {
     return this.request<types.CapacityResponse>('/v1/system/capacity');
+  }
+
+  /**
+   * Get current system settings
+   *
+   * GET /v1/settings
+   */
+  async getSettings(): Promise<documentTypes.SystemSettings> {
+    return this.request<documentTypes.SystemSettings>('/v1/settings');
+  }
+
+  /**
+   * Update system settings
+   *
+   * PUT /v1/settings
+   */
+  async updateSettings(
+    request: documentTypes.UpdateSettingsRequest
+  ): Promise<documentTypes.SettingsUpdateResponse> {
+    return this.request<documentTypes.SettingsUpdateResponse>('/v1/settings', {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
   }
 
   async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.TransformedRoutingDecision[]> {
@@ -3800,6 +3855,538 @@ class ApiClient {
     return this.request<authTypes.User>(`/v1/admin/users/${encodeURIComponent(userId)}`, {
       method: 'PUT',
       body: JSON.stringify({ is_active: isActive }),
+    });
+  }
+
+  // Chat Sessions API methods
+  // 【2025-11-25†prd-ux-01†chat_api_client】
+
+  /**
+   * Create a new chat session
+   *
+   * POST /v1/chat/sessions
+   *
+   * @param req - Session creation request
+   * @returns Created session response
+   */
+  async createChatSession(req: chatTypes.CreateChatSessionRequest): Promise<chatTypes.CreateChatSessionResponse> {
+    logger.info('Creating chat session', {
+      component: 'ApiClient',
+      operation: 'createChatSession',
+      name: req.name,
+      stack_id: req.stack_id,
+    });
+
+    // Convert metadata object to JSON string if present
+    const payload = {
+      name: req.name,
+      stack_id: req.stack_id,
+      metadata_json: req.metadata ? JSON.stringify(req.metadata) : undefined,
+    };
+
+    return this.request<chatTypes.CreateChatSessionResponse>('/v1/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * List chat sessions for current user/tenant
+   *
+   * GET /v1/chat/sessions
+   *
+   * @param query - Optional filters
+   * @returns Array of chat sessions
+   */
+  async listChatSessions(query?: chatTypes.ListSessionsQuery): Promise<chatTypes.ChatSession[]> {
+    const params = new URLSearchParams();
+    if (query?.user_id) params.append('user_id', query.user_id);
+    if (query?.limit) params.append('limit', query.limit.toString());
+
+    const queryString = params.toString();
+    return this.request<chatTypes.ChatSession[]>(`/v1/chat/sessions${queryString ? `?${queryString}` : ''}`);
+  }
+
+  /**
+   * Get a specific chat session
+   *
+   * GET /v1/chat/sessions/:session_id
+   *
+   * @param sessionId - Session ID
+   * @returns Chat session
+   */
+  async getChatSession(sessionId: string): Promise<chatTypes.ChatSession> {
+    return this.request<chatTypes.ChatSession>(`/v1/chat/sessions/${encodeURIComponent(sessionId)}`);
+  }
+
+  /**
+   * Delete a chat session
+   *
+   * DELETE /v1/chat/sessions/:session_id
+   *
+   * @param sessionId - Session ID
+   */
+  async deleteChatSession(sessionId: string): Promise<void> {
+    logger.info('Deleting chat session', {
+      component: 'ApiClient',
+      operation: 'deleteChatSession',
+      sessionId,
+    });
+    return this.request<void>(`/v1/chat/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Add a message to a chat session
+   *
+   * POST /v1/chat/sessions/:session_id/messages
+   *
+   * @param sessionId - Session ID
+   * @param role - Message role (user, assistant, system)
+   * @param content - Message content
+   * @param metadata - Optional metadata
+   * @returns Created message
+   */
+  async addChatMessage(
+    sessionId: string,
+    role: 'user' | 'assistant' | 'system',
+    content: string,
+    metadata?: Record<string, unknown>
+  ): Promise<chatTypes.ChatMessage> {
+    const payload: chatTypes.AddChatMessageRequest = {
+      role,
+      content,
+      metadata,
+    };
+
+    // Convert metadata object to JSON string if present
+    const requestBody = {
+      role,
+      content,
+      metadata_json: metadata ? JSON.stringify(metadata) : undefined,
+    };
+
+    return this.request<chatTypes.ChatMessage>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      }
+    );
+  }
+
+  /**
+   * Get messages for a chat session
+   *
+   * GET /v1/chat/sessions/:session_id/messages
+   *
+   * @param sessionId - Session ID
+   * @param limit - Optional limit on number of messages
+   * @returns Array of chat messages
+   */
+  async getChatMessages(sessionId: string, limit?: number): Promise<chatTypes.ChatMessage[]> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+
+    const queryString = params.toString();
+    return this.request<chatTypes.ChatMessage[]>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/messages${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * Get session summary with message and trace counts
+   *
+   * GET /v1/chat/sessions/:session_id/summary
+   *
+   * @param sessionId - Session ID
+   * @returns Session summary
+   */
+  async getSessionSummary(sessionId: string): Promise<chatTypes.SessionSummary> {
+    return this.request<chatTypes.SessionSummary>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/summary`
+    );
+  }
+
+  /**
+   * Update session collection binding
+   *
+   * PUT /v1/chat/sessions/:session_id/collection
+   *
+   * @param sessionId - Session ID
+   * @param collectionId - Collection ID (or null to clear)
+   */
+  async updateSessionCollection(sessionId: string, collectionId: string | null): Promise<void> {
+    logger.info('Updating session collection', {
+      component: 'ApiClient',
+      operation: 'updateSessionCollection',
+      sessionId,
+      collectionId,
+    });
+
+    const payload: chatTypes.UpdateSessionCollectionRequest = {
+      collection_id: collectionId,
+    };
+
+    return this.request<void>(
+      `/v1/chat/sessions/${encodeURIComponent(sessionId)}/collection`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * Send a message to the Owner System Chat endpoint
+   *
+   * POST /v1/chat/owner-system
+   *
+   * @param messages - Array of chat messages with role and content
+   * @param context - Optional context (route, metrics_snapshot, user_role)
+   * @returns Response with message, optional CLI suggestion, and relevant links
+   */
+  async sendOwnerChatMessage(
+    messages: ownerTypes.OwnerChatMessage[],
+    context?: ownerTypes.OwnerChatContext
+  ): Promise<ownerTypes.OwnerChatResponse> {
+    logger.info('Sending owner chat message', {
+      component: 'ApiClient',
+      operation: 'sendOwnerChatMessage',
+      messageCount: messages.length,
+      hasContext: !!context,
+    });
+
+    const request: ownerTypes.OwnerChatRequest = { messages, context };
+    return this.request('/v1/chat/owner-system', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  }
+
+  // ============================================================================
+  // Document API Methods
+  // ============================================================================
+
+  /**
+   * Upload a document for RAG indexing
+   *
+   * POST /v1/documents (multipart/form-data)
+   *
+   * @param file - File to upload
+   * @param name - Optional document name (defaults to filename)
+   * @returns Uploaded document metadata
+   */
+  async uploadDocument(
+    file: File,
+    name?: string
+  ): Promise<documentTypes.Document> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (name) formData.append('name', name);
+
+    return this.request<documentTypes.Document>('/v1/documents/upload', {
+      method: 'POST',
+      body: formData,
+      headers: {}, // Let browser set Content-Type for FormData
+    });
+  }
+
+  /**
+   * List all documents for the current tenant
+   *
+   * GET /v1/documents
+   *
+   * @returns Array of documents
+   */
+  async listDocuments(): Promise<documentTypes.Document[]> {
+    return this.request<documentTypes.Document[]>('/v1/documents');
+  }
+
+  /**
+   * Get a specific document by ID
+   *
+   * GET /v1/documents/:id
+   *
+   * @param documentId - Document ID
+   * @returns Document metadata
+   */
+  async getDocument(documentId: string): Promise<documentTypes.Document> {
+    return this.request<documentTypes.Document>(
+      `/v1/documents/${encodeURIComponent(documentId)}`
+    );
+  }
+
+  /**
+   * Delete a document
+   *
+   * DELETE /v1/documents/:id
+   *
+   * @param documentId - Document ID
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    await this.request<void>(
+      `/v1/documents/${encodeURIComponent(documentId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * List chunks for a document
+   *
+   * GET /v1/documents/:id/chunks
+   *
+   * @param documentId - Document ID
+   * @returns Array of document chunks
+   */
+  async listDocumentChunks(documentId: string): Promise<documentTypes.DocumentChunk[]> {
+    return this.request<documentTypes.DocumentChunk[]>(
+      `/v1/documents/${encodeURIComponent(documentId)}/chunks`
+    );
+  }
+
+  /**
+   * Download a document file
+   *
+   * GET /v1/documents/:id/download
+   *
+   * @param documentId - Document ID
+   * @returns Blob of the document file
+   */
+  async downloadDocument(documentId: string): Promise<Blob> {
+    const url = `${this.baseUrl}/v1/documents/${encodeURIComponent(documentId)}/download`;
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || 'Failed to download document');
+    }
+
+    return response.blob();
+  }
+
+  // ============================================================================
+  // Collection API Methods
+  // ============================================================================
+
+  /**
+   * Create a new collection
+   *
+   * POST /v1/collections
+   *
+   * @param name - Collection name
+   * @param description - Optional description
+   * @returns Created collection
+   */
+  async createCollection(
+    name: string,
+    description?: string
+  ): Promise<documentTypes.Collection> {
+    const request: documentTypes.CreateCollectionRequest = { name, description };
+    return this.request<documentTypes.Collection>('/v1/collections', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * List all collections for the current tenant
+   *
+   * GET /v1/collections
+   *
+   * @returns Array of collections
+   */
+  async listCollections(): Promise<documentTypes.Collection[]> {
+    return this.request<documentTypes.Collection[]>('/v1/collections');
+  }
+
+  /**
+   * Get a specific collection with documents
+   *
+   * GET /v1/collections/:id
+   *
+   * @param collectionId - Collection ID
+   * @returns Collection detail with documents
+   */
+  async getCollection(collectionId: string): Promise<documentTypes.CollectionDetail> {
+    return this.request<documentTypes.CollectionDetail>(
+      `/v1/collections/${encodeURIComponent(collectionId)}`
+    );
+  }
+
+  /**
+   * Delete a collection
+   *
+   * DELETE /v1/collections/:id
+   *
+   * @param collectionId - Collection ID
+   */
+  async deleteCollection(collectionId: string): Promise<void> {
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Add a document to a collection
+   *
+   * POST /v1/collections/:id/documents
+   *
+   * @param collectionId - Collection ID
+   * @param documentId - Document ID to add
+   */
+  async addDocumentToCollection(
+    collectionId: string,
+    documentId: string
+  ): Promise<void> {
+    const request: documentTypes.AddDocumentRequest = { document_id: documentId };
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}/documents`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Remove a document from a collection
+   *
+   * DELETE /v1/collections/:id/documents/:doc_id
+   *
+   * @param collectionId - Collection ID
+   * @param documentId - Document ID to remove
+   */
+  async removeDocumentFromCollection(
+    collectionId: string,
+    documentId: string
+  ): Promise<void> {
+    await this.request<void>(
+      `/v1/collections/${encodeURIComponent(collectionId)}/documents/${encodeURIComponent(documentId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // ============================================================================
+  // Evidence API Methods
+  // ============================================================================
+
+  /**
+   * List evidence entries with optional filters
+   *
+   * GET /v1/evidence
+   *
+   * @param query - Optional filter parameters
+   * @returns Array of evidence entries
+   */
+  async listEvidence(query?: documentTypes.ListEvidenceQuery): Promise<documentTypes.Evidence[]> {
+    const params = new URLSearchParams();
+    if (query?.dataset_id) params.append('dataset_id', query.dataset_id);
+    if (query?.adapter_id) params.append('adapter_id', query.adapter_id);
+    if (query?.evidence_type) params.append('evidence_type', query.evidence_type);
+    if (query?.confidence) params.append('confidence', query.confidence);
+    if (query?.limit) params.append('limit', query.limit.toString());
+
+    const queryString = params.toString();
+    return this.request<documentTypes.Evidence[]>(
+      `/v1/evidence${queryString ? `?${queryString}` : ''}`
+    );
+  }
+
+  /**
+   * Create a new evidence entry
+   *
+   * POST /v1/evidence
+   *
+   * @param request - Evidence creation request
+   * @returns Created evidence entry
+   */
+  async createEvidence(
+    request: documentTypes.CreateEvidenceRequest
+  ): Promise<documentTypes.Evidence> {
+    return this.request<documentTypes.Evidence>('/v1/evidence', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  /**
+   * Get a specific evidence entry
+   *
+   * GET /v1/evidence/:id
+   *
+   * @param evidenceId - Evidence entry ID
+   * @returns Evidence entry
+   */
+  async getEvidence(evidenceId: string): Promise<documentTypes.Evidence> {
+    return this.request<documentTypes.Evidence>(
+      `/v1/evidence/${encodeURIComponent(evidenceId)}`
+    );
+  }
+
+  /**
+   * Delete an evidence entry
+   *
+   * DELETE /v1/evidence/:id
+   *
+   * @param evidenceId - Evidence entry ID
+   */
+  async deleteEvidence(evidenceId: string): Promise<void> {
+    await this.request<void>(
+      `/v1/evidence/${encodeURIComponent(evidenceId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /**
+   * Get evidence entries for a specific dataset
+   *
+   * GET /v1/datasets/:dataset_id/evidence
+   *
+   * @param datasetId - Dataset ID
+   * @returns Array of evidence entries
+   */
+  async getDatasetEvidence(datasetId: string): Promise<documentTypes.Evidence[]> {
+    return this.request<documentTypes.Evidence[]>(
+      `/v1/datasets/${encodeURIComponent(datasetId)}/evidence`
+    );
+  }
+
+  /**
+   * Get evidence entries for a specific adapter
+   *
+   * GET /v1/adapters/:adapter_id/evidence
+   *
+   * @param adapterId - Adapter ID
+   * @returns Array of evidence entries
+   */
+  async getAdapterEvidence(adapterId: string): Promise<documentTypes.Evidence[]> {
+    return this.request<documentTypes.Evidence[]>(
+      `/v1/adapters/${encodeURIComponent(adapterId)}/evidence`
+    );
+  }
+
+  /**
+   * Run an owner CLI command
+   *
+   * POST /v1/cli/owner-run
+   *
+   * @param command - CLI command to execute
+   * @param sessionId - Optional session ID for command execution
+   * @returns Command execution result with stdout, stderr, exit code, and duration
+   */
+  async runOwnerCli(command: string, sessionId?: string): Promise<ownerTypes.CliRunResponse> {
+    const request: ownerTypes.CliRunRequest = { command, session_id: sessionId };
+    return this.request('/v1/cli/owner-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
     });
   }
 }

@@ -198,6 +198,7 @@ export interface UpdateAdapterStackRequest {
 export interface AdapterStackResponse {
   schema_version: string;
   stack: AdapterStack;
+  warnings?: string[];
 }
 
 export interface ListAdapterStacksResponse {
@@ -621,6 +622,24 @@ export interface AdapterEvictionEvent {
 
 // Memory usage tracking by adapter category
 export type MemoryUsageByCategory = Record<AdapterCategory, number>;
+
+// Policy preflight check types (【2025-11-25†ui†stack-preflight-checks】)
+export interface PolicyCheck {
+  policy_id: string;
+  policy_name: string;
+  passed: boolean;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  can_override?: boolean;
+  details?: string;
+}
+
+export interface PolicyPreflightResponse {
+  checks: PolicyCheck[];
+  can_proceed: boolean;
+  stack_id?: string;
+  adapter_ids?: string[];
+}
 
 // Re-export commonly used types for convenience
 export type { Adapter as default };

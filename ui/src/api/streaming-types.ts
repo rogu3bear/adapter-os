@@ -484,6 +484,9 @@ export interface StreamingInferRequest {
   /** Adapter stack to use for inference (array of adapter IDs) */
   adapter_stack?: string[] | string;
 
+  /** Collection ID for RAG-enhanced inference */
+  collection_id?: string;
+
   /** Random seed for reproducible generation */
   seed?: number;
 }

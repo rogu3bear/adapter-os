@@ -37,6 +37,7 @@ export interface User {
   id?: string;  // Alias for user_id for compatibility
   email: string;
   display_name?: string;
+  name?: string;  // Alias for display_name (UI compatibility)
   role: UserRole;
   tenant_id?: string;
   created_at?: string;

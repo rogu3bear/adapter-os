@@ -335,6 +335,42 @@ export const CANONICAL_POLICIES = [
 ];
 
 /**
+ * Policy preflight check request for adapter operations
+ * Used before loading/unloading adapters to validate policy compliance
+ */
+export interface PolicyPreflightRequest {
+  adapterId: string;
+  operation: 'load' | 'unload' | 'activate' | 'deactivate';
+  includeDetails?: boolean;
+}
+
+/**
+ * Policy preflight check response
+ * Maps to PolicyPreflightDialog component's PolicyCheck interface
+ */
+export interface PolicyPreflightResponse {
+  adapterId: string;
+  operation: string;
+  canProceed: boolean;
+  checks: PolicyPreflightCheck[];
+  checkedAt: string;
+}
+
+/**
+ * Individual preflight check result
+ * Compatible with PolicyPreflightDialog component
+ */
+export interface PolicyPreflightCheck {
+  policy_id: string;
+  policy_name: string;
+  passed: boolean;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  can_override?: boolean;
+  details?: string;
+}
+
+/**
  * Get policy metadata by ID
  */
 export function getPolicyMetadata(policyId: string) {
