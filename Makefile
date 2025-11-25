@@ -149,7 +149,7 @@ endif
 # make determinism-check || exit 1
 # Use matrix: macos-13, macos-14 for cross-version verification
 
-dup:
-	bash scripts/run_jscpd.sh || true
+dup: ## Check for code duplication (fails on violations)
+	bash scripts/run_jscpd.sh
 
 .DEFAULT_GOAL := help
