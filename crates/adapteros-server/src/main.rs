@@ -7,7 +7,9 @@ use adapteros_deterministic_exec::{
 };
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
+use adapteros_server::boot_state::BootStateManager;
 use adapteros_server::config::Config;
+use adapteros_server::runtime_mode::{RuntimeMode, RuntimeModeResolver};
 use adapteros_server::security::PfGuard;
 use adapteros_server::shutdown::ShutdownCoordinator;
 use adapteros_server::status_writer;
@@ -16,6 +18,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
@@ -147,6 +150,10 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Initialize boot state manager (without DB until connected)
+    let boot_state = BootStateManager::new();
+    boot_state.boot().await;
+
     // Acquire PID file lock if single-writer mode enabled
     let _pid_lock = if cli.single_writer {
         Some(PidFileLock::acquire(cli.pid_file.clone())?)
@@ -265,6 +272,9 @@ async fn main() -> Result<()> {
     init_global_executor(executor_config)?;
     info!("Deterministic executor initialized with manifest-derived seed");
 
+    // Transition to starting backend state
+    boot_state.start_backend().await;
+
     // Initialize MLX runtime (idempotent, safe to call multiple times)
     #[cfg(feature = "multi-backend")]
     {
@@ -277,6 +287,9 @@ async fn main() -> Result<()> {
             tracing::info!("MLX runtime initialized successfully");
         }
     }
+
+    // Transition to loading base models state
+    boot_state.load_base_models().await;
 
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
@@ -373,6 +386,7 @@ async fn main() -> Result<()> {
     }
 
     // Connect to database
+    boot_state.init_db().await;
     let db_path = server_config
         .read()
         .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
@@ -381,6 +395,38 @@ async fn main() -> Result<()> {
         .clone();
     info!("Connecting to database: {}", db_path);
     let db = Db::connect(&db_path).await?;
+
+    // Upgrade boot state manager with database for audit logging
+    let boot_state = BootStateManager::with_db(Arc::new(db.clone()));
+
+    // Resolve runtime mode with precedence: env > db > config > default
+    let runtime_mode = RuntimeModeResolver::resolve(
+        &server_config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?,
+        &db,
+    )
+    .await
+    .map_err(|e| AosError::Config(format!("Failed to resolve runtime mode: {}", e)))?;
+
+    info!(
+        mode = %runtime_mode,
+        allows_http = runtime_mode.allows_http(),
+        requires_telemetry = runtime_mode.requires_telemetry(),
+        requires_signing = runtime_mode.requires_event_signing(),
+        "Runtime mode resolved"
+    );
+
+    // Validate runtime mode configuration
+    RuntimeModeResolver::validate(
+        runtime_mode,
+        &server_config
+            .read()
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?,
+        &db,
+    )
+    .await
+    .map_err(|e| AosError::Config(format!("Runtime mode validation failed: {}", e)))?;
 
     // Audit log: Executor bootstrap event
     {
@@ -434,6 +480,9 @@ async fn main() -> Result<()> {
         info!("Migrations complete, exiting");
         return Ok(());
     }
+
+    // Transition to loading policies state
+    boot_state.load_policies().await;
 
     // Create API config (subset needed by handlers)
     let api_config = {
@@ -699,7 +748,9 @@ async fn main() -> Result<()> {
         Arc::clone(&metrics_registry),
         uma_monitor.clone(),
     )
-    .with_dataset_progress(dataset_progress_tx);
+    .with_dataset_progress(dataset_progress_tx)
+    .with_boot_state(boot_state.clone())
+    .with_runtime_mode(runtime_mode);
 
     state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
         db.clone(),
@@ -848,6 +899,9 @@ async fn main() -> Result<()> {
         info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
     }
 
+    // Transition to loading adapters state
+    boot_state.load_adapters().await;
+
     // Build router with UI
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
@@ -857,7 +911,7 @@ async fn main() -> Result<()> {
         .nest("/api", api_routes);
 
     // Bind and serve
-    let (production_mode, uds_socket, port) = {
+    let (production_mode, uds_socket, port, drain_timeout) = {
         let cfg = server_config
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
@@ -872,8 +926,12 @@ async fn main() -> Result<()> {
             cfg.server.production_mode,
             cfg.server.uds_socket.clone(),
             server_port,
+            Duration::from_secs(cfg.server.drain_timeout_secs),
         )
     };
+
+    // Clone in_flight_requests counter for shutdown handler
+    let in_flight_requests = Arc::clone(&state.in_flight_requests);
 
     // Egress policy: production_mode requires UDS-only
     if production_mode {
@@ -889,9 +947,16 @@ async fn main() -> Result<()> {
         // Remove existing socket file if present
         let _ = std::fs::remove_file(&socket_path);
 
+        // Transition to ready state - server is now accepting requests
+        boot_state.ready().await;
+
         let listener = tokio::net::UnixListener::bind(&socket_path)?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(shutdown_signal_with_drain(
+                boot_state.clone(),
+                Arc::clone(&in_flight_requests),
+                drain_timeout,
+            ))
             .await?;
 
         // Server has shut down, now perform coordinated shutdown
@@ -934,9 +999,16 @@ async fn main() -> Result<()> {
         info!("API available at http://127.0.0.1:{}/api/", port);
         warn!("Development mode: TCP binding enabled. Set production_mode=true for UDS-only");
 
+        // Transition to ready state - server is now accepting requests
+        boot_state.ready().await;
+
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(shutdown_signal_with_drain(
+                boot_state.clone(),
+                Arc::clone(&in_flight_requests),
+                drain_timeout,
+            ))
             .await?;
 
         // Server has shut down, now perform coordinated shutdown
@@ -977,7 +1049,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal_with_drain(
+    boot_state: BootStateManager,
+    in_flight_requests: Arc<std::sync::atomic::AtomicUsize>,
+    drain_timeout: Duration,
+) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -1000,4 +1076,45 @@ async fn shutdown_signal() {
     let _ = select_2(ctrl_c, terminate).await;
 
     info!("Shutdown signal received");
+
+    // Transition to draining state
+    boot_state.drain().await;
+
+    // Wait for in-flight requests to complete (with timeout)
+    let start = tokio::time::Instant::now();
+    let mut logged_waiting = false;
+
+    loop {
+        let count = in_flight_requests.load(std::sync::atomic::Ordering::SeqCst);
+
+        if count == 0 {
+            info!("All in-flight requests completed");
+            break;
+        }
+
+        if !logged_waiting {
+            info!(
+                in_flight = count,
+                timeout_secs = drain_timeout.as_secs(),
+                "Waiting for in-flight requests to complete"
+            );
+            logged_waiting = true;
+        }
+
+        let elapsed = start.elapsed();
+        if elapsed >= drain_timeout {
+            warn!(
+                in_flight = count,
+                elapsed_secs = elapsed.as_secs(),
+                "Drain timeout exceeded, forcing shutdown"
+            );
+            break;
+        }
+
+        // Check every 100ms
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Transition to stopping state
+    boot_state.stop().await;
 }

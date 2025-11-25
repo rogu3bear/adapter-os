@@ -5,6 +5,7 @@ use super::chunked_upload::{
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::{AppState, DatasetProgressEvent};
 use crate::types::*;
 use adapteros_db::training_datasets::DatasetFile;
@@ -429,7 +430,7 @@ pub async fn upload_dataset(
     }
     let dataset_hash = dataset_hasher.finalize().to_hex().to_string();
 
-    // Store in database
+    // Store in database - associate dataset with the user's tenant
     let dataset_id_result = state
         .db
         .create_training_dataset(
@@ -449,6 +450,26 @@ pub async fn upload_dataset(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to create dataset record: {}", e),
+            )
+        })?;
+
+    // CRITICAL: Associate dataset with user's tenant for tenant isolation
+    state
+        .db
+        .update_dataset_extended_fields(
+            &dataset_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&claims.tenant_id),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to set dataset tenant: {}", e),
             )
         })?;
 
@@ -607,6 +628,7 @@ pub async fn initiate_chunked_upload(
 )]
 pub async fn list_datasets(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Query(params): Query<ListDatasetsQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(50).min(100);
@@ -619,8 +641,21 @@ pub async fn list_datasets(
         )
     })?;
 
+    // CRITICAL: Tenant isolation - filter datasets to only show those belonging to the user's tenant
+    let is_admin = claims.role == "admin";
     let responses: Vec<DatasetResponse> = datasets
         .into_iter()
+        .filter(|d| {
+            // Non-admin users can only see datasets belonging to their tenant
+            if !is_admin {
+                match &d.tenant_id {
+                    Some(dt) if dt != &claims.tenant_id => return false,
+                    None => return false, // Datasets without tenant_id are hidden from non-admins
+                    _ => {}
+                }
+            }
+            true
+        })
         .map(|d| DatasetResponse {
             schema_version: "1.0".to_string(),
             dataset_id: d.id,
@@ -651,6 +686,7 @@ pub async fn list_datasets(
     ),
     responses(
         (status = 200, description = "Dataset details", body = DatasetResponse),
+        (status = 403, description = "Tenant isolation violation"),
         (status = 404, description = "Dataset not found"),
         (status = 500, description = "Internal server error")
     ),
@@ -658,6 +694,7 @@ pub async fn list_datasets(
 )]
 pub async fn get_dataset(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let dataset = state
@@ -671,6 +708,18 @@ pub async fn get_dataset(
             )
         })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+
+    // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)
+            .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    } else if claims.role != "admin" {
+        // Datasets without tenant_id are only accessible to admins
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Access denied: dataset has no tenant association".to_string(),
+        ));
+    }
 
     Ok(Json(DatasetResponse {
         schema_version: "1.0".to_string(),
@@ -1096,6 +1145,7 @@ pub async fn preview_dataset(
     ),
     responses(
         (status = 204, description = "Dataset deleted successfully"),
+        (status = 403, description = "Tenant isolation violation"),
         (status = 404, description = "Dataset not found"),
         (status = 500, description = "Internal server error")
     ),
@@ -1118,6 +1168,18 @@ pub async fn delete_dataset(
             )
         })?
         .ok_or((StatusCode::NOT_FOUND, "Dataset not found".to_string()))?;
+
+    // CRITICAL: Validate tenant isolation before deletion - non-admin users can only delete their own tenant's datasets
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)
+            .map_err(|(code, json_err)| (code, json_err.0.error))?;
+    } else if claims.role != "admin" {
+        // Datasets without tenant_id can only be deleted by admins
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Access denied: dataset has no tenant association".to_string(),
+        ));
+    }
 
     // Delete from database (cascades to files and statistics)
     state
@@ -1764,6 +1826,27 @@ pub async fn complete_chunked_upload(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to create dataset record: {}", e),
+            )
+        })?;
+
+    // CRITICAL: Associate dataset with user's tenant for tenant isolation
+    state
+        .db
+        .update_dataset_extended_fields(
+            &dataset_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&claims.tenant_id),
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to set dataset tenant: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to set dataset tenant: {}", e),
             )
         })?;
 

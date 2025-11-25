@@ -1,9 +1,12 @@
 pub mod audit_helper;
 pub mod auth;
+pub mod boot_state;
 pub mod cab_workflow;
 pub mod caching;
+pub mod config;
 pub mod compression;
 pub mod errors;
+pub mod event_bus;
 pub mod handlers;
 pub mod health;
 pub mod ip_extraction;
@@ -15,7 +18,9 @@ pub mod permissions;
 pub mod plugin_registry;
 pub mod request_id;
 pub mod routes;
+pub mod runtime_mode;
 pub mod security;
+pub mod settings_loader;
 pub mod signing;
 pub mod state;
 pub mod supervisor_client;
@@ -26,6 +31,8 @@ pub mod uds_client;
 pub mod validation;
 pub mod versioning;
 
+pub use auth::Claims;
+pub use event_bus::EventBus;
 pub use plugin_registry::PluginRegistry;
 
 pub use lifecycle::{

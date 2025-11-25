@@ -10,10 +10,13 @@
 
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
+use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::adapters::Adapter;
 use adapteros_db::users::Role;
+use adapteros_db::AdapterTrainingSnapshot;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -110,6 +113,9 @@ pub async fn promote_adapter_lifecycle(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     let old_state = adapter.current_state.clone();
 
@@ -337,6 +343,9 @@ pub async fn demote_adapter_lifecycle(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     let old_state = adapter.current_state.clone();
 
@@ -580,7 +589,7 @@ pub struct AdapterLineageResponse {
 )]
 pub async fn get_adapter_lineage(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterLineageResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Verify adapter exists
@@ -606,6 +615,9 @@ pub async fn get_adapter_lineage(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &current_adapter.tenant_id)?;
 
     // Get full lineage tree
     let lineage_adapters = state
@@ -802,7 +814,7 @@ impl From<Adapter> for AdapterDetailResponse {
 )]
 pub async fn get_adapter_detail(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
@@ -827,6 +839,9 @@ pub async fn get_adapter_detail(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     Ok(Json(AdapterDetailResponse::from(adapter)))
 }
@@ -937,6 +952,9 @@ pub async fn pin_adapter(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Get tenant_id from adapter or use default
     let tenant_id = adapter
@@ -1069,6 +1087,9 @@ pub async fn unpin_adapter(
             )
         })?;
 
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+
     // Get tenant_id from adapter or use default
     let tenant_id = adapter
         .tenant_namespace
@@ -1156,7 +1177,7 @@ pub async fn unpin_adapter(
 )]
 pub async fn get_pin_status(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<PinStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Verify adapter exists
@@ -1182,6 +1203,9 @@ pub async fn get_pin_status(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Get tenant_id from adapter or use default
     let tenant_id = adapter
@@ -1255,7 +1279,6 @@ pub async fn get_pin_status(
 // ============================================================================
 
 use crate::audit_helper::{actions, log_failure, log_success, resources};
-use crate::permissions::{require_permission, Permission};
 use crate::types::{
     AdapterStatsResponse, AdapterSwapRequest, AdapterSwapResponse, CategoryPoliciesResponse,
     CategoryPolicyRequest, CategoryPolicyResponse,
@@ -1331,6 +1354,9 @@ pub async fn swap_adapters(
             )
         })?;
 
+    // Validate tenant isolation for old adapter
+    validate_tenant_isolation(&claims, &old_adapter.tenant_id)?;
+
     // Verify new adapter exists
     let new_adapter = state
         .db
@@ -1358,6 +1384,9 @@ pub async fn swap_adapters(
                 ),
             )
         })?;
+
+    // Validate tenant isolation for new adapter
+    validate_tenant_isolation(&claims, &new_adapter.tenant_id)?;
 
     // Calculate VRAM delta
     let vram_delta_mb = (new_adapter.memory_bytes - old_adapter.memory_bytes) / (1024 * 1024);
@@ -1626,6 +1655,9 @@ pub async fn get_adapter_stats(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Get stats from database
     let (total_activations, selected_count, avg_gate_value) = state
@@ -2147,4 +2179,71 @@ pub async fn import_adapter(
         pinned: None,
         memory_bytes: None,
     }))
+}
+
+/// Get training snapshot (provenance) for an adapter
+///
+/// Retrieves the training snapshot showing exactly which documents and
+/// chunking configuration were used to train the adapter.
+///
+/// GET /v1/adapters/:adapter_id/training-snapshot
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/training-snapshot",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Training snapshot retrieved", body = AdapterTrainingSnapshot),
+        (status = 404, description = "Snapshot not found", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    )
+)]
+pub async fn get_adapter_training_snapshot(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+) -> Result<Json<AdapterTrainingSnapshot>, (StatusCode, Json<ErrorResponse>)> {
+    // Permission check
+    require_permission(&claims, Permission::AdapterView).map_err(|e| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    // Get training snapshot from database
+    let snapshot = state
+        .db
+        .get_adapter_training_snapshot(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training snapshot")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Training snapshot not found for this adapter")
+                        .with_code("NOT_FOUND"),
+                ),
+            )
+        })?;
+
+    info!(
+        adapter_id = %adapter_id,
+        training_job_id = %snapshot.training_job_id,
+        actor = %claims.sub,
+        "Retrieved training snapshot"
+    );
+
+    Ok(Json(snapshot))
 }

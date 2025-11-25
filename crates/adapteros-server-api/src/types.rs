@@ -332,6 +332,10 @@ pub struct PolicyValidationResponse {
 pub struct ApplyPolicyRequest {
     pub cpid: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activate: Option<bool>,
 }
 
 // ===== Process Debugging Types =====
@@ -1056,6 +1060,64 @@ pub struct SignPolicyResponse {
     pub signed_by: String,
 }
 
+/// Verify policy signature response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VerifyPolicyResponse {
+    pub cpid: String,
+    pub signature: String,
+    pub is_valid: bool,
+    pub public_key: String,
+    pub verified_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Assign policy request (PRD-RBAC-01)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AssignPolicyRequest {
+    pub policy_pack_id: String,
+    pub target_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enforced: Option<bool>,
+}
+
+/// Policy assignment response (PRD-RBAC-01)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyAssignmentResponse {
+    pub id: String,
+    pub policy_pack_id: String,
+    pub target_type: String,
+    pub target_id: Option<String>,
+    pub priority: i32,
+    pub enforced: bool,
+    pub assigned_at: String,
+    pub assigned_by: String,
+    pub expires_at: Option<String>,
+}
+
+/// Policy violation response (PRD-RBAC-01)
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PolicyViolationResponse {
+    pub id: String,
+    pub policy_pack_id: String,
+    pub policy_assignment_id: Option<String>,
+    pub violation_type: String,
+    pub severity: String,
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub tenant_id: String,
+    pub violation_message: String,
+    pub violation_details_json: Option<String>,
+    pub detected_at: String,
+    pub resolved_at: Option<String>,
+    pub resolved_by: Option<String>,
+    pub resolution_notes: Option<String>,
+}
+
 /// Compare policies request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ComparePoliciesRequest {
@@ -1159,20 +1221,7 @@ pub struct LanguageStats {
 
 // ===== Tenant Management Types (Phase 10) =====
 
-/// Update tenant request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UpdateTenantRequest {
-    pub name: Option<String>,
-    pub itar_flag: Option<bool>,
-    pub quotas: Option<serde_json::Value>,
-    pub namespace: Option<String>,
-}
-
-/// Assign policies request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AssignPoliciesRequest {
-    pub policy_ids: Vec<String>,
-}
+// UpdateTenantRequest, AssignPoliciesRequest, and AssignAdaptersRequest are imported from adapteros-api-types
 
 /// Assign policies response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -1180,12 +1229,6 @@ pub struct AssignPoliciesResponse {
     pub tenant_id: String,
     pub assigned_cpids: Vec<String>,
     pub assigned_at: String,
-}
-
-/// Assign adapters request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct AssignAdaptersRequest {
-    pub adapter_ids: Vec<String>,
 }
 
 /// Assign adapters response

@@ -276,7 +276,7 @@ pub async fn list_stacks(
         )
     })?;
 
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     let rows = state
         .db
@@ -341,7 +341,7 @@ pub async fn get_stack(
         )
     })?;
 
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     let row = state
         .db
@@ -417,7 +417,7 @@ pub async fn delete_stack(
         )
     })?;
 
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     let deleted = state
         .db
@@ -460,7 +460,7 @@ pub async fn activate_stack(
         )
     })?;
 
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     // First verify the stack exists and parse adapter IDs (including version for telemetry)
     let stack = state
@@ -607,6 +607,16 @@ pub async fn activate_stack(
         previous_stack
     );
 
+    // Audit log: stack activated
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::STACK_ACTIVATE,
+        crate::audit_helper::resources::ADAPTER_STACK,
+        Some(&id),
+    )
+    .await;
+
     // Notify the router about the stack change via training signal broadcast
     // This enables SSE clients to receive stack activation events in real-time
     let mut payload = std::collections::HashMap::new();
@@ -701,7 +711,7 @@ pub async fn deactivate_stack(
         )
     })?;
 
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     let previous_stack = {
         let mut active = state.active_stack.write().map_err(|e| {
@@ -718,6 +728,16 @@ pub async fn deactivate_stack(
     match previous_stack {
         Some(stack_id) => {
             info!(tenant_id = %tenant_id, "Deactivated adapter stack '{}' for tenant {}", stack_id, tenant_id);
+
+            // Audit log: stack deactivated
+            let _ = crate::audit_helper::log_success(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::STACK_DEACTIVATE,
+                crate::audit_helper::resources::ADAPTER_STACK,
+                Some(&stack_id),
+            )
+            .await;
 
             // Notify the router about the stack deactivation via training signal broadcast
             let mut payload = std::collections::HashMap::new();
@@ -859,7 +879,7 @@ pub async fn get_stack_history(
         )
     })?;
 
-    let tenant_id = claims.tenant_id;
+    let tenant_id = claims.tenant_id.clone();
 
     // Verify stack exists and belongs to tenant
     let stack = state

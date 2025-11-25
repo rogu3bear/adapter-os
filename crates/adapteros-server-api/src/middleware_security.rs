@@ -5,21 +5,26 @@
 //! - Rate limiting per tenant/IP
 //! - Request size limits and DoS protection
 //! - CORS policy enforcement
+//! - Graceful shutdown with request drain
 //!
 //! [source: crates/adapteros-server-api/src/middleware_security.rs L1-200]
 
 use axum::{
+    body::Body,
     extract::State,
     http::{header, Method, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
+    Json,
 };
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::security::rate_limiting::check_rate_limit;
 use crate::state::AppState;
+use crate::types::ErrorResponse;
 
 /// Security headers middleware
 ///
@@ -332,4 +337,88 @@ mod tests {
     fn test_cors_layer_configuration() {
         // TODO: Update test for new CorsLayer API
     }
+}
+
+/// Request tracking middleware for graceful shutdown
+///
+/// Increments the in-flight request counter when a request starts,
+/// decrements it when the request completes. This allows the shutdown
+/// handler to wait for all in-flight requests to complete before
+/// terminating the server.
+///
+/// # PRD-BOOT-01
+/// This middleware implements requirement #1 from PRD-BOOT-01 (Runtime Boot & Modes):
+/// Track in-flight requests during graceful shutdown to ensure all active requests
+/// complete before the server terminates.
+pub async fn request_tracking_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    // Increment in-flight counter
+    let count = state.in_flight_requests.fetch_add(1, Ordering::SeqCst) + 1;
+    debug!(in_flight = count, "Request started");
+
+    // Process request
+    let response = next.run(req).await;
+
+    // Decrement in-flight counter
+    let count = state.in_flight_requests.fetch_sub(1, Ordering::SeqCst) - 1;
+    debug!(in_flight = count, "Request completed");
+
+    response
+}
+
+/// Drain middleware for graceful shutdown
+///
+/// Checks if the system is in draining state and rejects new requests
+/// with 503 Service Unavailable. This allows in-flight requests to complete
+/// while preventing new requests from being accepted.
+///
+/// # PRD-BOOT-01
+/// This middleware implements requirement #2 from PRD-BOOT-01 (Runtime Boot & Modes):
+/// Return 503 Service Unavailable for new requests when the server is draining,
+/// while allowing in-flight requests to complete gracefully.
+///
+/// # Usage
+///
+/// ```rust,no_run
+/// use axum::{Router, middleware};
+/// use adapteros_server_api::middleware_security::drain_middleware;
+/// use adapteros_server_api::state::AppState;
+///
+/// # async fn example(state: AppState) {
+/// let app = Router::new()
+///     .layer(middleware::from_fn_with_state(state.clone(), drain_middleware));
+/// # }
+/// ```
+pub async fn drain_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    // Check if system is draining
+    if let Some(ref boot_state) = state.boot_state {
+        if boot_state.is_shutting_down() {
+            warn!(
+                path = %req.uri().path(),
+                method = %req.method(),
+                "Rejecting request - system is draining"
+            );
+
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new("service unavailable")
+                        .with_code("DRAINING")
+                        .with_string_details(
+                            "Server is shutting down gracefully. Please retry after restart.",
+                        ),
+                ),
+            ));
+        }
+    }
+
+    // System not draining, process request normally
+    Ok(next.run(req).await)
 }

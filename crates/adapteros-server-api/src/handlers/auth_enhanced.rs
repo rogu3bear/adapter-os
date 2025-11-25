@@ -133,7 +133,7 @@ pub async fn bootstrap_admin_handler(
     // Create admin user with "system" tenant
     let user_id = state
         .db
-        .create_user(&req.email, &req.display_name, &pw_hash, Role::Admin)
+        .create_user(&req.email, &req.display_name, &pw_hash, Role::Admin, "system")
         .await
         .map_err(|e| {
             warn!(error = %e, "Failed to create admin user");

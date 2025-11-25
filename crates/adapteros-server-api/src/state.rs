@@ -8,8 +8,12 @@ use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
 use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
 use adapteros_telemetry::{BundleStore, MetricsCollector, RetentionPolicy};
+
+use crate::boot_state::BootStateManager;
+use crate::runtime_mode::RuntimeMode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, Mutex};
 
@@ -48,6 +52,18 @@ pub struct ApiConfig {
     /// Capacity limits configuration
     #[serde(default)]
     pub capacity_limits: CapacityLimits,
+    /// General configuration
+    #[serde(default)]
+    pub general: Option<GeneralConfig>,
+    /// Server configuration
+    #[serde(default)]
+    pub server: ServerConfigApi,
+    /// Security configuration
+    #[serde(default)]
+    pub security: SecurityConfigApi,
+    /// Performance configuration
+    #[serde(default)]
+    pub performance: PerformanceConfigApi,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -58,6 +74,49 @@ fn default_directory_analysis_timeout() -> u64 {
 pub struct MetricsConfig {
     pub enabled: bool,
     pub bearer_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneralConfig {
+    pub system_name: Option<String>,
+    pub environment: Option<String>,
+    pub api_base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServerConfigApi {
+    #[serde(default)]
+    pub http_port: Option<u16>,
+    #[serde(default)]
+    pub https_port: Option<u16>,
+    #[serde(default)]
+    pub uds_socket: Option<String>,
+    #[serde(default)]
+    pub production_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecurityConfigApi {
+    #[serde(default)]
+    pub jwt_mode: Option<String>,
+    #[serde(default)]
+    pub token_ttl_seconds: Option<u64>,
+    #[serde(default)]
+    pub require_mfa: Option<bool>,
+    #[serde(default)]
+    pub require_pf_deny: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PerformanceConfigApi {
+    #[serde(default)]
+    pub max_adapters: Option<usize>,
+    #[serde(default)]
+    pub max_workers: Option<usize>,
+    #[serde(default)]
+    pub memory_threshold_pct: Option<f64>,
+    #[serde(default)]
+    pub cache_size_mb: Option<usize>,
 }
 
 /// Cryptographic state for signing and verification
@@ -151,6 +210,14 @@ pub struct AppState {
     pub telemetry_bundle_store: Arc<std::sync::RwLock<BundleStore>>,
     // Chunked upload session manager
     pub upload_session_manager: Arc<UploadSessionManager>,
+    // Boot lifecycle state manager
+    pub boot_state: Option<BootStateManager>,
+    // Runtime mode (dev/staging/prod)
+    pub runtime_mode: Option<RuntimeMode>,
+    // In-flight request counter for graceful shutdown
+    pub in_flight_requests: Arc<AtomicUsize>,
+    // Plugin event bus for dispatching events to plugins
+    pub event_bus: Option<Arc<crate::event_bus::EventBus>>,
 }
 
 impl AppState {
@@ -216,7 +283,26 @@ impl AppState {
             )),
             // Default to 1000 max concurrent upload sessions
             upload_session_manager: Arc::new(UploadSessionManager::new(1000)),
+            // Boot state and runtime mode are set later via with_boot_state/with_runtime_mode
+            boot_state: None,
+            runtime_mode: None,
+            // Initialize in-flight request counter
+            in_flight_requests: Arc::new(AtomicUsize::new(0)),
+            // Event bus is set later via with_event_bus
+            event_bus: None,
         }
+    }
+
+    /// Set boot state manager for lifecycle tracking
+    pub fn with_boot_state(mut self, boot_state: BootStateManager) -> Self {
+        self.boot_state = Some(boot_state);
+        self
+    }
+
+    /// Set runtime mode for policy enforcement
+    pub fn with_runtime_mode(mut self, runtime_mode: RuntimeMode) -> Self {
+        self.runtime_mode = Some(runtime_mode);
+        self
     }
 
     pub fn with_federation(mut self, daemon: Arc<FederationDaemon>) -> Self {
@@ -300,6 +386,12 @@ impl AppState {
     /// Set custom contact signal transmitter for SSE streaming
     pub fn with_contact_signals(mut self, tx: broadcast::Sender<Signal>) -> Self {
         self.contact_signal_tx = Arc::new(tx);
+        self
+    }
+
+    /// Set plugin event bus for dispatching events to plugins
+    pub fn with_event_bus(mut self, event_bus: Arc<crate::event_bus::EventBus>) -> Self {
+        self.event_bus = Some(event_bus);
         self
     }
 

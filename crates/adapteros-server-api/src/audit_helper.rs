@@ -140,7 +140,11 @@ pub mod actions {
 
     // Training actions
     pub const TRAINING_START: &str = "training.start";
+    pub const TRAINING_COMPLETE: &str = "training.complete";
     pub const TRAINING_CANCEL: &str = "training.cancel";
+
+    // Inference actions
+    pub const INFERENCE_EXECUTE: &str = "inference.execute";
 
     // Tenant actions
     pub const TENANT_CREATE: &str = "tenant.create";
@@ -251,6 +255,18 @@ pub mod actions {
 
     // Activity actions
     pub const ACTIVITY_EVENT_CREATE: &str = "activity.event.create";
+
+    // Settings actions
+    pub const SETTINGS_UPDATE: &str = "settings.update";
+
+    // Document actions
+    pub const DOCUMENT_UPLOAD: &str = "document.upload";
+    pub const DOCUMENT_DELETE: &str = "document.delete";
+    pub const COLLECTION_CREATE: &str = "collection.create";
+    pub const COLLECTION_DELETE: &str = "collection.delete";
+    pub const COLLECTION_ADD_DOCUMENT: &str = "collection.document.add";
+    pub const COLLECTION_REMOVE_DOCUMENT: &str = "collection.document.remove";
+    pub const INFERENCE_WITH_EVIDENCE: &str = "inference.execute_with_evidence";
 }
 
 /// Resource types as constants
@@ -285,4 +301,7 @@ pub mod resources {
     pub const NOTIFICATION: &str = "notification";
     pub const DASHBOARD_CONFIG: &str = "dashboard_config";
     pub const ACTIVITY_EVENT: &str = "activity_event";
+    pub const SETTINGS: &str = "settings";
+    pub const DOCUMENT: &str = "document";
+    pub const COLLECTION: &str = "collection";
 }

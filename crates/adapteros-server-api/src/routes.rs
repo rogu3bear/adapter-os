@@ -4,8 +4,8 @@ use crate::handlers::auth;
 use crate::handlers::domain_adapters;
 use crate::middleware::{auth_middleware, client_ip_middleware, dual_auth_middleware};
 use crate::middleware_security::{
-    cors_layer, rate_limiting_middleware, request_size_limit_middleware,
-    security_headers_middleware,
+    cors_layer, drain_middleware, rate_limiting_middleware, request_size_limit_middleware,
+    request_tracking_middleware, security_headers_middleware,
 };
 use crate::request_id;
 use crate::state::AppState;
@@ -34,6 +34,16 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
         handlers::batch::batch_infer,
+        // Chat session handlers
+        handlers::chat_sessions::create_chat_session,
+        handlers::chat_sessions::list_chat_sessions,
+        handlers::chat_sessions::get_chat_session,
+        handlers::chat_sessions::delete_chat_session,
+        handlers::chat_sessions::add_chat_message,
+        handlers::chat_sessions::get_chat_messages,
+        handlers::chat_sessions::get_session_summary,
+        handlers::chat_sessions::update_session_collection,
+        handlers::chat_sessions::get_message_evidence,
         handlers::list_adapters,
         handlers::get_adapter,
         handlers::register_adapter,
@@ -107,6 +117,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::plugins::disable_plugin,
         handlers::plugins::plugin_status,
         handlers::plugins::list_plugins,
+        handlers::settings::get_settings,
+        handlers::settings::update_settings,
         handlers::get_uma_memory,
         handlers::hydrate_tenant_from_bundle,
         // Service handlers
@@ -117,6 +129,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::services::stop_essential_services,
         handlers::services::get_service_logs,
         // Models handlers
+        handlers::models::list_models_with_stats,
+        handlers::models::import_model,
         handlers::models::load_model,
         handlers::models::unload_model,
         handlers::models::get_model_status,
@@ -152,6 +166,27 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::preview_dataset,
         handlers::datasets::delete_dataset,
         handlers::datasets::dataset_upload_progress,
+        // Document handlers
+        handlers::documents::upload_document,
+        handlers::documents::list_documents,
+        handlers::documents::get_document,
+        handlers::documents::delete_document,
+        handlers::documents::list_document_chunks,
+        handlers::documents::download_document,
+        // Collection handlers
+        handlers::collections::create_collection,
+        handlers::collections::list_collections,
+        handlers::collections::get_collection,
+        handlers::collections::delete_collection,
+        handlers::collections::add_document_to_collection,
+        handlers::collections::remove_document_from_collection,
+        // Evidence handlers (PRD-DATA-01 Phase 2)
+        handlers::evidence::list_evidence,
+        handlers::evidence::create_evidence,
+        handlers::evidence::get_evidence,
+        handlers::evidence::delete_evidence,
+        handlers::evidence::get_dataset_evidence,
+        handlers::evidence::get_adapter_evidence,
         // Golden run handlers
         handlers::golden::list_golden_runs,
         handlers::golden::get_golden_run,
@@ -199,6 +234,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_default_stack,
         handlers::set_default_stack,
         handlers::clear_default_stack,
+        // Policy assignment handlers (PRD-RBAC-01)
+        handlers::assign_policy,
+        handlers::list_policy_assignments,
+        handlers::list_violations,
         // Adapter stack handlers
         handlers::adapter_stacks::list_stacks,
         handlers::adapter_stacks::create_stack,
@@ -207,6 +246,16 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::adapter_stacks::get_stack_history,
         handlers::adapter_stacks::activate_stack,
         handlers::adapter_stacks::deactivate_stack,
+        // PRD-INFRA-01: System, Nodes, Workers, Memory, Metrics handlers
+        handlers::system_overview::get_system_overview,
+        handlers::node_detail::get_node_detail,
+        handlers::worker_detail::get_worker_detail,
+        handlers::memory_detail::get_uma_memory_breakdown,
+        handlers::memory_detail::get_adapter_memory_usage,
+        handlers::metrics_time_series::get_metrics_time_series,
+        handlers::metrics_time_series::get_metrics_snapshot,
+        // Owner CLI handler
+        handlers::owner_cli::run_owner_cli_command,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -238,6 +287,15 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::BatchInferItemResponse,
         crate::types::InferenceTrace,
         crate::types::RouterDecision,
+        // Chat session types
+        handlers::chat_sessions::CreateChatSessionRequest,
+        handlers::chat_sessions::CreateChatSessionResponse,
+        handlers::chat_sessions::AddChatMessageRequest,
+        handlers::chat_sessions::ListSessionsQuery,
+        handlers::chat_sessions::UpdateCollectionRequest,
+        adapteros_db::ChatSession,
+        adapteros_db::ChatMessage,
+        adapteros_db::InferenceEvidence,
         crate::types::AdapterResponse,
         crate::types::AdapterStats,
         crate::types::RegisterAdapterRequest,
@@ -292,6 +350,10 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::CategoryPolicyRequest,
         crate::types::CategoryPolicyResponse,
         crate::types::CategoryPoliciesResponse,
+        // Policy assignment types (PRD-RBAC-01)
+        crate::types::AssignPolicyRequest,
+        crate::types::PolicyAssignmentResponse,
+        crate::types::PolicyViolationResponse,
         // Worker stop types
         crate::types::WorkerStopResponse,
         // Contacts and Streams types - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
@@ -350,6 +412,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::CompleteChunkedUploadRequest,
         handlers::datasets::CompleteChunkedUploadResponse,
         handlers::datasets::UploadSessionStatusResponse,
+        // Evidence types (PRD-DATA-01 Phase 2)
+        handlers::evidence::CreateEvidenceRequest,
+        handlers::evidence::EvidenceResponse,
+        handlers::evidence::ListEvidenceQuery,
         // Activity types
         handlers::activity::CreateActivityEventRequest,
         handlers::activity::ActivityEventResponse,
@@ -362,6 +428,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::models::ModelStatusResponse,
         handlers::models::ModelValidationResponse,
         handlers::models::ModelRuntimeHealthResponse,
+        handlers::models::ModelListResponse,
+        handlers::models::ModelWithStatsResponse,
         // Auth enhanced types
         handlers::auth_enhanced::BootstrapRequest,
         handlers::auth_enhanced::BootstrapResponse,
@@ -391,11 +459,15 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::tutorials::TutorialStatusResponse,
         // Auth types
         crate::types::UserInfoResponse,
+        // Owner CLI types
+        handlers::owner_cli::CliRunRequest,
+        handlers::owner_cli::CliRunResponse,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
         (name = "auth", description = "Authentication endpoints"),
         (name = "tenants", description = "Tenant management"),
+        (name = "settings", description = "System settings management"),
         (name = "nodes", description = "Node management"),
         (name = "models", description = "Model registry"),
         (name = "jobs", description = "Job management"),
@@ -417,6 +489,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "notifications", description = "User notifications and alerts"),
         (name = "dashboard", description = "Dashboard configuration and widgets"),
         (name = "tutorials", description = "Tutorial management and progress tracking"),
+        (name = "cli", description = "Owner CLI command execution"),
     )
 )]
 pub struct ApiDoc;
@@ -544,7 +617,8 @@ pub fn build(state: AppState) -> Router {
             "/v1/services/{service_id}/logs",
             get(handlers::services::get_service_logs),
         )
-        .route("/v1/models/import", post(handlers::import_model))
+        .route("/v1/models", get(handlers::models::list_models_with_stats))
+        .route("/v1/models/import", post(handlers::models::import_model))
         .route("/v1/models/status", get(handlers::get_base_model_status))
         .route(
             "/v1/models/{model_id}/load",
@@ -603,6 +677,10 @@ pub fn build(state: AppState) -> Router {
         // Worker stop route
         .route("/v1/workers/{worker_id}/stop", post(handlers::stop_worker))
         .route(
+            "/v1/workers/{worker_id}/detail",
+            get(handlers::worker_detail::get_worker_detail),
+        )
+        .route(
             "/v1/monitoring/rules",
             get(handlers::list_process_monitoring_rules),
         )
@@ -649,11 +727,15 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/policies/validate", post(handlers::validate_policy))
         .route("/v1/policies/apply", post(handlers::apply_policy))
         .route("/v1/policies/{cpid}/sign", post(handlers::sign_policy))
+        .route("/v1/policies/{cpid}/verify", get(handlers::verify_policy_signature))
         .route(
             "/v1/policies/compare",
             post(handlers::compare_policy_versions),
         )
         .route("/v1/policies/{cpid}/export", get(handlers::export_policy))
+        .route("/v1/policies/assign", post(handlers::assign_policy))
+        .route("/v1/policies/assignments", get(handlers::list_policy_assignments))
+        .route("/v1/policies/violations", get(handlers::list_violations))
         .route(
             "/v1/telemetry/bundles",
             get(handlers::list_telemetry_bundles),
@@ -694,6 +776,43 @@ pub fn build(state: AppState) -> Router {
             post(handlers::streaming_infer::streaming_infer),
         )
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
+        // Chat session routes
+        .route(
+            "/v1/chat/sessions",
+            post(handlers::chat_sessions::create_chat_session)
+                .get(handlers::chat_sessions::list_chat_sessions),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}",
+            get(handlers::chat_sessions::get_chat_session)
+                .delete(handlers::chat_sessions::delete_chat_session),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/messages",
+            post(handlers::chat_sessions::add_chat_message)
+                .get(handlers::chat_sessions::get_chat_messages),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/summary",
+            get(handlers::chat_sessions::get_session_summary),
+        )
+        .route(
+            "/v1/chat/sessions/{session_id}/collection",
+            put(handlers::chat_sessions::update_session_collection),
+        )
+        .route(
+            "/v1/chat/messages/{message_id}/evidence",
+            get(handlers::chat_sessions::get_message_evidence),
+        )
+        // Owner CLI and Chat routes (admin only)
+        .route(
+            "/v1/cli/owner-run",
+            post(handlers::owner_cli::run_owner_cli_command),
+        )
+        .route(
+            "/v1/chat/owner-system",
+            post(handlers::owner_chat::handle_owner_chat),
+        )
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))
         .route("/v1/adapters/{adapter_id}", get(handlers::get_adapter))
@@ -747,6 +866,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapters/{adapter_id}/manifest",
             get(handlers::download_adapter_manifest),
+        )
+        .route(
+            "/v1/adapters/{adapter_id}/training-snapshot",
+            get(handlers::adapters::get_adapter_training_snapshot),
         )
         .route(
             "/v1/adapters/directory/upsert",
@@ -935,6 +1058,67 @@ pub fn build(state: AppState) -> Router {
             "/v1/datasets/upload/progress",
             get(handlers::datasets::dataset_upload_progress),
         )
+        // Document routes
+        .route(
+            "/v1/documents/upload",
+            post(handlers::documents::upload_document),
+        )
+        .route("/v1/documents", get(handlers::documents::list_documents))
+        .route(
+            "/v1/documents/{id}",
+            get(handlers::documents::get_document),
+        )
+        .route(
+            "/v1/documents/{id}",
+            delete(handlers::documents::delete_document),
+        )
+        .route(
+            "/v1/documents/{id}/chunks",
+            get(handlers::documents::list_document_chunks),
+        )
+        .route(
+            "/v1/documents/{id}/download",
+            get(handlers::documents::download_document),
+        )
+        // Collection routes
+        .route(
+            "/v1/collections",
+            post(handlers::collections::create_collection),
+        )
+        .route("/v1/collections", get(handlers::collections::list_collections))
+        .route(
+            "/v1/collections/{id}",
+            get(handlers::collections::get_collection),
+        )
+        .route(
+            "/v1/collections/{id}",
+            delete(handlers::collections::delete_collection),
+        )
+        .route(
+            "/v1/collections/{id}/documents",
+            post(handlers::collections::add_document_to_collection),
+        )
+        .route(
+            "/v1/collections/{id}/documents/{doc_id}",
+            delete(handlers::collections::remove_document_from_collection),
+        )
+        // Evidence routes (PRD-DATA-01 Phase 2)
+        .route(
+            "/v1/evidence",
+            get(handlers::evidence::list_evidence).post(handlers::evidence::create_evidence),
+        )
+        .route(
+            "/v1/evidence/{id}",
+            get(handlers::evidence::get_evidence).delete(handlers::evidence::delete_evidence),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/evidence",
+            get(handlers::evidence::get_dataset_evidence),
+        )
+        .route(
+            "/v1/adapters/{adapter_id}/evidence",
+            get(handlers::evidence::get_adapter_evidence),
+        )
         // Code intelligence routes
         .route(
             "/v1/code/register-repo",
@@ -959,11 +1143,33 @@ pub fn build(state: AppState) -> Router {
         )
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route("/v1/repositories", get(handlers::list_repositories))
+        // System overview routes
+        .route(
+            "/v1/system/overview",
+            get(handlers::system_overview::get_system_overview),
+        )
         // Metrics routes
         .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
         .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
         .route("/v1/metrics/system", get(handlers::get_system_metrics))
+        .route(
+            "/v1/metrics/time-series",
+            get(handlers::metrics_time_series::get_metrics_time_series),
+        )
+        .route(
+            "/v1/metrics/current",
+            get(handlers::metrics_time_series::get_metrics_snapshot),
+        )
+        // Memory routes
         .route("/v1/system/memory", get(handlers::get_uma_memory))
+        .route(
+            "/v1/memory/uma-breakdown",
+            get(handlers::memory_detail::get_uma_memory_breakdown),
+        )
+        .route(
+            "/v1/memory/adapters",
+            get(handlers::memory_detail::get_adapter_memory_usage),
+        )
         // Commit routes
         .route("/v1/commits", get(handlers::list_commits))
         .route("/v1/commits/{sha}", get(handlers::get_commit))
@@ -1098,6 +1304,11 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/plugins/{name}", get(handlers::plugins::plugin_status))
         .route("/v1/plugins", get(handlers::plugins::list_plugins))
+        // Settings routes
+        .route(
+            "/v1/settings",
+            get(handlers::settings::get_settings).put(handlers::settings::update_settings),
+        )
         // Golden run promotion routes
         .route("/v1/golden/runs", get(handlers::golden::list_golden_runs))
         .route(
@@ -1221,6 +1432,14 @@ pub fn build(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(caching::caching_middleware)) // HTTP caching
         .layer(axum::middleware::from_fn(versioning::versioning_middleware)) // API versioning
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking
-        .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP (outermost)
+        .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            request_tracking_middleware,
+        )) // Track in-flight requests for graceful shutdown
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            drain_middleware,
+        )) // Reject new requests during drain (outermost)
         .with_state(state)
 }

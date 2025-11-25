@@ -5,7 +5,7 @@
 
 use crate::auth::Claims;
 use crate::types::ErrorResponse;
-use adapteros_db::users::Role;
+pub use adapteros_db::users::Role;
 use axum::{http::StatusCode, Json};
 use std::str::FromStr;
 
@@ -365,6 +365,37 @@ pub fn require_any_permission(
                 .with_string_details(format!(
                     "required one of: {:?}, user role: {}",
                     permissions, claims.role
+                )),
+        ),
+    ))
+}
+
+/// Require any of the specified roles
+///
+/// Returns `Ok(())` if the user has any of the required roles (Admin always passes)
+pub fn require_any_role(
+    claims: &Claims,
+    roles: &[Role],
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let user_role = Role::from_str(&claims.role).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("invalid role").with_code("INTERNAL_ERROR")),
+        )
+    })?;
+
+    if user_role == Role::Admin || roles.contains(&user_role) {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(
+            ErrorResponse::new("insufficient permissions")
+                .with_code("FORBIDDEN")
+                .with_string_details(format!(
+                    "required one of: {:?}, user role: {}",
+                    roles, claims.role
                 )),
         ),
     ))

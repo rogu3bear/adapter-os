@@ -15,6 +15,8 @@ pub struct Claims {
     pub sub: String, // user_id
     pub email: String,
     pub role: String,
+    #[serde(default)]
+    pub roles: Vec<String>, // Multiple roles support
     pub tenant_id: String,
     pub exp: i64,
     pub iat: i64,
@@ -68,6 +70,7 @@ pub fn generate_token_ed25519(
         sub: user_id.to_string(),
         email: email.to_string(),
         role: role.to_string(),
+        roles: vec![role.to_string()], // Initialize roles with the primary role
         tenant_id: tenant_id.to_string(),
         exp: exp.timestamp(),
         iat: now.timestamp(),
@@ -229,6 +232,7 @@ pub fn generate_token(
         sub: user_id.to_string(),
         email: email.to_string(),
         role: role.to_string(),
+        roles: vec![role.to_string()], // Initialize roles with the primary role
         tenant_id: tenant_id.to_string(),
         exp: exp.timestamp(),
         iat: now.timestamp(),

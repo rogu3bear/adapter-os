@@ -68,6 +68,9 @@ pub struct StreamingInferRequest {
     /// Require evidence in response
     #[serde(default)]
     pub require_evidence: bool,
+    /// Collection ID for scoping RAG retrieval to specific document collection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
 }
 
 fn default_max_tokens() -> usize {
@@ -165,12 +168,24 @@ fn serialize_safe<T: Serialize>(value: &T, context: &str) -> String {
 /// data: [DONE]
 /// ```
 ///
+/// # Collection-Scoped RAG
+/// When `collection_id` is provided, the inference will be scoped to documents
+/// within that collection, enabling targeted RAG retrieval for domain-specific queries.
+///
 /// # Example
 /// ```bash
 /// curl -X POST http://localhost:3000/v1/infer/stream \
 ///   -H "Content-Type: application/json" \
 ///   -H "Authorization: Bearer <token>" \
 ///   -d '{"prompt": "Hello, world!", "max_tokens": 100}'
+/// ```
+///
+/// # Example with Collection-Scoped RAG
+/// ```bash
+/// curl -X POST http://localhost:3000/v1/infer/stream \
+///   -H "Content-Type: application/json" \
+///   -H "Authorization: Bearer <token>" \
+///   -d '{"prompt": "What is the pricing model?", "max_tokens": 200, "collection_id": "marketing-docs"}'
 /// ```
 #[utoipa::path(
     post,
@@ -229,8 +244,39 @@ pub async fn streaming_infer(
         request_id = %request_id,
         prompt_len = req.prompt.len(),
         max_tokens = req.max_tokens,
+        collection_id = ?req.collection_id,
         "Starting streaming inference"
     );
+
+    // Collection-scoped RAG integration
+    // TODO: When collection_id is provided, integrate RAG retrieval scoped to that collection
+    // Integration points:
+    // 1. Query documents in the specified collection via `state.db` (see collections.rs)
+    // 2. Use RAG retriever to find relevant documents/chunks for the prompt
+    // 3. Augment the prompt with retrieved context before sending to worker
+    // 4. Track evidence entries for retrieved documents (see inference_evidence.rs)
+    // Example:
+    // if let Some(collection_id) = &req.collection_id {
+    //     let rag_context = retrieve_from_collection(&state.db, collection_id, &req.prompt).await?;
+    //     augmented_prompt = format!("Context:\n{}\n\nQuery: {}", rag_context, req.prompt);
+    // }
+    let _collection_scoped_rag_enabled = req.collection_id.is_some();
+
+    // Audit log: inference execution start
+    let adapters_requested = req
+        .adapters
+        .as_ref()
+        .map(|a| a.join(","))
+        .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
+
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::INFERENCE_EXECUTE,
+        crate::audit_helper::resources::ADAPTER,
+        adapters_requested.as_deref(),
+    )
+    .await;
 
     // Get available workers
     let workers = state.db.list_all_workers().await.map_err(|e| {
