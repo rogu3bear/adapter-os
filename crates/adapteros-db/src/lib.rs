@@ -872,6 +872,11 @@ pub use sqlx::Row;
 
 pub mod activity_events;
 pub use activity_events::ActivityEvent;
+pub mod adapter_snapshots;
+pub mod crypto_audit;
+pub use adapter_snapshots::{AdapterTrainingSnapshot, CreateSnapshotParams};
+pub mod inference_evidence;
+pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
 pub mod query_performance;
 pub use query_performance::{QueryMetrics, QueryPerformanceMonitor, QueryStats};
 pub mod adapter_record;
@@ -886,6 +891,10 @@ pub mod artifacts;
 pub mod audit;
 pub use audit::AuditLog;
 pub mod audits;
+pub mod chat_sessions;
+pub use chat_sessions::{
+    AddMessageParams, ChatMessage, ChatSession, ChatSessionTrace, CreateChatSessionParams,
+};
 pub mod lifecycle;
 pub use lifecycle::{LifecycleHistoryEvent, StackReference};
 pub mod metadata;
@@ -914,7 +923,9 @@ pub use jobs::Job;
 pub mod training_jobs;
 pub use training_jobs::{TrainingJobRecord, TrainingProgress};
 pub mod training_datasets;
-pub use training_datasets::{DatasetFile, DatasetStatistics, TrainingDataset};
+pub use training_datasets::{
+    DatasetAdapterLink, DatasetFile, DatasetStatistics, EvidenceEntry, TrainingDataset,
+};
 pub mod key_metadata;
 pub use key_metadata::KeyMetadata;
 pub mod manifests;
@@ -926,9 +937,12 @@ pub mod patch_proposals;
 pub use patch_proposals::PatchProposal;
 pub mod pinned_adapters;
 pub mod plans;
+pub mod plugin_configs;
+pub use plugin_configs::{PluginConfig, PluginTenantEnable};
 pub mod plugin_enables;
 pub mod policies;
 pub mod policy_hash;
+pub mod policy_management;
 pub mod tenants;
 pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
@@ -943,6 +957,12 @@ pub mod users;
 pub use users::{Role, User};
 pub mod workers;
 pub use models::Worker;
+
+// Document management modules
+pub mod collections;
+pub mod documents;
+pub use collections::{CreateCollectionParams, DocumentCollection};
+pub use documents::{CreateChunkParams, CreateDocumentParams, Document, DocumentChunk};
 
 // Workspace, notifications, dashboard, and tutorial modules
 pub mod dashboard_configs;
@@ -979,7 +999,7 @@ impl Db {
         .bind(investigation_notes)
         .bind(investigated_by)
         .bind(anomaly_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
         Ok(())

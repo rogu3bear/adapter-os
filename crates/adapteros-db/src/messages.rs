@@ -37,7 +37,7 @@ impl Db {
         .bind(from_tenant_id)
         .bind(content)
         .bind(thread_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create message: {}", e)))?;
         Ok(id)
@@ -52,7 +52,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get message: {}", e)))?;
         Ok(message)
@@ -78,7 +78,7 @@ impl Db {
         .bind(workspace_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list workspace messages: {}", e)))?;
         Ok(messages)
@@ -105,7 +105,7 @@ impl Db {
         .bind(thread_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list message thread: {}", e)))?;
         Ok(messages)
@@ -121,7 +121,7 @@ impl Db {
         )
         .bind(content)
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to edit message: {}", e)))?;
         Ok(())
@@ -130,7 +130,7 @@ impl Db {
     pub async fn delete_message(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM messages WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete message: {}", e)))?;
         Ok(())
@@ -152,7 +152,7 @@ impl Db {
             )
             .bind(workspace_id)
             .bind(since_ts)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get recent messages: {}", e)))?
         } else {
@@ -166,7 +166,7 @@ impl Db {
                 "#,
             )
             .bind(workspace_id)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get recent messages: {}", e)))?
         };

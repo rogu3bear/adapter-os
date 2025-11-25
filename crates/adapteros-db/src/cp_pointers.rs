@@ -11,7 +11,7 @@ impl Db {
             "SELECT id, tenant_id, name, plan_id, active, created_at, activated_at, signing_public_key FROM cp_pointers WHERE name = ?"
         )
         .bind(name)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get CP pointer by name: {}", e)))?;
         Ok(cp)
@@ -22,7 +22,7 @@ impl Db {
             "SELECT id, tenant_id, name, plan_id, active, created_at, activated_at, signing_public_key FROM cp_pointers WHERE tenant_id = ? AND active = 1 LIMIT 1"
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get active CP pointer: {}", e)))?;
         Ok(cp)
@@ -31,7 +31,7 @@ impl Db {
     pub async fn deactivate_all_cp_pointers(&self, tenant_id: &str) -> Result<()> {
         sqlx::query("UPDATE cp_pointers SET active = 0 WHERE tenant_id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to deactivate CP pointers: {}", e)))?;
         Ok(())
@@ -42,7 +42,7 @@ impl Db {
             "UPDATE cp_pointers SET active = 1, activated_at = datetime('now') WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to activate CP pointer: {}", e)))?;
         Ok(())
@@ -56,7 +56,7 @@ impl Db {
         sqlx::query("UPDATE cp_pointers SET signing_public_key = ? WHERE id = ?")
             .bind(public_key_hex)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to update CP pointer signing key: {}", e))
@@ -80,7 +80,7 @@ impl Db {
         .bind(cpid)
         .bind(signature_hex)
         .bind(public_key_hex)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create bundle signature: {}", e)))?;
         Ok(id)
@@ -94,7 +94,7 @@ impl Db {
             "SELECT id, bundle_hash_b3, cpid, signature_hex, public_key_hex, created_at FROM bundle_signatures WHERE bundle_hash_b3 = ?"
         )
         .bind(bundle_hash_b3)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get bundle signature: {}", e)))?;
         Ok(sig)
@@ -117,7 +117,7 @@ impl Db {
         .bind(name)
         .bind(plan_id)
         .bind(if active { 1 } else { 0 })
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert CP pointer: {}", e)))?;
         Ok(())
@@ -129,7 +129,7 @@ impl Db {
             "SELECT id, tenant_id, name, plan_id, active, created_at, activated_at, signing_public_key FROM cp_pointers WHERE tenant_id = ? ORDER BY created_at DESC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list CP pointers: {}", e)))?;
         Ok(rows)

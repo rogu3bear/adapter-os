@@ -86,7 +86,7 @@ impl Db {
         .bind(target_id)
         .bind(title)
         .bind(content)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
@@ -100,7 +100,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(notification)
     }
@@ -150,7 +150,7 @@ impl Db {
 
         query_builder = query_builder.bind(limit).bind(offset);
 
-        let notifications = query_builder.fetch_all(self.pool()).await?;
+        let notifications = query_builder.fetch_all(&*self.pool()).await?;
         Ok(notifications)
     }
 
@@ -163,7 +163,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(())
     }
@@ -183,7 +183,7 @@ impl Db {
             )
             .bind(user_id)
             .bind(ws_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?
         } else {
             sqlx::query(
@@ -194,7 +194,7 @@ impl Db {
                 "#,
             )
             .bind(user_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?
         };
         Ok(result.rows_affected())
@@ -211,7 +211,7 @@ impl Db {
             )
             .bind(user_id)
             .bind(ws_id)
-            .fetch_one(self.pool())
+            .fetch_one(&*self.pool())
             .await?
         } else {
             sqlx::query_as(
@@ -222,7 +222,7 @@ impl Db {
                 "#,
             )
             .bind(user_id)
-            .fetch_one(self.pool())
+            .fetch_one(&*self.pool())
             .await?
         };
         Ok(count.0)
@@ -231,7 +231,7 @@ impl Db {
     pub async fn delete_notification(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM notifications WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?;
         Ok(())
     }

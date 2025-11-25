@@ -1,0 +1,271 @@
+//! Document database operations
+
+use crate::Db;
+use adapteros_core::{AosError, Result};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Document {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    pub content_hash: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub mime_type: String,
+    pub page_count: Option<i32>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DocumentChunk {
+    pub id: String,
+    pub document_id: String,
+    pub chunk_index: i32,
+    pub page_number: Option<i32>,
+    pub start_offset: Option<i32>,
+    pub end_offset: Option<i32>,
+    pub chunk_hash: String,
+    pub text_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDocumentParams {
+    pub tenant_id: String,
+    pub name: String,
+    pub content_hash: String,
+    pub file_path: String,
+    pub file_size: i64,
+    pub mime_type: String,
+    pub page_count: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateChunkParams {
+    pub document_id: String,
+    pub chunk_index: i32,
+    pub page_number: Option<i32>,
+    pub start_offset: Option<i32>,
+    pub end_offset: Option<i32>,
+    pub chunk_hash: String,
+    pub text_preview: Option<String>,
+}
+
+impl Db {
+    /// Create a new document
+    pub async fn create_document(&self, params: CreateDocumentParams) -> Result<String> {
+        let id = Uuid::now_v7().to_string();
+        sqlx::query(
+            "INSERT INTO documents (
+                id, tenant_id, name, content_hash, file_path, file_size,
+                mime_type, page_count, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+        )
+        .bind(&id)
+        .bind(&params.tenant_id)
+        .bind(&params.name)
+        .bind(&params.content_hash)
+        .bind(&params.file_path)
+        .bind(params.file_size)
+        .bind(&params.mime_type)
+        .bind(params.page_count)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create document: {}", e)))?;
+        Ok(id)
+    }
+
+    /// Get document by ID
+    pub async fn get_document(&self, id: &str) -> Result<Option<Document>> {
+        let document = sqlx::query_as::<_, Document>(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json
+             FROM documents
+             WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get document: {}", e)))?;
+        Ok(document)
+    }
+
+    /// List documents for a tenant
+    pub async fn list_documents(&self, tenant_id: &str) -> Result<Vec<Document>> {
+        let documents = sqlx::query_as::<_, Document>(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json
+             FROM documents
+             WHERE tenant_id = ?
+             ORDER BY created_at DESC",
+        )
+        .bind(tenant_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list documents: {}", e)))?;
+        Ok(documents)
+    }
+
+    /// Update document status
+    pub async fn update_document_status(&self, id: &str, status: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE documents
+             SET status = ?, updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(status)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update document status: {}", e)))?;
+        Ok(())
+    }
+
+    /// Delete document
+    pub async fn delete_document(&self, id: &str) -> Result<()> {
+        // Delete chunks first (cascading)
+        sqlx::query("DELETE FROM document_chunks WHERE document_id = ?")
+            .bind(id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete document chunks: {}", e)))?;
+
+        // Delete document
+        sqlx::query("DELETE FROM documents WHERE id = ?")
+            .bind(id)
+            .execute(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete document: {}", e)))?;
+        Ok(())
+    }
+
+    /// Create a document chunk
+    pub async fn create_document_chunk(&self, params: CreateChunkParams) -> Result<String> {
+        let id = Uuid::now_v7().to_string();
+        sqlx::query(
+            "INSERT INTO document_chunks (
+                id, document_id, chunk_index, page_number, start_offset,
+                end_offset, chunk_hash, text_preview
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&params.document_id)
+        .bind(params.chunk_index)
+        .bind(params.page_number)
+        .bind(params.start_offset)
+        .bind(params.end_offset)
+        .bind(&params.chunk_hash)
+        .bind(&params.text_preview)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to create document chunk: {}", e)))?;
+        Ok(id)
+    }
+
+    /// Get chunks for a document
+    pub async fn get_document_chunks(&self, document_id: &str) -> Result<Vec<DocumentChunk>> {
+        let chunks = sqlx::query_as::<_, DocumentChunk>(
+            "SELECT id, document_id, chunk_index, page_number, start_offset,
+                    end_offset, chunk_hash, text_preview
+             FROM document_chunks
+             WHERE document_id = ?
+             ORDER BY chunk_index ASC",
+        )
+        .bind(document_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get document chunks: {}", e)))?;
+        Ok(chunks)
+    }
+
+    /// Get chunk by ID
+    pub async fn get_chunk_by_id(&self, chunk_id: &str) -> Result<Option<DocumentChunk>> {
+        let chunk = sqlx::query_as::<_, DocumentChunk>(
+            "SELECT id, document_id, chunk_index, page_number, start_offset,
+                    end_offset, chunk_hash, text_preview
+             FROM document_chunks
+             WHERE id = ?",
+        )
+        .bind(chunk_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get chunk by ID: {}", e)))?;
+        Ok(chunk)
+    }
+
+    /// Count chunks for a document
+    pub async fn count_document_chunks(&self, document_id: &str) -> Result<i64> {
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM document_chunks WHERE document_id = ?")
+                .bind(document_id)
+                .fetch_one(&*self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to count document chunks: {}", e))
+                })?;
+        Ok(count.0)
+    }
+
+    /// Get documents by status
+    pub async fn get_documents_by_status(
+        &self,
+        tenant_id: &str,
+        status: &str,
+    ) -> Result<Vec<Document>> {
+        let documents = sqlx::query_as::<_, Document>(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json
+             FROM documents
+             WHERE tenant_id = ? AND status = ?
+             ORDER BY created_at DESC",
+        )
+        .bind(tenant_id)
+        .bind(status)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get documents by status: {}", e)))?;
+        Ok(documents)
+    }
+
+    /// Update document metadata
+    pub async fn update_document_metadata(&self, id: &str, metadata_json: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE documents
+             SET metadata_json = ?, updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(metadata_json)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update document metadata: {}", e)))?;
+        Ok(())
+    }
+
+    /// Count documents by tenant
+    pub async fn count_documents_by_tenant(&self, tenant_id: &str) -> Result<i64> {
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM documents WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count documents: {}", e)))?;
+        Ok(count.0)
+    }
+
+    /// Get total storage size for a tenant's documents
+    pub async fn get_total_document_size(&self, tenant_id: &str) -> Result<i64> {
+        let size: (Option<i64>,) =
+            sqlx::query_as("SELECT SUM(file_size) FROM documents WHERE tenant_id = ?")
+                .bind(tenant_id)
+                .fetch_one(&*self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to get total document size: {}", e))
+                })?;
+        Ok(size.0.unwrap_or(0))
+    }
+}

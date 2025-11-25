@@ -23,7 +23,7 @@ impl Db {
         .bind(&id)
         .bind(hostname)
         .bind(agent_endpoint)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -32,7 +32,7 @@ impl Db {
     pub async fn update_node_heartbeat(&self, id: &str) -> Result<()> {
         sqlx::query("UPDATE nodes SET last_seen_at = datetime('now') WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -42,7 +42,7 @@ impl Db {
         let nodes = sqlx::query_as::<_, Node>(
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes ORDER BY created_at DESC"
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(nodes)
@@ -53,7 +53,7 @@ impl Db {
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes WHERE id = ?"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(node)
@@ -63,7 +63,7 @@ impl Db {
         sqlx::query("UPDATE nodes SET status = ?, last_seen_at = datetime('now') WHERE id = ?")
             .bind(status)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -73,7 +73,7 @@ impl Db {
     pub async fn delete_node(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM nodes WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete node: {}", e)))?;
         Ok(())

@@ -123,7 +123,7 @@ impl Db {
         .bind(name)
         .bind(description)
         .bind(created_by)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
@@ -133,7 +133,7 @@ impl Db {
             "SELECT id, name, description, created_by, created_at, updated_at FROM workspaces WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(workspace)
     }
@@ -165,14 +165,14 @@ impl Db {
         }
         query_builder = query_builder.bind(id);
 
-        query_builder.execute(self.pool()).await?;
+        query_builder.execute(&*self.pool()).await?;
         Ok(())
     }
 
     pub async fn delete_workspace(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM workspaces WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?;
         Ok(())
     }
@@ -181,7 +181,7 @@ impl Db {
         let workspaces = sqlx::query_as::<_, Workspace>(
             "SELECT id, name, description, created_by, created_at, updated_at FROM workspaces ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(workspaces)
     }
@@ -203,7 +203,7 @@ impl Db {
         )
         .bind(user_id)
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(workspaces)
     }
@@ -234,7 +234,7 @@ impl Db {
         .bind(&role_str)
         .bind(permissions_json)
         .bind(added_by)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
@@ -256,7 +256,7 @@ impl Db {
         .bind(tenant_id)
         .bind(user_id)
         .bind(user_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(member)
     }
@@ -271,7 +271,7 @@ impl Db {
             "#,
         )
         .bind(workspace_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(members)
     }
@@ -296,7 +296,7 @@ impl Db {
         .bind(tenant_id)
         .bind(user_id)
         .bind(user_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(())
     }
@@ -317,7 +317,7 @@ impl Db {
         .bind(tenant_id)
         .bind(user_id)
         .bind(user_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(())
     }
@@ -343,7 +343,7 @@ impl Db {
         .bind(workspace_id)
         .bind(tenant_id)
         .bind(user_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
 
         if let Some(row) = row {
@@ -378,7 +378,7 @@ impl Db {
         .bind(resource_id)
         .bind(shared_by)
         .bind(shared_by_tenant_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
@@ -396,7 +396,7 @@ impl Db {
             "#,
         )
         .bind(workspace_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(resources)
     }
@@ -417,7 +417,7 @@ impl Db {
         .bind(workspace_id)
         .bind(&resource_type_str)
         .bind(resource_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(())
     }

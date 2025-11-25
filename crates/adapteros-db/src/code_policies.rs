@@ -27,7 +27,7 @@ impl Db {
              FROM code_policies WHERE tenant_id = ? AND active = 1",
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(policy)
@@ -46,7 +46,7 @@ impl Db {
         // Deactivate existing policies for this tenant
         sqlx::query("UPDATE code_policies SET active = 0 WHERE tenant_id = ? AND active = 1")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -65,7 +65,7 @@ impl Db {
         .bind(path_permissions_json)
         .bind(secret_patterns_json)
         .bind(patch_limits_json)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -80,7 +80,7 @@ impl Db {
              FROM code_policies WHERE tenant_id = ? ORDER BY created_at DESC",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(policies)

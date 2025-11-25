@@ -19,7 +19,7 @@ impl Db {
         .bind(tenant_id)
         .bind(plugin_name)
         .bind(enabled)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -36,7 +36,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(plugin_name)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

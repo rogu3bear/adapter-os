@@ -53,7 +53,7 @@ impl DatabaseBackend for PostgresBackend {
         .bind(description)
         .bind(&adapter_ids_json)
         .bind(workflow_type)
-        .fetch_one(self.pool())
+        .fetch_one(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
 
@@ -67,7 +67,7 @@ impl DatabaseBackend for PostgresBackend {
         )
         .bind(tenant_id)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
 
@@ -141,7 +141,7 @@ impl DatabaseBackend for PostgresBackend {
         let result = sqlx::query("DELETE FROM adapter_stacks WHERE tenant_id = $1 AND id = $2")
             .bind(tenant_id)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
 
@@ -187,7 +187,7 @@ impl DatabaseBackend for PostgresBackend {
             .bind(description)
             .bind(&adapter_ids_json)
             .bind(workflow_type)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
         } else {
@@ -203,7 +203,7 @@ impl DatabaseBackend for PostgresBackend {
             .bind(description)
             .bind(&adapter_ids_json)
             .bind(workflow_type)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
         };
@@ -249,7 +249,7 @@ impl DatabaseBackend for PostgresBackend {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks for tenant: {}", e)))?;
 

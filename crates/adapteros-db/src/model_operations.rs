@@ -50,7 +50,7 @@ impl Db {
         .bind(started_at)
         .bind(completed_at)
         .bind(duration_ms)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -76,7 +76,7 @@ impl Db {
         .bind(completed_at)
         .bind(duration_ms)
         .bind(operation_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -98,7 +98,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -122,7 +122,7 @@ impl Db {
         .bind(tenant_id)
         .bind(model_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -144,7 +144,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(model_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

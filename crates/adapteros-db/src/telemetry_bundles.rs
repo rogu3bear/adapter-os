@@ -211,7 +211,7 @@ impl Db {
         .bind(&metadata_json)
         .bind(&tags_json)
         .bind(&params.priority)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to record telemetry batch: {}", e)))?;
 
@@ -236,7 +236,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get telemetry by tenant: {}", e)))?;
 
@@ -261,7 +261,7 @@ impl Db {
         )
         .bind(event_type)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get telemetry by event type: {}", e)))?;
 
@@ -287,7 +287,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get telemetry bundles: {}", e)))?;
 

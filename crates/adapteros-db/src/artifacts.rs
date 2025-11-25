@@ -20,7 +20,7 @@ impl Db {
         .bind(sbom_hash_b3)
         .bind(size_bytes)
         .bind(stored_path)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create artifact: {}", e)))?;
         Ok(())

@@ -105,7 +105,7 @@ impl Db {
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at FROM workers WHERE tenant_id = ?"
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -115,7 +115,7 @@ impl Db {
         let workers = sqlx::query_as::<_, Worker>(
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at FROM workers ORDER BY started_at DESC"
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -126,7 +126,7 @@ impl Db {
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at FROM workers WHERE node_id = ? ORDER BY started_at DESC",
         )
         .bind(node_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -136,7 +136,7 @@ impl Db {
         sqlx::query("UPDATE workers SET status = ?, last_seen_at = datetime('now') WHERE id = ?")
             .bind(status)
             .bind(worker_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -175,7 +175,7 @@ impl Db {
         .bind(&params.uds_path)
         .bind(params.pid)
         .bind(&params.status)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -189,13 +189,13 @@ impl Db {
             )
             .bind(st)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else {
             sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
                 .bind(id)
-                .execute(self.pool())
+                .execute(&*self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
         }
@@ -208,7 +208,7 @@ impl Db {
             "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(worker)

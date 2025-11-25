@@ -72,38 +72,40 @@ impl Db {
         display_name: &str,
         pw_hash: &str,
         role: Role,
+        tenant_id: &str,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
         let role_str = role.to_string();
         sqlx::query(
-            "INSERT INTO users (id, email, display_name, pw_hash, role) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(email)
         .bind(display_name)
         .bind(pw_hash)
         .bind(&role_str)
-        .execute(self.pool())
+        .bind(tenant_id)
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
 
     pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, email, display_name, pw_hash, role, disabled, created_at FROM users WHERE email = ?"
+            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, tenant_id FROM users WHERE email = ?"
         )
         .bind(email)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(user)
     }
 
     pub async fn get_user(&self, id: &str) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, email, display_name, pw_hash, role, disabled, created_at FROM users WHERE id = ?"
+            "SELECT id, email, display_name, pw_hash, role, disabled, created_at, tenant_id FROM users WHERE id = ?"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(user)
     }

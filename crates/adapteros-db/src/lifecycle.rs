@@ -249,7 +249,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -279,7 +279,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(stack_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -301,7 +301,7 @@ impl Db {
                AND adapter_ids_json LIKE ?",
         )
         .bind(format!("%{}%", adapter_id))
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         .into_iter()
@@ -342,7 +342,7 @@ impl Db {
             "SELECT * FROM adapters WHERE lifecycle_state = ? ORDER BY created_at DESC",
         )
         .bind(lifecycle_state)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -358,7 +358,7 @@ impl Db {
             "SELECT * FROM adapter_stacks WHERE lifecycle_state = ? ORDER BY created_at DESC",
         )
         .bind(lifecycle_state)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

@@ -78,7 +78,7 @@ impl Db {
         )
         .bind(new_state.as_str())
         .bind(adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update lifecycle state: {}", e)))?;
 
@@ -121,7 +121,7 @@ impl Db {
         )
         .bind(new_version)
         .bind(adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update version: {}", e)))?;
 
@@ -184,7 +184,7 @@ impl Db {
         .bind(new_state.as_str())
         .bind(stack_id)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update lifecycle state: {}", e)))?;
 
@@ -222,7 +222,7 @@ impl Db {
         .bind(new_version)
         .bind(stack_id)
         .bind(tenant_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update version: {}", e)))?;
 

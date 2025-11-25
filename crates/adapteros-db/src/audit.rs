@@ -75,11 +75,50 @@ impl Db {
         let id = Uuid::now_v7().to_string();
         let timestamp = chrono::Utc::now().to_rfc3339();
 
+        // Get the latest audit log entry to link to it (chain-of-custody)
+        let latest_entry = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
+            "SELECT entry_hash, chain_sequence FROM audit_logs
+             ORDER BY chain_sequence DESC LIMIT 1",
+        )
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let (previous_hash, chain_sequence) = match latest_entry {
+            Some((hash_opt, seq_opt)) => {
+                let prev_hash = hash_opt.unwrap_or_default();
+                let next_seq = seq_opt.unwrap_or(0) + 1;
+                (Some(prev_hash), next_seq)
+            }
+            None => {
+                // First entry in the chain
+                (None, 1)
+            }
+        };
+
+        // Compute hash of this entry (deterministic)
+        let entry_data = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            id,
+            timestamp,
+            user_id,
+            user_role,
+            tenant_id,
+            action,
+            resource_type,
+            resource_id.unwrap_or(""),
+            status,
+            error_message.unwrap_or(""),
+            ip_address.unwrap_or(""),
+            previous_hash.as_deref().unwrap_or(""),
+        );
+        let entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+
         sqlx::query(
             "INSERT INTO audit_logs
              (id, timestamp, user_id, user_role, tenant_id, action, resource_type, resource_id,
-              status, error_message, ip_address, metadata_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              status, error_message, ip_address, metadata_json, previous_hash, entry_hash, chain_sequence)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&timestamp)
@@ -93,7 +132,10 @@ impl Db {
         .bind(error_message)
         .bind(ip_address)
         .bind(metadata_json)
-        .execute(self.pool())
+        .bind(previous_hash.as_deref())
+        .bind(&entry_hash)
+        .bind(chain_sequence)
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -180,7 +222,7 @@ impl Db {
         }
 
         let logs = q
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(logs)
@@ -221,11 +263,134 @@ impl Db {
         .bind(resource_type)
         .bind(resource_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(logs)
+    }
+
+    /// Verify audit log chain integrity
+    ///
+    /// Validates that the audit log chain is intact by checking:
+    /// 1. Each entry's hash matches its computed hash
+    /// 2. Each entry's previous_hash matches the prior entry's entry_hash
+    /// 3. Chain sequence numbers are monotonically increasing
+    ///
+    /// # Returns
+    /// - Ok(true) if chain is valid
+    /// - Ok(false) if chain has integrity issues
+    /// - Err if database query fails
+    ///
+    /// # Example
+    /// ```no_run
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let is_valid = db.verify_audit_chain().await?;
+    /// if !is_valid {
+    ///     eprintln!("WARNING: Audit chain integrity violation detected!");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn verify_audit_chain(&self) -> Result<bool> {
+        // Fetch all audit logs ordered by chain_sequence
+        let logs = sqlx::query_as::<_, AuditLog>(
+            "SELECT id, timestamp, user_id, user_role, tenant_id, action, resource_type,
+                    resource_id, status, error_message, ip_address, metadata_json
+             FROM audit_logs
+             ORDER BY chain_sequence ASC",
+        )
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if logs.is_empty() {
+            return Ok(true); // Empty chain is valid
+        }
+
+        // Fetch chain metadata (previous_hash, entry_hash, chain_sequence)
+        let chain_data = sqlx::query_as::<_, (String, Option<String>, String, i64)>(
+            "SELECT id, previous_hash, entry_hash, chain_sequence
+             FROM audit_logs
+             ORDER BY chain_sequence ASC",
+        )
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        let mut prev_hash: Option<String> = None;
+        let mut prev_seq = 0i64;
+
+        for (idx, (log_id, stored_prev_hash, stored_entry_hash, seq)) in
+            chain_data.iter().enumerate()
+        {
+            // Check sequence monotonicity
+            if *seq != prev_seq + 1 {
+                tracing::error!(
+                    log_id = %log_id,
+                    expected_seq = prev_seq + 1,
+                    actual_seq = seq,
+                    "Audit chain sequence gap detected"
+                );
+                return Ok(false);
+            }
+
+            // Check previous_hash linkage
+            if let Some(ref expected_prev) = prev_hash {
+                if stored_prev_hash.as_deref() != Some(expected_prev) {
+                    tracing::error!(
+                        log_id = %log_id,
+                        expected_prev_hash = %expected_prev,
+                        actual_prev_hash = ?stored_prev_hash,
+                        "Audit chain previous_hash mismatch"
+                    );
+                    return Ok(false);
+                }
+            } else if stored_prev_hash.is_some() {
+                tracing::error!(
+                    log_id = %log_id,
+                    "First audit log should have NULL previous_hash"
+                );
+                return Ok(false);
+            }
+
+            // Recompute entry hash and verify
+            let log = &logs[idx];
+            let entry_data = format!(
+                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+                log.id,
+                log.timestamp,
+                log.user_id,
+                log.user_role,
+                log.tenant_id,
+                log.action,
+                log.resource_type,
+                log.resource_id.as_deref().unwrap_or(""),
+                log.status,
+                log.error_message.as_deref().unwrap_or(""),
+                log.ip_address.as_deref().unwrap_or(""),
+                stored_prev_hash.as_deref().unwrap_or(""),
+            );
+            let computed_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+
+            if &computed_hash != stored_entry_hash {
+                tracing::error!(
+                    log_id = %log.id,
+                    computed_hash = %computed_hash,
+                    stored_hash = %stored_entry_hash,
+                    "Audit entry hash mismatch - possible tampering"
+                );
+                return Ok(false);
+            }
+
+            // Update for next iteration
+            prev_hash = Some(stored_entry_hash.clone());
+            prev_seq = *seq;
+        }
+
+        Ok(true)
     }
 
     /// Get audit log count by action (for compliance dashboard)
@@ -272,7 +437,7 @@ impl Db {
         }
 
         let stats = q
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(stats)

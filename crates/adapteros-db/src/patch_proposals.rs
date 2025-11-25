@@ -164,7 +164,7 @@ impl Db {
         .bind(&params.validation_result_json)
         .bind(&params.status)
         .bind(&params.created_by)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
@@ -176,7 +176,7 @@ impl Db {
              FROM patch_proposals WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(proposal)
     }
@@ -189,7 +189,7 @@ impl Db {
                  FROM patch_proposals WHERE repo_id = ? ORDER BY created_at DESC",
             )
             .bind(repo)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await?
         } else {
             sqlx::query_as::<_, PatchProposal>(
@@ -197,7 +197,7 @@ impl Db {
                         validation_result_json, status, created_at, created_by 
                  FROM patch_proposals ORDER BY created_at DESC",
             )
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await?
         };
         Ok(proposals)
@@ -207,7 +207,7 @@ impl Db {
         sqlx::query("UPDATE patch_proposals SET status = ? WHERE id = ?")
             .bind(status)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?;
         Ok(())
     }

@@ -458,7 +458,7 @@ impl Db {
         .bind(&params.parent_id)
         .bind(&params.fork_type)
         .bind(&params.fork_reason)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -478,7 +478,7 @@ impl Db {
              FROM adapters
              WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -498,7 +498,7 @@ impl Db {
              WHERE active = 1
              ORDER BY tier ASC, created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -522,7 +522,7 @@ impl Db {
         let adapter_id: Option<String> =
             sqlx::query_scalar("SELECT adapter_id FROM adapters WHERE id = ?")
                 .bind(id)
-                .fetch_optional(self.pool())
+                .fetch_optional(&*self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -533,7 +533,7 @@ impl Db {
                 "SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?",
             )
             .bind(&adapter_id)
-            .fetch_one(self.pool())
+            .fetch_one(&*self.pool())
             .await
             .unwrap_or(0);
 
@@ -554,7 +554,7 @@ impl Db {
         // Not pinned - safe to delete
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -648,7 +648,7 @@ impl Db {
              WHERE adapter_id = ?",
         )
         .bind(adapter_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapter)
@@ -672,7 +672,7 @@ impl Db {
         .bind(request_id)
         .bind(gate_value)
         .bind(if selected { 1 } else { 0 })
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -693,7 +693,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(activations)
@@ -710,7 +710,7 @@ impl Db {
              WHERE adapter_id = ?",
         )
         .bind(adapter_id)
-        .fetch_one(self.pool())
+        .fetch_one(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -735,7 +735,7 @@ impl Db {
         )
         .bind(state)
         .bind(adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -750,7 +750,7 @@ impl Db {
         )
         .bind(memory_bytes)
         .bind(adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -946,7 +946,7 @@ impl Db {
              ORDER BY activation_count DESC, created_at DESC",
         )
         .bind(category)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -967,7 +967,7 @@ impl Db {
              ORDER BY activation_count DESC, created_at DESC",
         )
         .bind(scope)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -988,7 +988,7 @@ impl Db {
              ORDER BY activation_count DESC, created_at DESC",
         )
         .bind(state)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -1008,7 +1008,7 @@ impl Db {
              GROUP BY category, scope, current_state
              ORDER BY category, scope, current_state",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1119,7 +1119,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(adapter_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -1142,7 +1142,7 @@ impl Db {
              ORDER BY revision ASC, created_at ASC"
         )
         .bind(adapter_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -1185,7 +1185,7 @@ impl Db {
              FROM lineage
              ORDER BY depth DESC")
         .bind(adapter_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(adapters)
@@ -1212,7 +1212,7 @@ impl Db {
         .bind(tenant_namespace)
         .bind(domain)
         .bind(purpose)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1249,7 +1249,7 @@ impl Db {
         .bind(tenant_namespace)
         .bind(domain)
         .bind(purpose)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1291,7 +1291,7 @@ impl Db {
         )
         .bind(tier)
         .bind(adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update adapter tier: {}", e)))?;
         Ok(())

@@ -258,7 +258,7 @@ impl Db {
         .bind(&config_json)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -274,7 +274,7 @@ impl Db {
              FROM domain_adapters WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -290,7 +290,7 @@ impl Db {
              FROM domain_adapters
              ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -305,7 +305,7 @@ impl Db {
             .bind(status)
             .bind(&now)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -326,7 +326,7 @@ impl Db {
             .bind(&epsilon_stats_json)
             .bind(&now)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -362,7 +362,7 @@ impl Db {
         .bind(execution_time_ms as i64)
         .bind(&trace_events_json)
         .bind(&now)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -375,7 +375,7 @@ impl Db {
         .bind(&now)
         .bind(&now)
         .bind(adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -398,7 +398,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -436,7 +436,7 @@ impl Db {
         .bind(iterations as i32)
         .bind(execution_time_ms as i64)
         .bind(&now)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -459,7 +459,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -471,21 +471,21 @@ impl Db {
         // Delete executions first (foreign key constraint)
         sqlx::query("DELETE FROM domain_adapter_executions WHERE adapter_id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete tests
         sqlx::query("DELETE FROM domain_adapter_tests WHERE adapter_id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete adapter
         sqlx::query("DELETE FROM domain_adapters WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -504,7 +504,7 @@ impl Db {
              FROM domain_adapters WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
