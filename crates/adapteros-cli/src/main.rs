@@ -45,6 +45,7 @@ mod output;
 use adapteros_lora_worker::memory::{MemoryPressureLevel, UmaPressureMonitor};
 use commands::golden::GoldenCmd;
 use commands::*;
+use commands::init;
 use logging::init_logging;
 use output::{OutputMode, OutputWriter};
 
@@ -147,6 +148,24 @@ Examples:
     /// Adapter management commands (lifecycle, registration, pinning, etc.)
     #[command(subcommand, visible_alias = "adapters")]
     Adapter(adapter::AdapterCommand),
+
+    /// Adapter stack management commands (create, list, activate, etc.)
+    #[command(subcommand, visible_alias = "stacks")]
+    Stack(stack::StackCommand),
+
+    // ============================================================
+    // Interactive Chat
+    // ============================================================
+    /// Interactive chat with streaming inference
+    #[command(subcommand)]
+    Chat(chat::ChatCommand),
+
+    // ============================================================
+    // Development Commands
+    // ============================================================
+    /// Development environment commands (start/stop services)
+    #[command(subcommand)]
+    Dev(dev::DevCommand),
 
     // ============================================================
     // Node & Cluster Management
@@ -913,20 +932,29 @@ Examples:
         args: train::TrainArgs,
     },
 
-    /// Alias for tenant-init (for convenience)
-    #[command(hide = true)]
+    /// Initialize AdapterOS system (Owner Home setup)
+    #[command(after_help = "\
+Examples:
+  # Initialize system with default settings
+  aosctl init
+
+  # Initialize with custom owner email
+  aosctl init --owner-email admin@example.com
+
+  # Initialize with custom database and URLs
+  aosctl init --database-url sqlite://./custom.db \\
+    --ui-url http://localhost:3000 \\
+    --api-url http://localhost:9000
+
+  # Skip interactive prompts
+  aosctl init --yes
+
+  # Skip creating config file
+  aosctl init --skip-config
+")]
     Init {
-        /// Tenant ID
-        #[arg(short, long)]
-        id: String,
-
-        /// Unix UID
-        #[arg(short, long)]
-        uid: u32,
-
-        /// Unix GID
-        #[arg(short, long)]
-        gid: u32,
+        #[command(flatten)]
+        args: init::InitArgs,
     },
 
     // ============================================================
@@ -939,7 +967,6 @@ Examples:
     // ============================================================
     // Deprecated Commands (hidden, for backward compatibility)
     // ============================================================
-
     /// List adapters (deprecated - use `adapter list`)
     #[command(name = "adapter-list", hide = true)]
     AdapterListDeprecated {
@@ -1149,7 +1176,6 @@ Examples:
     },
 }
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load .env file first (before anything else reads env vars)
@@ -1207,14 +1233,34 @@ async fn main() -> Result<()> {
 
 async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -> Result<()> {
     match command {
+        // System Initialization (Owner Home)
+        Commands::Init { args } => {
+            init::run(args.clone(), output).await?;
+        }
+
         // Tenant Management
-        Commands::TenantInit { id, uid, gid } | Commands::Init { id, uid, gid } => {
+        Commands::TenantInit { id, uid, gid } => {
             init_tenant::run(&id, *uid, *gid, &output).await?;
         }
 
         // Adapter Management
         Commands::Adapter(cmd) => {
             adapter::handle_adapter_command(cmd.clone(), &output).await?;
+        }
+
+        // Adapter Stack Management
+        Commands::Stack(cmd) => {
+            stack::handle_stack_command(cmd.clone(), &output).await?;
+        }
+
+        // Interactive Chat
+        Commands::Chat(cmd) => {
+            chat::handle_chat_command(cmd.clone(), &output).await?;
+        }
+
+        // Development Commands
+        Commands::Dev(cmd) => {
+            dev::handle_dev_command(cmd.clone(), &output).await?;
         }
 
         // Node & Cluster Management
@@ -1530,7 +1576,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // ============================================================
         // Deprecated Commands (backward compatibility)
         // ============================================================
-
         Commands::AdapterListDeprecated { .. } => {
             eprintln!("Warning: 'adapter-list' is deprecated. Use 'aosctl adapter list' instead.");
             adapter::handle_adapter_command(
@@ -1557,7 +1602,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         Commands::AdapterUnpinDeprecated { adapter_id, tenant } => {
-            eprintln!("Warning: 'adapter-unpin' is deprecated. Use 'aosctl adapter unpin' instead.");
+            eprintln!(
+                "Warning: 'adapter-unpin' is deprecated. Use 'aosctl adapter unpin' instead."
+            );
             adapter::handle_adapter_command(
                 adapter::AdapterCommand::Unpin {
                     adapter_id: adapter_id.clone(),
@@ -1598,7 +1645,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             by_stack,
             limit,
         } => {
-            eprintln!("Warning: 'telemetry-list' is deprecated. Use 'aosctl telemetry list' instead.");
+            eprintln!(
+                "Warning: 'telemetry-list' is deprecated. Use 'aosctl telemetry list' instead."
+            );
             telemetry::handle_telemetry_command(
                 telemetry::TelemetryCommand::List {
                     database: database.clone(),
@@ -1612,7 +1661,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         Commands::TelemetryVerifyDeprecated { bundle_dir } => {
-            eprintln!("Warning: 'telemetry-verify' is deprecated. Use 'aosctl telemetry verify' instead.");
+            eprintln!(
+                "Warning: 'telemetry-verify' is deprecated. Use 'aosctl telemetry verify' instead."
+            );
             telemetry::handle_telemetry_command(
                 telemetry::TelemetryCommand::Verify {
                     bundle_dir: bundle_dir.clone(),
@@ -1627,7 +1678,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             cas_root,
             registry: registry_path,
         } => {
-            eprintln!("Warning: 'registry-sync' is deprecated. Use 'aosctl registry sync' instead.");
+            eprintln!(
+                "Warning: 'registry-sync' is deprecated. Use 'aosctl registry sync' instead."
+            );
             registry::handle_registry_command(
                 registry::RegistryCommand::Sync {
                     dir: dir.clone(),
@@ -1645,7 +1698,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             dry_run,
             force,
         } => {
-            eprintln!("Warning: 'registry-migrate' is deprecated. Use 'aosctl registry migrate' instead.");
+            eprintln!(
+                "Warning: 'registry-migrate' is deprecated. Use 'aosctl registry migrate' instead."
+            );
             registry::handle_registry_command(
                 registry::RegistryCommand::Migrate(registry::RegistryMigrateArgs {
                     from_db: from_db.clone(),
@@ -1756,7 +1811,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         Commands::CodegraphStatsDeprecated { codegraph_db } => {
-            eprintln!("Warning: 'codegraph-stats' is deprecated. Use 'aosctl codegraph stats' instead.");
+            eprintln!(
+                "Warning: 'codegraph-stats' is deprecated. Use 'aosctl codegraph stats' instead."
+            );
             codegraph::handle_codegraph_command(
                 codegraph::CodegraphCommand::Stats {
                     codegraph_db: codegraph_db.clone(),
@@ -1771,7 +1828,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             output: output_path,
             format,
         } => {
-            eprintln!("Warning: 'callgraph-export' is deprecated. Use 'aosctl codegraph export' instead.");
+            eprintln!(
+                "Warning: 'callgraph-export' is deprecated. Use 'aosctl codegraph export' instead."
+            );
             codegraph::handle_codegraph_command(
                 codegraph::CodegraphCommand::Export {
                     codegraph_db: codegraph_db.clone(),
@@ -1792,6 +1851,9 @@ fn get_command_name(command: &Commands) -> String {
     match command {
         Commands::TenantInit { .. } | Commands::Init { .. } => "init-tenant",
         Commands::Adapter(_) => "adapter",
+        Commands::Stack(_) => "stack",
+        Commands::Chat(_) => "chat",
+        Commands::Dev(_) => "dev",
         Commands::Node(_) => "node",
         Commands::Status { .. } => "status",
         Commands::Doctor { .. } => "doctor",
@@ -1851,6 +1913,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::SecdAuditDeprecated { .. } => "secd-audit",
         Commands::CodegraphStatsDeprecated { .. } => "codegraph-stats",
         Commands::CallgraphExportDeprecated { .. } => "callgraph-export",
+        Commands::Preflight(_) => "preflight",
     }
     .to_string()
 }
@@ -1858,9 +1921,7 @@ fn get_command_name(command: &Commands) -> String {
 /// Extract tenant ID from command if present
 fn extract_tenant_from_command(command: &Commands) -> Option<String> {
     match command {
-        Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => {
-            Some(tenant.clone())
-        }
+        Commands::Serve { tenant, .. } | Commands::Rollback { tenant, .. } => Some(tenant.clone()),
         Commands::Diag { tenant, .. } => tenant.clone(),
         // Tenant extraction for grouped commands is handled by their respective handlers
         _ => None,

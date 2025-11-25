@@ -53,8 +53,7 @@ impl std::fmt::Display for ExportFormat {
 #[derive(Debug, Clone, Subcommand)]
 pub enum CodegraphCommand {
     /// Export call graph to various formats (DOT, JSON, CSV)
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   # Export to DOT format for Graphviz visualization
   aosctl codegraph export --codegraph-db ./var/codegraph.db --output graph.dot
 
@@ -63,8 +62,7 @@ pub enum CodegraphCommand {
 
   # Export to CSV format for spreadsheet analysis
   aosctl codegraph export --codegraph-db ./var/codegraph.db --output edges.csv --format csv
-"#
-    )]
+"#)]
     Export {
         /// CodeGraph database path
         #[arg(short, long)]
@@ -80,15 +78,13 @@ pub enum CodegraphCommand {
     },
 
     /// Generate CodeGraph database statistics
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   # Generate statistics
   aosctl codegraph stats --codegraph-db ./var/codegraph.db
 
   # Export statistics to JSON
   aosctl codegraph stats --codegraph-db ./var/codegraph.db --json > stats.json
-"#
-    )]
+"#)]
     Stats {
         /// CodeGraph database path
         #[arg(short, long)]
@@ -111,10 +107,7 @@ fn get_codegraph_command_name(cmd: &CodegraphCommand) -> &'static str {
 /// **Note:** Currently disabled due to mplora-codegraph dependency.
 /// When re-enabled, this function will route to the actual implementations
 /// in `export_callgraph.rs` and `codegraph_stats.rs`.
-pub async fn handle_codegraph_command(
-    cmd: CodegraphCommand,
-    output: &OutputWriter,
-) -> Result<()> {
+pub async fn handle_codegraph_command(cmd: CodegraphCommand, output: &OutputWriter) -> Result<()> {
     let command_name = get_codegraph_command_name(&cmd);
 
     // Emit telemetry for command execution
@@ -133,10 +126,13 @@ pub async fn handle_codegraph_command(
             output.info(&format!("Format: {}", format));
             output.blank();
             output.info("This command requires the mplora-codegraph dependency which is currently unavailable.");
-            output.info("When restored, this command will export the call graph to the specified format.");
+            output.info(
+                "When restored, this command will export the call graph to the specified format.",
+            );
 
             Err(adapteros_core::AosError::Other(
-                "CodeGraph export is temporarily disabled due to mplora-codegraph dependency".to_string(),
+                "CodeGraph export is temporarily disabled due to mplora-codegraph dependency"
+                    .to_string(),
             ))
 
             // When re-enabled, use:
@@ -150,10 +146,13 @@ pub async fn handle_codegraph_command(
             output.info(&format!("Database path: {}", codegraph_db.display()));
             output.blank();
             output.info("This command requires the mplora-codegraph dependency which is currently unavailable.");
-            output.info("When restored, this command will display statistics about the CodeGraph database.");
+            output.info(
+                "When restored, this command will display statistics about the CodeGraph database.",
+            );
 
             Err(adapteros_core::AosError::Other(
-                "CodeGraph stats is temporarily disabled due to mplora-codegraph dependency".to_string(),
+                "CodeGraph stats is temporarily disabled due to mplora-codegraph dependency"
+                    .to_string(),
             ))
 
             // When re-enabled, use:
@@ -173,7 +172,9 @@ mod tests {
             ExportFormat::Dot
         );
         assert_eq!(
-            "graphviz".parse::<ExportFormat>().expect("graphviz should parse"),
+            "graphviz"
+                .parse::<ExportFormat>()
+                .expect("graphviz should parse"),
             ExportFormat::Dot
         );
         assert_eq!(
@@ -185,11 +186,15 @@ mod tests {
             ExportFormat::Csv
         );
         assert_eq!(
-            "JSON".parse::<ExportFormat>().expect("JSON uppercase should parse"),
+            "JSON"
+                .parse::<ExportFormat>()
+                .expect("JSON uppercase should parse"),
             ExportFormat::Json
         );
         assert_eq!(
-            "DOT".parse::<ExportFormat>().expect("DOT uppercase should parse"),
+            "DOT"
+                .parse::<ExportFormat>()
+                .expect("DOT uppercase should parse"),
             ExportFormat::Dot
         );
 

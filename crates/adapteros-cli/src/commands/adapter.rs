@@ -591,7 +591,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
         AdapterCommand::UpdateLifecycle { .. } => None, // No tenant parameter
-        AdapterCommand::Register { .. } => None, // No tenant parameter
+        AdapterCommand::Register { .. } => None,        // No tenant parameter
         AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::Info { .. } => None, // No tenant parameter
         AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
@@ -679,16 +679,12 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             timeout,
             commit,
             socket,
-        } => {
-            crate::commands::adapter_swap::run(&tenant, &add, &remove, timeout, commit, &socket)
-                .await
-                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
-        }
-        AdapterCommand::Info { adapter_id } => {
-            crate::commands::adapter_info::run(&adapter_id)
-                .await
-                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
-        }
+        } => crate::commands::adapter_swap::run(&tenant, &add, &remove, timeout, commit, &socket)
+            .await
+            .map_err(|e| adapteros_core::AosError::Other(e.to_string())),
+        AdapterCommand::Info { adapter_id } => crate::commands::adapter_info::run(&adapter_id)
+            .await
+            .map_err(|e| adapteros_core::AosError::Other(e.to_string())),
         AdapterCommand::ListPinned { tenant } => {
             let db = adapteros_db::Db::connect_env().await?;
             crate::commands::pin::list_pinned(&db, &tenant, output)
@@ -1407,10 +1403,7 @@ async fn lineage_adapter(
 
     // Call lineage API endpoint
     let client = Client::new();
-    let url = format!(
-        "http://127.0.0.1:8080/v1/adapters/{}/lineage",
-        adapter_id
-    );
+    let url = format!("http://127.0.0.1:8080/v1/adapters/{}/lineage", adapter_id);
 
     let response = client
         .get(&url)
@@ -1746,9 +1739,10 @@ async fn register_adapter(
     let manifest: Option<serde_json::Value> = if manifest_path.exists() {
         let manifest_data = fs::read_to_string(&manifest_path)
             .map_err(|e| AosError::Io(format!("Failed to read manifest: {}", e)))?;
-        Some(serde_json::from_str(&manifest_data).map_err(|e| {
-            AosError::Io(format!("Failed to parse manifest: {}", e))
-        })?)
+        Some(
+            serde_json::from_str(&manifest_data)
+                .map_err(|e| AosError::Io(format!("Failed to parse manifest: {}", e)))?,
+        )
     } else {
         None
     };

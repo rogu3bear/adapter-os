@@ -15,7 +15,15 @@ mod tests {
     fn help_contains_examples() {
         // Test the new git-style subcommand: `telemetry verify`
         let output = Command::new("cargo")
-            .args(["run", "--bin", "aosctl", "--", "telemetry", "verify", "--help"])
+            .args([
+                "run",
+                "--bin",
+                "aosctl",
+                "--",
+                "telemetry",
+                "verify",
+                "--help",
+            ])
             .output()
             .expect("Failed to execute command");
 
@@ -36,17 +44,22 @@ mod tests {
             .output()
             .expect("Failed to execute command");
 
-        assert!(
-            output.status.success(),
-            "Adapter list command should exist"
-        );
+        assert!(output.status.success(), "Adapter list command should exist");
     }
 
     #[test]
     fn help_contains_examples_callgraph_export() {
         // Test the new git-style subcommand: `codegraph export`
         let output = Command::new("cargo")
-            .args(["run", "--bin", "aosctl", "--", "codegraph", "export", "--help"])
+            .args([
+                "run",
+                "--bin",
+                "aosctl",
+                "--",
+                "codegraph",
+                "export",
+                "--help",
+            ])
             .output()
             .expect("Failed to execute command");
 
@@ -64,10 +77,7 @@ mod tests {
             .output()
             .expect("Failed to execute command");
 
-        assert!(
-            output.status.success(),
-            "Secd status command should exist"
-        );
+        assert!(output.status.success(), "Secd status command should exist");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! System diagnostics command
 
+use adapteros_core::{derive_seed, B3Hash};
 use adapteros_core::{AosError, Result};
-use adapteros_core::{B3Hash, derive_seed};
 use anyhow::Context;
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
@@ -1033,9 +1033,12 @@ pub async fn run_determinism_check(
         let tenant = std::env::var("AOS_TENANT_ID").unwrap_or_else(|_| "default".to_string());
         PathBuf::from(format!("./var/run/aos/{}/worker.sock", tenant))
     };
-    
+
     if !socket_path.exists() {
-        warn!("Worker socket not found at: {}. Inference requests may fail.", socket_path.display());
+        warn!(
+            "Worker socket not found at: {}. Inference requests may fail.",
+            socket_path.display()
+        );
     }
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -1052,14 +1055,21 @@ pub async fn run_determinism_check(
         String::new()
     };
 
-    info!("Using stack: {}", if actual_stack_id.is_empty() { "base model" } else { &actual_stack_id });
+    info!(
+        "Using stack: {}",
+        if actual_stack_id.is_empty() {
+            "base model"
+        } else {
+            &actual_stack_id
+        }
+    );
 
     // Run inference N times for each prompt
     let mut results: HashMap<String, Vec<String>> = HashMap::new();
-    
+
     for run in 0..runs {
         info!("Run {}/{}", run + 1, runs);
-        
+
         for (prompt_idx, prompt) in test_prompts.iter().enumerate() {
             // Build request body
             let mut request_body = json!({
@@ -1068,7 +1078,7 @@ pub async fn run_determinism_check(
                 "temperature": 0.0, // Deterministic temperature
                 "seed": seed_u64,
             });
-            
+
             if !actual_stack_id.is_empty() {
                 request_body["adapter_stack"] = json!([actual_stack_id.clone()]);
             }
@@ -1085,8 +1095,9 @@ pub async fn run_determinism_check(
                 "http+unix:///{} /api/v1/infer",
                 socket_str.replace(' ', "%20")
             );
-            let url = reqwest::Url::parse(&url)
-                .map_err(|e| AosError::Config(format!("Invalid socket URL: {} (path: {})", e, socket_str)))?;
+            let url = reqwest::Url::parse(&url).map_err(|e| {
+                AosError::Config(format!("Invalid socket URL: {} (path: {})", e, socket_str))
+            })?;
 
             let response = client
                 .post(url)
@@ -1097,8 +1108,15 @@ pub async fn run_determinism_check(
                 .map_err(|e| AosError::Config(format!("Inference request failed: {}", e)))?;
 
             if !response.status().is_success() {
-                error!("Inference failed for prompt {}: {}", prompt_idx, response.status());
-                return Err(AosError::Config(format!("Inference failed: {}", response.status())));
+                error!(
+                    "Inference failed for prompt {}: {}",
+                    prompt_idx,
+                    response.status()
+                );
+                return Err(AosError::Config(format!(
+                    "Inference failed: {}",
+                    response.status()
+                )));
             }
 
             let json_response: serde_json::Value = response
@@ -1106,12 +1124,10 @@ pub async fn run_determinism_check(
                 .await
                 .map_err(|e| AosError::Config(format!("Failed to parse response: {}", e)))?;
 
-            let output_text = json_response["text"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
+            let output_text = json_response["text"].as_str().unwrap_or("").to_string();
 
-            results.entry(format!("prompt_{}", prompt_idx))
+            results
+                .entry(format!("prompt_{}", prompt_idx))
                 .or_insert_with(Vec::new)
                 .push(output_text);
         }
@@ -1144,7 +1160,11 @@ pub async fn run_determinism_check(
     // Print results
     if all_deterministic {
         info!("✅ Deterministic: YES");
-        info!("All {} runs produced identical outputs for all {} prompts", runs, test_prompts.len());
+        info!(
+            "All {} runs produced identical outputs for all {} prompts",
+            runs,
+            test_prompts.len()
+        );
     } else {
         error!("❌ Deterministic: NO");
         error!("Found {} divergence(s):", diffs.len());
@@ -1163,9 +1183,9 @@ pub async fn run_determinism_check(
     };
 
     // Open database and persist results
-    let db_path = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "./var/aos-cp.sqlite3".to_string());
-    
+    let db_path =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/aos-cp.sqlite3".to_string());
+
     match Db::connect(&db_path).await {
         Ok(db) => {
             match sqlx::query(
@@ -1190,7 +1210,10 @@ pub async fn run_determinism_check(
             }
         }
         Err(e) => {
-            warn!("Failed to open database for determinism check persistence: {}", e);
+            warn!(
+                "Failed to open database for determinism check persistence: {}",
+                e
+            );
             // Continue execution - database access failure shouldn't block the check
         }
     }
@@ -1205,22 +1228,23 @@ pub async fn run_quarantine_check(
     verbose: bool,
     _output: &crate::output::OutputWriter,
 ) -> Result<()> {
-    use sqlx::Row;
     use serde_json::Value;
+    use sqlx::Row;
 
     info!("Checking quarantine status...");
 
     // Open database
     let db_path = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://./var/aos-cp.sqlite3".to_string());
-    let db = Db::connect(&db_path).await
+    let db = Db::connect(&db_path)
+        .await
         .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
 
     // Query active quarantines
     let quarantines = sqlx::query(
         "SELECT id, reason, created_at, violation_type, cpid, metadata 
          FROM active_quarantine 
-         ORDER BY created_at DESC"
+         ORDER BY created_at DESC",
     )
     .fetch_all(db.pool())
     .await
@@ -1278,7 +1302,12 @@ pub async fn run_quarantine_check(
 
         if let Some(adapter_id_str) = adapter_id {
             quarantined_adapter_ids.push(adapter_id_str.clone());
-            quarantine_info.push((adapter_id_str, id.clone(), reason.clone(), created_at.clone()));
+            quarantine_info.push((
+                adapter_id_str,
+                id.clone(),
+                reason.clone(),
+                created_at.clone(),
+            ));
         } else {
             // If we can't extract adapter ID, still record the quarantine
             quarantine_info.push((id.clone(), id.clone(), reason.clone(), created_at.clone()));
@@ -1289,7 +1318,10 @@ pub async fn run_quarantine_check(
     if verbose {
         info!("Quarantined adapters:");
         for (adapter_id, q_id, reason, created_at) in &quarantine_info {
-            info!("  - {} (quarantine ID: {}): {} (created: {})", adapter_id, q_id, reason, created_at);
+            info!(
+                "  - {} (quarantine ID: {}): {} (created: {})",
+                adapter_id, q_id, reason, created_at
+            );
         }
     }
 
@@ -1297,7 +1329,7 @@ pub async fn run_quarantine_check(
     let stacks = sqlx::query(
         "SELECT id, name, adapter_ids_json 
          FROM adapter_stacks 
-         WHERE active = 1"
+         WHERE active = 1",
     )
     .fetch_all(db.pool())
     .await
@@ -1316,7 +1348,11 @@ pub async fn run_quarantine_check(
                 // Check if any quarantined adapter appears in this stack
                 for adapter_id in &adapter_ids {
                     if quarantined_adapter_ids.contains(adapter_id) {
-                        found_in_stacks.push((stack_id.clone(), stack_name.clone(), adapter_id.clone()));
+                        found_in_stacks.push((
+                            stack_id.clone(),
+                            stack_name.clone(),
+                            adapter_id.clone(),
+                        ));
                     }
                 }
             }
@@ -1328,7 +1364,10 @@ pub async fn run_quarantine_check(
     } else {
         error!("❌ WARNING: Found quarantined adapters in active stacks:");
         for (stack_id, stack_name, adapter_id) in &found_in_stacks {
-            error!("  - Stack '{}' ({}) contains quarantined adapter '{}'", stack_name, stack_id, adapter_id);
+            error!(
+                "  - Stack '{}' ({}) contains quarantined adapter '{}'",
+                stack_name, stack_id, adapter_id
+            );
         }
     }
 

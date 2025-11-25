@@ -17,12 +17,10 @@ use tracing::info;
 #[derive(Debug, Subcommand, Clone)]
 pub enum CodeCommand {
     /// Initialize a code repository for scanning
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl code init ./my-repo
   aosctl code init ./my-repo --tenant dev
-  aosctl code init /path/to/project --tenant prod"#
-    )]
+  aosctl code init /path/to/project --tenant prod"#)]
     Init {
         /// Path to the repository to initialize
         #[arg()]
@@ -34,12 +32,10 @@ pub enum CodeCommand {
     },
 
     /// Update repository scan (trigger re-scan)
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl code update my-repo
   aosctl code update my-repo --tenant dev
-  aosctl code update my-repo --commit abc123"#
-    )]
+  aosctl code update my-repo --commit abc123"#)]
     Update {
         /// Repository ID
         #[arg()]
@@ -55,11 +51,9 @@ pub enum CodeCommand {
     },
 
     /// List registered repositories
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl code list
-  aosctl code list --tenant dev"#
-    )]
+  aosctl code list --tenant dev"#)]
     List {
         /// Tenant ID
         #[arg(long, default_value = "default")]
@@ -67,11 +61,9 @@ pub enum CodeCommand {
     },
 
     /// Get repository status
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl code status my-repo
-  aosctl code status my-repo --tenant dev"#
-    )]
+  aosctl code status my-repo --tenant dev"#)]
     Status {
         /// Repository ID
         #[arg()]
@@ -105,22 +97,14 @@ pub async fn handle_code_command(cmd: CodeCommand, output: &OutputWriter) -> Res
     let _ = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await;
 
     match cmd {
-        CodeCommand::Init { repo_path, tenant } => {
-            code_init(&repo_path, &tenant, output).await
-        }
+        CodeCommand::Init { repo_path, tenant } => code_init(&repo_path, &tenant, output).await,
         CodeCommand::Update {
             repo_id,
             tenant,
             commit,
-        } => {
-            code_update(&repo_id, &tenant, commit.as_deref(), output).await
-        }
-        CodeCommand::List { tenant } => {
-            code_list(&tenant, output).await
-        }
-        CodeCommand::Status { repo_id, tenant } => {
-            code_status(&repo_id, &tenant, output).await
-        }
+        } => code_update(&repo_id, &tenant, commit.as_deref(), output).await,
+        CodeCommand::List { tenant } => code_list(&tenant, output).await,
+        CodeCommand::Status { repo_id, tenant } => code_status(&repo_id, &tenant, output).await,
     }
 }
 
@@ -336,10 +320,7 @@ async fn poll_scan_job(job_id: &str, output: &OutputWriter) -> Result<()> {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let response = client
-            .get(&format!(
-                "http://localhost:8080/v1/code/scan/{}",
-                job_id
-            ))
+            .get(&format!("http://localhost:8080/v1/code/scan/{}", job_id))
             .send()
             .await?;
 

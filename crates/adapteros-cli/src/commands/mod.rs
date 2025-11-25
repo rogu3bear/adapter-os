@@ -11,12 +11,14 @@ pub mod backend_status;
 pub mod bootstrap;
 pub mod build_plan;
 pub mod cdp_list;
+pub mod chat;
 pub mod code;
 pub mod codegraph;
 pub mod completions;
 pub mod config;
 pub mod db;
 pub mod deploy;
+pub mod dev;
 pub mod diag;
 pub mod doctor;
 // pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
@@ -28,10 +30,12 @@ pub mod golden;
 pub mod import;
 pub mod import_model;
 pub mod ingest_docs;
+pub mod init;
 pub mod init_tenant;
 pub mod list_adapters;
 pub mod maintenance;
 pub mod manual;
+pub mod stack;
 pub mod status;
 // pub mod metrics;  // Temporarily disabled - depends on adapteros-system-metrics
 pub mod infer;

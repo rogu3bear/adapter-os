@@ -18,12 +18,10 @@ use tracing::info;
 #[derive(Debug, Subcommand, Clone)]
 pub enum NodeCommand {
     /// List cluster nodes
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl node list
   aosctl node list --offline
-  aosctl node list --json"#
-    )]
+  aosctl node list --json"#)]
     List {
         /// Offline mode (use cached database state)
         #[arg(long)]
@@ -35,12 +33,10 @@ pub enum NodeCommand {
     },
 
     /// Verify cross-node determinism
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl node verify --all
   aosctl node verify --nodes node1,node2
-  aosctl node verify --all --verbose"#
-    )]
+  aosctl node verify --all --verbose"#)]
     Verify {
         /// Verify all nodes
         #[arg(long)]
@@ -64,10 +60,8 @@ pub enum NodeCommand {
 #[derive(Debug, Subcommand, Clone)]
 pub enum NodeSyncCommand {
     /// Verify sync between two nodes
-    #[command(
-        after_help = r#"Examples:
-  aosctl node sync verify --from node1 --to node2"#
-    )]
+    #[command(after_help = r#"Examples:
+  aosctl node sync verify --from node1 --to node2"#)]
     Verify {
         /// Source node ID
         #[arg(long)]
@@ -79,10 +73,8 @@ pub enum NodeSyncCommand {
     },
 
     /// Push adapters to target node
-    #[command(
-        after_help = r#"Examples:
-  aosctl node sync push --to node2 --adapters adapter1,adapter2"#
-    )]
+    #[command(after_help = r#"Examples:
+  aosctl node sync push --to node2 --adapters adapter1,adapter2"#)]
     Push {
         /// Target node ID
         #[arg(long)]
@@ -94,10 +86,8 @@ pub enum NodeSyncCommand {
     },
 
     /// Pull adapters from source node
-    #[command(
-        after_help = r#"Examples:
-  aosctl node sync pull --from node1 --adapters adapter1,adapter2"#
-    )]
+    #[command(after_help = r#"Examples:
+  aosctl node sync pull --from node1 --adapters adapter1,adapter2"#)]
     Pull {
         /// Source node ID
         #[arg(long)]
@@ -109,10 +99,8 @@ pub enum NodeSyncCommand {
     },
 
     /// Export adapters for air-gap transfer
-    #[command(
-        after_help = r#"Examples:
-  aosctl node sync export --file ./adapters-bundle.tar"#
-    )]
+    #[command(after_help = r#"Examples:
+  aosctl node sync export --file ./adapters-bundle.tar"#)]
     Export {
         /// Output file path
         #[arg(long)]
@@ -120,10 +108,8 @@ pub enum NodeSyncCommand {
     },
 
     /// Import adapters from air-gap bundle
-    #[command(
-        after_help = r#"Examples:
-  aosctl node sync import --file ./adapters-bundle.tar"#
-    )]
+    #[command(after_help = r#"Examples:
+  aosctl node sync import --file ./adapters-bundle.tar"#)]
     Import {
         /// Input file path
         #[arg(long)]
@@ -229,9 +215,9 @@ async fn list_nodes(offline: bool, json: bool, output: &OutputWriter) -> Result<
             "nodes": json_nodes,
             "total": nodes.len()
         });
-        output.result(&serde_json::to_string_pretty(&response).map_err(|e| {
-            AosError::Serialization(e)
-        })?);
+        output.result(
+            &serde_json::to_string_pretty(&response).map_err(|e| AosError::Serialization(e))?,
+        );
         return Ok(());
     }
 
@@ -307,10 +293,7 @@ async fn query_node_status(endpoint: &str) -> Result<NodeStatus> {
         .map_err(|e| AosError::Network(format!("Failed to query node: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(AosError::Network(format!(
-            "HTTP {}",
-            response.status()
-        )));
+        return Err(AosError::Network(format!("HTTP {}", response.status())));
     }
 
     let status: NodeStatus = response
@@ -389,9 +372,9 @@ async fn verify_nodes(
                 "success": false,
                 "error": "No nodes to verify"
             });
-            output.result(&serde_json::to_string_pretty(&response).map_err(|e| {
-                AosError::Serialization(e)
-            })?);
+            output.result(
+                &serde_json::to_string_pretty(&response).map_err(|e| AosError::Serialization(e))?,
+            );
         }
         return Err(AosError::Validation("No nodes to verify".to_string()));
     }
@@ -515,9 +498,9 @@ async fn verify_nodes(
             "errors": errors.iter().map(|(n, e)| serde_json::json!({"node": n, "error": e})).collect::<Vec<_>>(),
             "total_nodes": nodes.len()
         });
-        output.result(&serde_json::to_string_pretty(&response).map_err(|e| {
-            AosError::Serialization(e)
-        })?);
+        output.result(
+            &serde_json::to_string_pretty(&response).map_err(|e| AosError::Serialization(e))?,
+        );
     } else {
         output.blank();
         if all_consistent {
@@ -549,10 +532,7 @@ async fn query_node_hashes(endpoint: &str) -> Result<ComponentHashes> {
         .map_err(|e| AosError::Network(format!("Failed to connect to node runtime: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(AosError::Network(format!(
-            "HTTP {}",
-            response.status()
-        )));
+        return Err(AosError::Network(format!("HTTP {}", response.status())));
     }
 
     #[derive(serde::Deserialize)]
@@ -767,10 +747,7 @@ async fn query_adapter_hashes(endpoint: &str) -> Result<HashMap<String, B3Hash>>
         .map_err(|e| AosError::Network(format!("Failed to query adapter hashes: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(AosError::Network(format!(
-            "HTTP {}",
-            response.status()
-        )));
+        return Err(AosError::Network(format!("HTTP {}", response.status())));
     }
 
     #[derive(serde::Deserialize)]
@@ -826,8 +803,8 @@ async fn create_replication_manifest(
         "session_id": session_id,
         "artifacts": artifacts,
     });
-    let manifest_bytes = serde_json::to_vec(&manifest_content)
-        .map_err(|e| AosError::Serialization(e))?;
+    let manifest_bytes =
+        serde_json::to_vec(&manifest_content).map_err(|e| AosError::Serialization(e))?;
 
     // Sign with Ed25519
     // Try to load signing key from environment or generate ephemeral one

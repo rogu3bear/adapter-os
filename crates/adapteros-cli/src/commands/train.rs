@@ -110,7 +110,10 @@ impl TrainArgs {
 
         info!(
             "Training completed successfully: adapter_id={}, final_loss={:.4}, time={}ms ({}us)",
-            result.adapter_id, result.final_loss, result.training_time_ms(), result.training_time_us
+            result.adapter_id,
+            result.final_loss,
+            result.training_time_ms(),
+            result.training_time_us
         );
 
         Ok(())
