@@ -9,9 +9,7 @@
 //! - Memory overhead: ≤10%
 //! - API response time: p95 <200ms
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;
 
 // ============================================================================

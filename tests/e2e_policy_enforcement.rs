@@ -14,11 +14,11 @@
 
 mod common;
 
-use common::test_harness::ApiTestHarness;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use common::test_harness::ApiTestHarness;
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -28,7 +28,10 @@ async fn test_egress_policy_enforcement() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Testing Egress Policy: Zero network egress in production");
 
@@ -41,7 +44,11 @@ async fn test_egress_policy_enforcement() {
         .unwrap();
 
     let response = harness.app.clone().oneshot(policy_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "Should be able to list policies");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Should be able to list policies"
+    );
 
     println!("✓ Egress policy enforcement test passed");
 }
@@ -61,10 +68,13 @@ async fn test_determinism_policy_enforcement() {
         .expect("Failed to create deterministic adapter");
 
     // Verify adapter exists with correct tier (persistent = deterministic)
-    let adapter = sqlx::query!("SELECT tier FROM adapters WHERE id = ?", "deterministic-adapter")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Adapter should exist");
+    let adapter = sqlx::query!(
+        "SELECT tier FROM adapters WHERE id = ?",
+        "deterministic-adapter"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Adapter should exist");
 
     assert_eq!(
         adapter.tier, "persistent",
@@ -111,7 +121,10 @@ async fn test_evidence_policy_enforcement() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Testing Evidence Policy: Audit trail with quality thresholds");
 
@@ -149,7 +162,10 @@ async fn test_telemetry_policy_enforcement() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Testing Telemetry Policy: Structured event logging");
 
@@ -161,7 +177,12 @@ async fn test_telemetry_policy_enforcement() {
         .body(Body::empty())
         .unwrap();
 
-    let response = harness.app.clone().oneshot(telemetry_request).await.unwrap();
+    let response = harness
+        .app
+        .clone()
+        .oneshot(telemetry_request)
+        .await
+        .unwrap();
 
     // Endpoint should exist (may return various status codes)
     assert!(
@@ -259,15 +280,25 @@ async fn test_tenant_isolation_policy() {
     println!("Testing Tenant Isolation Policy");
 
     // Create multiple tenants
-    sqlx::query!("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)", "tenant-iso-a", "Tenant Iso A", 0)
-        .execute(harness.db().pool())
-        .await
-        .expect("Failed to create tenant-iso-a");
+    sqlx::query!(
+        "INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)",
+        "tenant-iso-a",
+        "Tenant Iso A",
+        0
+    )
+    .execute(harness.db().pool())
+    .await
+    .expect("Failed to create tenant-iso-a");
 
-    sqlx::query!("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)", "tenant-iso-b", "Tenant Iso B", 0)
-        .execute(harness.db().pool())
-        .await
-        .expect("Failed to create tenant-iso-b");
+    sqlx::query!(
+        "INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)",
+        "tenant-iso-b",
+        "Tenant Iso B",
+        0
+    )
+    .execute(harness.db().pool())
+    .await
+    .expect("Failed to create tenant-iso-b");
 
     // Create adapters for each tenant
     sqlx::query!(
@@ -299,20 +330,32 @@ async fn test_tenant_isolation_policy() {
     .expect("Failed to create adapter for tenant-iso-b");
 
     // Verify isolation: tenant-iso-a should only see its adapter
-    let tenant_a_count = sqlx::query!("SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?", "tenant-iso-a")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Should be able to count tenant-iso-a adapters");
+    let tenant_a_count = sqlx::query!(
+        "SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?",
+        "tenant-iso-a"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Should be able to count tenant-iso-a adapters");
 
-    assert_eq!(tenant_a_count.count, 1, "Tenant A should have exactly 1 adapter");
+    assert_eq!(
+        tenant_a_count.count, 1,
+        "Tenant A should have exactly 1 adapter"
+    );
 
     // Verify isolation: tenant-iso-b should only see its adapter
-    let tenant_b_count = sqlx::query!("SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?", "tenant-iso-b")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Should be able to count tenant-iso-b adapters");
+    let tenant_b_count = sqlx::query!(
+        "SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?",
+        "tenant-iso-b"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Should be able to count tenant-iso-b adapters");
 
-    assert_eq!(tenant_b_count.count, 1, "Tenant B should have exactly 1 adapter");
+    assert_eq!(
+        tenant_b_count.count, 1,
+        "Tenant B should have exactly 1 adapter"
+    );
 
     println!("✓ Tenant isolation policy test passed");
 }
@@ -404,9 +447,16 @@ async fn test_all_23_canonical_policies() {
     .expect("Adapter should exist");
 
     // Verify policy-relevant fields
-    assert_eq!(adapter.tier, "persistent", "Should have tier (lifecycle policy)");
+    assert_eq!(
+        adapter.tier, "persistent",
+        "Should have tier (lifecycle policy)"
+    );
     assert_eq!(adapter.rank, 8, "Should have rank (router policy)");
-    assert_eq!(adapter.hash.len(), 64, "Should have BLAKE3 hash (hash policy)");
+    assert_eq!(
+        adapter.hash.len(),
+        64,
+        "Should have BLAKE3 hash (hash policy)"
+    );
 
     println!("✓ All 23 canonical policies checklist passed");
 }
@@ -417,7 +467,10 @@ async fn test_policy_validation_endpoint() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Testing Policy Validation Endpoint");
 

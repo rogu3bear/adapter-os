@@ -43,13 +43,13 @@ impl ApiTestHarness {
             .await?;
 
         // Create default test user with admin role
-        let password_hash =
-            adapteros_server_api::auth::hash_password("test-password-123")?;
+        let password_hash = adapteros_server_api::auth::hash_password("test-password-123")?;
         db.create_user(
             "testadmin@example.com",
             "Test Admin",
             &password_hash,
             adapteros_db::users::Role::Admin,
+            "default",
         )
         .await?;
 
@@ -69,11 +69,11 @@ impl ApiTestHarness {
                     rate_limits: None,
                 },
             )),
-            Arc::new(
-                adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0])?
-            ),
+            Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![
+                0.1, 0.5, 1.0,
+            ])?),
             Arc::new(adapteros_telemetry::MetricsCollector::new(
-                adapteros_telemetry::metrics::MetricsConfig::default()
+                adapteros_telemetry::metrics::MetricsConfig::default(),
             )),
             Arc::new(adapteros_server_api::telemetry::MetricsRegistry::new()),
             Arc::new(adapteros_orchestrator::TrainingService::new()),
@@ -91,7 +91,9 @@ impl ApiTestHarness {
 
     /// Authenticate using default credentials and store token
     pub async fn authenticate(&mut self) -> Result<String, Box<dyn std::error::Error>> {
-        let token = self.login("testadmin@example.com", "test-password-123").await?;
+        let token = self
+            .login("testadmin@example.com", "test-password-123")
+            .await?;
         self.auth_token = Some(token.clone());
         Ok(token)
     }
@@ -102,18 +104,16 @@ impl ApiTestHarness {
         email: &str,
         password: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        use super::auth::{login_user, create_test_app_state};
+        use super::auth::{create_test_app_state, login_user};
 
         // Create a fresh app state for login
         let app_state = create_test_app_state().await;
         let app = routes::build(app_state);
 
-        let response = login_user(&app, email, password)
-            .await
-            .map_err(|e| Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e,
-            )) as Box<dyn std::error::Error>)?;
+        let response = login_user(&app, email, password).await.map_err(|e| {
+            Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                as Box<dyn std::error::Error>
+        })?;
 
         Ok(response.access_token)
     }
@@ -224,42 +224,43 @@ mod tests {
 
     #[tokio::test]
     async fn test_harness_adapter_creation() {
-        let harness = ApiTestHarness::new()
-            .await
-            .expect("Failed to init harness");
+        let harness = ApiTestHarness::new().await.expect("Failed to init harness");
 
-        let result = harness.create_test_adapter("test-adapter-1", "default").await;
+        let result = harness
+            .create_test_adapter("test-adapter-1", "default")
+            .await;
         assert!(result.is_ok(), "Failed to create test adapter");
     }
 
     #[tokio::test]
     async fn test_harness_dataset_creation() {
-        let harness = ApiTestHarness::new()
-            .await
-            .expect("Failed to init harness");
+        let harness = ApiTestHarness::new().await.expect("Failed to init harness");
 
-        let result = harness.create_test_dataset("test-dataset-1", "Test Dataset").await;
+        let result = harness
+            .create_test_dataset("test-dataset-1", "Test Dataset")
+            .await;
         assert!(result.is_ok(), "Failed to create test dataset");
     }
 
     #[tokio::test]
     async fn test_harness_training_job_creation() {
-        let harness = ApiTestHarness::new()
-            .await
-            .expect("Failed to init harness");
+        let harness = ApiTestHarness::new().await.expect("Failed to init harness");
 
         // Create prerequisite dataset
-        harness.create_test_dataset("test-dataset-1", "Test Dataset")
+        harness
+            .create_test_dataset("test-dataset-1", "Test Dataset")
             .await
             .expect("Failed to create dataset");
 
         // Create prerequisite adapter
-        harness.create_test_adapter("test-adapter-1", "default")
+        harness
+            .create_test_adapter("test-adapter-1", "default")
             .await
             .expect("Failed to create adapter");
 
         // Create training job
-        let result = harness.create_test_training_job("test-job-1", "test-dataset-1", "test-adapter-1")
+        let result = harness
+            .create_test_training_job("test-job-1", "test-dataset-1", "test-adapter-1")
             .await;
         assert!(result.is_ok(), "Failed to create training job");
     }

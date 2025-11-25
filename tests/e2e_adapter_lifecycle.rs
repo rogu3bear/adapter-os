@@ -16,11 +16,11 @@
 
 mod common;
 
-use common::test_harness::ApiTestHarness;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use common::test_harness::ApiTestHarness;
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -31,7 +31,10 @@ async fn test_complete_adapter_lifecycle() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     // Step 1: Register adapter
     println!("Step 1: Registering adapter...");
@@ -98,7 +101,8 @@ async fn test_complete_adapter_lifecycle() {
     // Note: This might return 500 if actual adapter files don't exist
     // We're testing the API contract, not the full implementation
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
         "Load endpoint should be accessible (OK or error if files missing)"
     );
 
@@ -123,8 +127,8 @@ async fn test_complete_adapter_lifecycle() {
     // Inference may fail without actual model, but endpoint should exist
     assert!(
         response.status() == StatusCode::OK
-        || response.status() == StatusCode::INTERNAL_SERVER_ERROR
-        || response.status() == StatusCode::BAD_REQUEST,
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::BAD_REQUEST,
         "Inference endpoint should be accessible"
     );
 
@@ -148,7 +152,12 @@ async fn test_complete_adapter_lifecycle() {
         ))
         .unwrap();
 
-    let response = harness.app.clone().oneshot(register2_request).await.unwrap();
+    let response = harness
+        .app
+        .clone()
+        .oneshot(register2_request)
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     // Step 6: Unload first adapter
@@ -162,7 +171,8 @@ async fn test_complete_adapter_lifecycle() {
 
     let response = harness.app.clone().oneshot(unload_request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
         "Unload endpoint should be accessible"
     );
 
@@ -191,7 +201,12 @@ async fn test_complete_adapter_lifecycle() {
         .body(Body::empty())
         .unwrap();
 
-    let response = harness.app.clone().oneshot(list_final_request).await.unwrap();
+    let response = harness
+        .app
+        .clone()
+        .oneshot(list_final_request)
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -224,7 +239,10 @@ async fn test_adapter_state_transitions() {
         .await
         .expect("Failed to initialize test harness");
 
-    harness.authenticate().await.expect("Failed to authenticate");
+    harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     // Create test adapter directly in database
     harness
@@ -252,7 +270,10 @@ async fn test_adapter_state_transitions() {
     .execute(harness.db().pool())
     .await;
 
-    assert!(update_result.is_ok(), "Should be able to update lifecycle state");
+    assert!(
+        update_result.is_ok(),
+        "Should be able to update lifecycle state"
+    );
 
     let result = sqlx::query!(
         "SELECT lifecycle_state FROM adapters WHERE id = ?",
