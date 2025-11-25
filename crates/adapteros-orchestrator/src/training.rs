@@ -4,6 +4,7 @@
 //! Integrates with MLX backend for actual training operations.
 
 use adapteros_core::AosError;
+use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingConfig as WorkerTrainingConfig,
     TrainingExample as WorkerTrainingExample,
@@ -156,6 +157,7 @@ impl TrainingService {
         template_id: Option<String>,
         repo_id: Option<String>,
         dataset_id: Option<String>,
+        tenant_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
 
@@ -163,35 +165,48 @@ impl TrainingService {
         job.template_id = template_id;
         job.repo_id = repo_id;
         job.dataset_id = dataset_id;
+        job.tenant_id = tenant_id.clone();
 
         {
             let mut jobs = self.jobs.write().await;
             jobs.insert(job_id.clone(), job.clone());
         }
 
-        // Spawn background training task
+        // Spawn deterministic training task (training must be reproducible)
         let jobs_ref = self.jobs.clone();
         let cfg_for_run = job.config.clone();
         let job_id_for_run = job.id.clone();
         let adapter_name_for_run = job.adapter_name.clone();
         let dataset_id_for_run = job.dataset_id.clone();
+        let tenant_id_for_run = tenant_id;
         let db_for_run = self.db.clone();
         let storage_for_run = self.storage_root.clone();
-        tokio::spawn(async move {
-            if let Err(e) = run_training_job(
-                jobs_ref,
-                job_id_for_run.clone(),
-                adapter_name_for_run,
-                cfg_for_run,
-                dataset_id_for_run,
-                db_for_run,
-                storage_for_run,
-            )
-            .await
-            {
-                tracing::error!("Training job {} failed: {}", job_id_for_run, e);
-            }
-        });
+        if let Err(e) = spawn_deterministic(
+            format!("training-job:{}", job_id_for_run),
+            async move {
+                if let Err(err) = run_training_job(
+                    jobs_ref,
+                    job_id_for_run.clone(),
+                    adapter_name_for_run,
+                    cfg_for_run,
+                    dataset_id_for_run,
+                    tenant_id_for_run,
+                    db_for_run,
+                    storage_for_run,
+                )
+                .await
+                {
+                    tracing::error!("Training job {} failed: {}", job_id_for_run, err);
+                }
+            },
+        ) {
+            tracing::error!("Failed to spawn deterministic training task: {}", e);
+            // Training operations require deterministic execution - fail rather than fallback
+            return Err(adapteros_core::AosError::DeterminismViolation(format!(
+                "Training job {} requires deterministic executor: {}",
+                job_id, e
+            )).into());
+        }
 
         tracing::info!("Training job created: {}", job_id);
 
@@ -356,6 +371,7 @@ async fn run_training_job(
     adapter_name: String,
     orchestrator_cfg: TrainingConfig,
     dataset_id: Option<String>,
+    tenant_id: Option<String>,
     db: Option<adapteros_db::Db>,
     storage_root: Option<PathBuf>,
 ) -> Result<()> {
@@ -431,17 +447,33 @@ async fn run_training_job(
         .train_with_callback(&examples, move |epoch, loss| {
             let jobs_ref_inner = jobs_ref_clone.clone();
             let job_id_inner = job_id_clone.clone();
-            // Fire-and-forget async update
-            tokio::spawn(async move {
-                let mut jobs = jobs_ref_inner.write().await;
-                if let Some(job) = jobs.get_mut(&job_id_inner) {
-                    job.current_epoch = epoch as u32;
-                    job.current_loss = loss;
-                    if job.total_epochs > 0 {
-                        job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+            // Deterministic progress update (part of training execution)
+            if let Err(e) = spawn_deterministic(
+                format!("training-progress:{}:epoch-{}", job_id_inner, epoch),
+                async move {
+                    let mut jobs = jobs_ref_inner.write().await;
+                    if let Some(job) = jobs.get_mut(&job_id_inner) {
+                        job.current_epoch = epoch as u32;
+                        job.current_loss = loss;
+                        if job.total_epochs > 0 {
+                            job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+                        }
                     }
-                }
-            });
+                },
+            ) {
+                // Fallback: use tokio::spawn if deterministic executor not available
+                tracing::warn!("Failed to spawn deterministic progress update: {}", e);
+                tokio::spawn(async move {
+                    let mut jobs = jobs_ref_inner.write().await;
+                    if let Some(job) = jobs.get_mut(&job_id_inner) {
+                        job.current_epoch = epoch as u32;
+                        job.current_loss = loss;
+                        if job.total_epochs > 0 {
+                            job.progress_pct = (epoch as f32 / job.total_epochs as f32) * 100.0;
+                        }
+                    }
+                });
+            }
         })
         .await;
 
@@ -552,6 +584,64 @@ async fn run_training_job(
                                 "Failed to update job artifact metadata (non-fatal)"
                             );
                         }
+
+                        // Step 4: Auto-create stack with adapter and set as default
+                        let tenant_id = tenant_id.as_deref().unwrap_or("default");
+                        let stack_name = format!("stack.{}.{}", tenant_id, adapter_name);
+                        
+                        use adapteros_db::traits::CreateStackRequest;
+                        let stack_request = CreateStackRequest {
+                            tenant_id: tenant_id.to_string(),
+                            name: stack_name.clone(),
+                            description: Some(format!("Auto-created stack for adapter {}", adapter_name)),
+                            adapter_ids: vec![packaged.adapter_id.clone()],
+                            workflow_type: Some("sequential".to_string()),
+                        };
+
+                        match database.insert_stack(&stack_request).await {
+                            Ok(stack_id) => {
+                                info!(
+                                    job_id = %job_id,
+                                    adapter_id = %packaged.adapter_id,
+                                    stack_id = %stack_id,
+                                    "Stack created automatically"
+                                );
+
+                                // Set as default stack for tenant
+                                if let Err(e) = database.set_default_stack(tenant_id, &stack_id).await {
+                                    tracing::warn!(
+                                        job_id = %job_id,
+                                        stack_id = %stack_id,
+                                        error = %e,
+                                        "Failed to set default stack (non-fatal)"
+                                    );
+                                } else {
+                                    info!(
+                                        job_id = %job_id,
+                                        stack_id = %stack_id,
+                                        tenant_id = %tenant_id,
+                                        "Default stack set for tenant"
+                                    );
+                                }
+
+                                // Update training job with stack_id
+                                {
+                                    let mut jobs = jobs_ref.write().await;
+                                    if let Some(job) = jobs.get_mut(&job_id) {
+                                        job.stack_id = Some(stack_id.clone());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                // Log but don't fail - adapter is already registered
+                                tracing::warn!(
+                                    job_id = %job_id,
+                                    adapter_id = %packaged.adapter_id,
+                                    error = %e,
+                                    "Failed to create stack (non-fatal)"
+                                );
+                            }
+                        }
                     }
                     Err(e) => {
                         error!(job_id = %job_id, error = %e, "Failed to register adapter in database");
@@ -571,7 +661,7 @@ async fn run_training_job(
                 );
             }
 
-            // Step 4: Update job status to completed with artifact info
+            // Step 5: Update job status to completed with artifact info
             {
                 let mut jobs = jobs_ref.write().await;
                 if let Some(job) = jobs.get_mut(&job_id) {
@@ -614,7 +704,7 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None, None)
+            .start_training("test-adapter".to_string(), config, None, None, None, None)
             .await
             .unwrap();
 
@@ -631,7 +721,7 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None, None)
+            .start_training("test-adapter".to_string(), config, None, None, None, None)
             .await
             .unwrap();
 
@@ -647,7 +737,7 @@ mod tests {
 
         let config = TrainingConfig::default();
         let job = service
-            .start_training("test-adapter".to_string(), config, None, None, None)
+            .start_training("test-adapter".to_string(), config, None, None, None, None)
             .await
             .unwrap();
 

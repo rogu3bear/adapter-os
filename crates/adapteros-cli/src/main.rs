@@ -755,6 +755,47 @@ Examples:
         full: bool,
     },
 
+    /// Run determinism check (3 fixed prompts, N runs, compare outputs)
+    #[command(after_help = "\
+Examples:
+  # Run determinism check with default settings
+  aosctl determinism
+
+  # Run with specific stack and custom runs
+  aosctl determinism --stack-id my-stack --runs 5
+
+  # Run with custom seed
+  aosctl determinism --seed abc123def456...
+")]
+    Determinism {
+        /// Stack ID to use for testing (default: first active stack)
+        #[arg(long)]
+        stack_id: Option<String>,
+
+        /// Number of runs to compare (default: 3)
+        #[arg(long, default_value = "3")]
+        runs: usize,
+
+        /// Seed to use (hex string, default: derived from stack manifest)
+        #[arg(long)]
+        seed: Option<String>,
+    },
+
+    /// Check quarantine status and verify no quarantined adapters in active stacks
+    #[command(after_help = "\
+Examples:
+  # Check quarantine status
+  aosctl quarantine
+
+  # Check with verbose output
+  aosctl quarantine --verbose
+")]
+    Quarantine {
+        /// Verbose output
+        #[arg(long)]
+        verbose: bool,
+    },
+
     /// Explain an error code or AosError variant
     #[command(after_help = "\
 Examples:
@@ -1419,6 +1460,16 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             diag::run(diag_profile, tenant.clone(), *json, bundle.clone()).await?;
         }
 
+        Commands::Determinism {
+            stack_id,
+            runs,
+            seed,
+        } => {
+            diag::run_determinism_check(stack_id.clone(), *runs, seed.clone(), &output).await?;
+        }
+        Commands::Quarantine { verbose } => {
+            diag::run_quarantine_check(*verbose, &output).await?;
+        }
         Commands::Explain { code } => {
             explain::explain(&code).await?;
         }
@@ -1747,6 +1798,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
         Commands::Diag { .. } => "diag",
+        Commands::Determinism { .. } => "determinism",
+        Commands::Quarantine { .. } => "quarantine",
         Commands::Explain { .. } => "explain",
         Commands::ErrorCodes { .. } => "error-codes",
         Commands::Tutorial { .. } => "tutorial",

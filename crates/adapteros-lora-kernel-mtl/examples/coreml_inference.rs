@@ -14,9 +14,11 @@
 
 #[cfg(all(feature = "coreml-backend", target_os = "macos"))]
 use adapteros_lora_kernel_mtl::coreml;
+#[cfg(all(feature = "coreml-backend", target_os = "macos"))]
+use adapteros_core::Result;
 
 #[cfg(all(feature = "coreml-backend", target_os = "macos"))]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     // Enable verbose logging
     coreml::set_verbose(true);
 

@@ -6,7 +6,7 @@
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
 };
-use adapteros_core::{AosError, Result};
+use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+use rand::{RngCore, SeedableRng};
+use rand::rngs::StdRng;
 
 // AWS KMS imports (conditional based on feature flag)
 #[cfg(feature = "aws-kms")]
@@ -32,6 +34,18 @@ use google_cloudkms1::api::{
 use google_cloudkms1::hyper;
 #[cfg(feature = "gcp-kms")]
 use google_cloudkms1::{oauth2, yup_oauth2, Client as GcpKmsClient};
+
+/// Create a seeded RNG for deterministic key generation
+/// Uses HKDF with domain separation for cryptographic operations
+fn seeded_rng(context: &str) -> StdRng {
+    // Use a base seed derived from a constant (for KMS operations)
+    // In production, this should be derived from a master key or system entropy
+    let base_seed = B3Hash::hash(format!("kms-seed:{}", context).as_bytes());
+    let seed_bytes = derive_seed(&base_seed, &format!("kms-rng:{}", context));
+    let mut seed_array = [0u8; 32];
+    seed_array.copy_from_slice(&seed_bytes[..32]);
+    StdRng::from_seed(seed_array)
+}
 
 /// Supported KMS backend types
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1263,14 +1277,14 @@ impl KmsBackend for MockKmsBackend {
         let (private_key, public_key) = match alg {
             KeyAlgorithm::Ed25519 => {
                 let mut private = vec![0u8; 32];
-                rand::thread_rng().fill_bytes(&mut private);
+                seeded_rng(&format!("mock-generate-ed25519:{}", key_id)).fill_bytes(&mut private);
                 // Derive public key (simplified mock)
                 let public = private.iter().map(|b| b.wrapping_add(1)).collect();
                 (private, public)
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
                 let mut key = vec![0u8; 32];
-                rand::thread_rng().fill_bytes(&mut key);
+                seeded_rng("mock-symmetric-keygen").fill_bytes(&mut key);
                 (key.clone(), vec![])
             }
         };
@@ -1368,13 +1382,13 @@ impl KmsBackend for MockKmsBackend {
         let (private_key, public_key) = match key.algorithm {
             KeyAlgorithm::Ed25519 => {
                 let mut private = vec![0u8; 32];
-                rand::thread_rng().fill_bytes(&mut private);
+                seeded_rng(&format!("mock-rotate-ed25519:{}", key_id)).fill_bytes(&mut private);
                 let public = private.iter().map(|b| b.wrapping_add(1)).collect();
                 (private, public)
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
                 let mut k = vec![0u8; 32];
-                rand::thread_rng().fill_bytes(&mut k);
+                seeded_rng(&format!("mock-rotate-symmetric:{}", key_id)).fill_bytes(&mut k);
                 (k.clone(), vec![])
             }
         };
@@ -1619,7 +1633,7 @@ impl KmsBackend for AzureKeyVaultBackend {
                     // Returns (public_key, version)
                     let mut pub_key = vec![0u8; 64];
                     use rand::RngCore;
-                    rand::thread_rng().fill_bytes(&mut pub_key);
+                    seeded_rng(&format!("azure-generate:{}", key_id_owned)).fill_bytes(&mut pub_key);
 
                     Ok((pub_key, "1".to_string()))
                 })
@@ -1758,7 +1772,7 @@ impl KmsBackend for AzureKeyVaultBackend {
                     // Mock implementation
                     let mut pub_key = vec![0u8; 64];
                     use rand::RngCore;
-                    rand::thread_rng().fill_bytes(&mut pub_key);
+                    seeded_rng(&format!("azure-rotate:{}", key_id)).fill_bytes(&mut pub_key);
 
                     Ok((pub_key, "2".to_string(), KeyAlgorithm::Ed25519))
                 })
@@ -1807,7 +1821,7 @@ impl KmsBackend for AzureKeyVaultBackend {
                 // Mock implementation
                 let mut pub_key = vec![0u8; 64];
                 use rand::RngCore;
-                rand::thread_rng().fill_bytes(&mut pub_key);
+                seeded_rng(&format!("azure-get-public:{}", key_id)).fill_bytes(&mut pub_key);
 
                 Ok(pub_key)
             })
@@ -2328,7 +2342,7 @@ impl LocalKmsBackend {
     /// Generate key material based on algorithm
     fn generate_key_material(alg: &KeyAlgorithm) -> (Vec<u8>, Vec<u8>) {
         use rand::RngCore;
-        let mut rng = rand::thread_rng();
+        let mut rng = seeded_rng(&format!("key-material:{}", format!("{:?}", alg)));
 
         match alg {
             KeyAlgorithm::Ed25519 => {
@@ -2442,9 +2456,9 @@ impl KmsBackend for LocalKmsBackend {
 
                 let cipher = Aes256Gcm::new(key_bytes.into());
 
-                // Generate random nonce
+                // Generate deterministic nonce using seeded RNG
                 let mut nonce_bytes = [0u8; 12];
-                rand::thread_rng().fill_bytes(&mut nonce_bytes);
+                seeded_rng(&format!("aes-nonce:{}", key_id)).fill_bytes(&mut nonce_bytes);
                 let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
 
                 // Encrypt

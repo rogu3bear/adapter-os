@@ -6,9 +6,10 @@
 #[cfg(all(feature = "secure-enclave", target_os = "macos"))]
 mod hardware_tests {
     use adapteros_secd::HardwareSecureEnclaveConnection;
+    use adapteros_core::Result;
 
     #[tokio::test]
-    async fn test_secure_enclave_signing_integration() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_secure_enclave_signing_integration() -> Result<()> {
         let mut hw_conn = HardwareSecureEnclaveConnection::new()?;
 
         // Generate signing keypair in Secure Enclave
@@ -26,8 +27,7 @@ mod hardware_tests {
     }
 
     #[tokio::test]
-    async fn test_secure_enclave_encryption_integration() -> Result<(), Box<dyn std::error::Error>>
-    {
+    async fn test_secure_enclave_encryption_integration() -> Result<()> {
         let mut hw_conn = HardwareSecureEnclaveConnection::new()?;
 
         // Generate encryption key in Secure Enclave
@@ -42,7 +42,7 @@ mod hardware_tests {
     }
 
     #[tokio::test]
-    async fn test_secure_enclave_attestation() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_secure_enclave_attestation() -> Result<()> {
         let mut hw_conn = HardwareSecureEnclaveConnection::new()?;
 
         // Get attestation for a key (even if it doesn't exist yet)
@@ -53,7 +53,7 @@ mod hardware_tests {
     }
 
     #[tokio::test]
-    async fn test_secure_enclave_key_persistence() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_secure_enclave_key_persistence() -> Result<()> {
         let mut hw_conn1 = HardwareSecureEnclaveConnection::new()?;
         let mut hw_conn2 = HardwareSecureEnclaveConnection::new()?;
 

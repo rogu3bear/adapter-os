@@ -1,8 +1,9 @@
 //! Database migrations
 
+use adapteros_core::{AosError, Result};
 use rusqlite::Connection;
 
-pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     // Create adapters table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS adapters (
@@ -15,7 +16,8 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             registered_at TEXT NOT NULL
         )",
         [],
-    )?;
+        )
+        .map_err(|e| AosError::Registry(format!("Failed to create adapters table: {}", e)))?;
 
     // Create tenants table
     conn.execute(
@@ -26,7 +28,8 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             created_at TEXT NOT NULL
         )",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create tenants table: {}", e)))?;
 
     // Create checkpoints table
     conn.execute(
@@ -38,7 +41,8 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             status TEXT NOT NULL
         )",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create checkpoints table: {}", e)))?;
 
     // Create models table
     conn.execute(
@@ -54,34 +58,41 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             created_at INTEGER NOT NULL
         )",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create models table: {}", e)))?;
 
     // Create indices
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_adapters_tier ON adapters(tier)",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create adapters tier index: {}", e)))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_adapters_activation ON adapters(activation_pct)",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create adapters activation index: {}", e)))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_config_hash ON models(config_hash)",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create models config hash index: {}", e)))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_tokenizer_hash ON models(tokenizer_hash)",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create models tokenizer hash index: {}", e)))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_weights_hash ON models(weights_hash)",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create models weights hash index: {}", e)))?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_models_created_at ON models(created_at)",
         [],
-    )?;
+    )
+    .map_err(|e| AosError::Registry(format!("Failed to create models created_at index: {}", e)))?;
 
     Ok(())
 }

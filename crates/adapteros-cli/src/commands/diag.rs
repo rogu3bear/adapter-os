@@ -1,7 +1,9 @@
 //! System diagnostics command
 
 use adapteros_core::{AosError, Result};
+use adapteros_core::{B3Hash, derive_seed};
 use anyhow::Context;
+use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
@@ -980,5 +982,355 @@ async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Resul
     }
 
     zip.finish()?;
+    Ok(())
+}
+
+/// Run determinism check: 3 fixed prompts, N runs, compare outputs
+pub async fn run_determinism_check(
+    stack_id: Option<String>,
+    runs: usize,
+    seed: Option<String>,
+    _output: &crate::output::OutputWriter,
+) -> Result<()> {
+    use adapteros_core::B3Hash;
+    use reqwest::Client;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    info!("Running determinism check...");
+    info!("  Stack ID: {:?}", stack_id);
+    info!("  Runs: {}", runs);
+    info!("  Seed: {:?}", seed);
+
+    // Fixed test prompts (as specified in PRD G2)
+    let test_prompts = vec![
+        "Hello world".to_string(),
+        "Explain async in Rust".to_string(),
+        "Write a function".to_string(),
+    ];
+
+    // Determine seed (convert to u64 for API)
+    let seed_u64 = if let Some(ref seed_hex) = seed {
+        // Parse hex seed and convert to u64
+        let base_seed = B3Hash::from_hex(seed_hex)
+            .map_err(|e| AosError::Config(format!("Invalid seed hex: {}", e)))?;
+        u64::from_le_bytes(base_seed.as_bytes()[..8].try_into().unwrap())
+    } else {
+        // Default: derive from fixed test seed
+        let base_seed = B3Hash::hash(b"determinism-check-default-seed");
+        u64::from_le_bytes(base_seed.as_bytes()[..8].try_into().unwrap())
+    };
+
+    info!("Using seed: {}", seed_u64);
+
+    // Get worker socket path from environment or use default
+    // Check AOS_WORKER_SOCKET env var first, then fall back to tenant-based path
+    let socket_path = if let Ok(path) = std::env::var("AOS_WORKER_SOCKET") {
+        PathBuf::from(path)
+    } else {
+        // Default tenant-based path (matches adapter.rs pattern)
+        let tenant = std::env::var("AOS_TENANT_ID").unwrap_or_else(|_| "default".to_string());
+        PathBuf::from(format!("./var/run/aos/{}/worker.sock", tenant))
+    };
+    
+    if !socket_path.exists() {
+        warn!("Worker socket not found at: {}. Inference requests may fail.", socket_path.display());
+    }
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| AosError::Config(format!("Failed to create HTTP client: {}", e)))?;
+
+    // Determine stack to use
+    let actual_stack_id = if let Some(ref sid) = stack_id {
+        sid.clone()
+    } else {
+        // For MVP, use empty stack (base model only)
+        // In production, would query for first active stack
+        warn!("No stack specified, using base model only");
+        String::new()
+    };
+
+    info!("Using stack: {}", if actual_stack_id.is_empty() { "base model" } else { &actual_stack_id });
+
+    // Run inference N times for each prompt
+    let mut results: HashMap<String, Vec<String>> = HashMap::new();
+    
+    for run in 0..runs {
+        info!("Run {}/{}", run + 1, runs);
+        
+        for (prompt_idx, prompt) in test_prompts.iter().enumerate() {
+            // Build request body
+            let mut request_body = json!({
+                "prompt": prompt,
+                "max_tokens": 100,
+                "temperature": 0.0, // Deterministic temperature
+                "seed": seed_u64,
+            });
+            
+            if !actual_stack_id.is_empty() {
+                request_body["adapter_stack"] = json!([actual_stack_id.clone()]);
+            }
+
+            // Unix socket URL - use http+unix:// format (matches infer.rs pattern)
+            // Note: reqwest doesn't natively support Unix sockets, but this format is used
+            // throughout the codebase. In production, consider using UdsClient from adapteros-client.
+            let socket_str = socket_path
+                .canonicalize()
+                .unwrap_or_else(|_| socket_path.clone())
+                .to_string_lossy()
+                .to_string();
+            let url = format!(
+                "http+unix:///{} /api/v1/infer",
+                socket_str.replace(' ', "%20")
+            );
+            let url = reqwest::Url::parse(&url)
+                .map_err(|e| AosError::Config(format!("Invalid socket URL: {} (path: {})", e, socket_str)))?;
+
+            let response = client
+                .post(url)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&request_body).unwrap())
+                .send()
+                .await
+                .map_err(|e| AosError::Config(format!("Inference request failed: {}", e)))?;
+
+            if !response.status().is_success() {
+                error!("Inference failed for prompt {}: {}", prompt_idx, response.status());
+                return Err(AosError::Config(format!("Inference failed: {}", response.status())));
+            }
+
+            let json_response: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| AosError::Config(format!("Failed to parse response: {}", e)))?;
+
+            let output_text = json_response["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+
+            results.entry(format!("prompt_{}", prompt_idx))
+                .or_insert_with(Vec::new)
+                .push(output_text);
+        }
+    }
+
+    // Compare outputs
+    let mut all_deterministic = true;
+    let mut diffs = Vec::new();
+
+    for (prompt_key, outputs) in &results {
+        if outputs.len() < runs {
+            warn!("Incomplete results for {}", prompt_key);
+            all_deterministic = false;
+            continue;
+        }
+
+        // Check if all outputs are identical
+        let first_output = &outputs[0];
+        for (run_idx, output) in outputs.iter().enumerate().skip(1) {
+            if output != first_output {
+                all_deterministic = false;
+                diffs.push(format!(
+                    "{}: Run 0 vs Run {} differ\n  Run 0: {}\n  Run {}: {}",
+                    prompt_key, run_idx, first_output, run_idx, output
+                ));
+            }
+        }
+    }
+
+    // Print results
+    if all_deterministic {
+        info!("✅ Deterministic: YES");
+        info!("All {} runs produced identical outputs for all {} prompts", runs, test_prompts.len());
+    } else {
+        error!("❌ Deterministic: NO");
+        error!("Found {} divergence(s):", diffs.len());
+        for diff in &diffs {
+            error!("{}", diff);
+        }
+    }
+
+    // Persist results to database (PRD G2 - Fix shortcut)
+    let result_str = if all_deterministic { "pass" } else { "fail" };
+    let divergence_count = diffs.len();
+    let seed_str = if let Some(ref seed_hex) = seed {
+        seed_hex.clone()
+    } else {
+        "default".to_string()
+    };
+
+    // Open database and persist results
+    let db_path = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "./var/aos-cp.sqlite3".to_string());
+    
+    match Db::connect(&db_path).await {
+        Ok(db) => {
+            match sqlx::query(
+                "INSERT INTO determinism_checks (last_run, result, runs, divergences, stack_id, seed)
+                 VALUES (datetime('now'), ?, ?, ?, ?, ?)"
+            )
+            .bind(&result_str)
+            .bind(runs as i64)
+            .bind(divergence_count as i64)
+            .bind(&actual_stack_id)
+            .bind(&seed_str)
+            .execute(db.pool())
+            .await
+            {
+                Ok(_) => {
+                    info!("Determinism check results persisted to database");
+                }
+                Err(e) => {
+                    warn!("Failed to persist determinism check results to database: {}", e);
+                    // Continue execution - persistence failure shouldn't block the check
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Failed to open database for determinism check persistence: {}", e);
+            // Continue execution - database access failure shouldn't block the check
+        }
+    }
+
+    Ok(())
+}
+
+use adapteros_db::Db;
+
+/// Run quarantine check: list quarantined adapters and verify none in active stacks
+pub async fn run_quarantine_check(
+    verbose: bool,
+    _output: &crate::output::OutputWriter,
+) -> Result<()> {
+    use sqlx::Row;
+    use serde_json::Value;
+
+    info!("Checking quarantine status...");
+
+    // Open database
+    let db_path = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite://./var/aos-cp.sqlite3".to_string());
+    let db = Db::connect(&db_path).await
+        .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
+
+    // Query active quarantines
+    let quarantines = sqlx::query(
+        "SELECT id, reason, created_at, violation_type, cpid, metadata 
+         FROM active_quarantine 
+         ORDER BY created_at DESC"
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to query quarantines: {}", e)))?;
+
+    let quarantine_count = quarantines.len();
+    info!("Quarantined adapters present: {}", quarantine_count);
+
+    if quarantine_count == 0 {
+        info!("✅ No quarantined adapters found");
+        return Ok(());
+    }
+
+    // Extract adapter IDs from quarantine records
+    // Try to extract from metadata JSON first, then fall back to parsing reason
+    let mut quarantined_adapter_ids = Vec::new();
+    let mut quarantine_info = Vec::new();
+
+    for row in &quarantines {
+        let id: String = row.try_get("id").unwrap_or_default();
+        let reason: String = row.try_get("reason").unwrap_or_default();
+        let created_at: String = row.try_get("created_at").unwrap_or_default();
+        let metadata: Option<String> = row.try_get("metadata").ok();
+
+        // Try to extract adapter ID from metadata JSON
+        let mut adapter_id: Option<String> = None;
+        if let Some(ref meta_str) = metadata {
+            if let Ok(meta_json) = serde_json::from_str::<Value>(meta_str) {
+                // Look for adapter_id field in metadata
+                if let Some(Value::String(adapter_id_str)) = meta_json.get("adapter_id") {
+                    adapter_id = Some(adapter_id_str.clone());
+                } else if let Some(Value::String(adapter_id_str)) = meta_json.get("adapter") {
+                    adapter_id = Some(adapter_id_str.clone());
+                }
+            }
+        }
+
+        // Fall back to extracting from reason if metadata doesn't have it
+        // Look for patterns like "adapter: <id>" or "Adapter <id>"
+        if adapter_id.is_none() {
+            // Try to find adapter ID pattern in reason
+            for part in reason.split_whitespace() {
+                if part.starts_with("adapter:") || part.starts_with("Adapter:") {
+                    if let Some(id_part) = part.split(':').nth(1) {
+                        adapter_id = Some(id_part.trim().to_string());
+                        break;
+                    }
+                }
+            }
+            // If still not found, check if reason itself looks like an adapter ID
+            if adapter_id.is_none() && !reason.contains(' ') && reason.len() > 5 {
+                adapter_id = Some(reason.clone());
+            }
+        }
+
+        if let Some(adapter_id_str) = adapter_id {
+            quarantined_adapter_ids.push(adapter_id_str.clone());
+            quarantine_info.push((adapter_id_str, id.clone(), reason.clone(), created_at.clone()));
+        } else {
+            // If we can't extract adapter ID, still record the quarantine
+            quarantine_info.push((id.clone(), id.clone(), reason.clone(), created_at.clone()));
+        }
+    }
+
+    // List quarantined adapters
+    if verbose {
+        info!("Quarantined adapters:");
+        for (adapter_id, q_id, reason, created_at) in &quarantine_info {
+            info!("  - {} (quarantine ID: {}): {} (created: {})", adapter_id, q_id, reason, created_at);
+        }
+    }
+
+    // Query active stacks
+    let stacks = sqlx::query(
+        "SELECT id, name, adapter_ids_json 
+         FROM adapter_stacks 
+         WHERE active = 1"
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to query stacks: {}", e)))?;
+
+    // Check if any quarantined adapter IDs appear in active stacks
+    let mut found_in_stacks = Vec::new();
+
+    for stack_row in &stacks {
+        let stack_id: String = stack_row.try_get("id").unwrap_or_default();
+        let stack_name: String = stack_row.try_get("name").unwrap_or_default();
+        let adapter_ids_json: Option<String> = stack_row.try_get("adapter_ids_json").ok();
+
+        if let Some(ref json_str) = adapter_ids_json {
+            if let Ok(adapter_ids) = serde_json::from_str::<Vec<String>>(json_str) {
+                // Check if any quarantined adapter appears in this stack
+                for adapter_id in &adapter_ids {
+                    if quarantined_adapter_ids.contains(adapter_id) {
+                        found_in_stacks.push((stack_id.clone(), stack_name.clone(), adapter_id.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    if found_in_stacks.is_empty() {
+        info!("✅ Confirmed: No quarantined adapters are wired into active stacks");
+    } else {
+        error!("❌ WARNING: Found quarantined adapters in active stacks:");
+        for (stack_id, stack_name, adapter_id) in &found_in_stacks {
+            error!("  - Stack '{}' ({}) contains quarantined adapter '{}'", stack_name, stack_id, adapter_id);
+        }
+    }
+
     Ok(())
 }

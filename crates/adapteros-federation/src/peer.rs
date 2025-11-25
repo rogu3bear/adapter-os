@@ -24,7 +24,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -773,8 +772,8 @@ impl PeerRegistry {
     pub async fn record_consensus_vote(
         &self,
         decision_id: &str,
-        voting_host: &str,
-        approved: bool,
+        _voting_host: &str,
+        _approved: bool,
     ) -> Result<bool> {
         let pool = self.db.pool();
 

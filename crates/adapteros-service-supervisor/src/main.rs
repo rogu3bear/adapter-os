@@ -1,12 +1,12 @@
 //! Main binary for the AdapterOS Service Supervisor
 
-use adapteros_service_supervisor::{SupervisorConfig, ServiceSupervisor, SupervisorServer};
+use adapteros_service_supervisor::{SupervisorConfig, ServiceSupervisor, SupervisorServer, Result};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::registry()
         .with(

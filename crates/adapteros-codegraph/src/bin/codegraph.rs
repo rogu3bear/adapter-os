@@ -3,6 +3,7 @@
 //! Command-line interface for building and analyzing code graphs
 
 use adapteros_codegraph::{CodeGraph, DbConfig};
+use adapteros_core::Result;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -23,7 +24,7 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.verbose {

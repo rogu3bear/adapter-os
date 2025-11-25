@@ -45,8 +45,7 @@ impl Registry {
     /// Run database migrations
     fn migrate(&self) -> Result<()> {
         let mut conn = self.conn.lock();
-        migrations::run_migrations(&mut conn)
-            .map_err(|e| AosError::Registry(format!("Migration failed: {}", e)))?;
+        migrations::run_migrations(&mut conn)?;
         Ok(())
     }
 

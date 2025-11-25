@@ -160,6 +160,14 @@ pub struct TrainingJob {
     /// BLAKE3 hash of adapter weights (for verification)
     #[serde(rename = "weights_hash_b3", skip_serializing_if = "Option::is_none")]
     pub weights_hash_b3: Option<String>,
+
+    /// Tenant ID that owns this training job
+    #[serde(rename = "tenant_id", skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+
+    /// Stack ID created for this adapter (populated on completion)
+    #[serde(rename = "stack_id", skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
 }
 
 impl TrainingJob {
@@ -187,6 +195,8 @@ impl TrainingJob {
             artifact_path: None,
             adapter_id: None,
             weights_hash_b3: None,
+            tenant_id: None,
+            stack_id: None,
         }
     }
 
@@ -205,6 +215,12 @@ impl TrainingJob {
     /// Builder method to set dataset ID
     pub fn with_dataset_id(mut self, dataset_id: String) -> Self {
         self.dataset_id = Some(dataset_id);
+        self
+    }
+
+    /// Builder method to set tenant ID
+    pub fn with_tenant_id(mut self, tenant_id: String) -> Self {
+        self.tenant_id = Some(tenant_id);
         self
     }
 
