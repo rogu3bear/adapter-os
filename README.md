@@ -152,13 +152,25 @@ AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx cargo run -p adapteros-server-api
 git clone https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
 
-# Build the workspace
-cargo build --release
+# Build with fresh cleanup (recommended - stops services, cleans ports)
+make build
 
-# Note: CoreML backend is the primary production backend (ANE acceleration)
-# MLX backend is production-ready for inference and training workloads
-# Metal backend serves as fallback for deterministic GPU kernels
+# Or just prepare environment without building
+make prepare
+
+# Manual build without cleanup (not recommended)
+cargo build --release
 ```
+
+**Fresh Build System**: The `fresh-build` target ensures clean rebuilds by:
+- Stopping any running AdapterOS services
+- Freeing occupied ports (8080, 3200)
+- Cleaning orphaned processes
+- Removing stale build artifacts
+
+Use `make fresh-build` before rebuilding to prevent port conflicts and build errors.
+
+**Note**: CoreML backend is the primary production backend (ANE acceleration), MLX backend is production-ready for inference and training workloads, Metal backend serves as fallback for deterministic GPU kernels.
 
 ### Database Initialization
 

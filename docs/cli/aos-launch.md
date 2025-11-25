@@ -18,9 +18,10 @@
 
 ### 2. Port Management
 - Checks port availability:
-  - **3300** - Backend API
+  - **8080** - Backend API
   - **3200** - Web UI
 - Detects and offers to kill conflicting processes
+- Uses shared `scripts/port-guard.sh` to gracefully clear AdapterOS processes holding the ports; if a non-AdapterOS process is bound, startup will pause with a warning so ports do not silently roll
 - Includes safety checks to avoid killing system-critical processes
 
 ### 3. Service Orchestration
@@ -77,7 +78,7 @@ export AOS_MLX_FFI_MODEL=/path/to/model
 
 ```bash
 # Set custom ports (modify aos-launch script or use environment variables)
-BACKEND_PORT=3301 UI_PORT=3201 ./aos-launch
+AOS_SERVER_PORT=8081 AOS_UI_PORT=3201 ./aos-launch
 
 # Run with verbose logging
 AOS_LOG=debug ./aos-launch
@@ -137,14 +138,14 @@ When you press Ctrl+C or send SIGTERM, `aos-launch`:
 - `RUST_LOG` - Rust-specific logging configuration
 
 ### Ports (modifiable in script)
-- `BACKEND_PORT` - Backend API port (default: 3300)
+- `AOS_SERVER_PORT` - Backend API port (default: 8080)
 - `UI_PORT` - Web UI port (default: 3200)
 
 ## Troubleshooting
 
 ### Port Conflicts
 
-If you see "Port 3300 already in use":
+If you see "Port 8080 already in use":
 1. `aos-launch` will detect the conflict
 2. It will show the process using the port
 3. You can choose to kill it or change ports

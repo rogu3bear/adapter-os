@@ -47,7 +47,7 @@ AOS_MODEL_BACKEND=auto
 
 **Ports:**
 - Backend API: `8080`
-- UI development server: `5173` (or `3200` with launch.sh)
+- UI development server: `3200` (shared for dev/prod tooling)
 - Service panel: `3301`
 
 ---
@@ -137,7 +137,7 @@ AOS_TELEMETRY_ENABLED=true
 | `AOS_SERVER_WORKERS` | CPU cores | Worker thread count | `4`, `8` |
 | `AOS_SERVER_PRODUCTION_MODE` | `false` | Enable production constraints | `true` (production), `false` (dev) |
 | `AOS_SERVER_UDS_SOCKET` | unset | Unix domain socket (production only) | `/var/run/aos/aos.sock` |
-| `AOS_UI_PORT` | `5173` | Vite dev server port | `3000`, `3200` |
+| `AOS_UI_PORT` | `3200` | Vite dev server port | `3000`, `5173` |
 | `AOS_PANEL_PORT` | `3301` | Service panel port | `3300` |
 
 **Production Requirements:**
@@ -362,7 +362,7 @@ aosctl serve              # Uses 8081, not 8080
 - [ ] Verify configuration: `cargo run -p adapteros-orchestrator -- config show`
 - [ ] Start backend: `cargo run --release -p adapteros-server-api`
 - [ ] Start UI: `cd ui && pnpm install && pnpm dev`
-- [ ] Access UI: Open http://localhost:5173
+- [ ] Access UI: Open http://localhost:3200
 
 ### Production Deployment
 

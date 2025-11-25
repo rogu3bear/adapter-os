@@ -216,6 +216,12 @@ println!("Debug: adapter {}", id); // ❌ Remove or convert to tracing::debug!
 
 **Telemetry:** See [docs/TELEMETRY_EVENTS.md](docs/TELEMETRY_EVENTS.md) for event catalog and metadata patterns
 
+**Dev auth bypass (debug only):**
+- Only available in debug builds with `AOS_DEV_NO_AUTH` set to `1/true/yes/on`
+- Injects a temporary admin claim (`dev-no-auth@adapteros.local`, tenant `system`) for rapid local testing
+- A debug-only token shortcut `Bearer adapteros-local` exists in `dual_auth_middleware` for debug builds
+- **Never** enable `AOS_DEV_NO_AUTH` or rely on the debug token in production or release builds (bypass code is compiled out in release)
+
 ---
 
 ## Policy Packs
