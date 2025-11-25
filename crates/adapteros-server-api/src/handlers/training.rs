@@ -251,7 +251,8 @@ pub async fn start_training(
                 &e.to_string(),
             );
 
-            build_training_error_response(&e)
+            let as_aos = AosError::Other(e.to_string());
+            build_training_error_response(&as_aos)
         })?;
 
     // Audit log: training start success
@@ -280,9 +281,8 @@ mod tests {
 
     #[test]
     fn training_error_response_preserves_dataset_validation_message() {
-        let error = AosError::Validation(
-            "Dataset ds-123 is not validated (status: draft)".to_string(),
-        );
+        let error =
+            AosError::Validation("Dataset ds-123 is not validated (status: draft)".to_string());
 
         let (status, axum::Json(body)) = build_training_error_response(&error);
 
@@ -298,9 +298,8 @@ mod tests {
     fn training_error_response_maps_dataset_validation_string_to_400() {
         // Some call sites wrap the validation message in a non-validation error; the handler
         // should still surface a 400 with the actionable message.
-        let error = AosError::Database(
-            "Dataset ds-123 is not validated (status: draft)".to_string(),
-        );
+        let error =
+            AosError::Database("Dataset ds-123 is not validated (status: draft)".to_string());
 
         let (status, axum::Json(body)) = build_training_error_response(&error);
 

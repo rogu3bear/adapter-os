@@ -89,7 +89,10 @@ pub async fn start_service(
             error!(service_id = %service_id, error = %e, "Failed to start service");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!("Failed to start service: {}", e)).with_code("INTERNAL_ERROR")),
+                Json(
+                    ErrorResponse::new(format!("Failed to start service: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
             ))
         }
     }
@@ -143,7 +146,10 @@ pub async fn stop_service(
             error!(service_id = %service_id, error = %e, "Failed to stop service");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!("Failed to stop service: {}", e)).with_code("INTERNAL_ERROR")),
+                Json(
+                    ErrorResponse::new(format!("Failed to stop service: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
             ))
         }
     }
@@ -197,7 +203,10 @@ pub async fn restart_service(
             error!(service_id = %service_id, error = %e, "Failed to restart service");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!("Failed to restart service: {}", e)).with_code("INTERNAL_ERROR")),
+                Json(
+                    ErrorResponse::new(format!("Failed to restart service: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
             ))
         }
     }
@@ -242,7 +251,10 @@ pub async fn start_essential_services(
             error!(error = %e, "Failed to start essential services");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!("Failed to start essential services: {}", e)).with_code("INTERNAL_ERROR")),
+                Json(
+                    ErrorResponse::new(format!("Failed to start essential services: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
             ))
         }
     }
@@ -287,7 +299,10 @@ pub async fn stop_essential_services(
             error!(error = %e, "Failed to stop essential services");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!("Failed to stop essential services: {}", e)).with_code("INTERNAL_ERROR")),
+                Json(
+                    ErrorResponse::new(format!("Failed to stop essential services: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
             ))
         }
     }
@@ -340,7 +355,10 @@ pub async fn get_service_logs(
             error!(service_id = %service_id, error = %e, "Failed to fetch service logs");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!("Failed to fetch logs: {}", e)).with_code("INTERNAL_ERROR")),
+                Json(
+                    ErrorResponse::new(format!("Failed to fetch logs: {}", e))
+                        .with_code("INTERNAL_ERROR"),
+                ),
             ))
         }
     }

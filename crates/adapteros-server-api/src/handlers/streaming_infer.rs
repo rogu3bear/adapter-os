@@ -132,6 +132,28 @@ enum StreamEvent {
     Error(String),
 }
 
+fn serialize_safe<T: Serialize>(value: &T, context: &str) -> String {
+    match serde_json::to_string(value) {
+        Ok(json) => json,
+        Err(error) => {
+            error!(
+                context = %context,
+                error = %error,
+                "Failed to serialize streaming response payload"
+            );
+            serde_json::json!({
+                "error": {
+                    "message": "stream serialization failed",
+                    "type": "serialization_error",
+                    "code": "SERIALIZATION_ERROR",
+                    "context": context
+                }
+            })
+            .to_string()
+        }
+    }
+}
+
 /// Streaming inference handler
 ///
 /// Accepts inference requests and returns a stream of Server-Sent Events (SSE)
@@ -169,7 +191,10 @@ pub async fn streaming_infer(
     Json(req): Json<StreamingInferRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can execute inference
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::InferenceExecute)?;
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::InferenceExecute,
+    )?;
 
     // Validate request
     if req.prompt.is_empty() {
@@ -422,7 +447,7 @@ impl StreamState {
                         finish_reason: None,
                     }],
                 };
-                Event::default().data(serde_json::to_string(&chunk).unwrap_or_default())
+                Event::default().data(serialize_safe(&chunk, "stream_start"))
             }
             StreamEvent::Token(content) => {
                 let chunk = StreamingChunk {
@@ -440,7 +465,7 @@ impl StreamState {
                         finish_reason: None,
                     }],
                 };
-                Event::default().data(serde_json::to_string(&chunk).unwrap_or_default())
+                Event::default().data(serialize_safe(&chunk, "stream_token"))
             }
             StreamEvent::Done { finish_reason } => {
                 let chunk = StreamingChunk {
@@ -458,7 +483,7 @@ impl StreamState {
                         finish_reason: Some(finish_reason),
                     }],
                 };
-                let chunk_json = serde_json::to_string(&chunk).unwrap_or_default();
+                let chunk_json = serialize_safe(&chunk, "stream_done");
                 // Send final chunk followed by [DONE]
                 Event::default().data(format!("{}\n\ndata: [DONE]", chunk_json))
             }
@@ -470,7 +495,7 @@ impl StreamState {
                         "code": "INFERENCE_ERROR"
                     }
                 });
-                Event::default().data(serde_json::to_string(&error_response).unwrap_or_default())
+                Event::default().data(serialize_safe(&error_response, "stream_error"))
             }
         }
     }
@@ -539,5 +564,13 @@ mod tests {
 
         let json = serde_json::to_string(&chunk).unwrap();
         assert!(json.contains("stop"));
+    }
+
+    #[test]
+    fn serialize_safe_returns_error_payload_on_failure() {
+        // NaN cannot be serialized by serde_json with default settings
+        let serialized = serialize_safe(&std::f64::NAN, "test_context");
+        assert!(serialized.contains("serialization_error"));
+        assert!(serialized.contains("test_context"));
     }
 }

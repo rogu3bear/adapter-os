@@ -404,21 +404,17 @@ pub async fn get_adapter_usage(
     debug!(adapter_id = %adapter_id, "Querying adapter usage statistics");
 
     // Verify adapter exists
-    let adapter = state
-        .db
-        .get_adapter(&adapter_id)
-        .await
-        .map_err(|e| {
-            warn!(error = %e, adapter_id = %adapter_id, "Failed to query adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to query adapter")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let adapter = state.db.get_adapter(&adapter_id).await.map_err(|e| {
+        warn!(error = %e, adapter_id = %adapter_id, "Failed to query adapter");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to query adapter")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     if adapter.is_none() {
         return Err((
@@ -505,7 +501,10 @@ pub async fn get_session_router_view(
             Json(
                 ErrorResponse::new("Session not found")
                     .with_code("NOT_FOUND")
-                    .with_string_details(format!("No routing decisions found for request_id '{}'", request_id)),
+                    .with_string_details(format!(
+                        "No routing decisions found for request_id '{}'",
+                        request_id
+                    )),
             ),
         ));
     }

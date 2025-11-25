@@ -160,25 +160,20 @@ pub fn add_version_headers(mut response: Response, version: ApiVersion) -> Respo
     );
 
     // Add API version header
-    headers.insert(
-        "X-API-Version",
-        HeaderValue::from_static(version.as_str()),
-    );
+    headers.insert("X-API-Version", HeaderValue::from_static(version.as_str()));
 
     // Add deprecation warning if deprecated
     if let Some(deprecation) = version.deprecation_info() {
         headers.insert(
             "Deprecation",
-            HeaderValue::from_str(&deprecation.deprecated_at).unwrap_or_else(|_| {
-                HeaderValue::from_static("true")
-            }),
+            HeaderValue::from_str(&deprecation.deprecated_at)
+                .unwrap_or_else(|_| HeaderValue::from_static("true")),
         );
 
         headers.insert(
             "Sunset",
-            HeaderValue::from_str(&deprecation.sunset_at).unwrap_or_else(|_| {
-                HeaderValue::from_static("2025-12-31")
-            }),
+            HeaderValue::from_str(&deprecation.sunset_at)
+                .unwrap_or_else(|_| HeaderValue::from_static("2025-12-31")),
         );
 
         headers.insert(
@@ -329,10 +324,7 @@ mod tests {
             ApiVersion::from_accept_header("application/vnd.aos.v2+json"),
             Some(ApiVersion::V2)
         );
-        assert_eq!(
-            ApiVersion::from_accept_header("application/json"),
-            None
-        );
+        assert_eq!(ApiVersion::from_accept_header("application/json"), None);
     }
 
     #[test]

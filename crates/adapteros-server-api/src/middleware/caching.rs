@@ -265,9 +265,6 @@ mod tests {
             .with_last_modified("2025-01-23T12:00:00Z".to_string());
 
         assert!(!meta.enable_etag);
-        assert_eq!(
-            meta.last_modified.as_deref(),
-            Some("2025-01-23T12:00:00Z")
-        );
+        assert_eq!(meta.last_modified.as_deref(), Some("2025-01-23T12:00:00Z"));
     }
 }

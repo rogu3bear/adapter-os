@@ -523,7 +523,7 @@ pub async fn train_repository_adapter(
             training_config,
             None, // template_id
             Some(repo_id.clone()),
-            None, // dataset_id
+            None,                           // dataset_id
             Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
         )
         .await
@@ -611,7 +611,7 @@ impl PathValidator {
     /// Validate a repository path for security and policy compliance
     ///
     /// Prevents path traversal attacks and enforces allowlist/denylist policies
-    pub fn validate_repo_path(&self, path: &str, _tenant_id: &str) -> Result<(), AosError> {
+    pub fn validate_repo_path(&self, path: &str, _tenant_id: &str) -> Result<()> {
         // Evidence: docs/code-intelligence/code-policies.md:82-84
         // Policy: Path allowlist and denylist enforcement
 
@@ -658,7 +658,7 @@ impl PathValidator {
     /// Validate a branch name for security
     ///
     /// Prevents injection attacks via malicious branch names
-    pub fn validate_branch_path(branch: &str) -> Result<(), AosError> {
+    pub fn validate_branch_path(branch: &str) -> Result<()> {
         // Check for empty branch name
         if branch.is_empty() {
             return Err(AosError::Validation(
@@ -712,7 +712,7 @@ impl PathValidator {
     /// Validate a file path within a repository
     ///
     /// Ensures the file path is safe and doesn't escape the repository root
-    pub fn validate_file_path(repo_root: &str, file_path: &str) -> Result<(), AosError> {
+    pub fn validate_file_path(repo_root: &str, file_path: &str) -> Result<()> {
         // Check for path traversal attempts
         if contains_path_traversal(file_path) {
             return Err(AosError::Validation(format!(
@@ -824,10 +824,7 @@ fn contains_path_traversal(path: &str) -> bool {
 ///
 /// Evidence: crates/adapteros-git/src/branch_manager.rs:82-110
 /// Pattern: Git2 repository analysis
-async fn analyze_repository(
-    path: &str,
-    repo_id: &str,
-) -> Result<RepositoryAnalysis> {
+async fn analyze_repository(path: &str, repo_id: &str) -> Result<RepositoryAnalysis> {
     let repo_path = StdPath::new(path);
 
     // Open Git repository
@@ -858,14 +855,17 @@ async fn analyze_repository(
 
 /// Get Git repository information
 fn get_git_info(repo: &Repository) -> Result<GitInfo> {
-    let head = repo.head()
+    let head = repo
+        .head()
         .map_err(|e| AosError::Io(format!("Failed to get git HEAD: {}", e)))?;
     let branch_name = head.shorthand().unwrap_or("unknown").to_string();
 
     // Get commit count
-    let mut revwalk = repo.revwalk()
+    let mut revwalk = repo
+        .revwalk()
         .map_err(|e| AosError::Io(format!("Failed to create git revwalk: {}", e)))?;
-    revwalk.push_head()
+    revwalk
+        .push_head()
         .map_err(|e| AosError::Io(format!("Failed to push HEAD to revwalk: {}", e)))?;
     let commit_count = revwalk.count();
 
@@ -883,10 +883,12 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo> {
     // Extract unique authors from commit history
     let authors = {
         let mut author_set = std::collections::HashSet::new();
-        let mut revwalk = repo.revwalk()
-            .map_err(|e| AosError::Io(format!("Failed to create git revwalk for authors: {}", e)))?;
-        revwalk.push_head()
-            .map_err(|e| AosError::Io(format!("Failed to push HEAD to revwalk for authors: {}", e)))?;
+        let mut revwalk = repo.revwalk().map_err(|e| {
+            AosError::Io(format!("Failed to create git revwalk for authors: {}", e))
+        })?;
+        revwalk.push_head().map_err(|e| {
+            AosError::Io(format!("Failed to push HEAD to revwalk for authors: {}", e))
+        })?;
 
         for oid in revwalk {
             if let Ok(oid) = oid {
@@ -916,9 +918,7 @@ fn get_git_info(repo: &Repository) -> Result<GitInfo> {
 }
 
 /// Analyze code structure for languages and frameworks
-fn analyze_code_structure(
-    repo_path: &StdPath,
-) -> Result<(Vec<LanguageInfo>, Vec<FrameworkInfo>)> {
+fn analyze_code_structure(repo_path: &StdPath) -> Result<(Vec<LanguageInfo>, Vec<FrameworkInfo>)> {
     let mut language_counts: HashMap<String, usize> = HashMap::new();
     let mut framework_hints: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -986,9 +986,7 @@ fn analyze_code_structure(
 }
 
 /// Perform security scan on repository
-fn perform_security_scan(
-    repo_path: &StdPath,
-) -> Result<SecurityScanResult> {
+fn perform_security_scan(repo_path: &StdPath) -> Result<SecurityScanResult> {
     let mut violations = Vec::new();
 
     // Simple security scan for common patterns
@@ -1028,9 +1026,7 @@ fn perform_security_scan(
 }
 
 /// Extract evidence spans from repository
-fn extract_evidence_spans(
-    repo_path: &StdPath,
-) -> Result<Vec<EvidenceSpan>> {
+fn extract_evidence_spans(repo_path: &StdPath) -> Result<Vec<EvidenceSpan>> {
     let mut evidence_spans = Vec::new();
 
     // Extract function definitions as evidence spans
@@ -1108,10 +1104,7 @@ fn estimate_training_duration(config: &TrainingConfig, analysis: &RepositoryAnal
 }
 
 /// Basic analysis without Git2 operations for fallback cases
-async fn basic_analyze_repository(
-    path: &str,
-    repo_id: &str,
-) -> Result<RepositoryAnalysis, adapteros_core::AosError> {
+async fn basic_analyze_repository(path: &str, repo_id: &str) -> Result<RepositoryAnalysis> {
     let repo_path = StdPath::new(path);
 
     let git_info = GitInfo {

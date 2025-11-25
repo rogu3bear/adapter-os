@@ -444,9 +444,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::auth_enhanced::dev_bypass_handler),
         )
         .route("/v1/meta", get(handlers::meta))
-        .route("/v1/version", get(|| async {
-            axum::Json(versioning::get_version_info())
-        }));
+        .route(
+            "/v1/version",
+            get(|| async { axum::Json(versioning::get_version_info()) }),
+        );
 
     // Metrics endpoint (custom auth, not JWT)
     let metrics_route = Router::new()
@@ -688,7 +689,10 @@ pub fn build(state: AppState) -> Router {
         )
         .route("/v1/patch/propose", post(handlers::propose_patch))
         .route("/v1/infer", post(handlers::infer))
-        .route("/v1/infer/stream", post(handlers::streaming_infer::streaming_infer))
+        .route(
+            "/v1/infer/stream",
+            post(handlers::streaming_infer::streaming_infer),
+        )
         .route("/v1/infer/batch", post(handlers::batch::batch_infer))
         // Adapter routes
         .route("/v1/adapters", get(handlers::list_adapters))

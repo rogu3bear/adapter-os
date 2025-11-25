@@ -137,7 +137,7 @@ pub async fn promote_adapter_lifecycle(
     // Use lifecycle manager if available
     let new_state = if let Some(ref lifecycle) = state.lifecycle_manager {
         let mut manager = lifecycle.lock().await;
-        
+
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             // Promote adapter via lifecycle manager
             manager.promote_adapter(adapter_idx).map_err(|e| {
@@ -151,7 +151,7 @@ pub async fn promote_adapter_lifecycle(
                     ),
                 )
             })?;
-            
+
             // Get the new state and sync with database
             use adapteros_lora_lifecycle::AdapterState;
             let new_state_enum = match new_state_str {
@@ -161,9 +161,12 @@ pub async fn promote_adapter_lifecycle(
                 "resident" => AdapterState::Resident,
                 _ => AdapterState::Cold,
             };
-            
+
             // Sync with database via lifecycle manager
-            if let Err(e) = manager.update_adapter_state(adapter_idx, new_state_enum, &req.reason).await {
+            if let Err(e) = manager
+                .update_adapter_state(adapter_idx, new_state_enum, &req.reason)
+                .await
+            {
                 tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
                 // Fallback: update DB directly
                 state
@@ -182,7 +185,7 @@ pub async fn promote_adapter_lifecycle(
                         )
                     })?;
             }
-            
+
             new_state_str.to_string()
         } else {
             // Adapter not found in lifecycle manager, update DB directly
@@ -361,7 +364,7 @@ pub async fn demote_adapter_lifecycle(
     // Use lifecycle manager if available
     let new_state = if let Some(ref lifecycle) = state.lifecycle_manager {
         let mut manager = lifecycle.lock().await;
-        
+
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             // Demote adapter via lifecycle manager
             manager.demote_adapter(adapter_idx).map_err(|e| {
@@ -375,7 +378,7 @@ pub async fn demote_adapter_lifecycle(
                     ),
                 )
             })?;
-            
+
             // Get the new state and sync with database
             use adapteros_lora_lifecycle::AdapterState;
             let new_state_enum = match new_state_str {
@@ -385,9 +388,12 @@ pub async fn demote_adapter_lifecycle(
                 "hot" => AdapterState::Hot,
                 _ => AdapterState::Unloaded,
             };
-            
+
             // Sync with database via lifecycle manager
-            if let Err(e) = manager.update_adapter_state(adapter_idx, new_state_enum, &req.reason).await {
+            if let Err(e) = manager
+                .update_adapter_state(adapter_idx, new_state_enum, &req.reason)
+                .await
+            {
                 tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to sync adapter state with database via lifecycle manager");
                 // Fallback: update DB directly
                 state
@@ -406,7 +412,7 @@ pub async fn demote_adapter_lifecycle(
                         )
                     })?;
             }
-            
+
             new_state_str.to_string()
         } else {
             // Adapter not found in lifecycle manager, update DB directly
@@ -1383,7 +1389,7 @@ pub async fn swap_adapters(
     // Unload old adapter via lifecycle manager
     if let Some(ref lifecycle) = state.lifecycle_manager {
         let mut manager = lifecycle.lock().await;
-        
+
         // Unload old adapter
         if let Some(old_adapter_idx) = manager.get_adapter_idx(&req.old_adapter_id) {
             // Use evict_adapter which handles both unloading and DB update
@@ -1392,7 +1398,11 @@ pub async fn swap_adapters(
                 // Fallback: update DB state directly
                 state
                     .db
-                    .update_adapter_state_tx(&req.old_adapter_id, "unloaded", "swap_eviction_fallback")
+                    .update_adapter_state_tx(
+                        &req.old_adapter_id,
+                        "unloaded",
+                        "swap_eviction_fallback",
+                    )
                     .await
                     .map_err(|e| {
                         error!("Failed to update old adapter state: {}", e);
@@ -1410,7 +1420,11 @@ pub async fn swap_adapters(
             // Adapter not found in lifecycle manager, update DB directly
             state
                 .db
-                .update_adapter_state_tx(&req.old_adapter_id, "unloaded", "swap_not_found_in_lifecycle")
+                .update_adapter_state_tx(
+                    &req.old_adapter_id,
+                    "unloaded",
+                    "swap_not_found_in_lifecycle",
+                )
                 .await
                 .map_err(|e| {
                     error!("Failed to update old adapter state: {}", e);
@@ -1424,7 +1438,7 @@ pub async fn swap_adapters(
                     )
                 })?;
         }
-        
+
         // Load new adapter via lifecycle manager
         if let Err(e) = manager.get_or_reload(&req.new_adapter_id) {
             tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to load new adapter via lifecycle manager");
@@ -1437,11 +1451,14 @@ pub async fn swap_adapters(
                 ),
             ));
         }
-        
+
         // Update new adapter state via lifecycle manager
         if let Some(new_adapter_idx) = manager.get_adapter_idx(&req.new_adapter_id) {
             use adapteros_lora_lifecycle::AdapterState;
-            if let Err(e) = manager.update_adapter_state(new_adapter_idx, AdapterState::Warm, "swapped_in").await {
+            if let Err(e) = manager
+                .update_adapter_state(new_adapter_idx, AdapterState::Warm, "swapped_in")
+                .await
+            {
                 tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to update new adapter state via lifecycle manager");
                 // Fallback: update DB state directly
                 state
@@ -1486,7 +1503,7 @@ pub async fn swap_adapters(
                     ),
                 )
             })?;
-        
+
         state
             .db
             .update_adapter_state_tx(&req.new_adapter_id, "warm", "swap_no_lifecycle_manager")
@@ -2025,8 +2042,11 @@ pub async fn import_adapter(
         (
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new(format!("invalid AOS file: manifest JSON parse error: {}", e))
-                    .with_code("INVALID_FORMAT"),
+                ErrorResponse::new(format!(
+                    "invalid AOS file: manifest JSON parse error: {}",
+                    e
+                ))
+                .with_code("INVALID_FORMAT"),
             ),
         )
     })?;
@@ -2100,7 +2120,11 @@ pub async fn import_adapter(
         name: adapter_name,
         hash_b3: weights_hash,
         rank,
-        tier: if auto_load { "warm".to_string() } else { "ephemeral".to_string() },
+        tier: if auto_load {
+            "warm".to_string()
+        } else {
+            "ephemeral".to_string()
+        },
         languages: vec![],
         framework: None,
         category: None,
@@ -2115,7 +2139,11 @@ pub async fn import_adapter(
         stats: None,
         version,
         lifecycle_state: "draft".to_string(),
-        runtime_state: Some(if auto_load { "warm".to_string() } else { "cold".to_string() }),
+        runtime_state: Some(if auto_load {
+            "warm".to_string()
+        } else {
+            "cold".to_string()
+        }),
         pinned: None,
         memory_bytes: None,
     }))

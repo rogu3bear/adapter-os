@@ -22,24 +22,46 @@ use axum::{
     Json,
 };
 use chrono::{Duration, Utc};
+use std::env;
 use std::str::FromStr;
 use uuid::Uuid;
 
-pub mod versioning;
-pub mod request_id;
-pub mod compression;
 pub mod caching;
+pub mod compression;
+pub mod request_id;
+pub mod versioning;
 
-pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
-pub use request_id::request_id_middleware;
-pub use compression::compression_middleware;
 pub use caching::{caching_middleware, CacheControl};
+pub use compression::compression_middleware;
+pub use request_id::request_id_middleware;
+pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
+
+fn dev_no_auth_enabled() -> bool {
+    cfg!(debug_assertions)
+        && env::var("AOS_DEV_NO_AUTH")
+            .map(|v| {
+                let lower = v.to_ascii_lowercase();
+                matches!(lower.as_str(), "1" | "true" | "yes" | "on")
+            })
+            .unwrap_or(false)
+}
+
+fn dev_no_auth_claims() -> Claims {
+    let now = Utc::now();
+    Claims {
+        sub: "dev-no-auth".to_string(),
+        email: "dev-no-auth@adapteros.local".to_string(),
+        role: "admin".to_string(),
+        tenant_id: "system".to_string(),
+        exp: (now + Duration::hours(8)).timestamp(),
+        iat: now.timestamp(),
+        jti: Uuid::new_v4().to_string(),
+        nbf: now.timestamp(),
+    }
+}
 
 /// Extract client IP address from request headers (applies to all routes)
-pub async fn client_ip_middleware(
-    mut req: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
+pub async fn client_ip_middleware(mut req: Request<axum::body::Body>, next: Next) -> Response {
     // Extract and inject client IP into request extensions
     // Always insert a ClientIp - use extracted IP or fallback to "unknown"
     let ip = extract_client_ip(req.headers()).unwrap_or_else(|| "127.0.0.1".to_string());
@@ -53,6 +75,21 @@ pub async fn auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    if dev_no_auth_enabled() {
+        let claims = dev_no_auth_claims();
+        let tenant_id = claims.tenant_id.clone();
+        tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        req.extensions_mut().insert(claims);
+        let identity = IdentityEnvelope::new(
+            tenant_id,
+            "api".to_string(),
+            "middleware".to_string(),
+            IdentityEnvelope::default_revision(),
+        );
+        req.extensions_mut().insert(identity);
+        return Ok(next.run(req).await);
+    }
+
     // Extract client IP address from headers for audit logging
     if let Some(ip) = extract_client_ip(req.headers()) {
         req.extensions_mut().insert(ClientIp(ip));
@@ -140,6 +177,21 @@ pub async fn dual_auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    if dev_no_auth_enabled() {
+        let claims = dev_no_auth_claims();
+        let tenant_id = claims.tenant_id.clone();
+        tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        req.extensions_mut().insert(claims);
+        let identity = IdentityEnvelope::new(
+            tenant_id,
+            "api".to_string(),
+            "middleware".to_string(),
+            IdentityEnvelope::default_revision(),
+        );
+        req.extensions_mut().insert(identity);
+        return Ok(next.run(req).await);
+    }
+
     // Extract client IP address from headers for audit logging
     if let Some(ip) = extract_client_ip(req.headers()) {
         req.extensions_mut().insert(ClientIp(ip));

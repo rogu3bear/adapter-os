@@ -506,7 +506,7 @@ impl FileValidator {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
-        
+
         let metadata = fs::metadata(file_path)
             .await
             .context(format!("Failed to read file metadata for {}", file_name))?;
@@ -546,9 +546,10 @@ impl FileValidator {
                         match serde_json::from_str::<serde_json::Value>(line) {
                             Ok(_) => {}
                             Err(e) => {
-                                // Try to extract column number from error
-                                let col_info = if let Some(pos) = e.line() {
-                                    format!("line {}, column {}", line_num + 1, pos)
+                                // Try to extract column number from error (serde_json reports 0 when unavailable)
+                                let column = e.column();
+                                let col_info = if column > 0 {
+                                    format!("line {}, column {}", line_num + 1, column)
                                 } else {
                                     format!("line {}", line_num + 1)
                                 };
@@ -563,24 +564,23 @@ impl FileValidator {
                     }
                 }
             }
-            "json" => {
-                match serde_json::from_str::<serde_json::Value>(&content) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        let line_info = if let Some(line) = e.line() {
-                            format!("line {}, column {}", line, e.column())
-                        } else {
-                            "unknown position".to_string()
-                        };
-                        return Err(anyhow!(
-                            "File {}: Invalid JSON at {}: {}",
-                            file_name,
-                            line_info,
-                            e
-                        ));
-                    }
+            "json" => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(_) => {}
+                Err(e) => {
+                    let line = e.line();
+                    let line_info = if line > 0 {
+                        format!("line {}, column {}", line, e.column())
+                    } else {
+                        "unknown position".to_string()
+                    };
+                    return Err(anyhow!(
+                        "File {}: Invalid JSON at {}: {}",
+                        file_name,
+                        line_info,
+                        e
+                    ));
                 }
-            }
+            },
             _ => {
                 // No validation for other formats
             }

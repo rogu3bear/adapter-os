@@ -436,11 +436,11 @@ pub async fn upsert_directory_adapter(
         match adapter_result {
             Ok(Some(_a)) => {
                 tracing::info!(adapter_id = %adapter_id, "loading adapter via lifecycle manager");
-                
+
                 // Use lifecycle manager if available
                 if let Some(ref lifecycle) = state.lifecycle_manager {
                     let mut manager = lifecycle.lock().await;
-                    
+
                     // Load adapter (updates internal state only)
                     if let Err(e) = manager.get_or_reload(&adapter_id) {
                         tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
@@ -453,7 +453,14 @@ pub async fn upsert_directory_adapter(
                         // Update state (handles DB update if db is set)
                         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
                             use adapteros_lora_lifecycle::AdapterState;
-                            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await {
+                            if let Err(e) = manager
+                                .update_adapter_state(
+                                    adapter_idx,
+                                    AdapterState::Cold,
+                                    "loaded_via_api",
+                                )
+                                .await
+                            {
                                 tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager");
                                 // Fallback: update DB state directly
                                 let _ = state
@@ -524,29 +531,37 @@ pub async fn update_tenant(
 
     // Update tenant in database using Db trait methods
     if let Some(ref name) = req.name {
-        state.db.rename_tenant(&tenant_id, name).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update tenant")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        state
+            .db
+            .rename_tenant(&tenant_id, name)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update tenant")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
     }
 
     if let Some(itar_flag) = req.itar_flag {
-        state.db.update_tenant_itar_flag(&tenant_id, itar_flag).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update tenant")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        state
+            .db
+            .update_tenant_itar_flag(&tenant_id, itar_flag)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to update tenant")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
     }
 
     // Fetch updated tenant using Db trait method
@@ -560,14 +575,14 @@ pub async fn update_tenant(
             ),
         )
     })?;
-    
+
     let tenant = tenant.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("tenant not found").with_code("NOT_FOUND")),
         )
     })?;
-    
+
     let tenant_id_value = tenant.id.clone();
 
     // Audit log: tenant updated
@@ -1292,16 +1307,20 @@ pub async fn assign_tenant_policies(
 
     // Create tenant-policy associations using Db trait method
     for policy_id in &req.policy_ids {
-        state.db.assign_policy_to_tenant(&tenant_id, policy_id, &claims.sub).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to assign policy")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        state
+            .db
+            .assign_policy_to_tenant(&tenant_id, policy_id, &claims.sub)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to assign policy")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
     }
 
     tracing::info!(
@@ -1329,12 +1348,20 @@ pub async fn assign_tenant_adapters(
 
     // Create tenant-adapter associations using Db trait method
     for adapter_id in &req.adapter_ids {
-        state.db.assign_adapter_to_tenant(&tenant_id, adapter_id, &claims.sub).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("failed to assign adapter").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
-            )
-        })?;
+        state
+            .db
+            .assign_adapter_to_tenant(&tenant_id, adapter_id, &claims.sub)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to assign adapter")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
     }
 
     tracing::info!(
@@ -1543,16 +1570,20 @@ pub async fn mark_node_offline(
     require_any_role(&claims, &[Role::Operator])?;
 
     // Update node status using Db trait method
-    state.db.update_node_status(&node_id, "offline").await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to update node status")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .update_node_status(&node_id, "offline")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update node status")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Audit log: node marked offline
     let _ = crate::audit_helper::log_success(
@@ -2302,9 +2333,7 @@ pub async fn worker_spawn(
         .plan_id(&req.plan_id)
         .uds_path(&uds_path)
         .status("starting");
-    if let Some(p) = pid {
-        builder = builder.pid(p);
-    }
+    builder = builder.pid(pid);
     let params = builder.build().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -2464,16 +2493,20 @@ pub async fn stop_worker(
     let previous_status = worker.status.clone();
 
     // Update worker status to 'stopping' using Db trait method
-    state.db.update_worker_status(&worker_id, "stopping").await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to update worker status")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .update_worker_status(&worker_id, "stopping")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update worker status")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // If worker has a PID, attempt to terminate the process
     if let Some(pid) = worker.pid {
@@ -2488,7 +2521,11 @@ pub async fn stop_worker(
     }
 
     // Update worker status to 'stopped' using Db trait method
-    state.db.update_worker_status(&worker_id, "stopped").await.map_err(|e| {
+    state
+        .db
+        .update_worker_status(&worker_id, "stopped")
+        .await
+        .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
@@ -4526,10 +4563,7 @@ pub async fn register_adapter(
     if req.category.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("category is required")
-                    .with_code("BAD_REQUEST"),
-            ),
+            Json(ErrorResponse::new("category is required").with_code("BAD_REQUEST")),
         ));
     }
 
@@ -4704,7 +4738,10 @@ pub async fn load_adapter(
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             use adapteros_lora_lifecycle::AdapterState;
             // Update state to loading via lifecycle manager
-            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "user_request").await {
+            if let Err(e) = manager
+                .update_adapter_state(adapter_idx, AdapterState::Cold, "user_request")
+                .await
+            {
                 tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager, continuing");
             }
         }
@@ -4745,7 +4782,7 @@ pub async fn load_adapter(
     // Actually load the adapter using LifecycleManager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
         let mut manager = lifecycle.lock().await;
-        
+
         // Load adapter (updates internal state only)
         manager.get_or_reload(&adapter_id).map_err(|e| {
             tracing::error!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
@@ -4758,11 +4795,14 @@ pub async fn load_adapter(
                 ),
             )
         })?;
-        
+
         // Update state (handles DB update if db is set)
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             use adapteros_lora_lifecycle::AdapterState;
-            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await {
+            if let Err(e) = manager
+                .update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api")
+                .await
+            {
                 tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager");
                 // Fallback: update DB state directly
                 // Note: This is a best-effort fallback, the adapter is already loaded
@@ -4771,7 +4811,7 @@ pub async fn load_adapter(
                     .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
                     .await;
             }
-            
+
             // Note: Memory tracking is handled internally by lifecycle manager
         } else {
             return Err((
@@ -4927,7 +4967,10 @@ pub async fn unload_adapter(
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             use adapteros_lora_lifecycle::AdapterState;
             // Update state to unloading via lifecycle manager
-            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Unloaded, "user_request").await {
+            if let Err(e) = manager
+                .update_adapter_state(adapter_idx, AdapterState::Unloaded, "user_request")
+                .await
+            {
                 tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager, continuing");
             }
         }
@@ -4955,7 +4998,7 @@ pub async fn unload_adapter(
     // Actually unload the adapter using LifecycleManager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
         let manager = lifecycle.lock().await;
-        
+
         // Get adapter index
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             // Use evict_adapter which handles both unloading and DB update
@@ -4968,7 +5011,7 @@ pub async fn unload_adapter(
                     .update_adapter_state_tx(&adapter_id, "unloaded", "eviction_fallback")
                     .await;
             }
-            
+
             tracing::info!(
                 event = "adapter.unload",
                 adapter_id = %adapter_id,
@@ -4990,7 +5033,7 @@ pub async fn unload_adapter(
                         ),
                     )
                 })?;
-            
+
             tracing::info!(
                 event = "adapter.unload",
                 adapter_id = %adapter_id,
@@ -5013,9 +5056,9 @@ pub async fn unload_adapter(
                     ),
                 )
             })?;
-        
+
         state.db.update_adapter_memory(&adapter_id, 0).await.ok();
-        
+
         tracing::info!(
             event = "adapter.unload",
             adapter_id = %adapter_id,
@@ -5245,16 +5288,20 @@ pub async fn promote_adapter_state(
     let old_tier = adapter.tier.clone();
 
     // Update adapter tier in database
-    state.db.update_adapter_tier(&adapter_id, &new_tier).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to update adapter tier")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .update_adapter_tier(&adapter_id, &new_tier)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update adapter tier")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     Ok(Json(AdapterStateResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -7264,7 +7311,7 @@ pub async fn create_training_session(
             config,
             req.template_id,
             req.repo_id,
-            None, // dataset_id
+            None,                           // dataset_id
             Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
         )
         .await
@@ -8083,17 +8130,25 @@ pub async fn update_anomaly_status(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Update anomaly status in database
-    state.db.update_anomaly_status(
-        &anomaly_id,
-        &req.status,
-        &req.investigation_notes.as_deref().unwrap_or(""),
-        &req.investigated_by.as_deref().unwrap_or("system"),
-    ).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_SERVER_ERROR").with_string_details(e.to_string())),
+    state
+        .db
+        .update_anomaly_status(
+            &anomaly_id,
+            &req.status,
+            &req.investigation_notes.as_deref().unwrap_or(""),
+            &req.investigated_by.as_deref().unwrap_or("system"),
         )
-    })?;
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Get the updated anomaly
     let filters = adapteros_system_metrics::AnomalyFilters {

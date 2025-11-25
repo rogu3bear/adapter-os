@@ -97,12 +97,12 @@ pub fn encode_ed25519_public_key_pem(public_key_bytes: &[u8]) -> String {
 
     // Pre-computed DER for SubjectPublicKeyInfo with Ed25519 OID
     let der_prefix: [u8; 12] = [
-        0x30, 0x2a,              // SEQUENCE, length 42
-        0x30, 0x05,              // SEQUENCE (AlgorithmIdentifier)
-        0x06, 0x03,              // OID, length 3
-        0x2b, 0x65, 0x70,        // OID: 1.3.101.112 (Ed25519)
-        0x03, 0x21,              // BIT STRING, length 33 (32 bytes + 1 leading 0x00)
-        0x00,                    // No unused bits in the bit string
+        0x30, 0x2a, // SEQUENCE, length 42
+        0x30, 0x05, // SEQUENCE (AlgorithmIdentifier)
+        0x06, 0x03, // OID, length 3
+        0x2b, 0x65, 0x70, // OID: 1.3.101.112 (Ed25519)
+        0x03, 0x21, // BIT STRING, length 33 (32 bytes + 1 leading 0x00)
+        0x00, // No unused bits in the bit string
     ];
 
     let mut der_encoded = Vec::new();
@@ -158,8 +158,16 @@ fn base64_encode(data: &[u8]) -> String {
 
         result.push(BASE64_CHARS[idx1] as char);
         result.push(BASE64_CHARS[idx2] as char);
-        result.push(if idx3 == 64 { '=' } else { BASE64_CHARS[idx3] as char });
-        result.push(if idx4 == 64 { '=' } else { BASE64_CHARS[idx4] as char });
+        result.push(if idx3 == 64 {
+            '='
+        } else {
+            BASE64_CHARS[idx3] as char
+        });
+        result.push(if idx4 == 64 {
+            '='
+        } else {
+            BASE64_CHARS[idx4] as char
+        });
     }
 
     result

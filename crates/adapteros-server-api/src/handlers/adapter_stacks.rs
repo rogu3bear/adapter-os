@@ -10,7 +10,7 @@ use adapteros_lora_worker::signal::{Signal, SignalPriority, SignalType};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
-    response::{Json, Response, IntoResponse},
+    response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -80,11 +80,12 @@ pub async fn create_stack(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateStackRequest>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::AdapterRegister)
-        .map_err(|_| (
+    require_permission(&claims, Permission::AdapterRegister).map_err(|_| {
+        (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Insufficient permissions").with_code("FORBIDDEN"))
-        ))?;
+            Json(ErrorResponse::new("Insufficient permissions").with_code("FORBIDDEN")),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -92,8 +93,10 @@ pub async fn create_stack(
     let stack_name = StackName::parse(&req.name).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(&format!("Invalid stack name: {}", e))
-                .with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new(&format!("Invalid stack name: {}", e))
+                    .with_code("VALIDATION_ERROR"),
+            ),
         )
     })?;
 
@@ -107,13 +110,13 @@ pub async fn create_stack(
     // Guardrail: Warn if stack creation would likely exceed capacity limits (PRD G3)
     let uma_stats = state.uma_monitor.get_uma_stats().await;
     let pressure = state.uma_monitor.get_current_pressure();
-    
+
     // Collect warnings to return in API response
     let mut warnings = Vec::new();
-    
+
     // Check if adding this stack would exceed limits
     let current_adapters_loaded: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM adapters WHERE load_state IN ('loaded', 'warm', 'hot', 'resident')"
+        "SELECT COUNT(*) FROM adapters WHERE load_state IN ('loaded', 'warm', 'hot', 'resident')",
     )
     .fetch_one(state.db.pool())
     .await
@@ -121,13 +124,13 @@ pub async fn create_stack(
 
     let estimated_new_adapters = req.adapter_ids.len() as i64;
     let total_after_stack = current_adapters_loaded + estimated_new_adapters;
-    
+
     // Check capacity limits from config (drop guard before await)
     let capacity_limits = {
         let config = state.config.read().unwrap();
         config.capacity_limits.clone()
     };
-    
+
     // Warn if memory pressure is high or if we're approaching limits
     if pressure == MemoryPressureLevel::High || pressure == MemoryPressureLevel::Critical {
         let warning_msg = format!(
@@ -145,7 +148,7 @@ pub async fn create_stack(
             "Stack creation warning: {}", warning_msg
         );
     }
-    
+
     // Warn if stack would exceed configured adapter limits
     if let Some(max_adapters) = capacity_limits.models_per_tenant {
         if total_after_stack > max_adapters as i64 {
@@ -186,12 +189,15 @@ pub async fn create_stack(
 
     let id = uuid::Uuid::now_v7().to_string();
     let now = chrono::Utc::now().to_rfc3339();
-    let adapter_ids_json = serde_json::to_string(&req.adapter_ids)
-        .map_err(|e| (
+    let adapter_ids_json = serde_json::to_string(&req.adapter_ids).map_err(|e| {
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(&format!("Failed to serialize adapter IDs: {}", e))
-                .with_code("SERIALIZATION_ERROR")),
-        ))?;
+            Json(
+                ErrorResponse::new(&format!("Failed to serialize adapter IDs: {}", e))
+                    .with_code("SERIALIZATION_ERROR"),
+            ),
+        )
+    })?;
     let workflow_type_str = req.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
     let db_req = adapteros_db::traits::CreateStackRequest {
@@ -206,14 +212,21 @@ pub async fn create_stack(
         if e.to_string().contains("UNIQUE constraint failed") {
             (
                 StatusCode::CONFLICT,
-                Json(ErrorResponse::new(&format!("Stack name '{}' already exists for tenant", req.name))
-                    .with_code("CONFLICT")),
+                Json(
+                    ErrorResponse::new(&format!(
+                        "Stack name '{}' already exists for tenant",
+                        req.name
+                    ))
+                    .with_code("CONFLICT"),
+                ),
             )
         } else {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&format!("Failed to create stack: {}", e))
-                    .with_code("DATABASE_ERROR")),
+                Json(
+                    ErrorResponse::new(&format!("Failed to create stack: {}", e))
+                        .with_code("DATABASE_ERROR"),
+                ),
             )
         }
     })?;
@@ -234,11 +247,11 @@ pub async fn create_stack(
         created_at: now.clone(),
         updated_at: now,
         is_active: false,
-        version: 1, // New stacks start at version 1
+        version: 1,                            // New stacks start at version 1
         lifecycle_state: "active".to_string(), // New stacks default to active
-        warnings, // Include warnings in response (PRD G3)
+        warnings,                              // Include warnings in response (PRD G3)
     });
-    
+
     // Convert to Response with 201 status code
     Ok((StatusCode::CREATED, json_response).into_response())
 }
@@ -256,8 +269,12 @@ pub async fn list_stacks(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<StackResponse>>, (StatusCode, String)> {
-    require_permission(&claims, Permission::AdapterView)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+    require_permission(&claims, Permission::AdapterView).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id;
 
@@ -317,8 +334,12 @@ pub async fn get_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<StackResponse>, (StatusCode, String)> {
-    require_permission(&claims, Permission::AdapterView)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+    require_permission(&claims, Permission::AdapterView).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id;
 
@@ -389,8 +410,12 @@ pub async fn delete_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    require_permission(&claims, Permission::AdapterRegister)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+    require_permission(&claims, Permission::AdapterRegister).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id;
 
@@ -428,8 +453,12 @@ pub async fn activate_stack(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    require_permission(&claims, Permission::AdapterLoad)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+    require_permission(&claims, Permission::AdapterLoad).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id;
 
@@ -665,8 +694,12 @@ pub async fn deactivate_stack(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    require_permission(&claims, Permission::AdapterLoad)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+    require_permission(&claims, Permission::AdapterLoad).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id;
 
@@ -819,8 +852,12 @@ pub async fn get_stack_history(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<LifecycleHistoryResponse>>, (StatusCode, String)> {
-    require_permission(&claims, Permission::AdapterView)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()))?;
+    require_permission(&claims, Permission::AdapterView).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            "Insufficient permissions".to_string(),
+        )
+    })?;
 
     let tenant_id = claims.tenant_id;
 
@@ -833,7 +870,10 @@ pub async fn get_stack_history(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                format!("Stack with id '{}' not found for tenant '{}'", id, tenant_id),
+                format!(
+                    "Stack with id '{}' not found for tenant '{}'",
+                    id, tenant_id
+                ),
             )
         })?;
 

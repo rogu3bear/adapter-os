@@ -6,12 +6,7 @@
 //! - Request ID pattern: Standard HTTP tracing practices
 //! - UUID generation: RFC 4122
 
-use axum::{
-    extract::Request,
-    http::HeaderValue,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, Span};
@@ -66,14 +61,18 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
     debug!(request_id = %request_id, "Processing request");
 
     // Add request ID to request extensions for handlers
-    request.extensions_mut().insert(RequestId(request_id.clone()));
+    request
+        .extensions_mut()
+        .insert(RequestId(request_id.clone()));
 
     // Process request
     let mut response = next.run(request).await;
 
     // Add request ID to response headers
     if let Ok(header_value) = HeaderValue::from_str(&request_id) {
-        response.headers_mut().insert(REQUEST_ID_HEADER, header_value);
+        response
+            .headers_mut()
+            .insert(REQUEST_ID_HEADER, header_value);
     }
 
     // Clear thread-local

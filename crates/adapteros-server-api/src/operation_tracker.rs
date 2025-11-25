@@ -143,7 +143,9 @@ impl OperationTracker {
     }
 
     /// Get a reference to the in-memory operations HashMap for read access
-    fn get_operations_read(&self) -> Result<Arc<RwLock<HashMap<(String, String), OngoingOperation>>>, AosError> {
+    fn get_operations_read(
+        &self,
+    ) -> Result<Arc<RwLock<HashMap<(String, String), OngoingOperation>>>, AosError> {
         match &self.storage {
             OperationStorage::InMemory(ops) => Ok(ops.clone()),
             #[cfg(feature = "redis")]
@@ -155,7 +157,9 @@ impl OperationTracker {
     }
 
     /// Get a reference to the in-memory operations HashMap for write access
-    fn get_operations_write(&self) -> Result<Arc<RwLock<HashMap<(String, String), OngoingOperation>>>, AosError> {
+    fn get_operations_write(
+        &self,
+    ) -> Result<Arc<RwLock<HashMap<(String, String), OngoingOperation>>>, AosError> {
         match &self.storage {
             OperationStorage::InMemory(ops) => Ok(ops.clone()),
             #[cfg(feature = "redis")]
@@ -422,7 +426,11 @@ impl OperationTracker {
                     },
                     progress_percent: Some(100),
                     duration_ms: Some(elapsed as u64 * 1000),
-                    error_message: if success { None } else { Some(format!("{} operation failed", resource_type)) },
+                    error_message: if success {
+                        None
+                    } else {
+                        Some(format!("{} operation failed", resource_type))
+                    },
                     created_at: Utc::now(),
                 });
             }
@@ -499,7 +507,9 @@ impl OperationTracker {
         tenant_id: &str,
     ) -> Result<(), OperationCancellationError> {
         let key = (resource_id.to_string(), tenant_id.to_string());
-        let operations_lock = self.get_operations_write().map_err(|_| OperationCancellationError::OperationNotFound)?;
+        let operations_lock = self
+            .get_operations_write()
+            .map_err(|_| OperationCancellationError::OperationNotFound)?;
         let operations = operations_lock.read().await;
 
         if let Some(op) = operations.get(&key) {

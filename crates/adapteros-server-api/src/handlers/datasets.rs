@@ -1,6 +1,6 @@
 use super::chunked_upload::{
-    ChunkAssembler, ChunkWriter, CompressionFormat, FileValidator, ResumeToken,
-    DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
+    ChunkAssembler, ChunkWriter, CompressionFormat, FileValidator, ResumeToken, DEFAULT_CHUNK_SIZE,
+    MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
@@ -1700,9 +1700,8 @@ pub async fn complete_chunked_upload(
         let db = state.db.clone();
         let claims_clone = claims.clone();
         let error_msg_clone = error_msg.clone();
-        if let Err(e) = spawn_deterministic(
-            format!("audit-log:dataset-upload-failure"),
-            async move {
+        if let Err(e) =
+            spawn_deterministic(format!("audit-log:dataset-upload-failure"), async move {
                 let _ = log_failure(
                     &db,
                     &claims_clone,
@@ -1712,18 +1711,21 @@ pub async fn complete_chunked_upload(
                     &error_msg_clone,
                 )
                 .await;
-            },
-        ) {
+            })
+        {
             // Fallback: use tokio::spawn if deterministic executor not available
             // Audit logging is acceptable as background task per CLAUDE.md
+            let db_fallback = state.db.clone();
+            let claims_fallback = claims.clone();
+            let error_msg_fallback = error_msg.clone();
             let _ = tokio::spawn(async move {
                 let _ = log_failure(
-                    &state.db,
-                    &claims,
+                    &db_fallback,
+                    &claims_fallback,
                     actions::DATASET_UPLOAD,
                     resources::DATASET,
                     None,
-                    &error_msg,
+                    &error_msg_fallback,
                 )
                 .await;
             });
@@ -1965,4 +1967,3 @@ pub async fn cancel_chunked_upload(
 
     Ok(StatusCode::NO_CONTENT)
 }
-

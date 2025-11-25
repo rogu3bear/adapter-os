@@ -480,15 +480,27 @@ fn verify_session_signature(state: &AppState, session: &ReplaySession) -> bool {
 }
 
 // Helper function to convert database model to API response
-fn session_to_response(session: ReplaySession) -> Result<ReplaySessionResponse, adapteros_core::AosError> {
+fn session_to_response(
+    session: ReplaySession,
+) -> Result<ReplaySessionResponse, adapteros_core::AosError> {
     let telemetry_bundle_ids: Vec<String> =
-        serde_json::from_str(&session.telemetry_bundle_ids_json)
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to parse telemetry_bundle_ids_json: {}", e)))?;
+        serde_json::from_str(&session.telemetry_bundle_ids_json).map_err(|e| {
+            adapteros_core::AosError::Database(format!(
+                "Failed to parse telemetry_bundle_ids_json: {}",
+                e
+            ))
+        })?;
     let adapter_state: AdapterStateSnapshot = serde_json::from_str(&session.adapter_state_json)
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to parse adapter_state_json: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to parse adapter_state_json: {}", e))
+        })?;
     let routing_decisions: Vec<serde_json::Value> =
-        serde_json::from_str(&session.routing_decisions_json)
-            .map_err(|e| adapteros_core::AosError::Database(format!("Failed to parse routing_decisions_json: {}", e)))?;
+        serde_json::from_str(&session.routing_decisions_json).map_err(|e| {
+            adapteros_core::AosError::Database(format!(
+                "Failed to parse routing_decisions_json: {}",
+                e
+            ))
+        })?;
     let inference_traces = session
         .inference_traces_json
         .map(|json| serde_json::from_str(&json))

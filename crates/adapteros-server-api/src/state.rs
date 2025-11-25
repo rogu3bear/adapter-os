@@ -166,9 +166,8 @@ impl AppState {
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
         let crypto_state = CryptoState::new();
         let ed25519_keypair = crypto_state.jwt_keypair.clone();
-        let ed25519_public_key = crate::auth::encode_ed25519_public_key_pem(
-            &ed25519_keypair.public_key().to_bytes()
-        );
+        let ed25519_public_key =
+            crate::auth::encode_ed25519_public_key_pem(&ed25519_keypair.public_key().to_bytes());
 
         // Create signal broadcast channels for SSE streaming
         let (training_signal_tx, _) = broadcast::channel(100);

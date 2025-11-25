@@ -446,6 +446,7 @@ async fn main() -> Result<()> {
                 bearer_token: cfg.metrics.bearer_token.clone(),
             },
             directory_analysis_timeout_secs: 120,
+            capacity_limits: Default::default(),
         }))
     };
 
@@ -492,7 +493,8 @@ async fn main() -> Result<()> {
                     Err(e) => error!("Failed to reload config: {}", e),
                 }
             }
-        }).expect("Failed to spawn SIGHUP handler");
+        })
+        .expect("Failed to spawn SIGHUP handler");
         shutdown_coordinator.register_task(sighup_handle);
     }
 
@@ -748,7 +750,8 @@ async fn main() -> Result<()> {
                     warn!("Failed to write status: {}", e);
                 }
             }
-        }).expect("Failed to spawn status writer");
+        })
+        .expect("Failed to spawn status writer");
         shutdown_coordinator.register_task(status_writer_handle);
         info!("Status writer started (5s interval)");
     }
@@ -806,7 +809,8 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-        }).expect("Failed to spawn TTL cleanup");
+        })
+        .expect("Failed to spawn TTL cleanup");
         shutdown_coordinator.register_task(ttl_cleanup_handle);
         info!("TTL cleanup task started (5 minute interval)");
     }
@@ -814,30 +818,32 @@ async fn main() -> Result<()> {
     // Spawn heartbeat recovery background task
     {
         let db_clone = db.clone();
-        let heartbeat_recovery_handle = spawn_deterministic("Heartbeat recovery".to_string(), async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
-            loop {
-                interval.tick().await;
+        let heartbeat_recovery_handle =
+            spawn_deterministic("Heartbeat recovery".to_string(), async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+                loop {
+                    interval.tick().await;
 
-                // Recover adapters that haven't sent heartbeat in 5 minutes
-                match db_clone.recover_stale_adapters(300).await {
-                    Ok(recovered) => {
-                        if !recovered.is_empty() {
-                            info!(
-                                count = recovered.len(),
-                                "Recovered stale adapters via heartbeat check"
+                    // Recover adapters that haven't sent heartbeat in 5 minutes
+                    match db_clone.recover_stale_adapters(300).await {
+                        Ok(recovered) => {
+                            if !recovered.is_empty() {
+                                info!(
+                                    count = recovered.len(),
+                                    "Recovered stale adapters via heartbeat check"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                "Failed to recover stale adapters"
                             );
                         }
                     }
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            "Failed to recover stale adapters"
-                        );
-                    }
                 }
-            }
-        }).expect("Failed to spawn heartbeat recovery");
+            })
+            .expect("Failed to spawn heartbeat recovery");
         shutdown_coordinator.register_task(heartbeat_recovery_handle);
         info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
     }
@@ -897,7 +903,10 @@ async fn main() -> Result<()> {
             Err(e) => {
                 match e {
                     adapteros_server::shutdown::ShutdownError::CriticalFailure { component } => {
-                        error!("Critical shutdown failure in {} - system integrity compromised", component);
+                        error!(
+                            "Critical shutdown failure in {} - system integrity compromised",
+                            component
+                        );
                         std::process::exit(1);
                     }
                     adapteros_server::shutdown::ShutdownError::PartialFailure { failed_count } => {
@@ -939,7 +948,10 @@ async fn main() -> Result<()> {
             Err(e) => {
                 match e {
                     adapteros_server::shutdown::ShutdownError::CriticalFailure { component } => {
-                        error!("Critical shutdown failure in {} - system integrity compromised", component);
+                        error!(
+                            "Critical shutdown failure in {} - system integrity compromised",
+                            component
+                        );
                         std::process::exit(1);
                     }
                     adapteros_server::shutdown::ShutdownError::PartialFailure { failed_count } => {

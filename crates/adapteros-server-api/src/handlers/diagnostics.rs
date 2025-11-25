@@ -54,7 +54,7 @@ pub async fn get_determinism_status(
         "SELECT last_run, result, runs, divergences 
          FROM determinism_checks 
          ORDER BY last_run DESC 
-         LIMIT 1"
+         LIMIT 1",
     )
     .fetch_optional(state.db.pool())
     .await;
@@ -138,7 +138,7 @@ pub async fn get_quarantine_status(
     let quarantines = sqlx::query(
         "SELECT id, reason, created_at, violation_type, cpid, metadata 
          FROM active_quarantine 
-         ORDER BY created_at DESC"
+         ORDER BY created_at DESC",
     )
     .fetch_all(state.db.pool())
     .await
@@ -176,9 +176,12 @@ pub async fn get_quarantine_status(
         let mut adapter_id: Option<String> = None;
         if let Some(ref meta_str) = metadata {
             if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(meta_str) {
-                if let Some(serde_json::Value::String(adapter_id_str)) = meta_json.get("adapter_id") {
+                if let Some(serde_json::Value::String(adapter_id_str)) = meta_json.get("adapter_id")
+                {
                     adapter_id = Some(adapter_id_str.clone());
-                } else if let Some(serde_json::Value::String(adapter_id_str)) = meta_json.get("adapter") {
+                } else if let Some(serde_json::Value::String(adapter_id_str)) =
+                    meta_json.get("adapter")
+                {
                     adapter_id = Some(adapter_id_str.clone());
                 }
             }
@@ -210,7 +213,7 @@ pub async fn get_quarantine_status(
     let active_stacks = sqlx::query(
         "SELECT id, name, adapter_ids_json 
          FROM adapter_stacks 
-         WHERE active = 1"
+         WHERE active = 1",
     )
     .fetch_all(state.db.pool())
     .await
@@ -226,7 +229,7 @@ pub async fn get_quarantine_status(
     for stack_row in &active_stacks {
         let stack_id: String = stack_row.try_get("id").unwrap_or_default();
         let adapter_ids_json: Option<String> = stack_row.try_get("adapter_ids_json").ok();
-        
+
         if let Some(ref json_str) = adapter_ids_json {
             if let Ok(adapter_ids) = serde_json::from_str::<Vec<String>>(json_str) {
                 for adapter_id in &adapter_ids {
@@ -246,4 +249,3 @@ pub async fn get_quarantine_status(
         last_checked: Some(chrono::Utc::now().to_rfc3339()),
     }))
 }
-

@@ -29,8 +29,8 @@ pub mod versioning;
 pub use plugin_registry::PluginRegistry;
 
 pub use lifecycle::{
-    ShutdownCoordinator, ShutdownConfig, ShutdownError, ShutdownStatus, ShutdownProgress,
-    LifecycleHook, LifecycleHookRegistry, LifecyclePhase, LifecycleContext,
+    LifecycleContext, LifecycleHook, LifecycleHookRegistry, LifecyclePhase, ShutdownConfig,
+    ShutdownCoordinator, ShutdownError, ShutdownProgress, ShutdownStatus,
 };
 pub use state::{AppState, CryptoState};
 pub use telemetry::{

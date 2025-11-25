@@ -10,13 +10,13 @@
 //! - HTTP caching: RFC 7232, RFC 7234
 //! - ETag generation: Content-based hashing
 
+use adapteros_core::B3Hash;
 use axum::{
     extract::Request,
     http::{header, HeaderValue, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use adapteros_core::B3Hash;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ use tokio::sync::RwLock;
 
 /// Cache entry
 #[derive(Clone, Debug)]
-struct CacheEntry {
+pub struct CacheEntry {
     /// ETag value
     etag: String,
     /// Last modified timestamp
@@ -106,10 +106,7 @@ pub async fn caching_middleware(request: Request, next: Next) -> Response {
 }
 
 /// Add cache headers to response
-fn add_cache_headers(
-    mut response: Response,
-    path: &str,
-) -> Response {
+fn add_cache_headers(mut response: Response, path: &str) -> Response {
     let status = response.status();
 
     // Only add cache headers for successful responses
@@ -211,9 +208,15 @@ mod tests {
     async fn test_cache_eviction() {
         let cache = ResponseCache::new(2);
 
-        cache.store("key1".to_string(), "etag1".to_string(), None).await;
-        cache.store("key2".to_string(), "etag2".to_string(), None).await;
-        cache.store("key3".to_string(), "etag3".to_string(), None).await;
+        cache
+            .store("key1".to_string(), "etag1".to_string(), None)
+            .await;
+        cache
+            .store("key2".to_string(), "etag2".to_string(), None)
+            .await;
+        cache
+            .store("key3".to_string(), "etag3".to_string(), None)
+            .await;
 
         // Should have evicted key1
         let entries = cache.entries.read().await;

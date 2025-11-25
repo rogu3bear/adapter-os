@@ -86,7 +86,7 @@ pub async fn get_capacity(
     let total_ram_bytes = (uma_stats.total_mb as u64) * 1024 * 1024;
     let ram_used_bytes = (uma_stats.used_mb as u64) * 1024 * 1024;
     let ram_headroom_pct = uma_stats.headroom_pct;
-    
+
     // Get VRAM info (GPU memory) - integrate with worker if available
     let (total_vram_bytes, vram_used_bytes) = get_vram_info(&state).await;
     let vram_headroom_pct = if total_vram_bytes > 0 {
@@ -107,16 +107,18 @@ pub async fn get_capacity(
         .and_then(|row| row.try_get::<i64, _>(0).ok())
         .unwrap_or(0) as usize;
 
-    let adapters_loaded = sqlx::query("SELECT COUNT(*) FROM adapters WHERE load_state IN ('loaded', 'warm', 'hot', 'resident')")
-        .fetch_one(state.db.pool())
-        .await
-        .ok()
-        .and_then(|row| row.try_get::<i64, _>(0).ok())
-        .unwrap_or(0) as usize;
+    let adapters_loaded = sqlx::query(
+        "SELECT COUNT(*) FROM adapters WHERE load_state IN ('loaded', 'warm', 'hot', 'resident')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .ok()
+    .and_then(|row| row.try_get::<i64, _>(0).ok())
+    .unwrap_or(0) as usize;
 
     // Get active requests count - query from request_log table (PRD G3: Query in_progress status)
     let active_requests = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM request_log WHERE status = 'in_progress'"
+        "SELECT COUNT(*) FROM request_log WHERE status = 'in_progress'",
     )
     .fetch_one(state.db.pool())
     .await
@@ -153,7 +155,7 @@ pub async fn get_capacity(
 }
 
 /// Get VRAM information from worker if available
-/// 
+///
 /// **LIMITATION (PRD G3):** Worker doesn't expose a public `memory_report()` method.
 /// The kernels (Metal/MLX/CoreML) have `memory_report()` but it's wrapped in private `Arc<Mutex<K>>`.
 /// TODO: Add `pub fn memory_report(&self) -> GpuMemoryReport` to Worker struct.
@@ -169,7 +171,7 @@ async fn get_vram_info(state: &AppState) -> (u64, u64) {
         // For now, return defaults. When Worker exposes memory_report(), update this to:
         // let report = worker.memory_report();
         // (report.adapter_vram_total, report.pool_stats.allocated_bytes)
-        
+
         debug!("Worker available but VRAM tracking requires Worker.memory_report() method - using defaults");
         (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used (placeholder until Worker exposes memory_report)
     } else {
@@ -177,4 +179,3 @@ async fn get_vram_info(state: &AppState) -> (u64, u64) {
         (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used
     }
 }
-

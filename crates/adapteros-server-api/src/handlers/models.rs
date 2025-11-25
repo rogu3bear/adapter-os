@@ -97,13 +97,12 @@ pub async fn load_model(
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, info, warn};
 
-    require_any_role(&claims, &[Role::Admin, Role::Operator])
-        .map_err(|_| {
-            (
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
-            )
-        })?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
+        )
+    })?;
 
     let tenant_id = &claims.sub;
     let now = chrono::Utc::now().to_rfc3339();
@@ -155,10 +154,7 @@ pub async fn load_model(
             warn!("Model already loaded: {}", model_id);
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("model already loaded")
-                        .with_code("BAD_REQUEST"),
-                ),
+                Json(ErrorResponse::new("model already loaded").with_code("BAD_REQUEST")),
             ));
         }
     }
@@ -183,7 +179,17 @@ pub async fn load_model(
     // Log operation
     let op_id = state
         .db
-        .log_model_operation(tenant_id, &model_id, "load", &claims.sub, "in_progress", None, &now, None, None)
+        .log_model_operation(
+            tenant_id,
+            &model_id,
+            "load",
+            &claims.sub,
+            "in_progress",
+            None,
+            &now,
+            None,
+            None,
+        )
         .await
         .map_err(|e| {
             error!("Failed to log model operation: {}", e);
@@ -203,7 +209,13 @@ pub async fn load_model(
     // Update status to "loaded"
     if let Err(e) = state
         .db
-        .update_base_model_status(tenant_id, &model_id, "loaded", None, Some(estimated_memory_mb))
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            "loaded",
+            None,
+            Some(estimated_memory_mb),
+        )
         .await
     {
         error!("Failed to update model status to loaded: {}", e);
@@ -283,13 +295,12 @@ pub async fn unload_model(
 ) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::{error, info, warn};
 
-    require_any_role(&claims, &[Role::Admin, Role::Operator])
-        .map_err(|_| {
-            (
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
-            )
-        })?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
+        )
+    })?;
 
     let tenant_id = &claims.sub;
     let now = chrono::Utc::now().to_rfc3339();
@@ -341,10 +352,7 @@ pub async fn unload_model(
             warn!("Model not currently loaded: {}", model_id);
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("model not currently loaded")
-                        .with_code("BAD_REQUEST"),
-                ),
+                Json(ErrorResponse::new("model not currently loaded").with_code("BAD_REQUEST")),
             ));
         }
     } else {
@@ -358,7 +366,17 @@ pub async fn unload_model(
     // Log operation
     let op_id = state
         .db
-        .log_model_operation(tenant_id, &model_id, "unload", &claims.sub, "in_progress", None, &now, None, None)
+        .log_model_operation(
+            tenant_id,
+            &model_id,
+            "unload",
+            &claims.sub,
+            "in_progress",
+            None,
+            &now,
+            None,
+            None,
+        )
         .await
         .map_err(|e| {
             error!("Failed to log model operation: {}", e);
@@ -477,21 +495,17 @@ pub async fn get_model_status(
         })?;
 
     // Query base_model_status to get current load state
-    let all_statuses = state
-        .db
-        .list_base_model_statuses()
-        .await
-        .map_err(|e| {
-            error!("Failed to fetch model statuses: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to fetch model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     // Find the status record for this model (most recent)
     let status = all_statuses
@@ -621,8 +635,7 @@ pub async fn validate_model(
             if hash_val.len() != 64 || !hash_val.chars().all(|c| c.is_ascii_hexdigit()) {
                 errors.push(format!(
                     "Invalid {} hash format: expected 64-char hex, got {}",
-                    hash_type,
-                    hash_val
+                    hash_type, hash_val
                 ));
                 is_valid = false;
             }

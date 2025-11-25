@@ -10,12 +10,7 @@
 //!
 //! [source: crates/adapteros-server-api/src/middleware/compression.rs]
 
-use axum::{
-    extract::Request,
-    http::header,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::header, middleware::Next, response::Response};
 use tower_http::compression::{CompressionLayer, CompressionLevel};
 
 /// Content types that should not be compressed (already compressed)
@@ -51,7 +46,10 @@ impl Default for CompressionConfig {
         Self {
             level: CompressionLevel::Default,
             min_size: MIN_COMPRESS_SIZE,
-            skip_types: SKIP_COMPRESSION_TYPES.iter().map(|s| s.to_string()).collect(),
+            skip_types: SKIP_COMPRESSION_TYPES
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }
@@ -60,8 +58,7 @@ impl Default for CompressionConfig {
 pub fn create_compression_layer() -> CompressionLayer {
     // Use default compression layer - tower-http handles content type filtering automatically
     // and we can configure size limits via the predicate if needed
-    CompressionLayer::new()
-        .quality(CompressionLevel::Default)
+    CompressionLayer::new().quality(CompressionLevel::Default)
 }
 
 /// Compression middleware (simple wrapper that adds compression info to logs)

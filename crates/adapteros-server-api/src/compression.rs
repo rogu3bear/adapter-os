@@ -124,10 +124,15 @@ pub async fn compression_middleware(request: Request, next: Next) -> Response {
 }
 
 /// Add compression headers to response
-pub fn add_compression_headers(mut response: Response, algorithm: CompressionAlgorithm) -> Response {
+pub fn add_compression_headers(
+    mut response: Response,
+    algorithm: CompressionAlgorithm,
+) -> Response {
     if let Some(encoding) = algorithm.content_encoding() {
         if let Ok(header_value) = HeaderValue::from_str(encoding) {
-            response.headers_mut().insert(header::CONTENT_ENCODING, header_value);
+            response
+                .headers_mut()
+                .insert(header::CONTENT_ENCODING, header_value);
         }
     }
     response
@@ -191,17 +196,30 @@ mod tests {
 
     #[test]
     fn test_should_compress_content_type() {
-        assert!(should_compress_content_type(Some(&HeaderValue::from_static("application/json"))));
-        assert!(should_compress_content_type(Some(&HeaderValue::from_static("text/html"))));
-        assert!(should_compress_content_type(Some(&HeaderValue::from_static("text/plain"))));
-        assert!(!should_compress_content_type(Some(&HeaderValue::from_static("image/png"))));
-        assert!(!should_compress_content_type(Some(&HeaderValue::from_static("video/mp4"))));
+        assert!(should_compress_content_type(Some(
+            &HeaderValue::from_static("application/json")
+        )));
+        assert!(should_compress_content_type(Some(
+            &HeaderValue::from_static("text/html")
+        )));
+        assert!(should_compress_content_type(Some(
+            &HeaderValue::from_static("text/plain")
+        )));
+        assert!(!should_compress_content_type(Some(
+            &HeaderValue::from_static("image/png")
+        )));
+        assert!(!should_compress_content_type(Some(
+            &HeaderValue::from_static("video/mp4")
+        )));
     }
 
     #[test]
     fn test_content_encoding() {
         assert_eq!(CompressionAlgorithm::Gzip.content_encoding(), Some("gzip"));
-        assert_eq!(CompressionAlgorithm::Deflate.content_encoding(), Some("deflate"));
+        assert_eq!(
+            CompressionAlgorithm::Deflate.content_encoding(),
+            Some("deflate")
+        );
         assert_eq!(CompressionAlgorithm::Identity.content_encoding(), None);
     }
 }

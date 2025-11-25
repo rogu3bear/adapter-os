@@ -8,12 +8,7 @@
 //!
 //! [source: crates/adapteros-server-api/src/middleware/request_id.rs]
 
-use axum::{
-    extract::Request,
-    http::HeaderValue,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use tracing::Span;
 use uuid::Uuid;
 

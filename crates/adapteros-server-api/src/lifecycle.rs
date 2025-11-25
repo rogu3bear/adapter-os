@@ -61,14 +61,14 @@
 //! ## Citations
 //! - [docs/LIFECYCLE_SYSTEM.md](docs/LIFECYCLE_SYSTEM.md) - Complete lifecycle reference
 
+use adapteros_deterministic_exec::DeterministicJoinHandle;
+use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use adapteros_deterministic_exec::DeterministicJoinHandle;
-use tracing::{debug, info, warn, error};
-use std::time::Duration;
-use std::collections::HashMap;
-use parking_lot::RwLock;
+use tracing::{debug, error, info, warn};
 
 /// Lifecycle hook trigger points
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -135,8 +135,10 @@ impl LifecycleHookRegistry {
 
     /// Register a lifecycle hook
     pub fn register(&self, hook: LifecycleHook) {
-        debug!("Registered lifecycle hook: {} (component: {}, phase: {:?})",
-               hook.id, hook.component, hook.phase);
+        debug!(
+            "Registered lifecycle hook: {} (component: {}, phase: {:?})",
+            hook.id, hook.component, hook.phase
+        );
         let mut hooks = self.hooks.write();
         hooks.push(hook);
     }
@@ -144,7 +146,8 @@ impl LifecycleHookRegistry {
     /// Get all hooks for a specific phase
     pub fn get_hooks_for_phase(&self, phase: LifecyclePhase) -> Vec<LifecycleHook> {
         let hooks = self.hooks.read();
-        hooks.iter()
+        hooks
+            .iter()
             .filter(|h| h.phase == phase)
             .map(|h| LifecycleHook {
                 id: h.id.clone(),
@@ -156,7 +159,11 @@ impl LifecycleHookRegistry {
     }
 
     /// Run all hooks for a specific phase
-    pub async fn run_hooks(&self, phase: LifecyclePhase, start_time: std::time::Instant) -> Result<(), String> {
+    pub async fn run_hooks(
+        &self,
+        phase: LifecyclePhase,
+        start_time: std::time::Instant,
+    ) -> Result<(), String> {
         let hooks = self.get_hooks_for_phase(phase);
         let context = LifecycleContext {
             phase,
@@ -170,11 +177,16 @@ impl LifecycleHookRegistry {
                 (hook.callback)(&context);
             })) {
                 Ok(()) => {
-                    debug!("Hook {} (component: {}) completed successfully", hook.id, hook.component);
+                    debug!(
+                        "Hook {} (component: {}) completed successfully",
+                        hook.id, hook.component
+                    );
                 }
                 Err(e) => {
-                    let err_msg = format!("Hook {} (component: {}) panicked: {:?}",
-                                        hook.id, hook.component, e);
+                    let err_msg = format!(
+                        "Hook {} (component: {}) panicked: {:?}",
+                        hook.id, hook.component, e
+                    );
                     error!("{}", err_msg);
                     errors.push(err_msg);
                 }
@@ -309,7 +321,10 @@ impl std::fmt::Debug for ShutdownCoordinator {
             .field("telemetry_handle", &self.telemetry_handle.is_some())
             .field("federation_handle", &self.federation_handle.is_some())
             .field("alert_handle", &self.alert_handle.is_some())
-            .field("policy_watcher_handle", &self.policy_watcher_handle.is_some())
+            .field(
+                "policy_watcher_handle",
+                &self.policy_watcher_handle.is_some(),
+            )
             .field("uds_metrics_handle", &self.uds_metrics_handle.is_some())
             .field("git_daemon_handle", &self.git_daemon_handle.is_some())
             .field("config", &self.config)
@@ -389,16 +404,28 @@ impl ShutdownCoordinator {
 
         match &progress.status {
             ShutdownStatus::Completed => {
-                info!("✅ {} shutdown completed in {:?}", progress.component, progress.elapsed);
+                info!(
+                    "✅ {} shutdown completed in {:?}",
+                    progress.component, progress.elapsed
+                );
             }
             ShutdownStatus::Failed(reason) => {
-                warn!("❌ {} shutdown failed after {:?}: {}", progress.component, progress.elapsed, reason);
+                warn!(
+                    "❌ {} shutdown failed after {:?}: {}",
+                    progress.component, progress.elapsed, reason
+                );
             }
             ShutdownStatus::Timeout => {
-                warn!("⏰ {} shutdown timed out after {:?}", progress.component, progress.elapsed);
+                warn!(
+                    "⏰ {} shutdown timed out after {:?}",
+                    progress.component, progress.elapsed
+                );
             }
             ShutdownStatus::InProgress => {
-                debug!("🔄 {} shutdown in progress ({:?})", progress.component, progress.elapsed);
+                debug!(
+                    "🔄 {} shutdown in progress ({:?})",
+                    progress.component, progress.elapsed
+                );
             }
             ShutdownStatus::Pending => {
                 debug!("⏳ {} shutdown pending", progress.component);
@@ -408,7 +435,10 @@ impl ShutdownCoordinator {
 
     /// Initiate graceful shutdown with timeout and error recovery
     pub async fn shutdown(mut self) -> Result<(), ShutdownError> {
-        info!("Initiating graceful shutdown (overall timeout: {:?})", self.config.overall_timeout);
+        info!(
+            "Initiating graceful shutdown (overall timeout: {:?})",
+            self.config.overall_timeout
+        );
 
         let start_time = std::time::Instant::now();
         let _ = self.shutdown_tx.send(());
@@ -421,26 +451,40 @@ impl ShutdownCoordinator {
 
         // 1. Telemetry system - flush buffers and close connections (critical for data integrity)
         if let Some(mut handle) = self.telemetry_handle.take() {
-            self.report_progress("telemetry", ShutdownStatus::InProgress, start_time.elapsed());
+            self.report_progress(
+                "telemetry",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
 
             // Try graceful shutdown first
             match tokio::time::timeout(self.config.telemetry_timeout, &mut handle).await {
-                Ok(result) => {
-                    match result {
-                        Ok(_) => {
-                            self.report_progress("telemetry", ShutdownStatus::Completed, start_time.elapsed());
-                        }
-                        Err(e) => {
-                            warn!("Telemetry system shutdown failed with error: {}", e);
-                            self.report_progress("telemetry", ShutdownStatus::Failed(format!("Task error: {}", e)), start_time.elapsed());
-                            critical_failures.push("telemetry".to_string());
-                        }
+                Ok(result) => match result {
+                    Ok(_) => {
+                        self.report_progress(
+                            "telemetry",
+                            ShutdownStatus::Completed,
+                            start_time.elapsed(),
+                        );
                     }
-                }
+                    Err(e) => {
+                        warn!("Telemetry system shutdown failed with error: {}", e);
+                        self.report_progress(
+                            "telemetry",
+                            ShutdownStatus::Failed(format!("Task error: {}", e)),
+                            start_time.elapsed(),
+                        );
+                        critical_failures.push("telemetry".to_string());
+                    }
+                },
                 Err(_) => {
                     // Timeout - force abort
                     handle.abort();
-                    self.report_progress("telemetry", ShutdownStatus::Timeout, start_time.elapsed());
+                    self.report_progress(
+                        "telemetry",
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
                     critical_failures.push("telemetry".to_string());
                 }
             }
@@ -448,23 +492,37 @@ impl ShutdownCoordinator {
 
         // 2. Federation daemon - allow clean verification completion
         if let Some(mut handle) = self.federation_handle.take() {
-            self.report_progress("federation", ShutdownStatus::InProgress, start_time.elapsed());
+            self.report_progress(
+                "federation",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
             match tokio::time::timeout(self.config.federation_timeout, &mut handle).await {
-                Ok(result) => {
-                    match result {
-                        Ok(_) => {
-                            self.report_progress("federation", ShutdownStatus::Completed, start_time.elapsed());
-                        }
-                        Err(e) => {
-                            warn!("Federation daemon shutdown failed with error: {}", e);
-                            self.report_progress("federation", ShutdownStatus::Failed(format!("Task error: {}", e)), start_time.elapsed());
-                            failed_components.push("federation".to_string());
-                        }
+                Ok(result) => match result {
+                    Ok(_) => {
+                        self.report_progress(
+                            "federation",
+                            ShutdownStatus::Completed,
+                            start_time.elapsed(),
+                        );
                     }
-                }
+                    Err(e) => {
+                        warn!("Federation daemon shutdown failed with error: {}", e);
+                        self.report_progress(
+                            "federation",
+                            ShutdownStatus::Failed(format!("Task error: {}", e)),
+                            start_time.elapsed(),
+                        );
+                        failed_components.push("federation".to_string());
+                    }
+                },
                 Err(_) => {
                     handle.abort();
-                    self.report_progress("federation", ShutdownStatus::Timeout, start_time.elapsed());
+                    self.report_progress(
+                        "federation",
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
                     failed_components.push("federation".to_string());
                 }
             }
@@ -472,23 +530,37 @@ impl ShutdownCoordinator {
 
         // 3. UDS metrics exporter - close socket connections
         if let Some(mut handle) = self.uds_metrics_handle.take() {
-            self.report_progress("uds_metrics", ShutdownStatus::InProgress, start_time.elapsed());
+            self.report_progress(
+                "uds_metrics",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
             match tokio::time::timeout(self.config.uds_metrics_timeout, &mut handle).await {
-                Ok(result) => {
-                    match result {
-                        Ok(_) => {
-                            self.report_progress("uds_metrics", ShutdownStatus::Completed, start_time.elapsed());
-                        }
-                        Err(e) => {
-                            warn!("UDS metrics exporter shutdown failed with error: {}", e);
-                            self.report_progress("uds_metrics", ShutdownStatus::Failed(format!("Task error: {}", e)), start_time.elapsed());
-                            failed_components.push("uds_metrics".to_string());
-                        }
+                Ok(result) => match result {
+                    Ok(_) => {
+                        self.report_progress(
+                            "uds_metrics",
+                            ShutdownStatus::Completed,
+                            start_time.elapsed(),
+                        );
                     }
-                }
+                    Err(e) => {
+                        warn!("UDS metrics exporter shutdown failed with error: {}", e);
+                        self.report_progress(
+                            "uds_metrics",
+                            ShutdownStatus::Failed(format!("Task error: {}", e)),
+                            start_time.elapsed(),
+                        );
+                        failed_components.push("uds_metrics".to_string());
+                    }
+                },
                 Err(_) => {
                     handle.abort();
-                    self.report_progress("uds_metrics", ShutdownStatus::Timeout, start_time.elapsed());
+                    self.report_progress(
+                        "uds_metrics",
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
                     failed_components.push("uds_metrics".to_string());
                 }
             }
@@ -496,23 +568,37 @@ impl ShutdownCoordinator {
 
         // 4. Git daemon - stop polling and file watching
         if let Some(mut handle) = self.git_daemon_handle.take() {
-            self.report_progress("git_daemon", ShutdownStatus::InProgress, start_time.elapsed());
+            self.report_progress(
+                "git_daemon",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
             match tokio::time::timeout(self.config.git_daemon_timeout, &mut handle).await {
-                Ok(result) => {
-                    match result {
-                        Ok(_) => {
-                            self.report_progress("git_daemon", ShutdownStatus::Completed, start_time.elapsed());
-                        }
-                        Err(e) => {
-                            warn!("Git daemon shutdown failed with error: {}", e);
-                            self.report_progress("git_daemon", ShutdownStatus::Failed(format!("Task error: {}", e)), start_time.elapsed());
-                            failed_components.push("git_daemon".to_string());
-                        }
+                Ok(result) => match result {
+                    Ok(_) => {
+                        self.report_progress(
+                            "git_daemon",
+                            ShutdownStatus::Completed,
+                            start_time.elapsed(),
+                        );
                     }
-                }
+                    Err(e) => {
+                        warn!("Git daemon shutdown failed with error: {}", e);
+                        self.report_progress(
+                            "git_daemon",
+                            ShutdownStatus::Failed(format!("Task error: {}", e)),
+                            start_time.elapsed(),
+                        );
+                        failed_components.push("git_daemon".to_string());
+                    }
+                },
                 Err(_) => {
                     handle.abort();
-                    self.report_progress("git_daemon", ShutdownStatus::Timeout, start_time.elapsed());
+                    self.report_progress(
+                        "git_daemon",
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
                     failed_components.push("git_daemon".to_string());
                 }
             }
@@ -520,23 +606,37 @@ impl ShutdownCoordinator {
 
         // 5. Policy watcher - stop hash validation sweeps
         if let Some(mut handle) = self.policy_watcher_handle.take() {
-            self.report_progress("policy_watcher", ShutdownStatus::InProgress, start_time.elapsed());
+            self.report_progress(
+                "policy_watcher",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
             match tokio::time::timeout(self.config.policy_watcher_timeout, &mut handle).await {
-                Ok(result) => {
-                    match result {
-                        Ok(_) => {
-                            self.report_progress("policy_watcher", ShutdownStatus::Completed, start_time.elapsed());
-                        }
-                        Err(e) => {
-                            warn!("Policy watcher shutdown failed with error: {}", e);
-                            self.report_progress("policy_watcher", ShutdownStatus::Failed(format!("Task error: {}", e)), start_time.elapsed());
-                            failed_components.push("policy_watcher".to_string());
-                        }
+                Ok(result) => match result {
+                    Ok(_) => {
+                        self.report_progress(
+                            "policy_watcher",
+                            ShutdownStatus::Completed,
+                            start_time.elapsed(),
+                        );
                     }
-                }
+                    Err(e) => {
+                        warn!("Policy watcher shutdown failed with error: {}", e);
+                        self.report_progress(
+                            "policy_watcher",
+                            ShutdownStatus::Failed(format!("Task error: {}", e)),
+                            start_time.elapsed(),
+                        );
+                        failed_components.push("policy_watcher".to_string());
+                    }
+                },
                 Err(_) => {
                     handle.abort();
-                    self.report_progress("policy_watcher", ShutdownStatus::Timeout, start_time.elapsed());
+                    self.report_progress(
+                        "policy_watcher",
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
                     failed_components.push("policy_watcher".to_string());
                 }
             }
@@ -544,20 +644,39 @@ impl ShutdownCoordinator {
 
         // 6. Alert watcher - stop job monitoring
         if let Some(handle) = self.alert_handle.take() {
-            self.report_progress("alert_watcher", ShutdownStatus::InProgress, start_time.elapsed());
+            self.report_progress(
+                "alert_watcher",
+                ShutdownStatus::InProgress,
+                start_time.elapsed(),
+            );
             handle.abort();
-            self.report_progress("alert_watcher", ShutdownStatus::Completed, start_time.elapsed());
+            self.report_progress(
+                "alert_watcher",
+                ShutdownStatus::Completed,
+                start_time.elapsed(),
+            );
             // Note: DeterministicJoinHandle doesn't support timeout waiting
         }
 
         // 7. Background tasks - status writer, TTL cleanup, heartbeat recovery
         let background_handles = std::mem::take(&mut self.background_handles);
         if !background_handles.is_empty() {
-            info!("Shutting down {} background tasks", background_handles.len());
+            info!(
+                "Shutting down {} background tasks",
+                background_handles.len()
+            );
             for (i, handle) in background_handles.into_iter().enumerate() {
-                self.report_progress(&format!("background_task_{}", i), ShutdownStatus::InProgress, start_time.elapsed());
+                self.report_progress(
+                    &format!("background_task_{}", i),
+                    ShutdownStatus::InProgress,
+                    start_time.elapsed(),
+                );
                 handle.abort();
-                self.report_progress(&format!("background_task_{}", i), ShutdownStatus::Completed, start_time.elapsed());
+                self.report_progress(
+                    &format!("background_task_{}", i),
+                    ShutdownStatus::Completed,
+                    start_time.elapsed(),
+                );
                 // Note: DeterministicJoinHandle doesn't support timeout waiting
             }
         }
@@ -588,13 +707,17 @@ impl ShutdownCoordinator {
                 failed_components.len(),
                 failed_components
             );
-            info!("Graceful shutdown completed with partial failures - system integrity maintained");
+            info!(
+                "Graceful shutdown completed with partial failures - system integrity maintained"
+            );
             return Err(ShutdownError::PartialFailure {
                 failed_count: failed_components.len(),
             });
         }
 
-        info!("Graceful shutdown sequence completed successfully - all components shut down cleanly");
+        info!(
+            "Graceful shutdown sequence completed successfully - all components shut down cleanly"
+        );
         Ok(())
     }
 }
@@ -608,9 +731,9 @@ impl Default for ShutdownCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::timeout;
-    use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig};
     use adapteros_core::B3Hash;
+    use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig};
+    use tokio::time::timeout;
 
     fn init_test_executor() {
         let manifest_hash = B3Hash::hash(b"test-manifest");
@@ -640,19 +763,15 @@ mod tests {
         let mut coordinator = ShutdownCoordinator::new();
 
         // Register a simple test task using deterministic spawn
-        let handle = adapteros_deterministic_exec::spawn_deterministic(
-            "test_task".to_string(),
-            async {
+        let handle =
+            adapteros_deterministic_exec::spawn_deterministic("test_task".to_string(), async {
                 tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        ).expect("Failed to spawn test task");
+            })
+            .expect("Failed to spawn test task");
         coordinator.register_task(handle);
 
         // Test shutdown completes
-        let result = timeout(
-            Duration::from_secs(5),
-            coordinator.shutdown()
-        ).await;
+        let result = timeout(Duration::from_secs(5), coordinator.shutdown()).await;
 
         assert!(result.is_ok());
         assert!(result.unwrap().is_ok());
@@ -697,8 +816,9 @@ mod tests {
                 format!("test_task_{}", i),
                 async {
                     tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            ).expect("Failed to spawn test task");
+                },
+            )
+            .expect("Failed to spawn test task");
             coordinator.register_task(handle);
         }
 
@@ -714,10 +834,7 @@ mod tests {
         coordinator.set_federation_handle(mock_federation);
 
         // Test shutdown completes with all components
-        let result = timeout(
-            Duration::from_secs(5),
-            coordinator.shutdown()
-        ).await;
+        let result = timeout(Duration::from_secs(5), coordinator.shutdown()).await;
 
         assert!(result.is_ok());
         assert!(result.unwrap().is_ok());

@@ -333,7 +333,7 @@ pub async fn load_domain_adapter(
     // Use lifecycle manager if available
     if let Some(ref lifecycle) = state.lifecycle_manager {
         let mut manager = lifecycle.lock().await;
-        
+
         // Load adapter (updates internal state only)
         manager.get_or_reload(&adapter_id).map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to load adapter via lifecycle manager");
@@ -346,11 +346,14 @@ pub async fn load_domain_adapter(
                 ),
             )
         })?;
-        
+
         // Update state (handles DB update if db is set)
         if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
             use adapteros_lora_lifecycle::AdapterState;
-            if let Err(e) = manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await {
+            if let Err(e) = manager
+                .update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api")
+                .await
+            {
                 error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state via lifecycle manager");
                 // Fallback: update DB state directly
                 state

@@ -181,7 +181,7 @@ pub async fn versioning_middleware(req: Request, next: Next) -> Response {
 
     // Check status before borrowing headers
     let status = response.status();
-    
+
     // Add version headers to response
     let headers = response.headers_mut();
 

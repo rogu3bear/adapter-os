@@ -705,35 +705,23 @@ pub async fn dev_bypass_handler(
 
     // Generate proper JWT token (same as login handler, not hardcoded)
     let token = if state.use_ed25519 {
-        generate_token_ed25519(
-            &user_id,
-            &email,
-            &role,
-            &tenant_id,
-            &state.ed25519_keypair,
-        )
-        .map_err(|e| {
-            warn!(error = %e, "Failed to generate dev bypass token");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-            )
-        })?
+        generate_token_ed25519(&user_id, &email, &role, &tenant_id, &state.ed25519_keypair)
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate dev bypass token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?
     } else {
-        crate::auth::generate_token(
-            &user_id,
-            &email,
-            &role,
-            &tenant_id,
-            &state.jwt_secret,
-        )
-        .map_err(|e| {
-            warn!(error = %e, "Failed to generate dev bypass token");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-            )
-        })?
+        crate::auth::generate_token(&user_id, &email, &role, &tenant_id, &state.jwt_secret)
+            .map_err(|e| {
+                warn!(error = %e, "Failed to generate dev bypass token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            })?
     };
 
     // Decode to get jti and exp for session creation

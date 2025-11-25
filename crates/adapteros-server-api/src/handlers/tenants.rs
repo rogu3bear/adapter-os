@@ -171,24 +171,28 @@ pub async fn set_default_stack(
     // Allow any authenticated user to set default stack (they can only set for their own tenant)
     // In production, you might want to add tenant_id validation from claims
 
-    state.db.set_default_stack(&tenant_id, &req.stack_id).await.map_err(|e| {
-        let error_str = e.to_string();
-        if error_str.contains("not found") {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Stack not found for tenant").with_code("NOT_FOUND")),
-            )
-        } else {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(error_str),
-                ),
-            )
-        }
-    })?;
+    state
+        .db
+        .set_default_stack(&tenant_id, &req.stack_id)
+        .await
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("not found") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("Stack not found for tenant").with_code("NOT_FOUND")),
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(error_str),
+                    ),
+                )
+            }
+        })?;
 
     // Audit log: default stack set
     let _ = crate::audit_helper::log_success(
@@ -227,16 +231,20 @@ pub async fn clear_default_stack(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Allow any authenticated user to clear default stack
 
-    state.db.clear_default_stack(&tenant_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .clear_default_stack(&tenant_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Audit log: default stack cleared
     let _ = crate::audit_helper::log_success(

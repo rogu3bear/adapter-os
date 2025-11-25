@@ -43,14 +43,13 @@ struct TutorialsConfig {
 static TUTORIALS_JSON: &str = include_str!("../../../../shared/tutorials.json");
 
 static TUTORIAL_DEFINITIONS: Lazy<Vec<TutorialDefinition>> = Lazy::new(|| {
-    let config: TutorialsConfig = serde_json::from_str(TUTORIALS_JSON)
-        .expect("Failed to parse shared/tutorials.json");
+    let config: TutorialsConfig =
+        serde_json::from_str(TUTORIALS_JSON).expect("Failed to parse shared/tutorials.json");
     config.tutorials
 });
 
-static VALID_TUTORIAL_IDS: Lazy<Vec<String>> = Lazy::new(|| {
-    TUTORIAL_DEFINITIONS.iter().map(|t| t.id.clone()).collect()
-});
+static VALID_TUTORIAL_IDS: Lazy<Vec<String>> =
+    Lazy::new(|| TUTORIAL_DEFINITIONS.iter().map(|t| t.id.clone()).collect());
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TutorialResponse {

@@ -276,10 +276,10 @@ impl RetryExecutor {
     pub async fn execute<F, Fut, T>(
         &self,
         mut operation: F,
-    ) -> std::result::Result<T, anyhow::Error>
+    ) -> std::result::Result<T, AosError>
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output = std::result::Result<T, anyhow::Error>>,
+        Fut: Future<Output = std::result::Result<T, AosError>>,
     {
         let mut attempt = 0u32;
         let mut delay = self.config.initial_delay;
@@ -324,10 +324,10 @@ impl RetryExecutor {
     pub async fn execute_with_progress<F, Fut, T, P>(
         &self,
         mut operation: P,
-    ) -> std::result::Result<T, anyhow::Error>
+    ) -> std::result::Result<T, AosError>
     where
         P: FnMut(u32, u32) -> F,
-        F: Future<Output = std::result::Result<T, anyhow::Error>>,
+        F: Future<Output = std::result::Result<T, AosError>>,
     {
         let mut attempt = 0u32;
         let mut delay = self.config.initial_delay;
