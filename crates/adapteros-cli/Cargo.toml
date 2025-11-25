@@ -71,7 +71,7 @@ hyper-util = "0.1"
 tower = "0.4"
 once_cell = "1.19"
 uuid = { version = "1.6", features = ["v4", "serde"] }
-rusqlite = "0.31"
+rusqlite = "0.37"
 tokenizers = "0.15"
 
 [target.'cfg(target_os = "macos")'.dependencies]
