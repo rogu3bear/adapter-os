@@ -102,9 +102,9 @@ impl UnifiedSafeTensorsLoader {
             let mut names_ptrs: Vec<*const std::os::raw::c_char> = vec![std::ptr::null(); 512];
             let num = crate::mlx_weights_list(weights, names_ptrs.as_mut_ptr(), 512);
 
-            for i in 0..(num as usize).min(512) {
-                if !names_ptrs[i].is_null() {
-                    let name = std::ffi::CStr::from_ptr(names_ptrs[i])
+            for name_ptr in names_ptrs.iter().take((num as usize).min(512)) {
+                if !name_ptr.is_null() {
+                    let name = std::ffi::CStr::from_ptr(*name_ptr)
                         .to_string_lossy()
                         .into_owned();
 

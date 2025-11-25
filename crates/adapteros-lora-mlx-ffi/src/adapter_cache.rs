@@ -134,6 +134,7 @@ impl MLXAdapterCache {
                     stats.evictions += 1;
                     tracing::info!(
                         evicted_id = lru_id,
+                        evicted_adapter = evicted.adapter_id,
                         freed_mb = evicted.size_bytes / (1024 * 1024),
                         "LRU adapter evicted"
                     );

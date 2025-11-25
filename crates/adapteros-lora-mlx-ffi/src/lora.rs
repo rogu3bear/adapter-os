@@ -162,8 +162,13 @@ impl LoRAAdapter {
         let path = path.as_ref();
 
         // Load safetensors file
-        let data = std::fs::read(path)
-            .map_err(|e| AosError::Io(format!("Failed to read LoRA file {}: {}", path.display(), e)))?;
+        let data = std::fs::read(path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read LoRA file {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
 
         let tensors = safetensors::SafeTensors::deserialize(&data)
             .map_err(|e| AosError::Validation(format!("Failed to parse safetensors: {}", e)))?;
@@ -204,14 +209,15 @@ impl LoRAAdapter {
 }
 
 /// Convert safetensors tensor view to nested Vec<Vec<f32>>
-fn tensor_to_nested_vec(
-    tensor: &safetensors::tensor::TensorView,
-) -> Result<Vec<Vec<f32>>> {
+fn tensor_to_nested_vec(tensor: &safetensors::tensor::TensorView) -> Result<Vec<Vec<f32>>> {
     let shape = tensor.shape();
     let data = tensor.data();
 
     if shape.len() != 2 {
-        return Err(AosError::Validation(format!("Expected 2D tensor, got shape {:?}", shape)));
+        return Err(AosError::Validation(format!(
+            "Expected 2D tensor, got shape {:?}",
+            shape
+        )));
     }
 
     let rows = shape[0];

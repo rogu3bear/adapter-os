@@ -3,12 +3,12 @@
 //! This module demonstrates how to verify FFI linkage and provides
 //! example code for validating attention operations.
 
+use adapteros_core::Result;
 use adapteros_lora_mlx_ffi::{
     attention::{mlx_rope, mlx_scaled_dot_product_attention, AttentionConfig, RoPEFrequencies},
     kv_cache::{KVCacheConfig, MLXKVCache},
     tensor::MLXFFITensor,
 };
-use adapteros_core::Result;
 
 // ============================================================================
 // Example 1: Basic KV Cache FFI Usage

@@ -324,7 +324,7 @@ impl MLXMemoryPool {
         self.check_memory_pressure()?;
 
         // Calculate number of f32 elements needed
-        let num_elements = (size + std::mem::size_of::<f32>() - 1) / std::mem::size_of::<f32>();
+        let num_elements = size.div_ceil(std::mem::size_of::<f32>());
 
         // Allocate the buffer data
         let data = vec![0.0f32; num_elements];

@@ -82,12 +82,14 @@ impl Default for GenerationConfig {
 #[derive(Debug)]
 pub struct KVCache {
     /// Cache per layer: layer_idx -> (key_cache, value_cache)
-    layer_caches: HashMap<usize, (Vec<Vec<f32>>, Vec<Vec<f32>>)>,
+    layer_caches: HashMap<usize, LayerCache>,
     /// Number of cached positions
     cached_positions: usize,
     /// Maximum cache size (positions)
     max_size: usize,
 }
+
+type LayerCache = (Vec<Vec<f32>>, Vec<Vec<f32>>);
 
 impl KVCache {
     /// Create a new KV cache
@@ -123,7 +125,7 @@ impl KVCache {
     }
 
     /// Get cached key/value for a layer
-    pub fn get(&self, layer_idx: usize) -> Option<&(Vec<Vec<f32>>, Vec<Vec<f32>>)> {
+    pub fn get(&self, layer_idx: usize) -> Option<&LayerCache> {
         self.layer_caches.get(&layer_idx)
     }
 
@@ -434,9 +436,8 @@ impl MLXGenerator {
 
         // Zero out probabilities outside top-k
         let mut filtered = vec![0.0; probs.len()];
-        for i in 0..k.min(indexed_probs.len()) {
-            let (idx, prob) = indexed_probs[i];
-            filtered[idx] = prob;
+        for (idx, prob) in indexed_probs.iter().take(k.min(indexed_probs.len())) {
+            filtered[*idx] = *prob;
         }
 
         // Renormalize
@@ -468,9 +469,8 @@ impl MLXGenerator {
 
         // Zero out probabilities outside nucleus
         let mut filtered = vec![0.0; probs.len()];
-        for i in 0..cutoff_idx {
-            let (idx, prob) = indexed_probs[i];
-            filtered[idx] = prob;
+        for (idx, prob) in indexed_probs.iter().take(cutoff_idx) {
+            filtered[*idx] = *prob;
         }
 
         // Renormalize

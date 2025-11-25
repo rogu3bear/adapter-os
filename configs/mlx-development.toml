@@ -1,0 +1,20 @@
+# AdapterOS MLX development config
+# Uses real MLX backend with a local 4-bit quantized model for Apple Silicon dev machines.
+
+[server]
+backend = "mlx"
+production_mode = false
+
+[mlx]
+enabled = true
+model_path = "./models/qwen2.5-7b-mlx"
+precision = "float16"
+max_memory_mb = 12000
+circuit_breaker_timeout_secs = 300
+
+[telemetry]
+enabled = true
+streaming = true
+
+[security]
+jwt_mode = "eddsa"

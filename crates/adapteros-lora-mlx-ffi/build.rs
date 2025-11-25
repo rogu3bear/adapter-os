@@ -135,11 +135,6 @@ fn find_mlx_with_version() -> Option<(PathBuf, PathBuf, String)> {
     None
 }
 
-/// Legacy function for compatibility
-fn find_mlx() -> Option<(PathBuf, PathBuf)> {
-    find_mlx_with_version().map(|(inc, lib, _)| (inc, lib))
-}
-
 /// Try to find MLX using pkg-config with version detection
 fn find_mlx_via_pkg_config() -> Option<(PathBuf, PathBuf, String)> {
     // First, try to get version
@@ -292,11 +287,11 @@ fn get_dylib_version(dylib_path: &Path) -> Option<String> {
             let stdout = String::from_utf8_lossy(&output.stdout);
             // Parse version from library path if available
             for line in stdout.lines() {
-                if let Some(version_part) = line.split('/').last() {
+                if let Some(version_part) = line.split('/').next_back() {
                     if version_part.contains(".dylib") {
                         // Try to extract version number from line
                         if let Some(caps) = version_part.split('.').next() {
-                            if let Some(v) = caps.split('_').last() {
+                            if let Some(v) = caps.split('_').next_back() {
                                 return Some(v.to_string());
                             }
                         }

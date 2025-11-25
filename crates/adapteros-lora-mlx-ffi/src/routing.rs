@@ -187,10 +187,8 @@ pub fn compute_adapter_score(
     };
 
     // Weighted combination
-    let final_score = base_score * 0.3
-        + language_score * 0.4
-        + framework_score * 0.2
-        + tier_boost * 0.1;
+    let final_score =
+        base_score * 0.3 + language_score * 0.4 + framework_score * 0.2 + tier_boost * 0.1;
 
     debug!(
         adapter_id = %adapter.id(),
@@ -213,7 +211,8 @@ fn compute_language_affinity(config: &crate::lora::LoRAConfig, input_features: &
     }
 
     // Get language one-hot from features [0..8]
-    let language_features = &input_features[FEATURE_LANGUAGE_START..FEATURE_LANGUAGE_END.min(input_features.len())];
+    let language_features =
+        &input_features[FEATURE_LANGUAGE_START..FEATURE_LANGUAGE_END.min(input_features.len())];
 
     // Find max activation in input (detected language)
     let (detected_lang, max_activation) = language_features
@@ -436,9 +435,12 @@ mod tests {
 
     #[test]
     fn test_compute_adapter_score_tier_boost() {
-        let persistent = create_adapter_with_metadata("persistent", 4, vec![], None, Some("persistent"));
-        let ephemeral = create_adapter_with_metadata("ephemeral", 4, vec![], None, Some("ephemeral"));
-        let experimental = create_adapter_with_metadata("experimental", 4, vec![], None, Some("experimental"));
+        let persistent =
+            create_adapter_with_metadata("persistent", 4, vec![], None, Some("persistent"));
+        let ephemeral =
+            create_adapter_with_metadata("ephemeral", 4, vec![], None, Some("ephemeral"));
+        let experimental =
+            create_adapter_with_metadata("experimental", 4, vec![], None, Some("experimental"));
 
         let features = create_feature_vector(7, [0.0, 0.0, 0.0]); // "Other" language
 

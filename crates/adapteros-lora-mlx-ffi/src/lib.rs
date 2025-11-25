@@ -167,7 +167,7 @@ pub fn mlx_sample_token_safe(
         ));
     }
 
-    if top_p < 0.0 || top_p > 1.0 {
+    if !(0.0..=1.0).contains(&top_p) {
         return Err(AosError::Validation(
             "top_p must be in range [0.0, 1.0]".to_string(),
         ));
@@ -1678,24 +1678,22 @@ pub fn mlx_ensure_initialized(auto_init: bool) -> Result<()> {
 ///
 /// # Safety
 /// The array pointer must be valid and non-null.
-pub fn mlx_force_eval(array: *mut mlx_array_t) -> Result<()> {
+pub unsafe fn mlx_force_eval(array: *mut mlx_array_t) -> Result<()> {
     if array.is_null() {
         return Err(AosError::Internal("Cannot evaluate null array".to_string()));
     }
 
-    unsafe {
-        mlx_clear_error();
-        mlx_eval(array);
+    mlx_clear_error();
+    mlx_eval(array);
 
-        let error_msg = mlx_get_last_error();
-        if !error_msg.is_null() {
-            let error_str = std::ffi::CStr::from_ptr(error_msg)
-                .to_string_lossy()
-                .to_string();
-            if !error_str.is_empty() {
-                mlx_clear_error();
-                return Err(AosError::Mlx(format!("Evaluation failed: {}", error_str)));
-            }
+    let error_msg = mlx_get_last_error();
+    if !error_msg.is_null() {
+        let error_str = std::ffi::CStr::from_ptr(error_msg)
+            .to_string_lossy()
+            .to_string();
+        if !error_str.is_empty() {
+            mlx_clear_error();
+            return Err(AosError::Mlx(format!("Evaluation failed: {}", error_str)));
         }
     }
 

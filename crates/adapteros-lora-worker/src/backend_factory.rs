@@ -380,9 +380,8 @@ fn create_mlx_backend(
 
     // Ensure MLX runtime is initialized
     if !mlx_runtime_is_initialized() {
-        mlx_runtime_init().map_err(|e| {
-            AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
-        })?;
+        mlx_runtime_init()
+            .map_err(|e| AosError::Config(format!("Failed to initialize MLX runtime: {}", e)))?;
     }
 
     // Load the model
@@ -396,9 +395,14 @@ fn create_mlx_backend(
     // Create backend with or without manifest hash for deterministic seeding
     let backend: Box<dyn FusedKernels> = if let Some(hash) = manifest_hash {
         info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
-        Box::new(MLXFFIBackend::with_manifest_hash(model, hash.clone()).map_err(|e| {
-            AosError::Config(format!("Failed to create MLX backend with manifest hash: {}", e))
-        })?)
+        Box::new(
+            MLXFFIBackend::with_manifest_hash(model, hash.clone()).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to create MLX backend with manifest hash: {}",
+                    e
+                ))
+            })?,
+        )
     } else {
         Box::new(MLXFFIBackend::new(model))
     };

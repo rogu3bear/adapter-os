@@ -615,7 +615,7 @@ impl Router {
     ///
     /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for complete migration steps.
     #[deprecated(
-        since = "0.01.1",
+        since = "0.1.1",
         note = "Use route_with_adapter_info() for per-adapter scoring"
     )]
     pub fn route(&mut self, features: &[f32], priors: &[f32]) -> Decision {
@@ -894,7 +894,7 @@ impl Router {
     ///
     /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for migration steps.
     #[deprecated(
-        since = "0.01.1",
+        since = "0.1.1",
         note = "Use route_with_adapter_info() for proper k0 detection"
     )]
     pub fn route_with_k0_detection(&mut self, features: &[f32], priors: &[f32]) -> Decision {

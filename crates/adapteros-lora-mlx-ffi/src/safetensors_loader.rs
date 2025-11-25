@@ -215,7 +215,7 @@ impl SafetensorsLoader {
     }
 
     /// Load multiple tensors efficiently
-    pub fn load_tensors(&self, names: &[&str]) -> Result<HashMap<String, (Vec<f32>, Vec<i32>)>> {
+    pub fn load_tensors(&self, names: &[&str]) -> Result<HashMap<String, TensorData>> {
         let mut result = HashMap::new();
         for name in names {
             let (data, shape) = self.load_tensor_as_f32(name)?;
@@ -252,7 +252,7 @@ impl SafetensorsLoader {
             "int8" | "I8" => 1,
             "int4" | "I4" => {
                 // INT4 is packed: 2 values per byte
-                return Ok((element_count + 1) / 2);
+                return Ok(element_count.div_ceil(2));
             }
             _ => return Err(AosError::Validation(format!("Unknown dtype: {}", dtype))),
         };
@@ -269,6 +269,8 @@ struct TensorDescription {
     /// Tensor shape
     pub shape: Vec<i32>,
 }
+
+type TensorData = (Vec<f32>, Vec<i32>);
 
 /// Summary of safetensors file contents
 #[derive(Debug, Clone)]

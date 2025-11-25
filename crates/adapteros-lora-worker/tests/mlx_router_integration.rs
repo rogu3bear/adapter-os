@@ -261,9 +261,9 @@ fn test_q15_single_adapter_full_weight() {
 fn test_q15_multi_adapter_proportional_blend() {
     // Three adapters with gates 0.5, 0.3, 0.2
     let gates = [
-        encode_q15(0.5),  // 16384
-        encode_q15(0.3),  // 9830
-        encode_q15(0.2),  // 6553
+        encode_q15(0.5), // 16384
+        encode_q15(0.3), // 9830
+        encode_q15(0.2), // 6553
     ];
 
     let decision = make_decision(&[0, 1, 2], &gates, 0.5);
@@ -303,11 +303,7 @@ fn test_q15_zero_gate_identification() {
     let ring = decision_to_router_ring(&decision, 100).unwrap();
 
     // Only indices 0 and 2 should be active (gates > 0)
-    let active_count = ring
-        .active_gates()
-        .iter()
-        .filter(|&&g| g > 0)
-        .count();
+    let active_count = ring.active_gates().iter().filter(|&&g| g > 0).count();
     assert_eq!(
         active_count, 2,
         "Should have 2 active adapters (gates > 0), got {}",
@@ -330,18 +326,14 @@ fn test_q15_negative_gate_handling() {
     assert_eq!(ring.k, 2);
 
     // Negative gate at index 1 should be preserved
-    assert_eq!(ring.gates_q15[0], 32767, "First gate should be max positive");
     assert_eq!(
-        ring.gates_q15[1], -16384,
-        "Second gate should be negative"
+        ring.gates_q15[0], 32767,
+        "First gate should be max positive"
     );
+    assert_eq!(ring.gates_q15[1], -16384, "Second gate should be negative");
 
     // Count positive gates (what would be used in inference)
-    let positive_count = ring
-        .active_gates()
-        .iter()
-        .filter(|&&g| g > 0)
-        .count();
+    let positive_count = ring.active_gates().iter().filter(|&&g| g > 0).count();
     assert_eq!(positive_count, 1, "Only 1 positive gate should be active");
 }
 
@@ -469,9 +461,9 @@ fn test_q15_equal_weight_distribution() {
 fn test_q15_dominant_adapter_weight() {
     // One dominant adapter with 80% weight
     let gates = [
-        encode_q15(0.8),   // Dominant
-        encode_q15(0.15),  // Secondary
-        encode_q15(0.05),  // Minor
+        encode_q15(0.8),  // Dominant
+        encode_q15(0.15), // Secondary
+        encode_q15(0.05), // Minor
     ];
 
     let decision = make_decision(&[0, 1, 2], &gates, 0.3);
@@ -572,10 +564,10 @@ fn test_q15_deterministic_ring_creation() {
 fn test_q15_weight_ordering_preserved() {
     // Weight ordering should be preserved (not sorted)
     let gates = [
-        encode_q15(0.1),  // Smallest
-        encode_q15(0.5),  // Largest
-        encode_q15(0.3),  // Medium
-        encode_q15(0.1),  // Smallest (tied)
+        encode_q15(0.1), // Smallest
+        encode_q15(0.5), // Largest
+        encode_q15(0.3), // Medium
+        encode_q15(0.1), // Smallest (tied)
     ];
 
     let decision = make_decision(&[0, 1, 2, 3], &gates, 0.5);
@@ -584,22 +576,10 @@ fn test_q15_weight_ordering_preserved() {
     // Verify order matches input (not sorted by weight)
     let weights: Vec<f32> = ring.active_gates().iter().map(|&g| decode_q15(g)).collect();
 
-    assert!(
-        (weights[0] - 0.1).abs() < 0.01,
-        "First should be 0.1"
-    );
-    assert!(
-        (weights[1] - 0.5).abs() < 0.01,
-        "Second should be 0.5"
-    );
-    assert!(
-        (weights[2] - 0.3).abs() < 0.01,
-        "Third should be 0.3"
-    );
-    assert!(
-        (weights[3] - 0.1).abs() < 0.01,
-        "Fourth should be 0.1"
-    );
+    assert!((weights[0] - 0.1).abs() < 0.01, "First should be 0.1");
+    assert!((weights[1] - 0.5).abs() < 0.01, "Second should be 0.5");
+    assert!((weights[2] - 0.3).abs() < 0.01, "Third should be 0.3");
+    assert!((weights[3] - 0.1).abs() < 0.01, "Fourth should be 0.1");
 }
 
 // ========================================================================
@@ -921,9 +901,9 @@ mod e2e_mlx_tests {
 
         // Create decision with specific Q15 gates
         let gates_q15: [i16; 3] = [
-            encode_q15(0.6),  // ~19660
-            encode_q15(0.3),  // ~9830
-            encode_q15(0.1),  // ~3277
+            encode_q15(0.6), // ~19660
+            encode_q15(0.3), // ~9830
+            encode_q15(0.1), // ~3277
         ];
         let decision = make_decision(&[0, 1, 2], &gates_q15, 0.5);
         let ring = decision_to_router_ring(&decision, 10).unwrap();

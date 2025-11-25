@@ -105,7 +105,7 @@ impl MLXQuantizer {
             return Err(AosError::Validation("Group size must be > 0".to_string()));
         }
 
-        let num_groups = (data.len() + group_size - 1) / group_size;
+        let num_groups = data.len().div_ceil(group_size);
         let mut quantized_data = Vec::with_capacity(data.len());
         let mut scales = Vec::with_capacity(num_groups);
 
@@ -179,8 +179,8 @@ impl MLXQuantizer {
             return Err(AosError::Validation("Group size must be > 0".to_string()));
         }
 
-        let num_groups = (data.len() + group_size - 1) / group_size;
-        let mut quantized_data = Vec::with_capacity((data.len() + 1) / 2);
+        let num_groups = data.len().div_ceil(group_size);
+        let mut quantized_data = Vec::with_capacity(data.len().div_ceil(2));
         let mut scales = Vec::with_capacity(num_groups);
 
         // Quantize in groups
@@ -280,7 +280,7 @@ impl MLXQuantizer {
             let elements_in_this_group = group_end_idx - group_start_idx;
 
             let byte_start = group_start_idx / 2;
-            let byte_end = std::cmp::min((group_end_idx + 1) / 2, tensor.data.len());
+            let byte_end = std::cmp::min(group_end_idx.div_ceil(2), tensor.data.len());
 
             for byte_idx in byte_start..byte_end {
                 let byte = tensor.data[byte_idx];
@@ -400,6 +400,12 @@ impl MLXQuantizer {
 pub struct WeightCompressor {
     /// Cached quantization metadata by tensor name
     metadata_cache: HashMap<String, QuantizationMetadata>,
+}
+
+impl Default for WeightCompressor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WeightCompressor {

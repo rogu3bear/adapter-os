@@ -28,6 +28,7 @@ pub struct AttentionConfig {
 impl AttentionConfig {
     /// Create attention config from hidden size and number of heads
     pub fn new(hidden_size: usize, num_heads: usize, causal_mask: bool) -> Result<Self> {
+        #[allow(clippy::manual_is_multiple_of)]
         if hidden_size % num_heads != 0 {
             return Err(AosError::Validation(format!(
                 "hidden_size ({}) must be divisible by num_heads ({})",
