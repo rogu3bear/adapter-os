@@ -127,6 +127,9 @@ stub-backends = ["mlx-backend"]  # All stub implementations
 multi-backend = ["mlx-backend"]  # Alias for development backends
 full = ["telemetry", "metrics", "replay"]
 no-metal = []  # Explicitly disable Metal (for Linux/CI)
+# Production-oriented profiles (macOS)
+production-macos = ["coreml-backend", "metal-backend", "multi-backend", "real-mlx"]
+dev-macos-real = ["coreml-backend", "metal-backend", "multi-backend", "real-mlx"]
 
 # Testing features - used in 157+ test files and test infrastructure
 extended-tests = []  # Extended test suite with intensive tests

@@ -3,6 +3,7 @@
 # This is your pre-service launch panel for the entire system
 
 set -e  # Exit on any error
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors for beautiful output
 RED='\033[0;31m'
@@ -14,6 +15,16 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
+# Shared helpers
+PORT_GUARD_SCRIPT="$SCRIPT_DIR/scripts/port-guard.sh"
+if [ -f "$PORT_GUARD_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$PORT_GUARD_SCRIPT"
+else
+    echo "[WARN] Port guard script missing at $PORT_GUARD_SCRIPT; port cleanup will be manual."
+    ensure_port_free() { return 0; }
+fi
+
 # Configuration
 PROJECT_NAME="AdapterOS"
 LAUNCH_BANNER="${PURPLE}
@@ -22,6 +33,8 @@ LAUNCH_BANNER="${PURPLE}
 ║                 Single Command System Startup                      ║
 ╚══════════════════════════════════════════════════════════════╝${NC}
 "
+SERVICE_MANAGER="$SCRIPT_DIR/scripts/service-manager.sh"
+GRACEFUL_SHUTDOWN="$SCRIPT_DIR/scripts/graceful-shutdown.sh"
 
 # Function to print status messages
 status_msg() {
@@ -38,84 +51,6 @@ error_msg() {
 
 warning_msg() {
     echo -e "${YELLOW}⚠️  ${1}${NC}"
-}
-
-# Function to check if port is available
-check_port() {
-    local port=$1
-    local service_name=$2
-    if lsof -i :$port >/dev/null 2>&1; then
-        warning_msg "$service_name port $port is already in use"
-        return 1
-    fi
-    return 0
-}
-
-# Function to kill processes using a port (only AdapterOS processes)
-kill_port_processes() {
-    local port=$1
-    local service_name=$2
-
-    # Find PIDs using the port
-    local pids=$(lsof -t -i :$port 2>/dev/null)
-    if [ -z "$pids" ]; then
-        return 0
-    fi
-
-    # Filter to only AdapterOS-related processes for safety
-    local adapteros_pids=""
-    for pid in $pids; do
-        local cmd=$(ps -p $pid -o comm= 2>/dev/null)
-        if echo "$cmd" | grep -qiE "(adapteros|node|pnpm|vite|react)" || \
-           ps -p $pid -o command= 2>/dev/null | grep -qiE "(adapteros|pnpm.*dev|vite)"; then
-            adapteros_pids="$adapteros_pids $pid"
-        fi
-    done
-
-    # If no AdapterOS processes found, ask for confirmation
-    if [ -z "$adapteros_pids" ]; then
-        warning_msg "Port $port has non-AdapterOS processes. Not killing them automatically."
-        warning_msg "Please manually stop processes on port $port, or run with --force flag"
-        return 1
-    fi
-
-    warning_msg "Stopping existing AdapterOS processes on port $port ($service_name)..."
-
-    # Kill each AdapterOS PID gracefully
-    for pid in $adapteros_pids; do
-        local cmd=$(ps -p $pid -o command= 2>/dev/null | head -c 60)
-        if kill -TERM $pid 2>/dev/null; then
-            status_msg "Stopping PID $pid ($cmd...)"
-        fi
-    done
-
-    # Wait up to 5 seconds for processes to die
-    local attempts=0
-    while [ $attempts -lt 5 ]; do
-        if ! lsof -i :$port >/dev/null 2>&1; then
-            success_msg "Port $port is now free"
-            return 0
-        fi
-        sleep 1
-        attempts=$((attempts + 1))
-    done
-
-    # If still not free, try force kill
-    warning_msg "Processes still running, trying force kill..."
-    for pid in $pids; do
-        if kill -9 $pid 2>/dev/null; then
-            status_msg "Force killed PID $pid"
-        fi
-    done
-
-    sleep 2
-    if lsof -i :$port >/dev/null 2>&1; then
-        error_msg "Could not free port $port"
-        return 1
-    else
-        success_msg "Port $port is now free"
-        return 0
-    fi
 }
 
 # Function to wait for service to be ready
@@ -204,17 +139,13 @@ launch_system() {
     fi
 
     # Check and free ports
-    if ! check_port 8080 "Backend API"; then
-        if ! kill_port_processes 8080 "Backend API"; then
-            error_msg "Cannot free port 8080. Please kill conflicting processes manually."
-            exit 1
-        fi
+    if ! ensure_port_free 8080 "Backend API"; then
+        error_msg "Cannot free port 8080. Please stop conflicting processes manually."
+        exit 1
     fi
 
-    if ! check_port 3200 "Web UI"; then
-        if ! kill_port_processes 3200 "Web UI"; then
-            warning_msg "Cannot free port 3200. UI may not start properly."
-        fi
+    if ! ensure_port_free 3200 "Web UI"; then
+        warning_msg "Cannot free port 3200. UI may not start properly."
     fi
 
     success_msg "Pre-flight checks complete"
@@ -225,7 +156,7 @@ launch_system() {
 
     # 1. Start Backend (most critical)
     status_msg "Starting Backend Server on port 8080..."
-    if ./scripts/service-manager.sh start backend; then
+    if "$SERVICE_MANAGER" start backend; then
         success_msg "Backend Server process started"
 
         # Wait for backend to be ready - verify HTTP response
@@ -255,7 +186,7 @@ launch_system() {
 
     # 2. Start Web UI
     status_msg "Starting Web Dashboard on port 3200..."
-    if ./scripts/service-manager.sh start ui; then
+    if "$SERVICE_MANAGER" start ui; then
         success_msg "Web Dashboard started"
 
         # Wait a bit for UI to initialize
@@ -275,7 +206,7 @@ launch_system() {
     # 3. Start Menu Bar App (macOS only)
     if [[ "$OSTYPE" == "darwin"* ]]; then
         status_msg "Starting Menu Bar Status App..."
-        if ./scripts/service-manager.sh start menu-bar; then
+        if "$SERVICE_MANAGER" start menu-bar; then
             success_msg "Menu Bar App started"
         else
             warning_msg "Menu Bar App failed to start (optional)"
@@ -286,7 +217,7 @@ launch_system() {
     # Final status check
     echo ""
     status_msg "System launch complete!"
-    ./scripts/service-manager.sh status
+    "$SERVICE_MANAGER" status
 
     echo ""
     show_access_info
@@ -297,10 +228,10 @@ launch_system() {
     # Wait for user interrupt to stop everything gracefully
     cleanup_and_exit() {
         echo -e "\n${YELLOW}Shutting down all services gracefully...${NC}"
-        if [ -f "./scripts/graceful-shutdown.sh" ]; then
-            ./scripts/graceful-shutdown.sh graceful
+        if [ -f "$GRACEFUL_SHUTDOWN" ]; then
+            "$GRACEFUL_SHUTDOWN" graceful
         else
-            ./scripts/service-manager.sh stop all graceful
+            "$SERVICE_MANAGER" stop all graceful
         fi
         echo -e "${GREEN}All services stopped. Goodbye! 👋${NC}"
         exit 0
@@ -313,7 +244,7 @@ launch_system() {
         sleep 30
         echo -e "\n${BLUE}════════════════════════════════════════════════${NC}"
         echo -e "${BLUE}System Status Check (Ctrl+C to stop all):${NC}"
-        ./scripts/service-manager.sh status | grep -E "(✅|❌)" || true
+        "$SERVICE_MANAGER" status | grep -E "(✅|❌)" || true
         echo -e "${BLUE}════════════════════════════════════════════════${NC}"
     done
 }
@@ -326,15 +257,15 @@ case "${1:-}" in
         ;;
     "status")
         # Show status
-        ./scripts/service-manager.sh status
+        "$SERVICE_MANAGER" status
         ;;
     "stop")
         # Stop all services
         local mode="${2:-graceful}"
-        if [ -f "./scripts/graceful-shutdown.sh" ]; then
-            ./scripts/graceful-shutdown.sh "$mode"
+        if [ -f "$GRACEFUL_SHUTDOWN" ]; then
+            "$GRACEFUL_SHUTDOWN" "$mode"
         else
-            ./scripts/service-manager.sh stop all "$mode"
+            "$SERVICE_MANAGER" stop all "$mode"
         fi
         echo -e "${GREEN}All services stopped${NC}"
         ;;
@@ -360,16 +291,16 @@ case "${1:-}" in
             export AOS_MLX_FFI_MODEL="$MODEL_PATH"
         fi
         
-        ./scripts/service-manager.sh start backend
+        "$SERVICE_MANAGER" start backend
         wait_for_service "http://localhost:8080/healthz" "Backend API"
         echo -e "${GREEN}Backend ready at http://localhost:8080${NC}"
         ;;
     "ui")
         # Launch only UI
         echo -e "${BLUE}Launching UI Only...${NC}"
-        ./scripts/service-manager.sh start backend
+        "$SERVICE_MANAGER" start backend
         wait_for_service "http://localhost:8080/healthz" "Backend API"
-        ./scripts/service-manager.sh start ui
+        "$SERVICE_MANAGER" start ui
         echo -e "${GREEN}UI ready at http://localhost:3200${NC}"
         ;;
     "help"|"-h"|"--help")

@@ -23,13 +23,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PORT_GUARD_SCRIPT="$PROJECT_ROOT/scripts/port-guard.sh"
+if [ -f "$PORT_GUARD_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$PORT_GUARD_SCRIPT"
+else
+    warn "Port guard script missing at $PORT_GUARD_SCRIPT; port cleanup will be manual."
+    ensure_port_free() { return 0; }
+fi
 
 MODEL_DIR="$PROJECT_ROOT/models"
 DB_FILE="$PROJECT_ROOT/var/aos-cp.sqlite3"
 UI_DIR="$PROJECT_ROOT/ui"
 
-API_PORT=8080
-UI_PORT=5173
+API_PORT="${AOS_SERVER_PORT:-8080}"
+UI_PORT="${AOS_UI_PORT:-3200}"
 
 # Process tracking
 SERVER_PID=""
@@ -53,6 +61,15 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+
+PORT_GUARD_SCRIPT="$PROJECT_ROOT/scripts/port-guard.sh"
+if [ -f "$PORT_GUARD_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$PORT_GUARD_SCRIPT"
+else
+    warn "Port guard script missing at $PORT_GUARD_SCRIPT; port cleanup will be manual."
+    ensure_port_free() { return 0; }
+fi
 
 # =============================================================================
 # Cleanup Handler
@@ -261,6 +278,18 @@ echo ""
 info "Starting services..."
 echo ""
 
+# Ensure ports are free
+if ! ensure_port_free "$API_PORT" "Backend API"; then
+    error "Backend port $API_PORT is occupied; aborting."
+    exit 1
+fi
+if [ "$START_UI" = true ]; then
+    if ! ensure_port_free "$UI_PORT" "Web UI"; then
+        error "UI port $UI_PORT is occupied; aborting."
+        exit 1
+    fi
+fi
+
 # Start backend
 export RUST_LOG="${RUST_LOG:-info}"
 "$SERVER_BIN" --config configs/cp.toml > /tmp/aos-server.log 2>&1 &
@@ -288,7 +317,7 @@ success "Backend running at http://localhost:$API_PORT"
 # Start UI
 if [ "$START_UI" = true ]; then
     cd "$UI_DIR"
-    pnpm dev > /tmp/aos-ui.log 2>&1 &
+    AOS_UI_PORT="$UI_PORT" pnpm dev -- --port "$UI_PORT" > /tmp/aos-ui.log 2>&1 &
     UI_PID=$!
     cd "$PROJECT_ROOT"
 

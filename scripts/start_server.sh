@@ -1,5 +1,14 @@
 #!/bin/bash
 set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PORT_GUARD_SCRIPT="$SCRIPT_DIR/port-guard.sh"
+if [ -f "$PORT_GUARD_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$PORT_GUARD_SCRIPT"
+else
+    echo "[WARN] Port guard script missing at $PORT_GUARD_SCRIPT; port cleanup will be manual."
+    ensure_port_free() { return 0; }
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -28,6 +37,7 @@ fi
 # Load environment variables
 echo -e "${BLUE}📋 Loading environment variables...${NC}"
 export $(cat .env | grep -v '^#' | xargs)
+SERVER_PORT="${AOS_SERVER_PORT:-8080}"
 
 # Extract database path from DATABASE_URL
 if [[ "$DATABASE_URL" =~ ^sqlite://(.*)$ ]]; then
@@ -97,7 +107,7 @@ echo ""
 echo -e "${BLUE}📊 Server Configuration:${NC}"
 echo "   Database:    $DB_FILE"
 echo "   Host:        ${AOS_SERVER_HOST:-127.0.0.1}"
-echo "   Port:        ${AOS_SERVER_PORT:-8080}"
+echo "   Port:        ${SERVER_PORT}"
 echo "   Environment: ${AOS_ENV:-development}"
 echo "   Log Level:   ${RUST_LOG:-info}"
 echo ""
@@ -106,10 +116,10 @@ echo ""
 echo -e "${GREEN}🚀 Starting AdapterOS server...${NC}"
 echo "======================================"
 echo -e "${BLUE}📡 Endpoints:${NC}"
-echo "   Health:  http://${AOS_SERVER_HOST:-127.0.0.1}:${AOS_SERVER_PORT:-8080}/healthz"
-echo "   Ready:   http://${AOS_SERVER_HOST:-127.0.0.1}:${AOS_SERVER_PORT:-8080}/ready"
-echo "   API:     http://${AOS_SERVER_HOST:-127.0.0.1}:${AOS_SERVER_PORT:-8080}/v1"
-echo "   Swagger: http://${AOS_SERVER_HOST:-127.0.0.1}:${AOS_SERVER_PORT:-8080}/api/docs"
+echo "   Health:  http://${AOS_SERVER_HOST:-127.0.0.1}:${SERVER_PORT}/healthz"
+echo "   Ready:   http://${AOS_SERVER_HOST:-127.0.0.1}:${SERVER_PORT}/ready"
+echo "   API:     http://${AOS_SERVER_HOST:-127.0.0.1}:${SERVER_PORT}/v1"
+echo "   Swagger: http://${AOS_SERVER_HOST:-127.0.0.1}:${SERVER_PORT}/api/docs"
 echo ""
 echo -e "${YELLOW}💡 Press Ctrl+C to stop the server${NC}"
 echo "======================================"
@@ -117,6 +127,10 @@ echo ""
 
 # Run the server
 if [ -f "$SERVER_BIN" ]; then
+    if ! ensure_port_free "$SERVER_PORT" "Backend API"; then
+        echo -e "${RED}❌ Backend port $SERVER_PORT is occupied; aborting start.${NC}"
+        exit 1
+    fi
     exec "$SERVER_BIN" --config "${AOS_CONFIG_PATH:-configs/cp.toml}"
 else
     echo -e "${RED}❌ Server binary not found at $SERVER_BIN${NC}"

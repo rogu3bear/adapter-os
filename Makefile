@@ -1,13 +1,34 @@
-.PHONY: help build test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check
+.PHONY: help build prepare test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build all crates
+build: ## Build all crates (fresh build with cleanup)
+	@echo "🧹 Performing fresh build (stopping services, cleaning ports)..."
+	./scripts/fresh-build.sh
+	@echo "🔄 Building all crates..."
 	cargo build --release --locked --offline
 	./scripts/build_metadata.sh
 	./scripts/record_env.sh
 	./scripts/strip_timestamps.sh
+	@echo "✅ Fresh build complete!"
+
+dev: ## Run control plane in dev mode (auth bypass available, no prod hardening). Set NO_AUTH=1 to disable auth middleware.
+	AOS_DEV_NO_AUTH=$(NO_AUTH) cargo run -p adapteros-server -- --config configs/cp.toml --skip_pf_check
+
+dev-no-auth: ## Run control plane in dev mode with authentication disabled (debug-only)
+	NO_AUTH=1 $(MAKE) dev
+
+prepare: ## Prepare build environment: stop services, clean ports
+	@echo "🧹 Preparing build environment (stopping services, cleaning ports)..."
+	./scripts/fresh-build.sh
+	@echo "✅ Build environment ready!"
+
+download-model: ## Download Qwen 2.5 7B Instruct model (~3.8GB)
+	@./scripts/download-model.sh
+
+check-system: ## Check system readiness before launch (preflight checks)
+	@./scripts/check-system.sh
 
 test: ## Run all tests (excluding experimental MLX FFI)
 	cargo test --workspace --exclude adapteros-lora-mlx-ffi
@@ -151,5 +172,31 @@ endif
 
 dup: ## Check for code duplication (fails on violations)
 	bash scripts/run_jscpd.sh
+
+MLX_PACKAGE ?= adapteros-lora-mlx-ffi
+MLX_FEATURES ?= multi-backend,real-mlx
+MLX_PROFILE ?= release
+
+verify-mlx-env: ## Verify MLX headers and libraries are available
+	@if [ -z "$${MLX_INCLUDE_DIR}" ] || [ -z "$${MLX_LIB_DIR}" ]; then \
+		echo "⚠️  MLX_INCLUDE_DIR or MLX_LIB_DIR not set. Set both to your MLX install (e.g., /opt/homebrew/include, /opt/homebrew/lib)."; \
+	else \
+		echo "✅ MLX_INCLUDE_DIR=$${MLX_INCLUDE_DIR}"; \
+		echo "✅ MLX_LIB_DIR=$${MLX_LIB_DIR}"; \
+		ls "$${MLX_INCLUDE_DIR}"/mlx >/dev/null 2>&1 && echo "✅ Found headers under $$MLX_INCLUDE_DIR/mlx" || echo "⚠️  Headers not found under $$MLX_INCLUDE_DIR/mlx"; \
+		ls "$${MLX_LIB_DIR}"/libmlx.* >/dev/null 2>&1 && echo "✅ Found libmlx under $$MLX_LIB_DIR" || echo "⚠️  libmlx not found under $$MLX_LIB_DIR"; \
+	fi
+
+build-mlx: ## Build with real MLX backend (CoreML/Metal + MLX)
+	$(MAKE) verify-mlx-env
+	cargo build -p $(MLX_PACKAGE) --features $(MLX_FEATURES) --profile $(MLX_PROFILE)
+
+test-mlx: ## Run MLX unit and integration tests with real backend
+	$(MAKE) verify-mlx-env
+	cargo test -p $(MLX_PACKAGE) --features $(MLX_FEATURES)
+
+bench-mlx: ## Run MLX benchmarks with real backend
+	$(MAKE) verify-mlx-env
+	cargo bench -p $(MLX_PACKAGE) --features $(MLX_FEATURES)
 
 .DEFAULT_GOAL := help

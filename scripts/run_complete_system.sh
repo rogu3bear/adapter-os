@@ -33,8 +33,8 @@ DB_PATH="${DATABASE_URL:-sqlite://$PROJECT_ROOT/var/aos-cp.sqlite3}"
 DB_FILE="$PROJECT_ROOT/var/aos-cp.sqlite3"
 
 # Server ports
-API_PORT=8080
-UI_PORT=5173
+API_PORT="${AOS_SERVER_PORT:-8080}"
+UI_PORT="${AOS_UI_PORT:-3200}"
 
 # Minimum requirements
 MIN_MEMORY_GB=16
@@ -82,6 +82,15 @@ log_header() {
     echo -e "${CYAN}${BOLD}=== $1 ===${NC}"
     echo ""
 }
+
+PORT_GUARD_SCRIPT="$PROJECT_ROOT/scripts/port-guard.sh"
+if [ -f "$PORT_GUARD_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$PORT_GUARD_SCRIPT"
+else
+    log_warn "Port guard script missing at $PORT_GUARD_SCRIPT; port cleanup will be manual."
+    ensure_port_free() { return 0; }
+fi
 
 # =============================================================================
 # Cleanup Handler
@@ -336,32 +345,15 @@ log_success "Server binary: $SERVER_BIN"
 
 log_header "Port Check"
 
-# Check if ports are available
-check_port() {
-    local port=$1
-    local name=$2
-    if lsof -i ":$port" &> /dev/null; then
-        log_warn "Port $port ($name) is in use"
-        lsof -i ":$port" | head -3
-        echo ""
-        read -p "Kill existing process? [y/N] " -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            lsof -ti ":$port" | xargs kill -9 2>/dev/null || true
-            sleep 1
-            log_success "Port $port freed"
-        else
-            log_error "Cannot start: port $port in use"
-            exit 1
-        fi
-    else
-        log_success "Port $port ($name) available"
-    fi
-}
-
-check_port $API_PORT "API Server"
+if ! ensure_port_free "$API_PORT" "API Server"; then
+    log_error "Cannot start: port $API_PORT in use (non-AdapterOS process)"
+    exit 1
+fi
 if [ "$START_UI" = true ]; then
-    check_port $UI_PORT "UI Server"
+    if ! ensure_port_free "$UI_PORT" "UI Server"; then
+        log_error "Cannot start: port $UI_PORT in use (non-AdapterOS process)"
+        exit 1
+    fi
 fi
 
 # =============================================================================
@@ -416,7 +408,7 @@ if [ "$START_UI" = true ]; then
         pnpm install --silent
     fi
 
-    pnpm dev > /tmp/adapteros-ui.log 2>&1 &
+    AOS_UI_PORT="$UI_PORT" pnpm dev -- --host 0.0.0.0 --port "$UI_PORT" > /tmp/adapteros-ui.log 2>&1 &
     UI_PID=$!
     log_info "UI server PID: $UI_PID"
 

@@ -150,7 +150,7 @@ Your environment is configured! Next steps:
 2. In another terminal, start the UI:
    cd ui && pnpm install && pnpm dev
 
-3. Access the UI at http://localhost:5173
+3. Access the UI at http://localhost:3200
 
 ✅ Setup complete. Happy coding!
 ```

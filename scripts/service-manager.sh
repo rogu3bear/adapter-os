@@ -34,7 +34,7 @@ MENU_BAR_LOG="$LOG_DIR/menu-bar.log"
 
 # Port configuration
 BACKEND_PORT="${AOS_SERVER_PORT:-8080}"
-UI_PORT="${UI_PORT:-3200}"
+UI_PORT="${AOS_UI_PORT:-3200}"
 
 # Timeouts (in seconds)
 GRACEFUL_TIMEOUT=120
@@ -74,6 +74,16 @@ warning_msg() {
 error_msg() {
     echo -e "${RED}[ERROR]${NC} ${1}"
 }
+
+# Shared port guard
+PORT_GUARD_SCRIPT="$PROJECT_ROOT/scripts/port-guard.sh"
+if [ -f "$PORT_GUARD_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$PORT_GUARD_SCRIPT"
+else
+    warning_msg "Port guard script missing at $PORT_GUARD_SCRIPT; port cleanup will be manual."
+    ensure_port_free() { return 0; }
+fi
 
 # Ensure directories exist
 ensure_dirs() {
@@ -200,6 +210,11 @@ start_backend() {
 
     status_msg "Starting Backend Server..."
 
+    if ! ensure_port_free "$BACKEND_PORT" "Backend API"; then
+        error_msg "Backend port $BACKEND_PORT is busy; unable to start."
+        return 1
+    fi
+
     # Check if binary exists
     local server_bin=""
     if [ -f "$PROJECT_ROOT/target/release/adapteros-server" ]; then
@@ -210,8 +225,8 @@ start_backend() {
         status_msg "Backend binary not found. Building..."
         cd "$PROJECT_ROOT"
         if cargo build 2>&1 | tail -10; then
-            if [ -f "$PROJECT_ROOT/target/debug/adapter-os" ]; then
-                server_bin="$PROJECT_ROOT/target/debug/adapter-os"
+            if [ -f "$PROJECT_ROOT/target/debug/adapteros-server" ]; then
+                server_bin="$PROJECT_ROOT/target/debug/adapteros-server"
             else
                 error_msg "Build completed but binary not found"
                 return 1
@@ -284,6 +299,11 @@ start_ui() {
     fi
 
     status_msg "Starting Web UI..."
+
+    if ! ensure_port_free "$UI_PORT" "Web UI"; then
+        error_msg "UI port $UI_PORT is busy; unable to start."
+        return 1
+    fi
 
     # Check if pnpm is available
     if ! command -v pnpm &> /dev/null; then

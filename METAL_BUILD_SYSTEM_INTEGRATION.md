@@ -138,6 +138,15 @@ cargo build --release -p adapteros-memory
 cargo check -p adapteros-memory
 ```
 
+### Sandboxed / CI Builds (Metal module cache)
+Some sandboxed environments block writes to the default `$HOME/.cache/clang/ModuleCache` used by `xcrun metal`. Override the cache paths into the workspace before building:
+```bash
+export CLANG_MODULE_CACHE_PATH="$PWD/target/clang-module-cache"
+export METAL_HOME_OVERRIDE="$PWD"
+cargo check -p adapteros-server-api
+```
+This keeps the module cache writable and avoids `could not build module 'metal_types'` errors during Metal kernel compilation.
+
 ### Run Tests
 ```bash
 cargo test -p adapteros-memory --lib heap_observer

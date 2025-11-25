@@ -372,7 +372,7 @@ if [ "$PROFILE_TYPE" = "dev" ]; then
     echo "2. In another terminal, start the UI:"
     echo "   cd ui && pnpm install && pnpm dev"
     echo ""
-    echo "3. Access the UI at http://localhost:5173"
+    echo "3. Access the UI at http://localhost:3200"
 
 elif [ "$PROFILE_TYPE" = "training" ]; then
     echo "1. Verify MLX is available:"
@@ -381,7 +381,7 @@ elif [ "$PROFILE_TYPE" = "training" ]; then
     echo "2. Start the server:"
     echo "   cargo run --release -p adapteros-server-api"
     echo ""
-    echo "3. Access training interface at http://localhost:5173/training"
+    echo "3. Access training interface at http://localhost:3200/training"
 
 elif [ "$PROFILE_TYPE" = "prod" ]; then
     echo "1. Secure your credentials:"
