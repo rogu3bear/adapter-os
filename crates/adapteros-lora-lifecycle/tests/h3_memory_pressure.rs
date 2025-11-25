@@ -29,7 +29,10 @@ async fn test_h3_memory_pressure_eviction() {
     let adapter_names: Vec<String> = (0..3).map(|i| format!("adapter-{}", i)).collect();
     let mut hashes = HashMap::new();
     for i in 0..3 {
-        hashes.insert(format!("adapter-{}", i), B3Hash::hash(format!("hash{}", i).as_bytes()));
+        hashes.insert(
+            format!("adapter-{}", i),
+            B3Hash::hash(format!("hash{}", i).as_bytes()),
+        );
     }
 
     let policies = Policies::default();
@@ -50,7 +53,10 @@ async fn test_h3_memory_pressure_eviction() {
 
     // Simulate high memory usage (85% threshold)
     let total_memory = 500 * 1024 * 1024; // 500 MB
-    manager.check_memory_pressure(total_memory, MemoryPressureLevel::High).await.unwrap();
+    manager
+        .check_memory_pressure(total_memory, MemoryPressureLevel::High)
+        .await
+        .unwrap();
 
     // Verify lifecycle manager is tracking memory correctly
     // (Actual eviction depends on memory_bytes being set properly)
@@ -107,7 +113,10 @@ async fn test_h3_expired_adapters_evicted_first() {
 
     // Trigger memory pressure (should evict expired first)
     let total_memory = 400 * 1024 * 1024;
-    manager.check_memory_pressure(total_memory, MemoryPressureLevel::High).await.unwrap();
+    manager
+        .check_memory_pressure(total_memory, MemoryPressureLevel::High)
+        .await
+        .unwrap();
 
     // Verify TTL enforcement works
     // (Exact behavior depends on find_expired_adapters implementation)
@@ -142,10 +151,16 @@ async fn test_h3_15_percent_headroom_threshold() {
     let total_memory = 1000 * 1024 * 1024;
 
     // Test high pressure (85-95%)
-    manager.check_memory_pressure(total_memory, MemoryPressureLevel::High).await.unwrap();
+    manager
+        .check_memory_pressure(total_memory, MemoryPressureLevel::High)
+        .await
+        .unwrap();
 
     // Test critical pressure (>95%)
-    manager.check_memory_pressure(total_memory, MemoryPressureLevel::Critical).await.unwrap();
+    manager
+        .check_memory_pressure(total_memory, MemoryPressureLevel::Critical)
+        .await
+        .unwrap();
 
     // All should complete without errors
 }
@@ -155,10 +170,7 @@ async fn test_h3_eviction_priority_order() {
     let db = Db::new_in_memory().await.unwrap();
 
     // Register adapters with different categories
-    let categories = vec![
-        ("code-adapter", "code"),
-        ("ephemeral-adapter", "ephemeral"),
-    ];
+    let categories = vec![("code-adapter", "code"), ("ephemeral-adapter", "ephemeral")];
 
     for (name, category) in &categories {
         let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
@@ -176,7 +188,10 @@ async fn test_h3_eviction_priority_order() {
     let adapter_names: Vec<String> = categories.iter().map(|(n, _)| n.to_string()).collect();
     let mut hashes = HashMap::new();
     for (name, _) in &categories {
-        hashes.insert(name.to_string(), B3Hash::hash(format!("{}-hash", name).as_bytes()));
+        hashes.insert(
+            name.to_string(),
+            B3Hash::hash(format!("{}-hash", name).as_bytes()),
+        );
     }
 
     let policies = Policies::default();
@@ -196,8 +211,14 @@ async fn test_h3_eviction_priority_order() {
 
     // Get eviction priorities
     let states = manager.get_all_states();
-    let code_adapter = states.iter().find(|s| s.adapter_id.contains("code")).unwrap();
-    let ephemeral_adapter = states.iter().find(|s| s.adapter_id.contains("ephemeral")).unwrap();
+    let code_adapter = states
+        .iter()
+        .find(|s| s.adapter_id.contains("code"))
+        .unwrap();
+    let ephemeral_adapter = states
+        .iter()
+        .find(|s| s.adapter_id.contains("ephemeral"))
+        .unwrap();
 
     let code_priority = code_adapter.eviction_priority();
     let ephemeral_priority = ephemeral_adapter.eviction_priority();

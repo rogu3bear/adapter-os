@@ -702,9 +702,7 @@ impl PageMigrationTracker {
 
         let pressure = *self.last_pressure.read();
 
-        for i in 0..count as usize {
-            let ffi_event = events[i];
-
+        for ffi_event in events.iter().take(count as usize) {
             if let Some(migration_type) = PageMigrationType::from_ffi(ffi_event.migration_type) {
                 let event = PageMigrationEvent {
                     event_id: Uuid::new_v4(),

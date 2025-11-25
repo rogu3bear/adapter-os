@@ -3,10 +3,10 @@
 //! This binary provides a command-line interface for running AdapterOS architectural
 //! lint rules. It can be used as a standalone tool or integrated into CI/CD pipelines.
 
+use adapteros_lint::architectural::{check_directory, check_file, ArchitecturalViolation};
 use std::env;
 use std::path::Path;
 use std::process;
-use adapteros_lint::architectural::{check_file, check_directory, ArchitecturalViolation};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -74,10 +74,13 @@ fn check_directory_path(dir_path: &str) {
 fn check_all_handlers() {
     let handlers_path = Path::new("crates/adapteros-server-api/src/handlers");
     if !handlers_path.exists() {
-        eprintln!("Error: handlers directory not found: {}", handlers_path.display());
+        eprintln!(
+            "Error: handlers directory not found: {}",
+            handlers_path.display()
+        );
         process::exit(1);
     }
-    
+
     let violations = check_directory(handlers_path);
     report_violations(&violations, "all handlers");
     if !violations.is_empty() {
@@ -91,26 +94,44 @@ fn report_violations(violations: &[ArchitecturalViolation], context: &str) {
         return;
     }
 
-    eprintln!("Found {} architectural violation(s) in {}:", violations.len(), context);
+    eprintln!(
+        "Found {} architectural violation(s) in {}:",
+        violations.len(),
+        context
+    );
     eprintln!();
 
     for violation in violations {
         match violation {
-            ArchitecturalViolation::LifecycleManagerBypass { file, line, context } => {
+            ArchitecturalViolation::LifecycleManagerBypass {
+                file,
+                line,
+                context,
+            } => {
                 eprintln!("  [Lifecycle Manager Bypass] {}:{}", file, line);
                 eprintln!("    Context: {}", context);
             }
-            ArchitecturalViolation::NonTransactionalFallback { file, line, context } => {
+            ArchitecturalViolation::NonTransactionalFallback {
+                file,
+                line,
+                context,
+            } => {
                 eprintln!("  [Non-Transactional Fallback] {}:{}", file, line);
                 eprintln!("    Context: {}", context);
-                eprintln!("    Fix: Use update_adapter_state_tx() instead of update_adapter_state()");
+                eprintln!(
+                    "    Fix: Use update_adapter_state_tx() instead of update_adapter_state()"
+                );
             }
             ArchitecturalViolation::DirectSqlInHandler { file, line, query } => {
                 eprintln!("  [Direct SQL in Handler] {}:{}", file, line);
                 eprintln!("    Query: {}", query);
                 eprintln!("    Fix: Use Db trait method instead");
             }
-            ArchitecturalViolation::NonDeterministicSpawn { file, line, context } => {
+            ArchitecturalViolation::NonDeterministicSpawn {
+                file,
+                line,
+                context,
+            } => {
                 eprintln!("  [Non-Deterministic Spawn] {}:{}", file, line);
                 eprintln!("    Context: {}", context);
                 eprintln!("    Fix: Use spawn_deterministic() instead");

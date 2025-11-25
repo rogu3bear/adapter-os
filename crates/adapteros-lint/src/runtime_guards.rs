@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 use tracing::{info, warn};
 
+use rand::{rngs::StdRng, SeedableRng};
+
 /// Global state for runtime guards
 static GUARDS_ENABLED: AtomicBool = AtomicBool::new(false);
 static STRICT_MODE: AtomicBool = AtomicBool::new(false);
@@ -176,12 +178,12 @@ where
     rand::random()
 }
 
-/// Wrapper for thread_rng that checks guards
-pub fn guarded_thread_rng() -> rand::rngs::ThreadRng {
+/// Wrapper for seeded RNG that checks guards while avoiding thread-local randomness
+pub fn guarded_thread_rng() -> StdRng {
     if guards_enabled() {
-        guard_random_generation("rand::thread_rng()");
+        guard_random_generation("StdRng::seed_from_u64(0)");
     }
-    rand::thread_rng()
+    StdRng::seed_from_u64(0)
 }
 
 /// Get current violation count

@@ -1,8 +1,8 @@
 //! Tests for architectural lint rules
 
 use adapteros_lint::architectural::{check_file, ArchitecturalViolation};
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
@@ -18,13 +18,15 @@ pub async fn load_adapter_handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
-    assert!(violations.iter().any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })));
+    assert!(violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })));
 }
 
 #[test]
@@ -38,14 +40,16 @@ pub async fn get_status(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
     // SELECT queries should not be flagged
-    assert!(!violations.iter().any(|v| matches!(v, ArchitecturalViolation::DirectSqlInHandler { .. })));
+    assert!(!violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::DirectSqlInHandler { .. })));
 }
 
 #[test]
@@ -63,14 +67,16 @@ pub async fn update_in_transaction(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
     // UPDATE in transaction context should not be flagged
-    assert!(!violations.iter().any(|v| matches!(v, ArchitecturalViolation::DirectSqlInHandler { .. })));
+    assert!(!violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::DirectSqlInHandler { .. })));
 }
 
 #[test]
@@ -83,13 +89,15 @@ pub async fn bad_handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
-    assert!(violations.iter().any(|v| matches!(v, ArchitecturalViolation::LifecycleManagerBypass { .. })));
+    assert!(violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::LifecycleManagerBypass { .. })));
 }
 
 #[test]
@@ -106,14 +114,17 @@ pub async fn good_handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
     // Should not flag lifecycle manager pattern or transactional fallback
-    assert!(!violations.iter().any(|v| matches!(v, ArchitecturalViolation::LifecycleManagerBypass { .. })));
-    assert!(!violations.iter().any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })));
+    assert!(!violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::LifecycleManagerBypass { .. })));
+    assert!(!violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })));
 }
-

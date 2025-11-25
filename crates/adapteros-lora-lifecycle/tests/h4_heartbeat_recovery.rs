@@ -39,7 +39,10 @@ async fn test_h4_heartbeat_updates_timestamp() {
     );
 
     // Send heartbeat
-    manager.heartbeat_adapter("heartbeat-adapter").await.unwrap();
+    manager
+        .heartbeat_adapter("heartbeat-adapter")
+        .await
+        .unwrap();
 
     // Verify no stale adapters (300 second threshold)
     let stale = manager.check_stale_adapters(300).await.unwrap();
@@ -79,7 +82,8 @@ async fn test_h4_5_minute_stale_detection() {
     let old_timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64 - 400;
+        .as_secs() as i64
+        - 400;
 
     sqlx::query("UPDATE adapters SET last_heartbeat = ?, load_state = 'cold' WHERE adapter_id = ?")
         .bind(old_timestamp)
@@ -129,7 +133,8 @@ async fn test_h4_auto_recovery_to_unloaded() {
     let old_timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64 - 400;
+        .as_secs() as i64
+        - 400;
 
     sqlx::query("UPDATE adapters SET last_heartbeat = ?, load_state = 'warm' WHERE adapter_id = ?")
         .bind(old_timestamp)
@@ -146,13 +151,12 @@ async fn test_h4_auto_recovery_to_unloaded() {
     assert!(recovered.iter().any(|id| id == "recover-adapter"));
 
     // Verify state was reset to unloaded
-    let row: (String, Option<i64>) = sqlx::query_as(
-        "SELECT load_state, last_heartbeat FROM adapters WHERE adapter_id = ?"
-    )
-    .bind("recover-adapter")
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let row: (String, Option<i64>) =
+        sqlx::query_as("SELECT load_state, last_heartbeat FROM adapters WHERE adapter_id = ?")
+            .bind("recover-adapter")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
 
     assert_eq!(row.0, "unloaded");
     assert!(row.1.is_none()); // heartbeat cleared
@@ -248,14 +252,17 @@ async fn test_h4_unloaded_adapters_not_checked() {
     let old_timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64 - 400;
+        .as_secs() as i64
+        - 400;
 
-    sqlx::query("UPDATE adapters SET last_heartbeat = ?, load_state = 'unloaded' WHERE adapter_id = ?")
-        .bind(old_timestamp)
-        .bind("unloaded-adapter")
-        .execute(db.pool())
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE adapters SET last_heartbeat = ?, load_state = 'unloaded' WHERE adapter_id = ?",
+    )
+    .bind(old_timestamp)
+    .bind("unloaded-adapter")
+    .execute(db.pool())
+    .await
+    .unwrap();
 
     // Check stale adapters
     let stale = manager.check_stale_adapters(300).await.unwrap();

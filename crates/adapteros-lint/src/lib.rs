@@ -31,6 +31,6 @@
 //! });
 //! ```
 
+pub mod architectural;
 pub mod runtime_guards;
 pub mod strict_mode;
-pub mod architectural;

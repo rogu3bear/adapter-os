@@ -150,7 +150,7 @@ extern "C" {
     /// - `offset`: Offset within heap
     /// - `addr`: Memory address
     /// - `storage_mode`: MTL storage mode enum
-    /// Returns non-zero on success
+    ///   Returns non-zero on success
     pub fn metal_heap_observe_allocation(
         heap_id: u64,
         buffer_id: u64,
@@ -882,7 +882,8 @@ pub extern "C" fn ffi_metal_heap_record_deallocation(buffer_id: u64) -> i32 {
 /// FFI-safe wrapper to get fragmentation metrics
 /// Returns 0 on success, non-zero on error
 #[no_mangle]
-pub extern "C" fn ffi_metal_heap_get_fragmentation(
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn ffi_metal_heap_get_fragmentation(
     out_metrics: *mut FFIFragmentationMetrics,
 ) -> i32 {
     if out_metrics.is_null() {
@@ -892,18 +893,16 @@ pub extern "C" fn ffi_metal_heap_get_fragmentation(
     let observer = get_global_observer();
     match observer.detect_fragmentation() {
         Ok(metrics) => {
-            unsafe {
-                *out_metrics = FFIFragmentationMetrics {
-                    fragmentation_ratio: metrics.fragmentation_ratio,
-                    external_fragmentation: metrics.external_fragmentation,
-                    internal_fragmentation: metrics.internal_fragmentation,
-                    free_blocks: metrics.free_blocks as u32,
-                    total_free_bytes: metrics.total_free_bytes,
-                    avg_free_block_size: metrics.avg_free_block_size,
-                    largest_free_block: metrics.largest_free_block,
-                    compaction_efficiency: metrics.compaction_efficiency,
-                };
-            }
+            *out_metrics = FFIFragmentationMetrics {
+                fragmentation_ratio: metrics.fragmentation_ratio,
+                external_fragmentation: metrics.external_fragmentation,
+                internal_fragmentation: metrics.internal_fragmentation,
+                free_blocks: metrics.free_blocks as u32,
+                total_free_bytes: metrics.total_free_bytes,
+                avg_free_block_size: metrics.avg_free_block_size,
+                largest_free_block: metrics.largest_free_block,
+                compaction_efficiency: metrics.compaction_efficiency,
+            };
             0 // Success
         }
         Err(_) => -2, // Calculation error
@@ -913,7 +912,8 @@ pub extern "C" fn ffi_metal_heap_get_fragmentation(
 /// FFI-safe wrapper to get all heap states
 /// Returns number of heaps written, or negative on error
 #[no_mangle]
-pub extern "C" fn ffi_metal_heap_get_all_states(
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn ffi_metal_heap_get_all_states(
     out_heaps: *mut FFIHeapState,
     max_heaps: u32,
 ) -> i32 {
@@ -929,7 +929,7 @@ pub extern "C" fn ffi_metal_heap_get_all_states(
     for (i, state) in heap_states.iter().take(max_heaps as usize).enumerate() {
         let frag = observer
             .get_heap_fragmentation(state.heap_id)
-            .unwrap_or_else(|_| FragmentationMetrics {
+            .unwrap_or(FragmentationMetrics {
                 fragmentation_ratio: 0.0,
                 external_fragmentation: 0.0,
                 internal_fragmentation: 0.0,
@@ -941,28 +941,26 @@ pub extern "C" fn ffi_metal_heap_get_all_states(
                 fragmentation_type: FragmentationType::None,
             });
 
-        unsafe {
-            let alloc_count = observer
-                .allocations
-                .read()
-                .values()
-                .filter(|a| a.heap_id == state.heap_id)
-                .count() as u32;
+        let alloc_count = observer
+            .allocations
+            .read()
+            .values()
+            .filter(|a| a.heap_id == state.heap_id)
+            .count() as u32;
 
-            (*out_heaps.add(i)) = FFIHeapState {
-                heap_id: state.heap_id,
-                total_size: state.total_size,
-                used_size: state.used_size,
-                allocation_count: alloc_count,
-                fragmentation_ratio: frag.fragmentation_ratio,
-                avg_alloc_size: if alloc_count > 0 {
-                    state.used_size / alloc_count as u64
-                } else {
-                    0
-                },
-                largest_free_block: frag.largest_free_block,
-            };
-        }
+        (*out_heaps.add(i)) = FFIHeapState {
+            heap_id: state.heap_id,
+            total_size: state.total_size,
+            used_size: state.used_size,
+            allocation_count: alloc_count,
+            fragmentation_ratio: frag.fragmentation_ratio,
+            avg_alloc_size: if alloc_count > 0 {
+                state.used_size / alloc_count as u64
+            } else {
+                0
+            },
+            largest_free_block: frag.largest_free_block,
+        };
     }
 
     count
@@ -970,7 +968,10 @@ pub extern "C" fn ffi_metal_heap_get_all_states(
 
 /// FFI-safe wrapper to get Metal memory metrics
 #[no_mangle]
-pub extern "C" fn ffi_metal_heap_get_metrics(out_metrics: *mut FFIMetalMemoryMetrics) -> i32 {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn ffi_metal_heap_get_metrics(
+    out_metrics: *mut FFIMetalMemoryMetrics,
+) -> i32 {
     if out_metrics.is_null() {
         return -1;
     }
@@ -980,7 +981,7 @@ pub extern "C" fn ffi_metal_heap_get_metrics(out_metrics: *mut FFIMetalMemoryMet
 
     let frag = observer
         .detect_fragmentation()
-        .unwrap_or_else(|_| FragmentationMetrics {
+        .unwrap_or(FragmentationMetrics {
             fragmentation_ratio: 0.0,
             external_fragmentation: 0.0,
             internal_fragmentation: 0.0,
@@ -998,25 +999,24 @@ pub extern "C" fn ffi_metal_heap_get_metrics(out_metrics: *mut FFIMetalMemoryMet
         0.0
     };
 
-    unsafe {
-        *out_metrics = FFIMetalMemoryMetrics {
-            total_allocated: stats.total_allocated,
-            total_heap_size: stats.total_heap_size,
-            total_heap_used: stats.total_heap_used,
-            allocation_count: stats.allocation_count as u32,
-            heap_count: stats.heap_count as u32,
-            overall_fragmentation: frag.fragmentation_ratio,
-            utilization_pct,
-            migration_event_count: stats.migration_event_count as u32,
-        };
-    }
+    *out_metrics = FFIMetalMemoryMetrics {
+        total_allocated: stats.total_allocated,
+        total_heap_size: stats.total_heap_size,
+        total_heap_used: stats.total_heap_used,
+        allocation_count: stats.allocation_count as u32,
+        heap_count: stats.heap_count as u32,
+        overall_fragmentation: frag.fragmentation_ratio,
+        utilization_pct,
+        migration_event_count: stats.migration_event_count as u32,
+    };
 
     0 // Success
 }
 
 /// FFI-safe wrapper to get migration events
 #[no_mangle]
-pub extern "C" fn ffi_metal_heap_get_migration_events(
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn ffi_metal_heap_get_migration_events(
     out_events: *mut FFIPageMigrationEvent,
     max_events: u32,
 ) -> i32 {
@@ -1036,13 +1036,13 @@ pub extern "C" fn ffi_metal_heap_get_migration_events(
 
         // Split UUID into two u64s (first 8 bytes, last 8 bytes)
         if uuid_bytes.len() >= 8 {
-            for j in 0..8 {
-                event_id_high = (event_id_high << 8) | (uuid_bytes[j] as u64);
+            for byte in uuid_bytes.iter().take(8) {
+                event_id_high = (event_id_high << 8) | (*byte as u64);
             }
         }
         if uuid_bytes.len() >= 16 {
-            for j in 8..16 {
-                event_id_low = (event_id_low << 8) | (uuid_bytes[j] as u64);
+            for byte in uuid_bytes.iter().skip(8).take(8) {
+                event_id_low = (event_id_low << 8) | (*byte as u64);
             }
         }
 
@@ -1054,17 +1054,15 @@ pub extern "C" fn ffi_metal_heap_get_migration_events(
             MigrationType::PressureEviction => 5u32,
         };
 
-        unsafe {
-            (*out_events.add(i)) = FFIPageMigrationEvent {
-                event_id_high,
-                event_id_low,
-                migration_type,
-                source_addr: event.source_addr.unwrap_or(0),
-                dest_addr: event.dest_addr.unwrap_or(0),
-                size_bytes: event.size_bytes,
-                timestamp: event.timestamp as u64,
-            };
-        }
+        (*out_events.add(i)) = FFIPageMigrationEvent {
+            event_id_high,
+            event_id_low,
+            migration_type,
+            source_addr: event.source_addr.unwrap_or(0),
+            dest_addr: event.dest_addr.unwrap_or(0),
+            size_bytes: event.size_bytes,
+            timestamp: event.timestamp as u64,
+        };
     }
 
     count
@@ -1356,7 +1354,7 @@ mod tests {
                 compaction_efficiency: 0.0,
             };
 
-            let result = ffi_metal_heap_get_fragmentation(&mut metrics);
+            let result = unsafe { ffi_metal_heap_get_fragmentation(&mut metrics) };
             assert_eq!(result, 0); // Success
             assert!(metrics.fragmentation_ratio >= 0.0);
             assert!(metrics.fragmentation_ratio <= 1.0);
@@ -1383,7 +1381,7 @@ mod tests {
                 migration_event_count: 0,
             };
 
-            let result = ffi_metal_heap_get_metrics(&mut metrics);
+            let result = unsafe { ffi_metal_heap_get_metrics(&mut metrics) };
             assert_eq!(result, 0); // Success
             assert_eq!(metrics.allocation_count, 2);
             assert_eq!(metrics.total_allocated, 1024 + 2048);
@@ -1413,7 +1411,7 @@ mod tests {
             }
 
             let mut heaps: [FFIHeapState; 10] = unsafe { std::mem::zeroed() };
-            let count = ffi_metal_heap_get_all_states(heaps.as_mut_ptr(), 10);
+            let count = unsafe { ffi_metal_heap_get_all_states(heaps.as_mut_ptr(), 10) };
 
             assert!(count >= 0);
             assert!(count as usize <= 10);
@@ -1423,13 +1421,13 @@ mod tests {
     #[test]
     fn test_ffi_null_pointer_handling() {
         // Test that FFI functions handle null pointers safely
-        let result = ffi_metal_heap_get_fragmentation(std::ptr::null_mut());
+        let result = unsafe { ffi_metal_heap_get_fragmentation(std::ptr::null_mut()) };
         assert!(result < 0);
 
-        let result = ffi_metal_heap_get_all_states(std::ptr::null_mut(), 10);
+        let result = unsafe { ffi_metal_heap_get_all_states(std::ptr::null_mut(), 10) };
         assert!(result < 0);
 
-        let result = ffi_metal_heap_get_metrics(std::ptr::null_mut());
+        let result = unsafe { ffi_metal_heap_get_metrics(std::ptr::null_mut()) };
         assert!(result < 0);
     }
 

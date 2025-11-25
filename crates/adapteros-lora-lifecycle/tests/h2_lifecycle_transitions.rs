@@ -33,19 +33,31 @@ async fn test_h2_manual_state_promotions() {
     // Test: Unloaded → Cold → Warm → Hot → Resident
     manager.promote_adapter(0).unwrap(); // Unloaded → Cold
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Cold);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Cold
+    );
 
     manager.promote_adapter(0).unwrap(); // Cold → Warm
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Warm);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Warm
+    );
 
     manager.promote_adapter(0).unwrap(); // Warm → Hot
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Hot);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Hot
+    );
 
     manager.promote_adapter(0).unwrap(); // Hot → Resident
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Resident);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Resident
+    );
 }
 
 #[tokio::test]
@@ -75,19 +87,31 @@ async fn test_h2_manual_state_demotions() {
     // Test demotion path: Resident → Hot → Warm → Cold → Unloaded
     manager.demote_adapter(0).unwrap(); // Resident → Hot
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Hot);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Hot
+    );
 
     manager.demote_adapter(0).unwrap(); // Hot → Warm
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Warm);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Warm
+    );
 
     manager.demote_adapter(0).unwrap(); // Warm → Cold
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Cold);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Cold
+    );
 
     manager.demote_adapter(0).unwrap(); // Cold → Unloaded
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Unloaded);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Unloaded
+    );
 }
 
 #[tokio::test]
@@ -124,7 +148,11 @@ async fn test_h2_state_machine_completeness() {
         }
         let current_states = manager.get_all_states();
         assert_eq!(
-            current_states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+            current_states
+                .iter()
+                .find(|s| s.adapter_idx == 0)
+                .unwrap()
+                .state,
             *expected_state,
             "Failed to reach state {:?} at step {}",
             expected_state,
@@ -155,5 +183,8 @@ async fn test_h2_activation_recording() {
     // Promote to verify state transitions work
     manager.promote_adapter(0).unwrap();
     let states = manager.get_all_states();
-    assert_eq!(states.iter().find(|s| s.adapter_idx == 0).unwrap().state, AdapterState::Cold);
+    assert_eq!(
+        states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
+        AdapterState::Cold
+    );
 }

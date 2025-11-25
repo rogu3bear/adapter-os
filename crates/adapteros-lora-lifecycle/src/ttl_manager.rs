@@ -131,7 +131,10 @@ mod tests {
         let record = manager.records.get("a").unwrap();
         let after = Utc::now();
         // Cap should be 72 hours from when extend_ttl was called
-        assert!(record.expires_at >= after - Duration::seconds(1) + Duration::hours(72) - Duration::seconds(2));
+        assert!(
+            record.expires_at
+                >= after - Duration::seconds(1) + Duration::hours(72) - Duration::seconds(2)
+        );
         assert!(record.expires_at <= after + Duration::hours(72) + Duration::seconds(2));
         assert!(record.last_extension.is_some());
     }

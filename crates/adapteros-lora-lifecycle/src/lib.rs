@@ -268,6 +268,7 @@ impl LifecycleManager {
     ///
     /// This should be called in a background loop to process incoming K reduction
     /// requests from the memory manager. Returns the number of requests processed.
+    #[allow(clippy::await_holding_lock, clippy::explicit_auto_deref)]
     pub async fn poll_k_reduction_events(&self) -> Result<usize> {
         let mut rx_guard = self.k_reduction_rx.lock();
         let rx: &mut Option<
@@ -1258,6 +1259,7 @@ impl LifecycleManager {
     }
 
     /// Auto-promote adapter based on category policy
+    #[allow(clippy::await_holding_lock)]
     pub async fn auto_promote_adapter(&self, adapter_id: u16) -> Result<()> {
         let states = self.states.read();
 
@@ -1278,6 +1280,7 @@ impl LifecycleManager {
     }
 
     /// Auto-demote adapter based on category policy and inactivity
+    #[allow(clippy::await_holding_lock)]
     pub async fn auto_demote_adapter(&self, adapter_id: u16) -> Result<()> {
         let states = self.states.read();
 

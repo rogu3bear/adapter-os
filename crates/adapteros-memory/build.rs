@@ -1,6 +1,5 @@
-/// Build script for adapteros-memory
-/// Compiles Objective-C++ Metal heap observer and IOKit page migration tracker for macOS targets
-
+//! Build script for adapteros-memory
+//! Compiles Objective-C++ Metal heap observer and IOKit page migration tracker for macOS targets
 #[cfg(target_os = "macos")]
 fn main() {
     println!("cargo:rerun-if-changed=src/heap_observer_impl.mm");

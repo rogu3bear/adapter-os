@@ -17,16 +17,17 @@ pub async fn test_handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
-    let violation = violations.iter()
+    let violation = violations
+        .iter()
         .find(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. }))
         .expect("Should find non-transactional fallback violation");
-    
+
     // Verify line number is extracted (should be > 0)
     // Pattern matching fallback provides accurate line numbers
     assert!(violation.line() > 0, "Line number should be extracted");
@@ -46,13 +47,13 @@ pub async fn handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     // Use "handlers" in path to trigger handler file detection
     let test_file = temp_dir.path().join("handlers").join("test.rs");
     fs::create_dir_all(test_file.parent().unwrap()).unwrap();
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
     // Pattern matching checks for update_adapter_state (not _tx) in handlers
     // The pattern requires: file contains "handlers", line contains "update_adapter_state",
@@ -61,18 +62,24 @@ pub async fn handler(state: AppState) -> Result<()> {
     // "else" on a different line. This is a limitation of the pattern matching approach.
     // The test verifies that the lint tool runs without errors and processes the file correctly.
     // In practice, violations are detected when the pattern appears on the same line.
-    let has_violation = violations.iter().any(|v| {
-        matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })
-    });
-    
+    let has_violation = violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. }));
+
     // Pattern matching limitation: requires "else" on same line as update_adapter_state
     // Our test has "else" on previous line, so it won't be detected
     // This test verifies the lint tool processes the file correctly
     // For actual detection, the pattern would need to be on the same line
     if !has_violation {
         // Verify the file was processed (no errors)
-        assert!(test_code.contains("update_adapter_state"), "Test should contain update_adapter_state");
-        assert!(test_code.contains("} else {"), "Test should have else branch");
+        assert!(
+            test_code.contains("update_adapter_state"),
+            "Test should contain update_adapter_state"
+        );
+        assert!(
+            test_code.contains("} else {"),
+            "Test should have else branch"
+        );
         // Pattern matching limitation: requires "else" on same line
     }
 }
@@ -92,14 +99,16 @@ pub async fn handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
     // Should NOT flag SQL in transaction context
-    assert!(!violations.iter().any(|v| matches!(v, ArchitecturalViolation::DirectSqlInHandler { .. })));
+    assert!(!violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::DirectSqlInHandler { .. })));
 }
 
 #[test]
@@ -114,13 +123,14 @@ pub async fn handler(state: AppState) -> Result<()> {
     Ok(())
 }
 "#;
-    
+
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
-    
+
     let violations = check_file(&test_file);
     // Should NOT flag lifecycle manager internal updates
-    assert!(!violations.iter().any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })));
+    assert!(!violations
+        .iter()
+        .any(|v| matches!(v, ArchitecturalViolation::NonTransactionalFallback { .. })));
 }
-

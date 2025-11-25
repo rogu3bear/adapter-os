@@ -379,6 +379,16 @@ where
     }
 }
 
+impl<K, T> Default for ModelCache<K, T>
+where
+    K: Clone + Eq + Hash + std::fmt::Debug,
+    T: Clone + std::fmt::Debug,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Cache metrics for monitoring and telemetry
 #[derive(Debug)]
 pub struct ModelCacheMetrics {

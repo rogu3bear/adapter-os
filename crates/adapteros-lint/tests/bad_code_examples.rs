@@ -46,7 +46,7 @@ fn test_rand_random_guard() {
 }
 
 #[test]
-#[should_panic(expected = "rand::thread_rng()")]
+#[should_panic(expected = "StdRng::seed_from_u64(0)")]
 fn test_thread_rng_guard() {
     setup_strict_mode_test();
     let mut rng = runtime_guards::guarded_thread_rng();

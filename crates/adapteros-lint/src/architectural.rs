@@ -9,9 +9,9 @@
 //! These rules are designed to catch "AI code slop" - code that compiles
 //! but violates architectural patterns.
 
-use std::path::Path;
 use std::fs;
-use syn::{ItemFn, Expr, visit::Visit};
+use std::path::Path;
+use syn::{visit::Visit, Expr, ItemFn};
 
 /// Architectural violation types
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,8 +57,8 @@ impl ArchitecturalViolation {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ExpressionContext {
     Normal,
-    ElseBranch,      // In an else branch (fallback context)
-    Transaction,     // In a transaction block
+    ElseBranch,       // In an else branch (fallback context)
+    Transaction,      // In a transaction block
     LifecycleManager, // In lifecycle manager context
 }
 
@@ -84,7 +84,10 @@ impl ViolationVisitor {
     }
 
     fn current_context(&self) -> ExpressionContext {
-        self.context_stack.last().copied().unwrap_or(ExpressionContext::Normal)
+        self.context_stack
+            .last()
+            .copied()
+            .unwrap_or(ExpressionContext::Normal)
     }
 
     fn push_context(&mut self, ctx: ExpressionContext) {
@@ -111,18 +114,20 @@ impl ViolationVisitor {
 
         // Look for .update_adapter_state( pattern (not _tx)
         let expr_str = quote::quote!(#expr).to_string();
-        if expr_str.contains("update_adapter_state") && 
-           !expr_str.contains("update_adapter_state_tx") &&
-           expr_str.contains("db") {
+        if expr_str.contains("update_adapter_state")
+            && !expr_str.contains("update_adapter_state_tx")
+            && expr_str.contains("db")
+        {
             // Only flag if in else branch (fallback context) - acceptable in lifecycle manager context
             let ctx = self.current_context();
             if matches!(ctx, ExpressionContext::ElseBranch) {
                 let line = self.get_line_number_from_span(span);
-                self.violations.push(ArchitecturalViolation::NonTransactionalFallback {
-                    file: self.file_path.clone(),
-                    line,
-                    context: expr_str,
-                });
+                self.violations
+                    .push(ArchitecturalViolation::NonTransactionalFallback {
+                        file: self.file_path.clone(),
+                        line,
+                        context: expr_str,
+                    });
             }
         }
     }
@@ -134,10 +139,10 @@ impl<'ast> Visit<'ast> for ViolationVisitor {
         if let Expr::If(if_expr) = expr {
             // Visit condition in normal context
             syn::visit::visit_expr(self, &if_expr.cond);
-            
+
             // Visit then branch in normal context
             syn::visit::visit_block(self, &if_expr.then_branch);
-            
+
             // Visit else branch in ElseBranch context
             if let Some((_, else_expr)) = &if_expr.else_branch {
                 self.push_context(ExpressionContext::ElseBranch);
@@ -146,35 +151,37 @@ impl<'ast> Visit<'ast> for ViolationVisitor {
             }
             return;
         }
-        
+
         // Detect transaction contexts by checking expression content
         let expr_str = quote::quote!(#expr).to_string();
-        if expr_str.contains("begin().await") || 
-           expr_str.contains("begin_transaction") ||
-           expr_str.contains("pool().begin()") ||
-           expr_str.contains("&mut *tx") {
+        if expr_str.contains("begin().await")
+            || expr_str.contains("begin_transaction")
+            || expr_str.contains("pool().begin()")
+            || expr_str.contains("&mut *tx")
+        {
             self.push_context(ExpressionContext::Transaction);
             syn::visit::visit_expr(self, expr);
             self.pop_context();
             return;
         }
-        
+
         // Detect lifecycle manager contexts
-        if expr_str.contains("lifecycle_manager") || 
-           expr_str.contains("manager.update_adapter_state") ||
-           expr_str.contains("lifecycle.lock()") {
+        if expr_str.contains("lifecycle_manager")
+            || expr_str.contains("manager.update_adapter_state")
+            || expr_str.contains("lifecycle.lock()")
+        {
             self.push_context(ExpressionContext::LifecycleManager);
             syn::visit::visit_expr(self, expr);
             self.pop_context();
             return;
         }
-        
+
         // Get span for potential line number extraction
         let span = proc_macro2::Span::call_site();
-        
+
         // Check for non-transactional updates (now with context awareness)
         self.check_non_transactional_fallback(expr, &span);
-        
+
         // Continue visiting
         syn::visit::visit_expr(self, expr);
     }
@@ -191,7 +198,7 @@ impl<'ast> Visit<'ast> for ViolationVisitor {
 /// Acceptable: Read-only queries (SELECT), transaction contexts, performance-critical paths
 fn is_acceptable_sql_pattern(query: &str, lines: &[&str], line_idx: usize) -> bool {
     let query_upper = query.to_uppercase().trim().to_string();
-    
+
     // Acceptable: Read-only queries (SELECT) - but check if Db trait method exists
     if query_upper.starts_with("SELECT") {
         // If a Db trait method exists, it's a violation (should use the method)
@@ -199,25 +206,26 @@ fn is_acceptable_sql_pattern(query: &str, lines: &[&str], line_idx: usize) -> bo
         // This is a conservative approach - we flag UPDATE/INSERT/DELETE but allow SELECT
         return true;
     }
-    
+
     // Acceptable: Simple COUNT queries
     if query_upper.starts_with("SELECT COUNT") {
         return true;
     }
-    
+
     // Check if in transaction context (look for transaction patterns nearby)
     let context_start = line_idx.saturating_sub(10);
     let context_end = (line_idx + 5).min(lines.len());
     let context: String = lines[context_start..context_end].join("\n");
-    
+
     // Acceptable: Inside transaction block
-    if context.contains("begin().await") || 
-       context.contains("begin_transaction") ||
-       context.contains("&mut *tx") ||
-       context.contains("execute(&mut") {
+    if context.contains("begin().await")
+        || context.contains("begin_transaction")
+        || context.contains("&mut *tx")
+        || context.contains("execute(&mut")
+    {
         return true;
     }
-    
+
     // Not acceptable: Complex operations (UPDATE, INSERT, DELETE) outside transactions
     // when Db trait method likely exists
     false
@@ -226,15 +234,15 @@ fn is_acceptable_sql_pattern(query: &str, lines: &[&str], line_idx: usize) -> bo
 /// Check a Rust file for architectural violations
 pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
     let mut violations = Vec::new();
-    
+
     let content = match fs::read_to_string(file_path) {
         Ok(c) => c,
         Err(_) => return violations,
     };
-    
+
     let file_str = file_path.to_string_lossy().to_string();
     let lines: Vec<&str> = content.lines().collect();
-    
+
     // Try AST parsing for context-aware detection
     // Note: AST parsing provides context detection (else branches, transactions, lifecycle manager)
     // but line numbers come from pattern matching (more reliable for file-based parsing)
@@ -246,10 +254,10 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
         // Note: AST violations with line 0 are from context detection, not actual violations
         // Pattern matching below will catch actual violations with accurate line numbers
     }
-    
+
     // Fallback to pattern matching for line numbers and additional checks
     // Check for lifecycle manager bypasses per CLAUDE.md lines 333-377
-    // 
+    //
     // CLAUDE.md Pattern:
     // - Always use lifecycle manager methods first if available
     // - Only update database directly if lifecycle manager doesn't exist
@@ -258,23 +266,23 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
         if line.contains("update_adapter_state") && line.contains("db") {
             // Check if lifecycle manager is used later in the function
             let remaining_lines = &lines[i..];
-            let has_lifecycle_after = remaining_lines.iter().any(|l| 
-                l.contains("lifecycle_manager") || 
-                l.contains("lifecycle.lock()") ||
-                l.contains("manager.update_adapter_state")
-            );
-            
+            let has_lifecycle_after = remaining_lines.iter().any(|l| {
+                l.contains("lifecycle_manager")
+                    || l.contains("lifecycle.lock()")
+                    || l.contains("manager.update_adapter_state")
+            });
+
             // Check if lifecycle manager is checked before this line (per CLAUDE.md line 336)
             let previous_lines = &lines[..i];
-            let has_lifecycle_before = previous_lines.iter().any(|l| 
-                l.contains("lifecycle_manager") || 
-                l.contains("if let Some(ref lifecycle)") ||
-                l.contains("lifecycle.lock()")
-            );
-            
+            let has_lifecycle_before = previous_lines.iter().any(|l| {
+                l.contains("lifecycle_manager")
+                    || l.contains("if let Some(ref lifecycle)")
+                    || l.contains("lifecycle.lock()")
+            });
+
             // Check if this is in an else branch (fallback - acceptable per CLAUDE.md line 348)
             let is_fallback = previous_lines.iter().any(|l| l.contains("} else {"));
-            
+
             // Violation per CLAUDE.md line 376: "Never update database before lifecycle manager operations"
             // But acceptable if in fallback (CLAUDE.md line 348-351)
             if !has_lifecycle_before && !has_lifecycle_after && !is_fallback {
@@ -288,36 +296,41 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                 }
             }
         }
-        
+
         // Check for non-transactional fallback (update_adapter_state without _tx in handlers)
-        if file_str.contains("handlers") && 
-           line.contains("update_adapter_state") && 
-           !line.contains("update_adapter_state_tx") &&
-           line.contains("db") &&
-           (line.contains("else") || line.contains("Fallback") || line.contains("fallback")) {
+        if file_str.contains("handlers")
+            && line.contains("update_adapter_state")
+            && !line.contains("update_adapter_state_tx")
+            && line.contains("db")
+            && (line.contains("else") || line.contains("Fallback") || line.contains("fallback"))
+        {
             violations.push(ArchitecturalViolation::NonTransactionalFallback {
                 file: file_str.clone(),
                 line: i + 1,
                 context: line.trim().to_string(),
             });
         }
-        
+
         // Check for direct SQL queries in handlers per CLAUDE.md lines 628-663
         // Pattern: sqlx::query in handler files
         // Context-aware: Only flag if not acceptable per CLAUDE.md
         if line.contains("sqlx::query") && file_str.contains("handlers") {
             // Extract query string - handle multi-line queries
             let query = if let Some(start) = line.find('"') {
-                let mut extracted = line[start+1..].trim().to_string();
+                let mut extracted = line[start + 1..].trim().to_string();
                 // Check if query continues on next lines
-                for j in (i+1)..(i+10).min(lines.len()) {
-                    if let Some(end) = lines[j].find('"') {
-                        extracted.push_str(" ");
-                        extracted.push_str(&lines[j][..end].trim());
+                for next_line in lines
+                    .iter()
+                    .skip(i + 1)
+                    .take((i + 10).min(lines.len()).saturating_sub(i + 1))
+                {
+                    if let Some(end) = next_line.find('"') {
+                        extracted.push(' ');
+                        extracted.push_str(next_line[..end].trim());
                         break;
                     } else {
-                        extracted.push_str(" ");
-                        extracted.push_str(lines[j].trim());
+                        extracted.push(' ');
+                        extracted.push_str(next_line.trim());
                     }
                 }
                 extracted
@@ -326,23 +339,24 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                 let context_start = i.saturating_sub(2);
                 let context_end = (i + 8).min(lines.len());
                 let context: String = lines[context_start..context_end].join("\n").to_lowercase();
-                
+
                 // Per CLAUDE.md line 630: SELECT queries are acceptable
                 // Check if this is a SELECT query by looking at context
-                if context.contains("select") ||
-                   context.contains("determinism_checks") ||
-                   context.contains("itar_flag") ||
-                   context.contains("quarantine") ||
-                   (context.contains("adapter_stacks") && context.contains("active")) {
+                if context.contains("select")
+                    || context.contains("determinism_checks")
+                    || context.contains("itar_flag")
+                    || context.contains("quarantine")
+                    || (context.contains("adapter_stacks") && context.contains("active"))
+                {
                     continue; // Skip - acceptable SELECT query per CLAUDE.md
                 }
-                
+
                 "sqlx::query".to_string()
             };
-            
+
             // Check if this is an acceptable SQL pattern per CLAUDE.md
             let is_acceptable = is_acceptable_sql_pattern(&query, &lines, i);
-            
+
             if !is_acceptable {
                 violations.push(ArchitecturalViolation::DirectSqlInHandler {
                     file: file_str.clone(),
@@ -351,9 +365,9 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
                 });
             }
         }
-        
+
         // Check for non-deterministic spawns per CLAUDE.md lines 398-427
-        // 
+        //
         // CLAUDE.md Requirements:
         // - REQUIRED: Deterministic execution for inference, training, router decisions
         // - ACCEPTABLE: tokio::spawn for background tasks, CLI, tests
@@ -362,25 +376,25 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
             let context_start = i.saturating_sub(5);
             let context_end = (i + 5).min(lines.len());
             let context: String = lines[context_start..context_end].join("\n").to_lowercase();
-            
+
             // REQUIRED contexts per CLAUDE.md line 399-402
-            let is_deterministic_context = context.contains("training") ||
-                                           context.contains("inference") ||
-                                           context.contains("router") ||
-                                           context.contains("run_training") ||
-                                           context.contains("infer(") ||
-                                           context.contains("router_decision");
-            
+            let is_deterministic_context = context.contains("training")
+                || context.contains("inference")
+                || context.contains("router")
+                || context.contains("run_training")
+                || context.contains("infer(")
+                || context.contains("router_decision");
+
             // ACCEPTABLE contexts per CLAUDE.md line 404-409
-            let is_acceptable_context = context.contains("background") ||
-                                        context.contains("monitoring") ||
-                                        context.contains("signal") ||
-                                        context.contains("cli") ||
-                                        context.contains("#[test]") ||
-                                        context.contains("test_") ||
-                                        context.contains("telemetry") ||
-                                        context.contains("logging");
-            
+            let is_acceptable_context = context.contains("background")
+                || context.contains("monitoring")
+                || context.contains("signal")
+                || context.contains("cli")
+                || context.contains("#[test]")
+                || context.contains("test_")
+                || context.contains("telemetry")
+                || context.contains("logging");
+
             // Only flag if in deterministic context and not in acceptable context
             if is_deterministic_context && !is_acceptable_context {
                 violations.push(ArchitecturalViolation::NonDeterministicSpawn {
@@ -391,14 +405,14 @@ pub fn check_file(file_path: &Path) -> Vec<ArchitecturalViolation> {
             }
         }
     }
-    
+
     violations
 }
 
 /// Check all Rust files in a directory recursively
 pub fn check_directory(dir_path: &Path) -> Vec<ArchitecturalViolation> {
     let mut all_violations = Vec::new();
-    
+
     if let Ok(entries) = fs::read_dir(dir_path) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -415,6 +429,6 @@ pub fn check_directory(dir_path: &Path) -> Vec<ArchitecturalViolation> {
             }
         }
     }
-    
+
     all_violations
 }
