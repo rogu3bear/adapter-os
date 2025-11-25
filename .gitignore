@@ -218,6 +218,12 @@ freeze.json
 libintegration_tests.rlib
 openapi_new.json
 
+# AI slop detector reports
+ai_slop_reports/
+
+# Analysis reports (generated during development)
+*_ANALYSIS.md
+
 # macOS
 .DS_Store
 .AppleDouble
