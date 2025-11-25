@@ -272,6 +272,8 @@ pub struct TrainingListParams {
     pub adapter_name: Option<String>,
     /// Filter by template ID
     pub template_id: Option<String>,
+    /// Filter by dataset ID
+    pub dataset_id: Option<String>,
 }
 
 /// Training job list response

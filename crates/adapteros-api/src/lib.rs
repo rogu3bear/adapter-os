@@ -72,29 +72,36 @@ impl<K: FusedKernels + Send + Sync> ApiState<K> {
 pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: AsRef<Path>>(
     socket_path: P,
     worker: adapteros_lora_worker::Worker<K>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> adapteros_core::Result<()> {
+    use adapteros_core::AosError;
     let socket_path = socket_path.as_ref();
 
     // Remove existing socket file if it exists
     if socket_path.exists() {
-        std::fs::remove_file(socket_path)?;
+        std::fs::remove_file(socket_path)
+            .map_err(|e| AosError::Io(format!("Failed to remove existing socket: {}", e)))?;
     }
 
     // Create parent directory if it doesn't exist
     if let Some(parent) = socket_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AosError::Io(format!("Failed to create socket directory: {}", e)))?;
     }
 
     // Create Unix listener
-    let listener = UnixListener::bind(socket_path)?;
+    let listener = UnixListener::bind(socket_path)
+        .map_err(|e| AosError::Io(format!("Failed to bind Unix socket: {}", e)))?;
 
     // Set socket permissions (owner read/write only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(socket_path)?.permissions();
+        let mut perms = std::fs::metadata(socket_path)
+            .map_err(|e| AosError::Io(format!("Failed to get socket metadata: {}", e)))?
+            .permissions();
         perms.set_mode(0o600);
-        std::fs::set_permissions(socket_path, perms)?;
+        std::fs::set_permissions(socket_path, perms)
+            .map_err(|e| AosError::Io(format!("Failed to set socket permissions: {}", e)))?;
     }
 
     tracing::info!(

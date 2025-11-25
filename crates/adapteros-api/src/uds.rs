@@ -10,6 +10,7 @@ use axum::Router;
 use adapteros_api::ApiState;
 use std::sync::Arc;
 use adapteros_deterministic_exec::spawn_deterministic;
+use adapteros_core::{AosError, Result};
 
 // Citation: 【2025-11-12†uds_handler†dispatch】
 // Extracted from adapteros-server UDS pattern to avoid duplication [source: crates/adapteros-server/src/main.rs L1661-L1698]
@@ -19,20 +20,26 @@ pub async fn handle_uds_connections<P: AsRef<Path>>(
     socket_path: P,
     app: Router<Arc<ApiState>>,
     signals_tx: broadcast::Sender<adapteros_api::Signal>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let socket_path = socket_path.as_ref();
     if socket_path.exists() {
-        std::fs::remove_file(socket_path)?;
+        std::fs::remove_file(socket_path)
+            .map_err(|e| AosError::Io(format!("Failed to remove existing socket: {}", e)))?;
     }
     if let Some(parent) = socket_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AosError::Io(format!("Failed to create socket directory: {}", e)))?;
     }
-    let listener = UnixListener::bind(socket_path)?;
+    let listener = UnixListener::bind(socket_path)
+        .map_err(|e| AosError::Io(format!("Failed to bind Unix socket: {}", e)))?;
     #[cfg(unix)]
     {
-        let mut perms = std::fs::metadata(socket_path)?.permissions();
+        let mut perms = std::fs::metadata(socket_path)
+            .map_err(|e| AosError::Io(format!("Failed to get socket metadata: {}", e)))?
+            .permissions();
         perms.set_mode(0o600);
-        std::fs::set_permissions(socket_path, perms)?;
+        std::fs::set_permissions(socket_path, perms)
+            .map_err(|e| AosError::Io(format!("Failed to set socket permissions: {}", e)))?;
     }
     info!(socket_path = %socket_path.display(), "UDS server bound");
 
@@ -60,7 +67,7 @@ pub async fn handle_uds_connections<P: AsRef<Path>>(
                     }
                     Err(e) => {
                         error!(error = %e, "UDS accept error");
-                        break Err(e.into());
+                        break Err(AosError::Io(format!("UDS accept error: {}", e)));
                     }
                 }
             }

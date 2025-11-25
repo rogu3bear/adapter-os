@@ -51,3 +51,20 @@ pub struct TenantUsageResponse {
     pub avg_latency_ms: Option<f64>,
     pub estimated_cost_usd: Option<f64>,
 }
+
+/// Set default stack request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct SetDefaultStackRequest {
+    pub stack_id: String,
+}
+
+/// Default stack response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DefaultStackResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub tenant_id: String,
+    pub stack_id: String,
+}
