@@ -190,8 +190,10 @@ impl MLTensor {
                 };
                 if !swift_ptr.is_null() {
                     // Cache shape in objc_handle for shape/num_elements queries
-                    let mut cached_handle = ffi::MLTensorHandle::default();
-                    cached_handle.rank = shape.len() as u32;
+                    let mut cached_handle = ffi::MLTensorHandle {
+                        rank: shape.len() as u32,
+                        ..Default::default()
+                    };
                     for (i, &dim) in shape.iter().enumerate() {
                         cached_handle.shape[i] = dim;
                     }
@@ -281,8 +283,10 @@ impl MLTensor {
                     )
                 };
                 if !swift_ptr.is_null() {
-                    let mut cached_handle = ffi::MLTensorHandle::default();
-                    cached_handle.rank = shape.len() as u32;
+                    let mut cached_handle = ffi::MLTensorHandle {
+                        rank: shape.len() as u32,
+                        ..Default::default()
+                    };
                     for (i, &dim) in shape.iter().enumerate() {
                         cached_handle.shape[i] = dim;
                     }

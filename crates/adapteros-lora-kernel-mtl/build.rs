@@ -62,6 +62,15 @@ fn compile_coreml_bridge() {
 }
 
 fn compile_metal_shaders() {
+    let home_override = std::env::var("METAL_HOME_OVERRIDE").unwrap_or_else(|_| {
+        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string())
+    });
+    let module_cache_dir = std::env::var("CLANG_MODULE_CACHE_PATH")
+        .unwrap_or_else(|_| "target/clang-module-cache".to_string());
+    // Ensure module cache directories exist to avoid sandbox permission issues
+    let _ = std::fs::create_dir_all(&module_cache_dir);
+    let _ = std::fs::create_dir_all(Path::new(&home_override).join(".cache/clang/ModuleCache"));
+
     // Rebuild if any kernel sources change
     println!("cargo:rerun-if-changed=../../metal/src/kernels/adapteros_kernels.metal");
     println!("cargo:rerun-if-changed=../../metal/src/kernels/common.metal");
@@ -93,6 +102,8 @@ fn compile_metal_shaders() {
 
     // Compile to AIR
     let compile_output = Command::new("xcrun")
+        .env("CLANG_MODULE_CACHE_PATH", &module_cache_dir)
+        .env("HOME", &home_override)
         .args([
             "-sdk",
             "macosx",
@@ -166,7 +177,13 @@ fn compile_metal_shaders() {
     .expect("Failed to copy metallib");
 
     // Compile aos_kernels.metal from metal/ root directory
-    compile_additional_kernel(&metal_dir, "aos_kernels.metal", shaders_dir);
+    compile_additional_kernel(
+        metal_dir,
+        "aos_kernels.metal",
+        shaders_dir,
+        &module_cache_dir,
+        &home_override,
+    );
 
     // Note: mplora_kernels is part of adapteros_kernels, create alias
     std::fs::copy(
@@ -197,7 +214,13 @@ fn compile_metal_shaders() {
     let _ = std::fs::remove_file(kernel_src_dir.join("adapteros_kernels.air"));
 }
 
-fn compile_additional_kernel(metal_dir: &Path, kernel_name: &str, shaders_dir: &Path) {
+fn compile_additional_kernel(
+    metal_dir: &Path,
+    kernel_name: &str,
+    shaders_dir: &Path,
+    module_cache_dir: &str,
+    home_override: &str,
+) {
     let kernel_path = metal_dir.join(kernel_name);
 
     if !kernel_path.exists() {
@@ -211,6 +234,8 @@ fn compile_additional_kernel(metal_dir: &Path, kernel_name: &str, shaders_dir: &
 
     // Compile to AIR
     let compile_output = Command::new("xcrun")
+        .env("CLANG_MODULE_CACHE_PATH", module_cache_dir)
+        .env("HOME", home_override)
         .args([
             "-sdk",
             "macosx",
@@ -303,10 +328,9 @@ fn generate_signed_manifest() {
 
     // Fixed seed for deterministic test key generation (same as in keys.rs)
     const TEST_KEY_SEED: [u8; 32] = [
-        0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xd0, 0xe1,
-        0xf2, 0x03, 0x14, 0x25, 0x36, 0x47, 0x58, 0x69,
-        0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xd0, 0xe1,
-        0xf2, 0x03, 0x14, 0x25, 0x36, 0x47, 0x58, 0x69,
+        0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xd0, 0xe1, 0xf2, 0x03, 0x14, 0x25, 0x36, 0x47, 0x58,
+        0x69, 0x7a, 0x8b, 0x9c, 0xad, 0xbe, 0xcf, 0xd0, 0xe1, 0xf2, 0x03, 0x14, 0x25, 0x36, 0x47,
+        0x58, 0x69,
     ];
 
     #[derive(Serialize, Deserialize)]
@@ -359,7 +383,8 @@ fn generate_signed_manifest() {
     // Get build metadata
     let xcrun_version = get_xcrun_version();
     let sdk_version = get_sdk_version();
-    let rust_version = std::env::var("CARGO_PKG_RUST_VERSION").unwrap_or_else(|_| "unknown".to_string());
+    let rust_version =
+        std::env::var("CARGO_PKG_RUST_VERSION").unwrap_or_else(|_| "unknown".to_string());
     let build_timestamp = chrono::Utc::now().to_rfc3339();
 
     // Create manifest
@@ -401,17 +426,27 @@ fn generate_signed_manifest() {
     std::fs::create_dir_all(manifests_dir).expect("Failed to create manifests directory");
 
     // Write manifest file
-    let manifest_pretty = serde_json::to_string_pretty(&manifest).expect("Failed to serialize manifest");
-    std::fs::write(manifests_dir.join("metallib_manifest.json"), manifest_pretty)
-        .expect("Failed to write manifest");
+    let manifest_pretty =
+        serde_json::to_string_pretty(&manifest).expect("Failed to serialize manifest");
+    std::fs::write(
+        manifests_dir.join("metallib_manifest.json"),
+        manifest_pretty,
+    )
+    .expect("Failed to write manifest");
 
     // Write signature file
-    let signature_json = serde_json::to_string_pretty(&signature_metadata)
-        .expect("Failed to serialize signature");
-    std::fs::write(manifests_dir.join("metallib_manifest.json.sig"), signature_json)
-        .expect("Failed to write signature");
+    let signature_json =
+        serde_json::to_string_pretty(&signature_metadata).expect("Failed to serialize signature");
+    std::fs::write(
+        manifests_dir.join("metallib_manifest.json.sig"),
+        signature_json,
+    )
+    .expect("Failed to write signature");
 
-    println!("cargo:warning=Generated signed manifest with hash: {}", kernel_hash_hex);
+    println!(
+        "cargo:warning=Generated signed manifest with hash: {}",
+        kernel_hash_hex
+    );
     println!("cargo:rerun-if-changed=manifests/metallib_manifest.json");
     println!("cargo:rerun-if-changed=manifests/metallib_manifest.json.sig");
 }

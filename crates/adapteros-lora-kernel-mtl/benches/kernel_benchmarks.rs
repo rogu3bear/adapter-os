@@ -100,8 +100,7 @@ fn bench_mlp_kernel_sizes(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("hidden_dim", label), &dim, |b, &dim| {
             #[cfg(target_os = "macos")]
-            let mut kernels = MetalKernels::new()
-                .expect("MetalKernels initialization failed");
+            let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
             #[cfg(not(target_os = "macos"))]
             let mut kernels = MockKernels::new();
@@ -574,8 +573,7 @@ fn bench_lora_k_sparse_scaling(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("k_adapters", k), &k, |b, &k| {
             #[cfg(target_os = "macos")]
-            let mut kernels = MetalKernels::new()
-                .expect("MetalKernels initialization failed");
+            let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
             #[cfg(not(target_os = "macos"))]
             let mut kernels = MockKernels::new();
@@ -616,8 +614,7 @@ fn bench_lora_rank_scaling(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("rank", rank), &rank, |b, &_rank| {
             #[cfg(target_os = "macos")]
-            let mut kernels = MetalKernels::new()
-                .expect("MetalKernels initialization failed");
+            let mut kernels = MetalKernels::new().expect("MetalKernels initialization failed");
 
             #[cfg(not(target_os = "macos"))]
             let mut kernels = MockKernels::new();

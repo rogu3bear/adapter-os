@@ -409,6 +409,7 @@ impl MetalKernels {
     }
 
     /// Load library from embedded metallib with hash verification
+    #[allow(clippy::const_is_empty)]
     fn load_library(&mut self) -> Result<()> {
         if METALLIB_BYTES.is_empty() {
             return Err(AosError::Kernel(

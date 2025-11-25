@@ -69,7 +69,7 @@ fn compile_swift_bridge() {
 
     // Compile Swift to object file
     let compile_status = Command::new("swiftc")
-        .args(&[
+        .args([
             "-c",
             "-O",
             "-emit-object",
@@ -88,7 +88,7 @@ fn compile_swift_bridge() {
 
     // Create static library
     let ar_status = Command::new("ar")
-        .args(&["rcs", &lib_path, &obj_path])
+        .args(["rcs", &lib_path, &obj_path])
         .status()
         .expect("Failed to execute ar");
 

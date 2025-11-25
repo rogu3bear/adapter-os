@@ -158,27 +158,34 @@ impl GpuMemoryManager {
         let pool = Arc::clone(&self.pool);
         let shutdown = Arc::clone(&self.shutdown);
 
-        let handle = std::thread::spawn(move || {
-            while !shutdown.load(std::sync::atomic::Ordering::SeqCst) {
-                std::thread::sleep(interval);
+        match std::thread::Builder::new()
+            .name("gpu-memory-cleanup".to_string())
+            .spawn(move || {
+                while !shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::thread::sleep(interval);
 
-                if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
-                    break;
-                }
+                    if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+                        break;
+                    }
 
-                let freed = pool.cleanup_idle_buffers();
-                if freed > 0 {
-                    debug!(bytes_freed = freed, "Scheduled cleanup completed");
+                    let freed = pool.cleanup_idle_buffers();
+                    if freed > 0 {
+                        debug!(bytes_freed = freed, "Scheduled cleanup completed");
+                    }
                 }
+                info!("GPU memory cleanup scheduler stopped");
+            }) {
+            Ok(handle) => {
+                self.cleanup_handle = Some(handle);
+                info!(
+                    interval_secs = interval.as_secs(),
+                    "Started cleanup scheduler"
+                );
             }
-            info!("GPU memory cleanup scheduler stopped");
-        });
-
-        self.cleanup_handle = Some(handle);
-        info!(
-            interval_secs = interval.as_secs(),
-            "Started cleanup scheduler"
-        );
+            Err(error) => {
+                error!(%error, "Failed to start cleanup scheduler thread");
+            }
+        }
     }
 
     /// Stop cleanup scheduler

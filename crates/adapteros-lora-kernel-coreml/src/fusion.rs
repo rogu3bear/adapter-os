@@ -972,7 +972,7 @@ impl FusedModelCache {
         let mut entries: Vec<_> = std::fs::read_dir(&self.cache_dir)
             .map_err(|e| AosError::Io(format!("Failed to read cache dir: {}", e)))?
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "mlmodelc"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "mlmodelc"))
             .collect();
 
         // Calculate total size

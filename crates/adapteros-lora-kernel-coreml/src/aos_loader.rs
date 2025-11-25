@@ -223,7 +223,7 @@ pub fn write_weights_to_temp(weights_data: &[u8]) -> Result<PathBuf> {
         .map_err(|e| AosError::Io(format!("Failed to write .aos weights to temp file: {}", e)))?;
 
     let temp_path = temp_file.into_temp_path();
-    Ok(PathBuf::from(temp_path.to_path_buf()))
+    Ok(temp_path.to_path_buf())
 }
 
 /// Memory-map a file and return the mapped bytes

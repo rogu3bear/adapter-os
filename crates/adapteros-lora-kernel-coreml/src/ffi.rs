@@ -228,7 +228,7 @@ pub type CoreMLAsyncCallback = extern "C" fn(
 
 /// Compute unit preference for macOS 26+ MLTensor operations
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ComputeUnitPreference {
     /// CPU only
     CpuOnly = 0,
@@ -237,13 +237,8 @@ pub enum ComputeUnitPreference {
     /// CPU and Neural Engine (ANE)
     CpuAndNeuralEngine = 2,
     /// All available compute units (default)
+    #[default]
     All = 3,
-}
-
-impl Default for ComputeUnitPreference {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 /// MLTensor API version levels
