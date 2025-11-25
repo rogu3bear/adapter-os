@@ -108,6 +108,13 @@ Backend logs: `tail -f server-dev.log` (from pnpm dev) or `server.log`
 The dev server runs on http://localhost:3200 and proxies API requests to the backend.
 >
 
+### Real MLX backend (Apple Silicon)
+- Install MLX: `brew install mlx` (or set `MLX_PATH`/`MLX_INCLUDE_DIR`/`MLX_LIB_DIR`).
+- Build backend: `make build-mlx` (features: `multi-backend,real-mlx`).
+- Test/bench: `make test-mlx` / `make bench-mlx`.
+- Model: `./scripts/download_model.sh --format mlx --size 7b --quantized`; then `export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx`.
+- More detail: `MLX_INSTALLATION_GUIDE.md`, `MLX_INTEGRATION.md`.
+
 ### Environment Variables
 
 Create a `.env` file for development (see `.env.example`):

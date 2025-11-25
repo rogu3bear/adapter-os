@@ -99,6 +99,34 @@ export const documentationIndex: DocumentationEntry[] = [
     description: 'MLX integration guide for Apple Silicon'
   },
   {
+    id: 'mlx-installation',
+    title: 'MLX Installation Guide',
+    path: 'MLX_INSTALLATION_GUIDE.md',
+    category: 'guides',
+    description: 'Step-by-step setup for real MLX backend on Apple Silicon'
+  },
+  {
+    id: 'mlx-migration',
+    title: 'MLX Migration (Stub → Real)',
+    path: 'MLX_MIGRATION_GUIDE.md',
+    category: 'guides',
+    description: 'Checklist for moving from stub MLX to real backend'
+  },
+  {
+    id: 'mlx-troubleshooting',
+    title: 'MLX Troubleshooting',
+    path: 'MLX_TROUBLESHOOTING.md',
+    category: 'guides',
+    description: 'Common MLX build/runtime issues and fixes'
+  },
+  {
+    id: 'mlx-vs-coreml',
+    title: 'MLX vs CoreML',
+    path: 'MLX_VS_COREML_GUIDE.md',
+    category: 'guides',
+    description: 'Backend selection guidance across MLX, CoreML, and Metal'
+  },
+  {
     id: 'runaway-prevention',
     title: 'Runaway Prevention',
     path: 'runaway-prevention.md',

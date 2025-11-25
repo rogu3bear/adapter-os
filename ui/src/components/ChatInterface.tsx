@@ -734,7 +734,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
               <Send className="h-4 w-4" />
             )}
           </Button>
-        </div>
+        </form>
         {!selectedStackId && (
           <p className="text-xs text-muted-foreground mt-2">
             Please select a stack to start chatting
@@ -744,4 +744,3 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
     </div>
   );
 }
-

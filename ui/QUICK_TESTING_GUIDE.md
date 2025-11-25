@@ -27,7 +27,7 @@ cargo run --release -p adapteros-server-api
 cd ui
 pnpm install  # First time only
 pnpm dev
-# UI should open at http://localhost:5173
+# UI should open at http://localhost:3200
 ```
 
 ### 3. Verify Proxy Configuration
@@ -41,7 +41,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U1: Dashboard (`/`)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/`
+1. Navigate to `http://localhost:3200/`
 2. Check stats cards display numbers (nodes, tenants, adapters, performance)
 3. Look for SSE connection indicator (green "Live" badge on CPU usage)
 4. Watch metrics update in real-time (every few seconds)
@@ -64,7 +64,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U2: Adapters List (`/adapters`)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/adapters`
+1. Navigate to `http://localhost:3200/adapters`
 2. Check stats cards (Total, Loaded, Pinned, Memory Used)
 3. Verify adapter table displays adapters (or "No adapters" if empty)
 4. Open DevTools → Network → Filter by "adapters"
@@ -107,7 +107,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U4: Training Jobs (`/training`)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/training`
+1. Navigate to `http://localhost:3200/training`
 2. Check training jobs list (may be empty)
 3. Click "Start Training" button (if permission available)
 4. Open DevTools → Network → Filter by "training"
@@ -126,7 +126,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U5: Inference (`/inference`)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/inference`
+1. Navigate to `http://localhost:3200/inference`
 2. Check adapter dropdown (should load adapters)
 3. Enter prompt: "Hello, how are you?"
 4. Click "Generate" button
@@ -154,7 +154,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U6: Datasets (`/training` → Datasets Tab)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/training`
+1. Navigate to `http://localhost:3200/training`
 2. Click "Datasets" tab
 3. Check datasets list (may be empty)
 4. Open DevTools → Network → Filter by "datasets"
@@ -173,7 +173,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U7: Policies (`/policies`)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/policies`
+1. Navigate to `http://localhost:3200/policies`
 2. Check stats cards (Total, Active, Draft, Signed)
 3. Verify policy list displays
 4. Open DevTools → Network → Filter by "policies"
@@ -192,7 +192,7 @@ Open browser DevTools (F12) → Network tab. All API calls should show as `/api/
 ### ✅ U8: System Metrics (`/metrics`)
 
 **Actions:**
-1. Navigate to `http://localhost:5173/metrics`
+1. Navigate to `http://localhost:3200/metrics`
 2. Wait for charts to populate (may take a few seconds)
 3. Watch charts update in real-time
 4. Check metric cards at bottom (CPU, Memory, GPU, etc.)
@@ -258,7 +258,7 @@ cd /path/to/adapter-os
 **Fix:**
 ```bash
 # Login as admin user (if auth is enabled)
-# Navigate to: http://localhost:5173/auth/login
+# Navigate to: http://localhost:3200/auth/login
 
 # Check user permissions in dashboard
 # User role should be "admin" or "operator" for most actions

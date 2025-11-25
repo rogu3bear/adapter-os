@@ -516,9 +516,13 @@ export interface CommitDeltaResponse {
 }
 
 // Inference types
+export type BackendName = 'mlx' | 'coreml' | 'metal' | 'auto';
+export type BackendMode = 'real' | 'stub' | 'auto';
+
 export interface InferRequest {
   prompt: string;
   model?: string;
+  backend?: BackendName;
   max_tokens?: number;
   temperature?: number;
   top_p?: number;
@@ -539,6 +543,7 @@ export interface InferResponse {
   latency_ms: number;
   adapters_used: string[];
   finish_reason: 'stop' | 'length' | 'error';
+  backend?: BackendName;
   trace?: {
     latency_ms: number;
     steps?: Array<{ adapter: string; latency_ms: number; tokens: number }>;
@@ -557,6 +562,7 @@ export interface InferResponse {
 export interface BatchInferRequest {
   prompts?: string[];
   model?: string;
+  backend?: BackendName;
   max_tokens?: number;
   temperature?: number;
   adapter_stack?: string[];
@@ -621,6 +627,59 @@ export interface HealthResponse {
   uptime_seconds: number;
   components: Record<string, ComponentHealth>;
   checks?: Record<string, boolean>;
+}
+
+export interface BackendCapability {
+  name: string;
+  available: boolean;
+  deterministic?: boolean;
+  precision?: string[];
+  notes?: string[];
+}
+
+export interface HardwareCapabilities {
+  ane_available?: boolean;
+  gpu_available?: boolean;
+  gpu_type?: string;
+  gpu_memory_gb?: number;
+  cpu_model?: string;
+  memory_gb?: number;
+}
+
+export interface BackendStatus {
+  backend: BackendName;
+  mode: BackendMode;
+  status: 'healthy' | 'degraded' | 'unavailable';
+  version?: string;
+  deterministic?: boolean;
+  supports_streaming?: boolean;
+  supports_training?: boolean;
+  last_checked?: string;
+  warnings?: string[];
+  errors?: string[];
+  notes?: string[];
+}
+
+export interface BackendStatusResponse {
+  schema_version: string;
+  status: BackendStatus;
+  capabilities?: BackendCapability[];
+  hardware?: HardwareCapabilities;
+}
+
+export interface BackendListResponse {
+  schema_version: string;
+  backends: BackendStatus[];
+  default_backend?: BackendName;
+}
+
+export interface BackendCapabilitiesResponse {
+  schema_version: string;
+  hardware: HardwareCapabilities;
+  backends: Array<{
+    backend: BackendName;
+    capabilities: BackendCapability[];
+  }>;
 }
 
 export interface ComponentHealth {

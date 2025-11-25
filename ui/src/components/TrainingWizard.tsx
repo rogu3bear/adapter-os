@@ -40,6 +40,8 @@ interface TrainingWizardProps {
   onComplete: (trainingJobId: string) => void;
   onCancel: () => void;
   initialDatasetId?: string;
+  /** When true, keep data source locked to the provided dataset */
+  lockDatasetId?: boolean;
 }
 
 interface WizardState {
@@ -124,7 +126,7 @@ const LORA_TARGETS = [
 
 
 // Inner component that uses density context
-function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: TrainingWizardProps): JSX.Element {
+function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatasetId }: TrainingWizardProps): JSX.Element {
   const { density, setDensity, spacing, textSizes } = useDensity();
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
@@ -135,6 +137,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedState, setSavedState] = useState<WizardState | null>(null);
   const [simpleMode, setSimpleMode] = useState(true); // Default to simple mode for MVP
+  const dataSourceLocked = Boolean(initialDatasetId && lockDatasetId);
 
   const initialState: WizardState = {
     currentStep: 0,
@@ -444,12 +447,20 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
   // Step 3: Data Source Selection
   const DataSourceStep = () => (
     <div className="space-y-4">
+      {dataSourceLocked && (
+        <p className="text-sm text-muted-foreground">
+          Dataset source is locked by the workflow. Training will use the selected dataset.
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card
-          className={`cursor-pointer transition-all ${
+          className={`transition-all ${
             state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'template' })}
+          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          onClick={() => {
+            if (dataSourceLocked) return;
+            updateState({ dataSourceType: 'template' });
+          }}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -462,10 +473,13 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
         </Card>
 
         <Card
-          className={`cursor-pointer transition-all ${
+          className={`transition-all ${
             state.dataSourceType === 'repository' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'repository' })}
+          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          onClick={() => {
+            if (dataSourceLocked) return;
+            updateState({ dataSourceType: 'repository' });
+          }}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -478,9 +492,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
         </Card>
 
         <Card
-          className={`cursor-pointer transition-all ${
+          className={`transition-all ${
             state.dataSourceType === 'dataset' ? 'border-primary bg-primary/5' : ''
-          }`}
+          } cursor-pointer`}
           onClick={() => updateState({ dataSourceType: 'dataset' })}
         >
           <CardHeader>
@@ -494,10 +508,13 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
         </Card>
 
         <Card
-          className={`cursor-pointer transition-all ${
+          className={`transition-all ${
             state.dataSourceType === 'custom' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'custom' })}
+          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          onClick={() => {
+            if (dataSourceLocked) return;
+            updateState({ dataSourceType: 'custom' });
+          }}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -510,10 +527,13 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
         </Card>
 
         <Card
-          className={`cursor-pointer transition-all ${
+          className={`transition-all ${
             state.dataSourceType === 'directory' ? 'border-primary bg-primary/5' : ''
-          }`}
-          onClick={() => updateState({ dataSourceType: 'directory' })}
+          } ${dataSourceLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          onClick={() => {
+            if (dataSourceLocked) return;
+            updateState({ dataSourceType: 'directory' });
+          }}
         >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1874,13 +1894,14 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
 }
 
 // Outer component with DensityProvider
-export function TrainingWizard({ onComplete, onCancel, initialDatasetId }: TrainingWizardProps) {
+export function TrainingWizard({ onComplete, onCancel, initialDatasetId, lockDatasetId = false }: TrainingWizardProps) {
   return (
     <DensityProvider pageKey="training-wizard">
       <TrainingWizardInner
         onComplete={onComplete}
         onCancel={onCancel}
         initialDatasetId={initialDatasetId}
+        lockDatasetId={lockDatasetId}
       />
     </DensityProvider>
   );

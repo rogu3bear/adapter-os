@@ -13,6 +13,7 @@ const testingMarkers = (process.env.AOS_PORT_TESTING_MARKERS ?? '--testing,AOS_P
   .filter(Boolean);
 const testingGraceMs = Number.parseInt(process.env.AOS_PORT_TESTING_GRACE ?? '4000', 10);
 const killTimeoutMs = Number.parseInt(process.env.AOS_PORT_KILL_TIMEOUT ?? '5000', 10);
+const manualClearWaitMs = Number.parseInt(process.env.AOS_PORT_MANUAL_WAIT ?? '8000', 10);
 
 function getPortProcesses() {
   const result = spawnSync('lsof', ['-nP', '-i', `:${port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' });
@@ -88,13 +89,15 @@ async function makeSurePortAvailable() {
   }
 
   if (killTargets.length) {
+    let needsManualClear = false;
     for (const proc of killTargets) {
       console.log(`[ensure-port] Terminating PID ${proc.pid} on port ${port}${proc.isTesting ? ' (testing override ignored)' : ''}`);
       try {
         process.kill(Number.parseInt(proc.pid, 10), 'SIGTERM');
       } catch (error) {
         if (error.code !== 'ESRCH') {
-          console.warn(`[ensure-port] Failed to signal PID ${proc.pid}: ${error.message}`);
+            console.warn(`[ensure-port] Failed to signal PID ${proc.pid}: ${error.message}`);
+            needsManualClear = needsManualClear || error.code === 'EPERM';
         }
       }
     }
@@ -107,16 +110,24 @@ async function makeSurePortAvailable() {
         } catch (error) {
           if (error.code !== 'ESRCH') {
             console.warn(`[ensure-port] Failed to force kill PID ${proc.pid}: ${error.message}`);
+            needsManualClear = needsManualClear || error.code === 'EPERM';
           }
         }
       }
       await waitForExit(killTargets.map((proc) => proc.pid));
+
+      // If we couldn't signal due to permissions, give the operator a grace window to clear it manually
+      if (needsManualClear) {
+        console.warn(`[ensure-port] Waiting up to ${manualClearWaitMs}ms for manual port clearance (permission denied when signaling).`);
+        await sleep(manualClearWaitMs);
+      }
     }
   }
 
   const remaining = getPortProcesses();
   if (remaining.length > 0) {
     console.warn(`[ensure-port] Port ${port} still in use by PIDs: ${remaining.join(', ')}`);
+    console.warn('[ensure-port] Build cannot proceed while the port is occupied. Please stop the listed process(es) or set AOS_DEV_PORT to a free port, then retry.');
     return 1;
   }
 

@@ -191,6 +191,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     temperature: 0.7,
     top_k: 50,
     top_p: 0.9,
+    backend: 'auto',
     seed: undefined,
     require_evidence: false,
   });
@@ -202,6 +203,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     temperature: 0.9,
     top_k: 50,
     top_p: 0.9,
+    backend: 'auto',
     seed: undefined,
     require_evidence: false,
   });
@@ -276,13 +278,14 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         temperature: configA.temperature,
         top_k: configA.top_k,
         top_p: configA.top_p,
+        backend: configA.backend || 'auto',
         seed: configA.seed,
         require_evidence: configA.require_evidence,
         adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
       }));
 
       // Call batch inference API
-      const response = await apiClient.batchInfer({ requests: batchItems });
+      const response = await apiClient.batchInfer({ backend: configA.backend || 'auto', requests: batchItems });
 
       setBatchResults(response.responses);
 
@@ -484,6 +487,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         temperature: config.temperature,
         top_k: config.top_k,
         top_p: config.top_p,
+        backend: config.backend || 'auto',
         seed: config.seed,
         require_evidence: config.require_evidence,
         adapter_stack: validationAdapterIds,
@@ -569,6 +573,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         temperature: config.temperature,
         top_k: config.top_k,
         top_p: config.top_p,
+        backend: config.backend || 'auto',
         seed: config.seed,
         require_evidence: config.require_evidence,
         adapter_stack: streamAdapterIds,
@@ -577,6 +582,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       await apiClient.streamInfer(
         {
           prompt: config.prompt,
+          backend: config.backend || 'auto',
           max_tokens: config.max_tokens,
           temperature: config.temperature,
           top_k: config.top_k,
@@ -913,6 +919,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         temperature: config.temperature || 0.7,
         top_k: config.top_k || 50,
         top_p: config.top_p || 0.9,
+        backend: config.backend || 'auto',
         seed: config.seed,
         require_evidence: config.require_evidence || false
       }}

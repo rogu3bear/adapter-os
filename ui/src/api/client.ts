@@ -389,11 +389,12 @@ class ApiClient {
   }
 
   async logoutAllSessions(): Promise<void> {
-    logger.info('Logging out all sessions', {
+    // Backend has no logout-all; fall back to logging out current session.
+    logger.info('Logging out current session (logout-all fallback)', {
       component: 'ApiClient',
       operation: 'logoutAllSessions',
     });
-    await this.request('/v1/auth/logout-all', { method: 'POST' });
+    await this.request('/v1/auth/logout', { method: 'POST' });
   }
 
   async listSessions(): Promise<types.SessionInfo[]> {
@@ -1297,6 +1298,19 @@ class ApiClient {
   async getRoutingHistory(limit?: number): Promise<types.RoutingDecision[]> {
     const query = limit ? `?limit=${limit}` : '';
     return this.request<types.RoutingDecision[]>(`/v1/routing/history${query}`);
+  }
+
+  // Backend metadata
+  async listBackends(): Promise<types.BackendListResponse> {
+    return this.request<types.BackendListResponse>('/v1/backends');
+  }
+
+  async getBackendCapabilities(): Promise<types.BackendCapabilitiesResponse> {
+    return this.request<types.BackendCapabilitiesResponse>('/v1/backends/capabilities');
+  }
+
+  async getBackendStatus(name: types.BackendName): Promise<types.BackendStatusResponse> {
+    return this.request<types.BackendStatusResponse>(`/v1/backends/${name}/status`);
   }
 
   // Inference

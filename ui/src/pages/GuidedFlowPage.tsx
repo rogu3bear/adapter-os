@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { FlowStep, type FlowStepStatus } from '@/components/GuidedFlow/FlowStep';
@@ -7,36 +7,82 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { useTraining } from '@/hooks/useTraining';
-import { useAdapterStacks, useCreateAdapterStack } from '@/hooks/useAdmin';
+import { useAdapterStacks } from '@/hooks/useAdmin';
 import { TrainingWizard } from '@/components/TrainingWizard';
 import { ChatInterface } from '@/components/ChatInterface';
 import { useTenant } from '@/layout/LayoutProvider';
-import { ArrowRight, ArrowLeft, CheckCircle, Play } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle, Play, UploadCloud } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Dataset } from '@/api/training-types';
-import type { TrainingJob } from '@/api/training-types';
+import type { Dataset, DatasetValidationStatus, TrainingJob } from '@/api/training-types';
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 3;
+
+function StatusBadge({ status }: { status: DatasetValidationStatus | string }) {
+  const variant =
+    status === 'valid'
+      ? 'default'
+      : status === 'validating'
+        ? 'secondary'
+        : status === 'invalid'
+          ? 'destructive'
+          : 'outline';
+  return (
+    <Badge variant={variant as any} className="capitalize">
+      {status || 'unknown'}
+    </Badge>
+  );
+}
 
 export default function GuidedFlowPage() {
   const navigate = useNavigate();
   const { selectedTenant } = useTenant();
   const [currentStep, setCurrentStep] = useState(1);
   const [datasetId, setDatasetId] = useState<string | undefined>();
+  const [datasetName, setDatasetName] = useState<string | undefined>();
   const [jobId, setJobId] = useState<string | undefined>();
-  const [adapterId, setAdapterId] = useState<string | undefined>();
   const [stackId, setStackId] = useState<string | undefined>();
   const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
-  const [isStackDialogOpen, setIsStackDialogOpen] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
 
+  const { data: stacks = [] } = useAdapterStacks();
   const { data: dataset } = useTraining.useDataset(datasetId || '', {
     enabled: !!datasetId,
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      if (!d) return false;
+      return d.validation_status !== 'valid' ? 2000 : false;
+    },
   });
+
   const { data: job } = useTraining.useTrainingJob(jobId || '', {
     enabled: !!jobId,
   });
-  const createStack = useCreateAdapterStack();
+
+  const { mutateAsync: createDataset, isPending: isUploading } = useTraining.useCreateDataset({
+    onSuccess: (resp) => {
+      const newId =
+        (resp as any).dataset_id ||
+        (resp as any).id ||
+        resp.dataset?.dataset_id ||
+        resp.dataset?.id;
+      setDatasetId(newId);
+      setDatasetName(resp.dataset?.name || newId);
+      toast.success('Dataset uploaded');
+      setCurrentStep(1);
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Failed to upload dataset');
+    },
+  });
+
+  const { mutateAsync: validateDataset, isPending: isValidating } = useTraining.useValidateDataset({
+    onSuccess: () => {
+      toast.message('Validation started', { description: 'Polling until validation finishes.' });
+    },
+    onError: (err) => toast.error(err.message || 'Validation failed'),
+  });
 
   const getStepStatus = (step: number): FlowStepStatus => {
     if (step < currentStep) return 'completed';
@@ -44,272 +90,237 @@ export default function GuidedFlowPage() {
     return 'pending';
   };
 
-  const handleNext = useCallback(() => {
-    if (currentStep < TOTAL_STEPS) {
-      setCurrentStep(currentStep + 1);
-    }
-  }, [currentStep]);
-
   const handleBack = useCallback(() => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     }
   }, [currentStep]);
 
-  const handleDatasetCreated = useCallback((newDatasetId: string) => {
-    setDatasetId(newDatasetId);
-    toast.success('Dataset created successfully');
-  }, []);
-
   const handleTrainingStarted = useCallback((newJobId: string) => {
     setJobId(newJobId);
     setIsTrainingWizardOpen(false);
     toast.success('Training job started');
-    setCurrentStep(4); // Move to monitoring step
+    setCurrentStep(3);
   }, []);
 
-  const handleTrainingCompleted = useCallback(() => {
-    if (job?.status === 'completed' && job.adapter_id) {
-      setAdapterId(job.adapter_id);
-      toast.success('Training completed! Adapter created.');
-      setCurrentStep(5); // Move to stack creation
+  // Auto-advance when dataset becomes valid
+  useEffect(() => {
+    if (dataset?.validation_status === 'valid' && currentStep === 1) {
+      toast.success('Dataset validated and ready for training');
+      setCurrentStep(2);
     }
-  }, [job]);
+  }, [currentStep, dataset?.validation_status]);
 
-  // Monitor job completion
-  React.useEffect(() => {
-    if (job?.status === 'completed' && job.adapter_id && currentStep === 4) {
-      handleTrainingCompleted();
+  // Capture stack once training completes
+  useEffect(() => {
+    if (job?.status === 'completed') {
+      if (job.stack_id) {
+        setStackId(job.stack_id);
+      }
+      if (currentStep === 3 && job.stack_id) {
+        toast.success('Training completed! Stack ready for chat.');
+      }
     }
-  }, [job, currentStep, handleTrainingCompleted]);
+  }, [currentStep, job]);
 
-  const handleCreateStack = useCallback(async () => {
-    if (!adapterId) {
-      toast.error('No adapter available');
+  useEffect(() => {
+    if (job?.status === 'completed' && currentStep < 3) {
+      setCurrentStep(3);
+    }
+  }, [currentStep, job?.status]);
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFiles || selectedFiles.length === 0) {
+      toast.error('Please select a file to upload');
       return;
     }
+    const primaryName = datasetName || selectedFiles[0]?.name || 'doc-chat-dataset';
+    await createDataset({
+      name: primaryName,
+      source_type: 'uploaded_files',
+      files: Array.from(selectedFiles),
+    });
+  };
 
-    try {
-      const stack = await createStack.mutateAsync({
-        name: `stack-${adapterId.slice(0, 8)}`,
-        description: `Stack created from guided flow`,
-        adapters: [
-          {
-            adapter_id: adapterId,
-            gate: 32767,
-          },
-        ],
-      });
-      setStackId(stack.id);
-      setIsStackDialogOpen(false);
-      toast.success('Stack created successfully');
-      setCurrentStep(6); // Move to chat
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to create stack');
-      toast.error(err.message);
-    }
-  }, [adapterId, createStack]);
+  const handleValidate = async () => {
+    if (!datasetId) return;
+    await validateDataset(datasetId);
+  };
+
+  const selectedStackName = stackId
+    ? stacks.find((s) => s.id === stackId)?.name || stackId
+    : undefined;
 
   return (
-    <FeatureLayout title="Guided LoRA Flow" description="Complete workflow from dataset to chat">
+    <FeatureLayout title="Doc → Chat Quickstart" description="Bring a file, train a LoRA, and chat with it in one screen.">
       <div className="space-y-6">
         <FlowProgress currentStep={currentStep} totalSteps={TOTAL_STEPS} />
 
-        {/* Step 1: Upload Dataset */}
+        {/* Step 1: Upload & Validate */}
         <FlowStep
           stepNumber={1}
-          title="Upload Dataset"
-          description="Upload your training data"
+          title="Upload & Validate"
+          description="Drop a file, we’ll turn it into a dataset and validate it."
           status={getStepStatus(1)}
         >
-          {currentStep === 1 ? (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Upload your dataset files to get started with training.
-              </p>
-              <Button onClick={() => navigate('/training/datasets')}>
-                Go to Datasets
+          <div className="space-y-4">
+            <form onSubmit={handleUpload} className="space-y-3">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Select file(s)</label>
+                <Input
+                  type="file"
+                  multiple
+                  accept=".jsonl,.txt,.md,.pdf"
+                  onChange={(e) => setSelectedFiles(e.target.files)}
+                />
+              </div>
+              <Button type="submit" disabled={isUploading}>
+                <UploadCloud className="h-4 w-4 mr-2" />
+                {isUploading ? 'Uploading...' : 'Upload dataset'}
               </Button>
-              {datasetId && dataset && (
-                <Card className="mt-4 border-green-500">
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{dataset.name}</p>
-                        <p className="text-sm text-muted-foreground">{dataset.id}</p>
-                        <Badge variant="outline" className="mt-2">
-                          {dataset.validation_status}
-                        </Badge>
-                      </div>
-                      <CheckCircle className="h-5 w-5 text-green-500" />
+            </form>
+
+            {dataset && (
+              <Card className="border-muted">
+                <CardContent className="pt-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{dataset.name}</p>
+                    <p className="text-xs text-muted-foreground">{dataset.id}</p>
+                    <div className="mt-2 flex items-center gap-2 text-sm">
+                      <span>Status:</span>
+                      <StatusBadge status={dataset.validation_status} />
                     </div>
-                  </CardContent>
-                </Card>
-              )}
-              {datasetId && (
-                <Button onClick={handleNext} className="mt-4">
-                  Next: Validate Dataset <ArrowRight className="h-4 w-4 ml-2" />
+                    {dataset.validation_status === 'invalid' && dataset.validation_errors && (
+                      <p className="text-xs text-destructive mt-2">
+                        {dataset.validation_errors}
+                      </p>
+                    )}
+                  </div>
+                  {dataset.validation_status === 'valid' ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : null}
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                disabled={!datasetId || isValidating}
+                onClick={handleValidate}
+              >
+                {isValidating ? 'Validating…' : 'Validate dataset'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => navigate('/training/datasets')}
+              >
+                Open full dataset view
+              </Button>
+            </div>
+
+            {dataset?.validation_status === 'valid' && (
+              <Button onClick={() => setCurrentStep(2)}>
+                Next: Train on this dataset <ArrowRight className="h-4 w-4 ml-2" />
+              </Button>
+            )}
+            {dataset?.validation_status === 'invalid' && (
+              <div className="text-sm text-destructive space-y-2">
+                <div>Dataset is invalid. Fix issues on the dataset detail page before training.</div>
+                <Button variant="link" className="px-0" onClick={() => navigate(`/training/datasets/${dataset.id}`)}>
+                  Open dataset detail
                 </Button>
-              )}
-            </div>
-          ) : datasetId && dataset ? (
-            <div className="text-sm text-muted-foreground">
-              Dataset: {dataset.name} ({dataset.id})
-            </div>
-          ) : null}
+              </div>
+            )}
+          </div>
         </FlowStep>
 
-        {/* Step 2: Validate Dataset */}
+        {/* Step 2: Train */}
         <FlowStep
           stepNumber={2}
-          title="Validate Dataset"
-          description="Ensure your dataset is ready for training"
+          title="Train"
+          description="Kick off a LoRA job on the validated dataset."
           status={getStepStatus(2)}
         >
-          {currentStep === 2 && datasetId ? (
-            <div className="space-y-4">
-              {dataset?.validation_status === 'valid' ? (
-                <>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <CheckCircle className="h-5 w-5" />
-                    <span>Dataset is valid and ready for training</span>
-                  </div>
-                  <Button onClick={handleNext}>
-                    Next: Configure Training <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Dataset validation status: <Badge>{dataset?.validation_status || 'unknown'}</Badge>
-                  </p>
-                  <Button onClick={() => navigate(`/training/datasets/${datasetId}`)}>
-                    Validate Dataset
-                  </Button>
-                </>
-              )}
-            </div>
-          ) : dataset?.validation_status === 'valid' ? (
-            <div className="text-sm text-green-600">Dataset validated</div>
-          ) : null}
-        </FlowStep>
-
-        {/* Step 3: Configure Training */}
-        <FlowStep
-          stepNumber={3}
-          title="Configure Training"
-          description="Set up your training parameters"
-          status={getStepStatus(3)}
-        >
-          {currentStep === 3 ? (
+          {dataset?.validation_status !== 'valid' ? (
+            <p className="text-sm text-muted-foreground">
+              Upload and validate a dataset first to unlock training.
+            </p>
+          ) : (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Configure your training job with essential parameters.
+                We’ll reuse the training wizard with your dataset preselected.
               </p>
               <Button onClick={() => setIsTrainingWizardOpen(true)}>
                 <Play className="h-4 w-4 mr-2" />
-                Start Training Wizard
+                Start training
               </Button>
-            </div>
-          ) : jobId ? (
-            <div className="text-sm text-muted-foreground">
-              Training job: {jobId}
-            </div>
-          ) : null}
-        </FlowStep>
-
-        {/* Step 4: Monitor Training */}
-        <FlowStep
-          stepNumber={4}
-          title="Monitor Training"
-          description="Watch your adapter train in real-time"
-          status={getStepStatus(4)}
-        >
-          {currentStep === 4 && jobId ? (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Training job is in progress. Monitor its progress below.
-              </p>
-              <Button onClick={() => navigate(`/training/jobs/${jobId}`)}>
-                View Training Job
-              </Button>
-              {job?.status === 'completed' && job.adapter_id && (
-                <div className="mt-4">
-                  <div className="flex items-center gap-2 text-green-600">
-                    <CheckCircle className="h-5 w-5" />
-                    <span>Training completed! Adapter created.</span>
-                  </div>
-                  <Button onClick={handleNext} className="mt-2">
-                    Next: Create Stack <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
+              {jobId && (
+                <div className="text-sm">
+                  Training job: <Badge variant="outline">{jobId}</Badge>{' '}
+                  <span className="text-muted-foreground">({job?.status || 'starting'})</span>
+                </div>
+              )}
+              {job?.status === 'failed' && (
+                <div className="text-sm text-destructive">
+                  Training failed{job.error_message ? `: ${job.error_message}` : ''}. You can retry with the wizard.
+                </div>
+              )}
+              {job?.status === 'completed' && job.stack_id && (
+                <div className="flex items-center gap-2 text-green-600">
+                  <CheckCircle className="h-5 w-5" />
+                  <span>Training complete. Stack ready.</span>
                 </div>
               )}
             </div>
-          ) : job?.status === 'completed' ? (
-            <div className="text-sm text-green-600">Training completed</div>
-          ) : null}
+          )}
         </FlowStep>
 
-        {/* Step 5: Create Stack */}
+        {/* Step 3: Chat */}
         <FlowStep
-          stepNumber={5}
-          title="Create Stack"
-          description="Combine your adapter into a stack"
-          status={getStepStatus(5)}
+          stepNumber={3}
+          title="Chat with your doc"
+          description="Use the trained stack in chat."
+          status={getStepStatus(3)}
         >
-          {currentStep === 5 ? (
-            <div className="space-y-4">
-              {adapterId ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Create a stack with your trained adapter to use it in chat.
-                  </p>
-                  {!stackId ? (
-                    <Button onClick={() => setIsStackDialogOpen(true)}>
-                      Create Stack
-                    </Button>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 text-green-600">
-                        <CheckCircle className="h-5 w-5" />
-                        <span>Stack created successfully</span>
-                      </div>
-                      <Button onClick={handleNext}>
-                        Next: Test in Chat <ArrowRight className="h-4 w-4 ml-2" />
-                      </Button>
-                    </>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Waiting for training to complete...
-                </p>
-              )}
+          {currentStep < 3 ? (
+            <p className="text-sm text-muted-foreground">
+              Start training first to enable chat.
+            </p>
+          ) : job?.status && job?.status !== 'completed' ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Training is {job.status}. You can monitor the job while we finish.
+              </p>
+              <Button onClick={() => navigate(`/training/jobs/${jobId}`)} variant="outline">
+                View training job
+              </Button>
             </div>
-          ) : stackId ? (
-            <div className="text-sm text-muted-foreground">Stack created</div>
-          ) : null}
-        </FlowStep>
-
-        {/* Step 6: Test in Chat */}
-        <FlowStep
-          stepNumber={6}
-          title="Test in Chat"
-          description="Try your adapter in a conversation"
-          status={getStepStatus(6)}
-        >
-          {currentStep === 6 && stackId ? (
+          ) : job?.status === 'failed' ? (
+            <div className="space-y-3">
+              <p className="text-sm text-destructive">
+                Training failed{job.error_message ? `: ${job.error_message}` : ''}. Chat will use the default stack until a successful training run completes.
+              </p>
+              <Button variant="outline" onClick={() => setCurrentStep(2)}>
+                Retry training
+              </Button>
+            </div>
+          ) : (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Your adapter is ready! Test it in the chat interface below.
+                {stackId
+                  ? `Chat is using stack: ${selectedStackName || stackId}.`
+                  : 'Chat will use the default stack for this tenant.'}
               </p>
               <div className="border rounded-lg h-[500px]">
                 <ChatInterface selectedTenant={selectedTenant} initialStackId={stackId} />
               </div>
+              <Button variant="ghost" onClick={() => navigate('/chat')}>
+                Open full chat view
+              </Button>
             </div>
-          ) : stackId ? (
-            <div className="text-sm text-muted-foreground">Ready to test</div>
-          ) : null}
+          )}
         </FlowStep>
 
         {/* Navigation */}
@@ -331,30 +342,13 @@ export default function GuidedFlowPage() {
             </DialogHeader>
             <TrainingWizard
               initialDatasetId={datasetId}
+              lockDatasetId
               onComplete={handleTrainingStarted}
               onCancel={() => setIsTrainingWizardOpen(false)}
             />
-          </DialogContent>
-        </Dialog>
-
-        {/* Create Stack Dialog */}
-        <Dialog open={isStackDialogOpen} onOpenChange={setIsStackDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create Stack</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <p className="text-sm text-muted-foreground">
-                Create a stack with adapter: {adapterId}
-              </p>
-              <Button onClick={handleCreateStack} disabled={createStack.isPending}>
-                {createStack.isPending ? 'Creating...' : 'Create Stack'}
-              </Button>
-            </div>
           </DialogContent>
         </Dialog>
       </div>
     </FeatureLayout>
   );
 }
-

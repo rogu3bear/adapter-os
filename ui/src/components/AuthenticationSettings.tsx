@@ -109,21 +109,20 @@ export function AuthenticationSettings() {
     }
   };
 
-  // Logout all sessions
+  // Logout current session (logout-all not supported server-side)
   const logoutAllSessions = async () => {
-    if (!confirm('Are you sure you want to logout from all sessions? This will require re-authentication on all devices.')) {
+    if (!confirm('Log out of the current session?')) {
       return;
     }
 
     setIsLoading(true);
     try {
       await apiClient.logoutAllSessions();
-      toast.success('Logged out from all sessions');
-      // Note: This will likely cause the current session to be invalidated
-      // The UI should handle this by redirecting to login
+      toast.success('Logged out');
+      // Current session is invalidated; UI will redirect to login
     } catch (error) {
       logger.error('Failed to logout all sessions', { component: 'AuthenticationSettings' }, error instanceof Error ? error : new Error(String(error)));
-      toast.error('Failed to logout all sessions');
+      toast.error('Failed to logout');
     } finally {
       setIsLoading(false);
     }
@@ -292,7 +291,7 @@ export function AuthenticationSettings() {
               disabled={isLoading}
             >
               <LogOut className="w-4 h-4 mr-2" />
-              Logout All Sessions
+              Logout
             </Button>
           </div>
 

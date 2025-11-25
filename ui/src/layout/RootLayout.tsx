@@ -200,6 +200,11 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                   </SelectContent>
                 </Select>
               )}
+              {user.tenant_id && selectedTenant && user.tenant_id !== selectedTenant && (
+                <span className="text-xs text-muted-foreground hidden lg:inline">
+                  Session tenant: {user.tenant_id} (UI tenant: {selectedTenant})
+                </span>
+              )}
               <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
               <span className="text-muted-foreground hidden md:inline">{user.email}</span>
               <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">

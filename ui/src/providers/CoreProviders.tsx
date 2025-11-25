@@ -143,6 +143,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
       logger.error('Logout error', { component: 'AuthProvider' }, toError(error));
     } finally {
       setUser(null);
+      try {
+        localStorage.removeItem('selectedTenant');
+      } catch {
+        // Ignore storage errors during logout
+      }
     }
   }, []);
 
@@ -162,6 +167,12 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
     } catch (error) {
       logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
+    } finally {
+      try {
+        localStorage.removeItem('selectedTenant');
+      } catch {
+        // Ignore storage errors during logout
+      }
     }
   }, []);
 
@@ -344,4 +355,3 @@ export function CoreProviders({ children }: { children: ReactNode }) {
     </AuthProvider>
   );
 }
-

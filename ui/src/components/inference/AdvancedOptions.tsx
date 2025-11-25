@@ -5,6 +5,7 @@ import { Slider } from '../ui/slider';
 import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { Settings2, ChevronDown, HelpCircle } from 'lucide-react';
 
@@ -13,6 +14,7 @@ export interface AdvancedOptionsValues {
   temperature: number;
   top_k: number;
   top_p: number;
+  backend?: 'auto' | 'mlx' | 'coreml' | 'metal';
   seed?: number;
   require_evidence: boolean;
 }
@@ -47,6 +49,37 @@ export function AdvancedOptions({
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-4 pt-4">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="flex items-center gap-1">
+              Backend
+              <HelpTooltip helpId="inference-backend">
+                <span className="cursor-help text-muted-foreground hover:text-foreground">
+                  <HelpCircle className="h-3 w-3" />
+                </span>
+              </HelpTooltip>
+            </Label>
+            <span className="text-xs text-muted-foreground">Auto-selects by default</span>
+          </div>
+          <Select
+            value={values.backend || 'auto'}
+            onValueChange={(backend) => onChange({ ...values, backend: backend as AdvancedOptionsValues['backend'] })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Auto (router decides)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto (router decides)</SelectItem>
+              <SelectItem value="mlx">MLX (real backend if available)</SelectItem>
+              <SelectItem value="coreml">CoreML (ANE priority)</SelectItem>
+              <SelectItem value="metal">Metal (GPU fallback)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Choose a backend explicitly or leave on Auto to let the server select the best available (CoreML/MLX/Metal).
+          </p>
+        </div>
+
         <div className="space-y-2">
           <div className="flex justify-between">
             <Label className="flex items-center gap-1">

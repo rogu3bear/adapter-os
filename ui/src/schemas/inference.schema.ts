@@ -33,7 +33,7 @@ export const InferRequestSchema = z.object({
     .max(8192, 'Prompt must not exceed 8192 characters')
     .describe('Input prompt or messages'),
 
-  // Maximum tokens to generate
+ // Maximum tokens to generate
   max_tokens: z.number()
     .int('Max tokens must be an integer')
     .min(1, 'Max tokens must be at least 1')
@@ -69,6 +69,12 @@ export const InferRequestSchema = z.object({
     .min(0, 'Seed must be non-negative')
     .optional()
     .describe('Random seed for deterministic generation'),
+
+  // Backend selection
+  backend: z.enum(['auto', 'mlx', 'coreml', 'metal'])
+    .optional()
+    .default('auto')
+    .describe('Backend to use for inference (auto|mlx|coreml|metal)'),
 
   // Require evidence (for audit trail)
   require_evidence: z.boolean()
@@ -130,6 +136,12 @@ export const StreamingInferenceRequestSchema = z.object({
   stream: z.boolean()
     .default(true)
     .describe('Enable streaming response'),
+
+  // Backend selection
+  backend: z.enum(['auto', 'mlx', 'coreml', 'metal'])
+    .optional()
+    .default('auto')
+    .describe('Backend to use for inference (auto|mlx|coreml|metal)'),
 
   // Active adapter stack name
   adapter_stack: z.string()

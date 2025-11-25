@@ -5,6 +5,7 @@ import { logger, toError } from '../utils/logger';
 import { BookmarkProvider } from '../contexts/BookmarkContext';
 import { ModalProvider } from '../contexts/ModalContext';
 import { HistoryProvider } from '../contexts/HistoryContext';
+import { useAuth } from './CoreProviders';
 
 // Tenant Context
 interface TenantContextValue {
@@ -27,6 +28,7 @@ export function useTenant(): TenantContextValue {
 
 // Tenant Provider Component
 function TenantProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [selectedTenant, setSelectedTenantState] = useState<string>(() => {
     return localStorage.getItem('selectedTenant') || '';
   });
@@ -110,6 +112,18 @@ function TenantProvider({ children }: { children: ReactNode }) {
     refreshTenants();
   }, [refreshTenants]);
 
+  // Align initial tenant selection with claims when available
+  useEffect(() => {
+    if (user?.tenant_id && !selectedTenant) {
+      setSelectedTenantState(user.tenant_id);
+      try {
+        localStorage.setItem('selectedTenant', user.tenant_id);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, [user?.tenant_id, selectedTenant]);
+
   const value: TenantContextValue = {
     selectedTenant,
     setSelectedTenant,
@@ -135,4 +149,3 @@ export function FeatureProviders({ children }: { children: ReactNode }) {
     </BookmarkProvider>
   );
 }
-

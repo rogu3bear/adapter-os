@@ -463,6 +463,9 @@ export interface StreamingInferRequest {
   /** Model identifier (optional, uses default if not specified) */
   model?: string;
 
+  /** Backend selection (mlx, coreml, metal, or auto) */
+  backend?: 'mlx' | 'coreml' | 'metal' | 'auto';
+
   /** Maximum number of tokens to generate */
   max_tokens?: number;
 

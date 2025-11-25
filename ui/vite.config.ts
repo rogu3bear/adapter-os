@@ -88,7 +88,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
   server: {
-    port: parseInt(process.env.AOS_UI_PORT || '5173', 10),
+    port: parseInt(process.env.AOS_UI_PORT || '3200', 10),
     host: true,
     strictPort: true,
     open: true,

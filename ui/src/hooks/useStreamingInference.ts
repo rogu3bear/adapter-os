@@ -51,7 +51,7 @@ import type { InferRequest } from '../api/types';
 export interface StreamingInferenceConfig extends Omit<InferRequest, 'stream'> {
   /** Prompt to send to the model */
   prompt: string;
-  /** Maximum tokens to generate */
+ /** Maximum tokens to generate */
   max_tokens?: number;
   /** Temperature for sampling (0.0 - 2.0) */
   temperature?: number;
@@ -61,6 +61,8 @@ export interface StreamingInferenceConfig extends Omit<InferRequest, 'stream'> {
   top_k?: number;
   /** Random seed for deterministic generation */
   seed?: number;
+  /** Backend selection (auto|mlx|coreml|metal) */
+  backend?: InferRequest['backend'];
   /** Model identifier */
   model?: string;
   /** Adapter stack to use */

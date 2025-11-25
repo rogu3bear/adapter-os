@@ -1,5 +1,5 @@
 // 【ui/src/components/TrainingPage.tsx§25-40】 - Replace manual polling with standardized hook
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -12,7 +12,7 @@ import { TrainingTemplates } from './TrainingTemplates';
 import apiClient from '../api/client';
 import { TrainingJob } from '../api/types';
 import { logger, toError } from '../utils/logger';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Brain, Activity, Clock, CheckCircle, XCircle, AlertTriangle, Play, Pause, Square, RefreshCw, Trash2 } from 'lucide-react';
 import { Progress } from './ui/progress';
 import { usePolling } from '../hooks/usePolling';
@@ -30,6 +30,8 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
   const { can, userRole } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
   const { data: stacks = [] } = useAdapterStacks();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // Determine polling speed based on active jobs
   const [hasActiveJobs, setHasActiveJobs] = useState(false);
@@ -59,6 +61,14 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [trainingConfig, setTrainingConfig] = useState<any>(null); // State to hold training config for wizard
   const [cancellingJobs, setCancellingJobs] = useState<Set<string>>(new Set()); // Track jobs being cancelled
+
+  useEffect(() => {
+    const shouldOpenWizard = (location.state as { openTrainingWizard?: boolean } | null)?.openTrainingWizard;
+    if (shouldOpenWizard) {
+      setIsWizardOpen(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   // Monitor all active training jobs for completion notifications
   const handleAdapterCreated = (adapterId: string, jobId: string) => {

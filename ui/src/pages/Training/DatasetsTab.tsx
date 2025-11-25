@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -98,6 +98,7 @@ function StatusBadge({ status }: { status: DatasetValidationStatus }) {
 export function DatasetsTab() {
   const { can } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const location = useLocation();
   const navigate = useNavigate();
 
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
@@ -137,6 +138,14 @@ export function DatasetsTab() {
   });
 
   const datasets = datasetsData?.datasets || [];
+
+  useEffect(() => {
+    const shouldOpenUpload = (location.state as { openUpload?: boolean } | null)?.openUpload;
+    if (shouldOpenUpload) {
+      setIsUploadDialogOpen(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   const handleDeleteDataset = useCallback(async () => {
     if (!deleteDatasetId) return;
@@ -436,6 +445,10 @@ export function DatasetsTab() {
                 <Label className="text-muted-foreground">Hash (BLAKE3)</Label>
                 <p className="font-mono text-xs break-all">{selectedDataset.hash_b3}</p>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Training Wizard Dialog */}
       <Dialog open={isTrainingWizardOpen} onOpenChange={setIsTrainingWizardOpen}>
