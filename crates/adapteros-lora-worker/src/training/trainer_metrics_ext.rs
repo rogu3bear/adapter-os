@@ -81,7 +81,6 @@ pub fn create_metrics_enabled_trainer(
     metrics.mark_training_start();
 
     TrainingMetricsSession {
-        start_time: Instant::now(),
         metrics,
         batch_count: 0,
         epoch_count: 0,
@@ -90,7 +89,6 @@ pub fn create_metrics_enabled_trainer(
 
 /// Session management for metrics-tracked training
 pub struct TrainingMetricsSession {
-    start_time: Instant,
     metrics: TrainingMetrics,
     batch_count: usize,
     epoch_count: usize,

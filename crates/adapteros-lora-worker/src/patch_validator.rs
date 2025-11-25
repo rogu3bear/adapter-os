@@ -327,7 +327,6 @@ pub struct PatchValidator {
     dependency_checker: DependencyChecker,
     operation_detector: OperationDetector,
     policy_engine: PolicyEngine,
-    evidence_manager: Option<Box<dyn std::any::Any>>, // Mock evidence manager for now
     telemetry_writer: Option<TelemetryWriter>,
     validation_config: ValidationConfig,
 }
@@ -380,7 +379,6 @@ impl PatchValidator {
             operation_detector: OperationDetector::new(policy.forbidden_operations.clone()),
             policy_engine,
             policy,
-            evidence_manager: None,
             telemetry_writer: None,
             validation_config: ValidationConfig::default(),
         }
@@ -390,7 +388,7 @@ impl PatchValidator {
     pub fn new_with_features(
         policy: CodePolicy,
         policy_engine: PolicyEngine,
-        evidence_manager: Option<Box<dyn std::any::Any>>, // Mock evidence manager for now
+        _evidence_manager: Option<Box<dyn std::any::Any>>, // Mock evidence manager for now
         telemetry_writer: Option<TelemetryWriter>,
         validation_config: ValidationConfig,
     ) -> Self {
@@ -404,7 +402,6 @@ impl PatchValidator {
             operation_detector: OperationDetector::new(policy.forbidden_operations.clone()),
             policy_engine,
             policy,
-            evidence_manager,
             telemetry_writer,
             validation_config,
         }
@@ -965,7 +962,7 @@ impl PathValidator {
         if pattern.starts_with("**/") {
             // Pattern like "**/.env*" or "**/secrets/**"
             let suffix_pattern = &pattern[3..]; // Remove "**/"
-            // Check if any path segment matches the suffix pattern
+                                                // Check if any path segment matches the suffix pattern
             for segment in path.split('/') {
                 if self.simple_glob_match(suffix_pattern, segment)
                     || self.simple_glob_match(suffix_pattern, path)
@@ -1072,8 +1069,14 @@ impl DependencyChecker {
     fn extract_dependency(&self, line: &str) -> Option<String> {
         // Standard library crates that should not be flagged as external deps
         const BUILTIN_CRATES: &[&str] = &[
-            "std", "core", "alloc", "proc_macro", "test",
-            "self", "super", "crate",
+            "std",
+            "core",
+            "alloc",
+            "proc_macro",
+            "test",
+            "self",
+            "super",
+            "crate",
         ];
 
         if let Some(start) = line.find("use ") {
