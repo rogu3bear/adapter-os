@@ -78,20 +78,6 @@ impl SupervisorError {
     }
 }
 
-/// Convert from anyhow::Error for compatibility
-impl From<anyhow::Error> for SupervisorError {
-    fn from(err: anyhow::Error) -> Self {
-        SupervisorError::Internal(err.to_string())
-    }
-}
-
-// Note: sysinfo may not have Error type in current version
-// impl From<sysinfo::Error> for SupervisorError {
-//     fn from(err: sysinfo::Error) -> Self {
-//         SupervisorError::Process(err.to_string())
-//     }
-// }
-
 impl From<SupervisorError> for AosError {
     fn from(err: SupervisorError) -> Self {
         match err {

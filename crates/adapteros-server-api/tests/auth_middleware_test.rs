@@ -36,10 +36,11 @@ async fn test_revoked_token_detection() -> Result<()> {
     let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
 
     // Token should not be revoked initially
-    let is_revoked = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?")
-        .bind(jti)
-        .fetch_one(db.pool())
-        .await?;
+    let is_revoked =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?")
+            .bind(jti)
+            .fetch_one(db.pool())
+            .await?;
     assert_eq!(is_revoked, 0, "Token should not be revoked initially");
 
     // Revoke the token
@@ -58,10 +59,11 @@ async fn test_revoked_token_detection() -> Result<()> {
     .await?;
 
     // Verify token is now revoked
-    let is_revoked = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?")
-        .bind(jti)
-        .fetch_one(db.pool())
-        .await?;
+    let is_revoked =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM revoked_tokens WHERE jti = ?")
+            .bind(jti)
+            .fetch_one(db.pool())
+            .await?;
     assert_eq!(is_revoked, 1, "Token should be revoked after insertion");
 
     Ok(())

@@ -180,8 +180,7 @@ fn test_backend_enum_properties() {
 #[test]
 fn test_describe_available_backends_includes_all() {
     // Test describe_available_backends returns expected format
-    let desc =
-        adapteros_lora_worker::training::MicroLoRATrainer::describe_available_backends();
+    let desc = adapteros_lora_worker::training::MicroLoRATrainer::describe_available_backends();
     assert!(
         desc.contains("Available training backends:"),
         "Description should include header"

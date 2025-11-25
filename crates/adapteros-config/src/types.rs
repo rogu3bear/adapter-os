@@ -51,7 +51,7 @@ pub struct ConfigFreezeError {
 }
 
 /// Feature flag definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FeatureFlag {
     /// Unique identifier for the feature
     pub name: String,
@@ -76,17 +76,6 @@ pub struct FeatureFlagConditions {
     pub enabled_before: Option<String>,
     /// Percentage rollout (0-100)
     pub rollout_percentage: Option<u8>,
-}
-
-impl Default for FeatureFlag {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            enabled: false,
-            description: None,
-            conditions: None,
-        }
-    }
 }
 
 /// Configuration loader options

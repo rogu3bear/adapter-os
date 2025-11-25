@@ -35,8 +35,6 @@ pub use loader::{load_examples_from_manifest, load_examples_with_encoder, Datase
 pub use metrics::{MetricsConfig, MetricsSnapshot, TrainingMetrics, TrainingReport};
 pub use packager::{AdapterManifest, AdapterPackager, PackagedAdapter};
 pub use quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
-pub use trainer::{
-    LoRAWeights, MicroLoRATrainer, TrainingBackend, TrainingConfig, TrainingResult,
-};
+pub use trainer::{LoRAWeights, MicroLoRATrainer, TrainingBackend, TrainingConfig, TrainingResult};
 pub use trainer_metrics_ext::{TrainerMetricsExt, TrainingMetricsSession};
 pub use visualization::{TrainingCharts, TrainingProgress};

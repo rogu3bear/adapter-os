@@ -127,7 +127,7 @@ impl AdapterPaths {
             for entry in std::fs::read_dir(&self.adapters_root)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "aos") {
+                if path.extension().is_some_and(|ext| ext == "aos") {
                     adapters.push(path);
                 }
             }

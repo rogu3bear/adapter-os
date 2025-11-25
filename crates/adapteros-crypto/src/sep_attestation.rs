@@ -111,9 +111,7 @@ pub fn detect_chip_generation() -> SepChipGeneration {
     }
 
     // Fallback: Check architecture
-    let output = Command::new("uname")
-        .arg("-m")
-        .output();
+    let output = Command::new("uname").arg("-m").output();
 
     if let Ok(output) = output {
         if let Ok(arch) = String::from_utf8(output.stdout) {
@@ -255,7 +253,6 @@ fn get_sep_attestation_internal(
 
     generate_fallback_attestation("fallback-key", nonce, detect_chip_generation())
 }
-
 
 /// Generate fallback attestation for systems without SEP
 fn generate_fallback_attestation(

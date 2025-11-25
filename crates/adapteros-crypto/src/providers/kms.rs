@@ -9,14 +9,14 @@ use crate::key_provider::{
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-use rand::{RngCore, SeedableRng};
-use rand::rngs::StdRng;
 
 // AWS KMS imports (conditional based on feature flag)
 #[cfg(feature = "aws-kms")]
@@ -1633,7 +1633,8 @@ impl KmsBackend for AzureKeyVaultBackend {
                     // Returns (public_key, version)
                     let mut pub_key = vec![0u8; 64];
                     use rand::RngCore;
-                    seeded_rng(&format!("azure-generate:{}", key_id_owned)).fill_bytes(&mut pub_key);
+                    seeded_rng(&format!("azure-generate:{}", key_id_owned))
+                        .fill_bytes(&mut pub_key);
 
                     Ok((pub_key, "1".to_string()))
                 })
@@ -1890,26 +1891,21 @@ impl KmsBackend for AzureKeyVaultBackend {
 /// Uses the Transit secret engine for cryptographic operations
 pub struct HashicorpVaultBackend {
     endpoint: String,
-    token: String,
     transit_mount: String,
-    config: KmsConfig,
     key_cache: Arc<RwLock<HashMap<String, VaultKeyMetadata>>>,
 }
 
 #[derive(Clone, Debug)]
 struct VaultKeyMetadata {
-    key_id: String,
     algorithm: KeyAlgorithm,
-    key_type: String,
     version: u32,
-    created_at: u64,
 }
 
 impl HashicorpVaultBackend {
     /// Create a new HashiCorp Vault backend
     pub fn new(config: KmsConfig) -> Result<Self> {
-        let token = match &config.credentials {
-            KmsCredentials::VaultToken { token } => token.clone(),
+        match &config.credentials {
+            KmsCredentials::VaultToken { .. } => {}
             KmsCredentials::None => {
                 // Try environment variable
                 std::env::var("VAULT_TOKEN").map_err(|_| {
@@ -1917,7 +1913,7 @@ impl HashicorpVaultBackend {
                         "HashiCorp Vault requires VaultToken credentials or VAULT_TOKEN env var"
                             .to_string(),
                     )
-                })?
+                })?;
             }
             _ => {
                 return Err(AosError::Crypto(
@@ -1940,9 +1936,7 @@ impl HashicorpVaultBackend {
 
         Ok(Self {
             endpoint: config.endpoint.clone(),
-            token,
             transit_mount,
-            config,
             key_cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
@@ -1950,37 +1944,6 @@ impl HashicorpVaultBackend {
     /// Build API URL for transit operations
     fn transit_url(&self, path: &str) -> String {
         format!("{}/v1/{}/{}", self.endpoint, self.transit_mount, path)
-    }
-
-    /// Execute HTTP request with retry logic
-    async fn with_retry<F, T>(&self, mut op: F) -> Result<T>
-    where
-        F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
-    {
-        let mut retries = 0;
-        let max_retries = self.config.max_retries;
-
-        loop {
-            match op().await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    retries += 1;
-                    if retries >= max_retries {
-                        return Err(e);
-                    }
-
-                    // Exponential backoff: 100ms, 200ms, 400ms, ...
-                    let wait_ms = 100u64 * 2u64.pow(retries - 1);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
-
-                    debug!(
-                        retries = %retries,
-                        error = %e,
-                        "Retrying Vault operation"
-                    );
-                }
-            }
-        }
     }
 
     /// Convert algorithm to Vault key type
@@ -2037,14 +2000,8 @@ impl KmsBackend for HashicorpVaultBackend {
         cache.insert(
             key_id.to_string(),
             VaultKeyMetadata {
-                key_id: key_id.to_string(),
                 algorithm: alg.clone(),
-                key_type: key_type.to_string(),
                 version: 1,
-                created_at: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
             },
         );
 
@@ -2078,20 +2035,18 @@ impl KmsBackend for HashicorpVaultBackend {
             .get("data")
             .and_then(|d| d.get("signature"))
             .and_then(|s| s.as_str())
-            .ok_or_else(|| {
-                AosError::Crypto("Vault response missing signature".to_string())
-            })?;
+            .ok_or_else(|| AosError::Crypto("Vault response missing signature".to_string()))?;
 
         // Vault signatures are prefixed with "vault:v1:"
         let sig_bytes = if signature.starts_with("vault:v") {
-            signature.split(':').last().unwrap_or(signature)
+            signature.split(':').next_back().unwrap_or(signature)
         } else {
             signature
         };
 
-        STANDARD.decode(sig_bytes).map_err(|e| {
-            AosError::Crypto(format!("Failed to decode Vault signature: {}", e))
-        })
+        STANDARD
+            .decode(sig_bytes)
+            .map_err(|e| AosError::Crypto(format!("Failed to decode Vault signature: {}", e)))
     }
 
     async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
@@ -2110,9 +2065,7 @@ impl KmsBackend for HashicorpVaultBackend {
             .get("data")
             .and_then(|d| d.get("ciphertext"))
             .and_then(|c| c.as_str())
-            .ok_or_else(|| {
-                AosError::Crypto("Vault response missing ciphertext".to_string())
-            })?;
+            .ok_or_else(|| AosError::Crypto("Vault response missing ciphertext".to_string()))?;
 
         Ok(ciphertext.as_bytes().to_vec())
     }
@@ -2133,13 +2086,11 @@ impl KmsBackend for HashicorpVaultBackend {
             .get("data")
             .and_then(|d| d.get("plaintext"))
             .and_then(|p| p.as_str())
-            .ok_or_else(|| {
-                AosError::Crypto("Vault response missing plaintext".to_string())
-            })?;
+            .ok_or_else(|| AosError::Crypto("Vault response missing plaintext".to_string()))?;
 
-        STANDARD.decode(plaintext_b64).map_err(|e| {
-            AosError::Crypto(format!("Failed to decode Vault plaintext: {}", e))
-        })
+        STANDARD
+            .decode(plaintext_b64)
+            .map_err(|e| AosError::Crypto(format!("Failed to decode Vault plaintext: {}", e)))
     }
 
     async fn rotate_key(&self, key_id: &str) -> Result<KeyHandle> {
@@ -2274,16 +2225,12 @@ impl LocalKmsBackend {
     ///
     /// ⚠️ WARNING: NOT FOR PRODUCTION ⚠️
     pub fn new(storage_path: std::path::PathBuf) -> Result<Self> {
-        warn!(
-            "⚠️  WARNING: LocalKmsBackend is NOT FOR PRODUCTION USE ⚠️"
-        );
+        warn!("⚠️  WARNING: LocalKmsBackend is NOT FOR PRODUCTION USE ⚠️");
         warn!(
             "Keys are stored in PLAINTEXT at: {}",
             storage_path.display()
         );
-        warn!(
-            "Only use this for development, testing, or CI/CD"
-        );
+        warn!("Only use this for development, testing, or CI/CD");
 
         // Create storage directory if it doesn't exist
         if !storage_path.exists() {
@@ -2297,7 +2244,9 @@ impl LocalKmsBackend {
         if let Ok(entries) = std::fs::read_dir(&storage_path) {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_file() && entry.path().extension() == Some(std::ffi::OsStr::new("json")) {
+                    if file_type.is_file()
+                        && entry.path().extension() == Some(std::ffi::OsStr::new("json"))
+                    {
                         if let Ok(data) = std::fs::read_to_string(entry.path()) {
                             if let Ok(key_data) = serde_json::from_str::<LocalKeyData>(&data) {
                                 keys.insert(key_data.key_id.clone(), key_data);
@@ -2328,13 +2277,12 @@ impl LocalKmsBackend {
     /// Save a key to disk
     async fn save_key(&self, key_data: &LocalKeyData) -> Result<()> {
         let file_path = self.key_file_path(&key_data.key_id);
-        let json = serde_json::to_string_pretty(key_data).map_err(|e| {
-            AosError::Crypto(format!("Failed to serialize key data: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(key_data)
+            .map_err(|e| AosError::Crypto(format!("Failed to serialize key data: {}", e)))?;
 
-        tokio::fs::write(&file_path, json).await.map_err(|e| {
-            AosError::Crypto(format!("Failed to write key file: {}", e))
-        })?;
+        tokio::fs::write(&file_path, json)
+            .await
+            .map_err(|e| AosError::Crypto(format!("Failed to write key file: {}", e)))?;
 
         Ok(())
     }
@@ -2342,7 +2290,7 @@ impl LocalKmsBackend {
     /// Generate key material based on algorithm
     fn generate_key_material(alg: &KeyAlgorithm) -> (Vec<u8>, Vec<u8>) {
         use rand::RngCore;
-        let mut rng = seeded_rng(&format!("key-material:{}", format!("{:?}", alg)));
+        let mut rng = seeded_rng(&format!("key-material:{:?}", alg));
 
         match alg {
             KeyAlgorithm::Ed25519 => {
@@ -2371,10 +2319,7 @@ impl KmsBackend for LocalKmsBackend {
         {
             let keys = self.keys.read().await;
             if keys.contains_key(key_id) {
-                return Err(AosError::Crypto(format!(
-                    "Key already exists: {}",
-                    key_id
-                )));
+                return Err(AosError::Crypto(format!("Key already exists: {}", key_id)));
             }
         }
 
@@ -2446,8 +2391,8 @@ impl KmsBackend for LocalKmsBackend {
 
         match key_data.algorithm {
             KeyAlgorithm::Aes256Gcm => {
-                use aes_gcm::{Aes256Gcm, KeyInit};
                 use aes_gcm::aead::Aead;
+                use aes_gcm::{Aes256Gcm, KeyInit};
                 use rand::RngCore;
 
                 let key_bytes: &[u8; 32] = key_data.key_material[..32]
@@ -2486,8 +2431,8 @@ impl KmsBackend for LocalKmsBackend {
 
         match key_data.algorithm {
             KeyAlgorithm::Aes256Gcm => {
-                use aes_gcm::{Aes256Gcm, KeyInit};
                 use aes_gcm::aead::Aead;
+                use aes_gcm::{Aes256Gcm, KeyInit};
 
                 if ciphertext.len() < 12 {
                     return Err(AosError::Crypto(
@@ -2579,9 +2524,9 @@ impl KmsBackend for LocalKmsBackend {
 
         // Delete file
         let file_path = self.key_file_path(key_id);
-        tokio::fs::remove_file(&file_path).await.map_err(|e| {
-            AosError::Crypto(format!("Failed to delete key file: {}", e))
-        })?;
+        tokio::fs::remove_file(&file_path)
+            .await
+            .map_err(|e| AosError::Crypto(format!("Failed to delete key file: {}", e)))?;
 
         warn!(
             key_id = %key_id,
@@ -2598,7 +2543,10 @@ impl KmsBackend for LocalKmsBackend {
     fn fingerprint(&self) -> String {
         format!(
             "local-kms-{}-v1.0-DEV-ONLY",
-            self.storage_path.file_name().unwrap_or_default().to_string_lossy()
+            self.storage_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
         )
     }
 }
@@ -2665,9 +2613,7 @@ impl KmsProvider {
                 warn!("Azure Key Vault backend not available (feature not enabled), using mock");
                 Arc::new(MockKmsBackend::new())
             }
-            KmsBackendType::HashicorpVault => {
-                Arc::new(HashicorpVaultBackend::new(config.clone())?)
-            }
+            KmsBackendType::HashicorpVault => Arc::new(HashicorpVaultBackend::new(config.clone())?),
             KmsBackendType::Pkcs11Hsm => {
                 // TODO: Implement PKCS#11 HSM backend
                 warn!("PKCS#11 HSM backend not yet fully implemented, using mock");

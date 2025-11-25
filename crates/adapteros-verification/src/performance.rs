@@ -438,7 +438,7 @@ impl PerformanceVerifier {
         for entry in walkdir::WalkDir::new(&self.workspace_root)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
             .filter(|e| !e.path().to_string_lossy().contains("/target/"))
         {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
@@ -590,7 +590,7 @@ impl PerformanceVerifier {
             .filter(|e| {
                 e.path()
                     .extension()
-                    .map_or(false, |ext| ext == "rs" || ext == "toml")
+                    .is_some_and(|ext| ext == "rs" || ext == "toml")
             })
             .filter(|e| !e.path().to_string_lossy().contains("/target/"))
             .take(100)

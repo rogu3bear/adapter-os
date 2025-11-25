@@ -744,7 +744,7 @@ impl MicroLoRATrainer {
         batch: &[TrainingExample],
         rng: &mut impl Rng,
     ) -> Result<f32> {
-        use adapteros_lora_kernel_api::{RouterRing, IoBuffers};
+        use adapteros_lora_kernel_api::{IoBuffers, RouterRing};
 
         let batch_start = Instant::now();
         let mut batch_loss = 0.0;

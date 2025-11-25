@@ -78,7 +78,7 @@ impl ConfigLoader {
         builder = builder.with_manifest_path(path.to_string());
 
         // Flatten nested TOML structure
-        let flattened = self.flatten_toml_value(&manifest, String::new());
+        let flattened = Self::flatten_toml_value(&manifest, String::new());
         let count = flattened.len();
         for (key, value) in flattened {
             builder = builder.add_value(
@@ -203,7 +203,7 @@ impl ConfigLoader {
     }
 
     /// Flatten nested TOML value into dot-notation keys
-    fn flatten_toml_value(&self, value: &Value, prefix: String) -> HashMap<String, String> {
+    fn flatten_toml_value(value: &Value, prefix: String) -> HashMap<String, String> {
         let mut result = HashMap::new();
 
         match value {
@@ -215,7 +215,7 @@ impl ConfigLoader {
                         format!("{}.{}", prefix, key)
                     };
 
-                    let flattened = self.flatten_toml_value(val, new_prefix);
+                    let flattened = Self::flatten_toml_value(val, new_prefix);
                     result.extend(flattened);
                 }
             }
@@ -331,7 +331,7 @@ url = "sqlite://manifest.db"
         temp_file.flush().unwrap();
 
         // Set environment variable
-        std::env::set_var("ADAPTEROS_SERVER_PORT", "9090");
+        std::env::set_var("AOS_SERVER_PORT", "9090");
 
         let loader = ConfigLoader::new();
         let config = loader
@@ -345,7 +345,7 @@ url = "sqlite://manifest.db"
         assert_eq!(config.get("server.port"), Some(&"7070".to_string()));
 
         // Clean up
-        std::env::remove_var("ADAPTEROS_SERVER_PORT");
+        std::env::remove_var("AOS_SERVER_PORT");
     }
 
     #[test]

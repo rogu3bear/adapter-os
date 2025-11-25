@@ -212,11 +212,7 @@ mod tier_type_conversion {
     /// JSON serialization: String ("tier_1", "tier_2", "tier_3")
     #[test]
     fn test_tier_string_i32_conversion() {
-        let conversions = vec![
-            ("tier_1", 1),
-            ("tier_2", 2),
-            ("tier_3", 3),
-        ];
+        let conversions = vec![("tier_1", 1), ("tier_2", 2), ("tier_3", 3)];
 
         println!("Tier Conversions:");
         for (string_val, int_val) in conversions {

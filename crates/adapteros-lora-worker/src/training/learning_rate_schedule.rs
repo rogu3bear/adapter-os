@@ -119,7 +119,10 @@ impl LRScheduler {
 
         // Main schedule (after warmup)
         let steps_after_warmup = self.current_step - self.config.warmup_steps;
-        let total_decay_steps = self.config.total_steps.saturating_sub(self.config.warmup_steps);
+        let total_decay_steps = self
+            .config
+            .total_steps
+            .saturating_sub(self.config.warmup_steps);
 
         if total_decay_steps == 0 {
             return self.config.initial_lr;

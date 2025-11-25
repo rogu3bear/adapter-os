@@ -230,7 +230,7 @@ impl BundleWriter {
                 public_key: hex::encode(self.signer.public_key().to_bytes()),
                 event_count: self.event_count,
                 sequence_no: seq_no,
-                prev_bundle_hash: self.last_merkle_root.clone(),
+                prev_bundle_hash: self.last_merkle_root,
                 version: 2,                 // Version 2: supports compression metadata
                 compression_metadata: None, // Will be populated if compression happens
             };

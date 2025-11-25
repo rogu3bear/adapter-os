@@ -245,7 +245,11 @@ impl CryptoPolicyEnforcer {
     }
 
     /// Validate key age
-    pub async fn validate_key_age(&self, algorithm: &KeyAlgorithm, key_age_secs: u64) -> Result<()> {
+    pub async fn validate_key_age(
+        &self,
+        algorithm: &KeyAlgorithm,
+        key_age_secs: u64,
+    ) -> Result<()> {
         let policy = self.policy.read().await;
         let alg_str = algorithm.to_string();
 
@@ -466,7 +470,10 @@ mod tests {
         assert!(matches!(result, Err(AosError::PolicyViolation(_))));
 
         // Verify audit log entry was created
-        assert_eq!(audit_logger.count_by_result(OperationResult::Failure).await, 1);
+        assert_eq!(
+            audit_logger.count_by_result(OperationResult::Failure).await,
+            1
+        );
     }
 
     #[tokio::test]
@@ -601,18 +608,38 @@ mod tests {
         assert!(result.is_ok());
 
         // Unapproved algorithm in FIPS mode
-        let result = enforcer.validate_algorithm(&KeyAlgorithm::ChaCha20Poly1305).await;
+        let result = enforcer
+            .validate_algorithm(&KeyAlgorithm::ChaCha20Poly1305)
+            .await;
         assert!(result.is_err());
     }
 
     #[test]
     fn test_violation_type_display() {
-        assert_eq!(ViolationType::BannedAlgorithm.to_string(), "banned_algorithm");
-        assert_eq!(ViolationType::UnapprovedAlgorithm.to_string(), "unapproved_algorithm");
-        assert_eq!(ViolationType::InsufficientKeySize.to_string(), "insufficient_key_size");
-        assert_eq!(ViolationType::KeyAgeExceeded.to_string(), "key_age_exceeded");
-        assert_eq!(ViolationType::UnpermittedOperation.to_string(), "unpermitted_operation");
+        assert_eq!(
+            ViolationType::BannedAlgorithm.to_string(),
+            "banned_algorithm"
+        );
+        assert_eq!(
+            ViolationType::UnapprovedAlgorithm.to_string(),
+            "unapproved_algorithm"
+        );
+        assert_eq!(
+            ViolationType::InsufficientKeySize.to_string(),
+            "insufficient_key_size"
+        );
+        assert_eq!(
+            ViolationType::KeyAgeExceeded.to_string(),
+            "key_age_exceeded"
+        );
+        assert_eq!(
+            ViolationType::UnpermittedOperation.to_string(),
+            "unpermitted_operation"
+        );
         assert_eq!(ViolationType::FipsViolation.to_string(), "fips_violation");
-        assert_eq!(ViolationType::HardwareBackingRequired.to_string(), "hardware_backing_required");
+        assert_eq!(
+            ViolationType::HardwareBackingRequired.to_string(),
+            "hardware_backing_required"
+        );
     }
 }

@@ -61,7 +61,7 @@ impl Version {
         }
 
         let major = parts
-            .get(0)
+            .first()
             .and_then(|p| p.parse::<u32>().ok())
             .ok_or_else(|| AosError::Validation(format!("Invalid major version in: {}", s)))?;
 

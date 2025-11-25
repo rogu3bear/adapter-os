@@ -472,7 +472,9 @@ impl TrainingReport {
         }
 
         // Ensure we check at least 5 samples or 20% of the curve, whichever is larger
-        let last_20_pct = (self.loss_curve.len() / 5).max(5).min(self.loss_curve.len());
+        let last_20_pct = (self.loss_curve.len() / 5)
+            .max(5)
+            .min(self.loss_curve.len());
         let recent_losses = &self.loss_curve[self.loss_curve.len() - last_20_pct..];
 
         let avg_improvement = recent_losses

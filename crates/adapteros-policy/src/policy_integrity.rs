@@ -166,11 +166,13 @@ impl PolicyIntegrityVerifier {
         path: &Path,
         metadata: &PolicyIntegrityMetadata,
     ) -> Result<PolicyVerificationResult> {
-        let mut result = PolicyVerificationResult::default();
-        result.verified_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let mut result = PolicyVerificationResult {
+            verified_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            ..Default::default()
+        };
 
         // Check schema version compatibility
         if metadata.schema_version > 1 {

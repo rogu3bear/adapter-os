@@ -276,8 +276,14 @@ mod api_consistency {
     fn test_query_parameter_documentation() {
         let endpoints_with_query = vec![
             ("/v1/adapters", "limit (optional), offset (optional)"),
-            ("/v1/audit/logs", "action (optional), status (optional), limit (optional)"),
-            ("/v1/metrics/series", "metric (required), start (required), end (required)"),
+            (
+                "/v1/audit/logs",
+                "action (optional), status (optional), limit (optional)",
+            ),
+            (
+                "/v1/metrics/series",
+                "metric (required), start (required), end (required)",
+            ),
             ("/v1/routing/history", "limit (optional), offset (optional)"),
         ];
 

@@ -179,8 +179,9 @@ impl TelemetryWriter {
 
         // Wait for the writer thread to complete
         // Clone the Arc to get access to the JoinHandle
-        let handle = Arc::try_unwrap(self._handle)
-            .map_err(|_| AosError::Internal("Telemetry writer thread still has references".to_string()))?;
+        let handle = Arc::try_unwrap(self._handle).map_err(|_| {
+            AosError::Internal("Telemetry writer thread still has references".to_string())
+        })?;
 
         match handle.join() {
             Ok(_) => {
@@ -189,7 +190,9 @@ impl TelemetryWriter {
             }
             Err(e) => {
                 error!("Telemetry writer thread panicked during shutdown: {:?}", e);
-                Err(AosError::Internal("Telemetry writer thread panicked".to_string()))
+                Err(AosError::Internal(
+                    "Telemetry writer thread panicked".to_string(),
+                ))
             }
         }
     }

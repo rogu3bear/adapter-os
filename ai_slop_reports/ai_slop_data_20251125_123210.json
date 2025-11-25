@@ -1,0 +1,40 @@
+{
+  "timestamp": "20251125_123210",
+  "summary": {
+    "total_issues": 5029,
+    "high_priority": 1,
+    "info_priority": 5028
+  },
+  "checks": {
+    "generic_errors": {
+      "severity": "HIGH",
+      "count": 1,
+      "description": "Generic error types instead of domain-specific AosError"
+    },
+    "platform_agnostic": {
+      "severity": "HIGH",
+      "count": 0,
+      "description": "Platform-agnostic patterns that ignore AdapterOS deterministic requirements"
+    },
+    "code_duplication": {
+      "severity": "INFO",
+      "count": 487,
+      "description": "Potential code duplication or copy-paste patterns"
+    },
+    "boilerplate_code": {
+      "severity": "INFO",
+      "count": 2394,
+      "description": "Excessive boilerplate suggesting lack of helper functions or abstractions"
+    },
+    "missing_context": {
+      "severity": "INFO",
+      "count": 2101,
+      "description": "Generic references to domain concepts without specific AdapterOS context"
+    },
+    "incomplete_code": {
+      "severity": "INFO",
+      "count": 46,
+      "description": "Incomplete code markers indicating unfinished work"
+    }
+  }
+}

@@ -38,8 +38,8 @@ impl EnclaveManager {
     pub fn new() -> Result<Self> {
         // Derive root key from system entropy (rand crate with secure OS randomness)
         let mut root_key = [0u8; 32];
-        use rand::RngCore;
-        let mut rng = rand::thread_rng();
+        use rand::{rngs::OsRng, RngCore};
+        let mut rng = OsRng;
         rng.fill_bytes(&mut root_key);
 
         warn!(

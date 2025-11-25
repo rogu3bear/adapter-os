@@ -364,11 +364,7 @@ mod tests {
 
         // Record inferences with different adapters
         for i in 0..10 {
-            let adapter = if i % 2 == 0 {
-                "adapter1"
-            } else {
-                "adapter2"
-            };
+            let adapter = if i % 2 == 0 { "adapter1" } else { "adapter2" };
             collector
                 .record_inference(
                     format!("req{}", i),

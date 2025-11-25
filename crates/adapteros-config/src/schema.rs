@@ -24,9 +24,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Configuration variable type with validation constraints
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ConfigType {
     /// Plain string value
+    #[default]
     String,
     /// File system path with optional existence check
     Path {
@@ -60,12 +61,6 @@ pub enum ConfigType {
     Duration,
     /// Byte size string (e.g., "1GB", "512MB", "1024KB", "1048576")
     ByteSize,
-}
-
-impl Default for ConfigType {
-    fn default() -> Self {
-        ConfigType::String
-    }
 }
 
 /// Information about a deprecated configuration variable
@@ -104,6 +99,7 @@ pub struct ConfigVariable {
 
 impl ConfigVariable {
     /// Create a new configuration variable builder
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(name: &str) -> ConfigVariableBuilder {
         ConfigVariableBuilder::new(name)
     }
@@ -295,10 +291,7 @@ impl ConfigSchema {
 
         self.variables.insert(name.clone(), var);
 
-        self.categories
-            .entry(category)
-            .or_default()
-            .push(name);
+        self.categories.entry(category).or_default().push(name);
     }
 
     /// Get a variable by name
@@ -385,7 +378,10 @@ impl Default for ConfigSchema {
 }
 
 /// Validate a single configuration value against its variable definition
-pub fn validate_value(var: &ConfigVariable, value: &str) -> std::result::Result<(), ValidationError> {
+pub fn validate_value(
+    var: &ConfigVariable,
+    value: &str,
+) -> std::result::Result<(), ValidationError> {
     match &var.config_type {
         ConfigType::String => {
             // String values are always valid (non-empty if required handled separately)
@@ -515,7 +511,11 @@ pub fn validate_value(var: &ConfigVariable, value: &str) -> std::result::Result<
                     variable: var.name.clone(),
                     value: value.to_string(),
                     expected: format!("one of: {}", values.join(", ")),
-                    message: format!("Invalid value '{}', must be one of: {}", value, values.join(", ")),
+                    message: format!(
+                        "Invalid value '{}', must be one of: {}",
+                        value,
+                        values.join(", ")
+                    ),
                 });
             }
             Ok(())
@@ -538,7 +538,8 @@ pub fn validate_value(var: &ConfigVariable, value: &str) -> std::result::Result<
                 return Err(ValidationError {
                     variable: var.name.clone(),
                     value: value.to_string(),
-                    expected: "byte size string (e.g., '1GB', '512MB', '1024KB', '1048576')".to_string(),
+                    expected: "byte size string (e.g., '1GB', '512MB', '1024KB', '1048576')"
+                        .to_string(),
                     message: e,
                 });
             }
@@ -559,16 +560,16 @@ fn parse_duration(value: &str) -> std::result::Result<u64, String> {
         return Ok(secs * 1000);
     }
 
-    let (num_str, unit) = if value.ends_with("ms") {
-        (&value[..value.len() - 2], "ms")
-    } else if value.ends_with('s') {
-        (&value[..value.len() - 1], "s")
-    } else if value.ends_with('m') {
-        (&value[..value.len() - 1], "m")
-    } else if value.ends_with('h') {
-        (&value[..value.len() - 1], "h")
-    } else if value.ends_with('d') {
-        (&value[..value.len() - 1], "d")
+    let (num_str, unit) = if let Some(stripped) = value.strip_suffix("ms") {
+        (stripped, "ms")
+    } else if let Some(stripped) = value.strip_suffix('s') {
+        (stripped, "s")
+    } else if let Some(stripped) = value.strip_suffix('m') {
+        (stripped, "m")
+    } else if let Some(stripped) = value.strip_suffix('h') {
+        (stripped, "h")
+    } else if let Some(stripped) = value.strip_suffix('d') {
+        (stripped, "d")
     } else {
         return Err(format!(
             "Invalid duration format: '{}'. Use suffix: ms, s, m, h, d",
@@ -812,7 +813,9 @@ pub fn default_schema() -> ConfigSchema {
                 values: vec!["eddsa".to_string(), "hmac".to_string()],
             })
             .default_value("hmac")
-            .description("JWT signing mode: eddsa (Ed25519, production) or hmac (HS256, development)")
+            .description(
+                "JWT signing mode: eddsa (Ed25519, production) or hmac (HS256, development)",
+            )
             .category("SECURITY")
             .build(),
     );
@@ -871,7 +874,9 @@ pub fn default_schema() -> ConfigSchema {
                 values: vec!["json".to_string(), "text".to_string(), "pretty".to_string()],
             })
             .default_value("json")
-            .description("Log output format: json (production), text (simple), pretty (development)")
+            .description(
+                "Log output format: json (production), text (simple), pretty (development)",
+            )
             .category("LOGGING")
             .build(),
     );
@@ -972,7 +977,9 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_BACKEND_DETERMINISM_SEED")
             .config_type(ConfigType::String)
-            .description("Global determinism seed (HKDF base, derived from manifest hash if not set)")
+            .description(
+                "Global determinism seed (HKDF base, derived from manifest hash if not set)",
+            )
             .category("BACKEND")
             .build(),
     );
@@ -1381,7 +1388,9 @@ mod tests {
         let sensitive = schema.get_sensitive();
 
         // JWT secret should be marked as sensitive
-        assert!(sensitive.iter().any(|v| v.name == "AOS_SECURITY_JWT_SECRET"));
+        assert!(sensitive
+            .iter()
+            .any(|v| v.name == "AOS_SECURITY_JWT_SECRET"));
     }
 
     #[test]

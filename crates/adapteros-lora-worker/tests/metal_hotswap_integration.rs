@@ -33,7 +33,10 @@ async fn test_adapter_table_basic_preload_and_swap() {
     // Verify stack hash is computed (deterministic)
     let stack_hash = table.compute_stack_hash();
     let stack_hash_2 = table.compute_stack_hash();
-    assert_eq!(stack_hash, stack_hash_2, "Stack hash should be deterministic");
+    assert_eq!(
+        stack_hash, stack_hash_2,
+        "Stack hash should be deterministic"
+    );
 }
 
 #[tokio::test]
@@ -54,18 +57,12 @@ async fn test_adapter_table_swap_returns_correct_counts() {
         .unwrap();
 
     // Swap in adapter_a
-    let (delta, count) = table
-        .swap(&["adapter_a".to_string()], &[])
-        .await
-        .unwrap();
+    let (delta, count) = table.swap(&["adapter_a".to_string()], &[]).await.unwrap();
     assert_eq!(delta, 10, "First swap VRAM delta should be 10");
     assert_eq!(count, 1, "First swap should add 1 adapter");
 
     // Swap in adapter_b (already staged from preload)
-    let (delta2, count2) = table
-        .swap(&["adapter_b".to_string()], &[])
-        .await
-        .unwrap();
+    let (delta2, count2) = table.swap(&["adapter_b".to_string()], &[]).await.unwrap();
     assert_eq!(delta2, 20, "Second swap VRAM delta should be 20");
     assert_eq!(count2, 1, "Second swap should add 1 adapter");
 }
@@ -83,10 +80,7 @@ async fn test_adapter_table_rollback() {
         .unwrap();
 
     // Swap in original
-    table
-        .swap(&["original".to_string()], &[])
-        .await
-        .unwrap();
+    table.swap(&["original".to_string()], &[]).await.unwrap();
 
     let original_gen = table.current_stack();
 
@@ -96,10 +90,7 @@ async fn test_adapter_table_rollback() {
         .preload("replacement".to_string(), hash_repl, 20)
         .await
         .unwrap();
-    table
-        .swap(&["replacement".to_string()], &[])
-        .await
-        .unwrap();
+    table.swap(&["replacement".to_string()], &[]).await.unwrap();
 
     // Rollback to original state
     table.rollback().await.unwrap();
@@ -194,7 +185,10 @@ async fn test_cross_layer_hash_computation() {
         checkpoint_hash: B3Hash::hash(b"different"),
     }];
     let hash3 = table.compute_cross_layer_hash(&different_fps);
-    assert_ne!(hash1, hash3, "Different inputs should produce different hashes");
+    assert_ne!(
+        hash1, hash3,
+        "Different inputs should produce different hashes"
+    );
 }
 
 #[tokio::test]

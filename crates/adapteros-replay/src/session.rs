@@ -1,6 +1,6 @@
 //! Replay session management and state tracking
 
-use anyhow::Result;
+use adapteros_core::{AosError, Result};
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -39,10 +39,8 @@ pub enum ReplayError {
     IoError(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-    #[error("Anyhow error: {0}")]
-    Anyhow(#[from] anyhow::Error),
     #[error("AosError: {0}")]
-    AosError(#[from] adapteros_core::AosError),
+    AosError(#[from] AosError),
 }
 
 #[derive(Debug, Clone, Default)]

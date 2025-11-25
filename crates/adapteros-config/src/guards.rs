@@ -292,9 +292,8 @@ impl ConfigGuards {
             );
         }
 
-        std::env::var(key).map_err(|_| {
-            AosError::Config(format!("Environment variable {} not set", key))
-        })
+        std::env::var(key)
+            .map_err(|_| AosError::Config(format!("Environment variable {} not set", key)))
     }
 
     /// Safe environment variable access with default fallback

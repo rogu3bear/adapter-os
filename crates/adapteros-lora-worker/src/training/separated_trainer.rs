@@ -5,7 +5,7 @@
 
 use super::dataset::TrainingExample;
 use super::trainer::{LoRAWeights, TrainingConfig};
-use adapteros_core::{derive_seed, AosError, Result, B3Hash};
+use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_single_file_adapter::{
     format::{AdapterWeights, CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata},
@@ -19,12 +19,6 @@ use tracing::{debug, info};
 /// Separated LoRA trainer that trains positive and negative weight groups independently
 pub struct SeparatedLoRATrainer {
     config: TrainingConfig,
-    /// Metal kernels for deterministic training
-    kernels: Option<Box<dyn FusedKernels>>,
-    /// Telemetry writer for training events
-    telemetry: TelemetryWriter,
-    /// Training seed for deterministic RNG
-    training_seed: u64,
 }
 
 /// Result of separated training
@@ -74,21 +68,22 @@ impl SeparatedLoRATrainer {
 
         // Convert seed bytes to u64 for RNG initialization
         let training_seed = u64::from_le_bytes([
-            seed_bytes[0], seed_bytes[1], seed_bytes[2], seed_bytes[3],
-            seed_bytes[4], seed_bytes[5], seed_bytes[6], seed_bytes[7],
+            seed_bytes[0],
+            seed_bytes[1],
+            seed_bytes[2],
+            seed_bytes[3],
+            seed_bytes[4],
+            seed_bytes[5],
+            seed_bytes[6],
+            seed_bytes[7],
         ]);
 
         // Initialize telemetry writer with default settings
-        let telemetry_dir = std::env::var("AOS_TELEMETRY_DIR")
-            .unwrap_or_else(|_| "./var/telemetry".to_string());
+        let telemetry_dir =
+            std::env::var("AOS_TELEMETRY_DIR").unwrap_or_else(|_| "./var/telemetry".to_string());
         let telemetry = TelemetryWriter::new(&telemetry_dir, 10_000, 10 * 1024 * 1024)?;
 
-        Ok(Self {
-            config,
-            kernels: None,
-            telemetry,
-            training_seed,
-        })
+        Ok(Self { config })
     }
 
     /// Train with separated positive/negative weight groups
@@ -98,16 +93,16 @@ impl SeparatedLoRATrainer {
         combination_strategy: CombinationStrategy,
     ) -> Result<SeparatedTrainingResult> {
         let start_time = Instant::now();
-        
+
         // Separate examples by weight
         let (positive_examples, negative_examples) = self.separate_examples(examples);
-        
+
         info!(
             "Starting separated training: {} positive, {} negative examples",
             positive_examples.len(),
             negative_examples.len()
         );
-        
+
         // Train positive weight group
         let positive_result = if !positive_examples.is_empty() {
             self.train_weight_group(&positive_examples, WeightGroupType::Positive)?
@@ -116,7 +111,7 @@ impl SeparatedLoRATrainer {
                 "No positive examples found for training".to_string(),
             ));
         };
-        
+
         // Train negative weight group
         let negative_result = if !negative_examples.is_empty() {
             self.train_weight_group(&negative_examples, WeightGroupType::Negative)?
@@ -125,16 +120,14 @@ impl SeparatedLoRATrainer {
                 "No negative examples found for training".to_string(),
             ));
         };
-        
+
         let total_time = start_time.elapsed().as_millis() as u64;
-        
+
         info!(
             "Separated training completed: positive_loss={:.6}, negative_loss={:.6}, time_ms={}",
-            positive_result.final_loss,
-            negative_result.final_loss,
-            total_time
+            positive_result.final_loss, negative_result.final_loss, total_time
         );
-        
+
         Ok(SeparatedTrainingResult {
             adapter_id: Self::generate_adapter_id(),
             positive_result,
@@ -146,10 +139,13 @@ impl SeparatedLoRATrainer {
     }
 
     /// Separate examples into positive and negative groups
-    fn separate_examples(&self, examples: &[TrainingExample]) -> (Vec<TrainingExample>, Vec<TrainingExample>) {
+    fn separate_examples(
+        &self,
+        examples: &[TrainingExample],
+    ) -> (Vec<TrainingExample>, Vec<TrainingExample>) {
         let mut positive = Vec::new();
         let mut negative = Vec::new();
-        
+
         for example in examples {
             if example.weight > 0.0 {
                 positive.push(example.clone());
@@ -158,7 +154,7 @@ impl SeparatedLoRATrainer {
             }
             // Skip zero-weight examples
         }
-        
+
         (positive, negative)
     }
 
@@ -169,16 +165,16 @@ impl SeparatedLoRATrainer {
         group_type: WeightGroupType,
     ) -> Result<WeightGroupResult> {
         let start_time = Instant::now();
-        
+
         // Initialize weights
         let mut weights = self.initialize_weights();
-        
+
         // Train for specified epochs
         let mut final_loss = 0.0;
         for epoch in 0..self.config.epochs {
             let epoch_loss = self.train_epoch(&mut weights, examples, epoch)?;
             final_loss = epoch_loss;
-            
+
             debug!(
                 "Epoch {} complete for {:?}: loss={:.6}",
                 epoch + 1,
@@ -186,9 +182,9 @@ impl SeparatedLoRATrainer {
                 epoch_loss
             );
         }
-        
+
         let training_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(WeightGroupResult {
             group_type,
             final_loss,
@@ -207,53 +203,49 @@ impl SeparatedLoRATrainer {
     ) -> Result<f32> {
         let mut total_loss = 0.0;
         let mut batch_count = 0;
-        
+
         // Create batches
         let batches = self.create_batches(examples);
-        
+
         for batch in batches {
             let batch_loss = self.train_batch(weights, &batch)?;
             total_loss += batch_loss;
             batch_count += 1;
         }
-        
+
         let avg_loss = if batch_count > 0 {
             total_loss / batch_count as f32
         } else {
             0.0
         };
-        
+
         Ok(avg_loss)
     }
 
     /// Train one batch
-    fn train_batch(
-        &self,
-        weights: &mut LoRAWeights,
-        batch: &[TrainingExample],
-    ) -> Result<f32> {
+    fn train_batch(&self, weights: &mut LoRAWeights, batch: &[TrainingExample]) -> Result<f32> {
         let mut total_loss = 0.0;
         let mut example_count = 0;
-        
+
         for example in batch {
             // Forward pass
             let (output, hidden) = self.forward(weights, &example.input)?;
-            
+
             // Compute loss
             let loss = self.compute_loss(&output, &example.target);
             total_loss += loss;
             example_count += 1;
-            
+
             // Backward pass and weight update
             self.backward_and_update(weights, &hidden, &output, &example.target, loss)?;
         }
-        
+
         let avg_loss = if example_count > 0 {
             total_loss / example_count as f32
         } else {
             0.0
         };
-        
+
         Ok(avg_loss)
     }
 
@@ -261,11 +253,11 @@ impl SeparatedLoRATrainer {
     fn create_batches(&self, examples: &[TrainingExample]) -> Vec<Vec<TrainingExample>> {
         let mut batches = Vec::new();
         let batch_size = self.config.batch_size;
-        
+
         for chunk in examples.chunks(batch_size) {
             batches.push(chunk.to_vec());
         }
-        
+
         batches
     }
 
@@ -277,20 +269,20 @@ impl SeparatedLoRATrainer {
             .take(self.config.hidden_dim)
             .map(|&token_id| (token_id as f32) / 1000.0)
             .collect();
-        
+
         let mut hidden = hidden;
         while hidden.len() < self.config.hidden_dim {
             hidden.push(0.0);
         }
-        
+
         let lora_output = self.apply_lora(&hidden, weights);
-        
+
         let output: Vec<f32> = hidden
             .iter()
             .zip(lora_output.iter())
             .map(|(h, l)| h + l * self.config.alpha / self.config.rank as f32)
             .collect();
-        
+
         Ok((output, hidden))
     }
 
@@ -305,7 +297,7 @@ impl SeparatedLoRATrainer {
                 }
             }
         }
-        
+
         let mut output = vec![0.0; self.config.hidden_dim];
         for h_idx in 0..self.config.hidden_dim {
             if h_idx < weights.lora_b.len() {
@@ -316,7 +308,7 @@ impl SeparatedLoRATrainer {
                 }
             }
         }
-        
+
         output
     }
 
@@ -326,14 +318,14 @@ impl SeparatedLoRATrainer {
         if n == 0 {
             return 0.0;
         }
-        
+
         let mut loss = 0.0;
         for i in 0..n {
             let target_val = (target[i] as f32) / 1000.0;
             let diff = output[i] - target_val;
             loss += diff * diff;
         }
-        
+
         loss / n as f32
     }
 
@@ -348,14 +340,14 @@ impl SeparatedLoRATrainer {
     ) -> Result<()> {
         let n = output.len().min(target.len());
         let learning_rate = self.config.learning_rate;
-        
+
         // Compute gradient (simplified)
         let mut grad_output = vec![0.0; output.len()];
         for i in 0..n {
             let target_val = (target[i] as f32) / 1000.0;
             grad_output[i] = 2.0 * (output[i] - target_val) / n as f32;
         }
-        
+
         // Update LoRA_A
         for r in 0..self.config.rank {
             for h_idx in 0..self.config.hidden_dim.min(hidden.len()) {
@@ -365,7 +357,7 @@ impl SeparatedLoRATrainer {
                 }
             }
         }
-        
+
         // Update LoRA_B
         for h_idx in 0..self.config.hidden_dim {
             if h_idx < weights.lora_b.len() {
@@ -377,7 +369,7 @@ impl SeparatedLoRATrainer {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -385,7 +377,7 @@ impl SeparatedLoRATrainer {
     fn initialize_weights(&self) -> LoRAWeights {
         let mut lora_a = Vec::new();
         let mut lora_b = Vec::new();
-        
+
         // Initialize LoRA_A (rank × hidden_dim)
         for _ in 0..self.config.rank {
             let mut row = Vec::new();
@@ -394,7 +386,7 @@ impl SeparatedLoRATrainer {
             }
             lora_a.push(row);
         }
-        
+
         // Initialize LoRA_B (hidden_dim × rank)
         for _ in 0..self.config.hidden_dim {
             let mut row = Vec::new();
@@ -403,7 +395,7 @@ impl SeparatedLoRATrainer {
             }
             lora_b.push(row);
         }
-        
+
         LoRAWeights { lora_a, lora_b }
     }
 
@@ -424,7 +416,11 @@ impl SeparatedTrainingResult {
         let negative_group = self.negative_result.to_weight_group();
         let combined = match &self.combination_strategy {
             CombinationStrategy::Separate => None,
-            strategy => Some(combine_weight_groups(&positive_group, &negative_group, strategy)?),
+            strategy => Some(combine_weight_groups(
+                &positive_group,
+                &negative_group,
+                strategy,
+            )?),
         };
 
         Ok(AdapterWeights {
@@ -471,7 +467,9 @@ mod tests {
             },
         ];
 
-        let result = trainer.train_separated(&examples, CombinationStrategy::Difference).unwrap();
+        let result = trainer
+            .train_separated(&examples, CombinationStrategy::Difference)
+            .unwrap();
 
         assert_eq!(result.positive_result.example_count, 1);
         assert_eq!(result.negative_result.example_count, 1);

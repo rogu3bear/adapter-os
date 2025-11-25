@@ -35,11 +35,9 @@ pub fn load_dotenv() {
             if let Ok(cwd) = std::env::current_dir() {
                 for ancestor in cwd.ancestors().take(5) {
                     let env_path = ancestor.join(".env");
-                    if env_path.exists() {
-                        if dotenvy::from_path(&env_path).is_ok() {
-                            tracing::debug!("Loaded .env file from: {}", env_path.display());
-                            break;
-                        }
+                    if env_path.exists() && dotenvy::from_path(&env_path).is_ok() {
+                        tracing::debug!("Loaded .env file from: {}", env_path.display());
+                        break;
                     }
                 }
             }

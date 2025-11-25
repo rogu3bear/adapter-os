@@ -56,7 +56,10 @@ use tracing::{debug, warn};
 /// # Ok(())
 /// # }
 /// ```
-pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> Result<RouterRing, adapteros_core::AosError> {
+pub fn decision_to_router_ring(
+    decision: &Decision,
+    max_adapter_count: u16,
+) -> Result<RouterRing, adapteros_core::AosError> {
     let k = decision.indices.len();
 
     debug!(
@@ -68,9 +71,10 @@ pub fn decision_to_router_ring(decision: &Decision, max_adapter_count: u16) -> R
 
     // Pre-condition: K ≤ 8 (SmallVec enforces capacity, but check explicitly)
     if k > 8 {
-        return Err(adapteros_core::AosError::Routing(
-            format!("Decision K > 8 (got {}), violates SmallVec<[_; 8]> invariant", k)
-        ));
+        return Err(adapteros_core::AosError::Routing(format!(
+            "Decision K > 8 (got {}), violates SmallVec<[_; 8]> invariant",
+            k
+        )));
     }
 
     // Create RouterRing with K active entries

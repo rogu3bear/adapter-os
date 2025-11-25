@@ -6,9 +6,7 @@
 //! - Error handling per item
 //! - Timeout management
 
-use adapteros_server_api::types::{
-    BatchInferItem, BatchInferRequest, InferRequest,
-};
+use adapteros_server_api::types::{BatchInferItem, BatchInferRequest, InferRequest};
 
 #[tokio::test]
 async fn test_batch_infer_request_structure() {

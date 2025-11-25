@@ -70,14 +70,13 @@ impl TrainingCheckpoint {
         }
 
         // Serialize to JSON
-        let json = serde_json::to_string_pretty(self).map_err(|e| {
-            AosError::Training(format!("Failed to serialize checkpoint: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| AosError::Training(format!("Failed to serialize checkpoint: {}", e)))?;
 
         // Write to file
-        tokio::fs::write(path, json).await.map_err(|e| {
-            AosError::Training(format!("Failed to write checkpoint: {}", e))
-        })?;
+        tokio::fs::write(path, json)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to write checkpoint: {}", e)))?;
 
         info!(
             path = %path.display(),
@@ -94,14 +93,13 @@ impl TrainingCheckpoint {
         let path = path.as_ref();
 
         // Read file
-        let json = tokio::fs::read_to_string(path).await.map_err(|e| {
-            AosError::Training(format!("Failed to read checkpoint: {}", e))
-        })?;
+        let json = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to read checkpoint: {}", e)))?;
 
         // Deserialize
-        let checkpoint: Self = serde_json::from_str(&json).map_err(|e| {
-            AosError::Training(format!("Failed to deserialize checkpoint: {}", e))
-        })?;
+        let checkpoint: Self = serde_json::from_str(&json)
+            .map_err(|e| AosError::Training(format!("Failed to deserialize checkpoint: {}", e)))?;
 
         info!(
             path = %path.display(),
@@ -283,9 +281,9 @@ impl CheckpointManager {
 
         for epoch in checkpoints {
             let path = self.checkpoint_path(epoch);
-            tokio::fs::remove_file(&path).await.map_err(|e| {
-                AosError::Training(format!("Failed to delete checkpoint: {}", e))
-            })?;
+            tokio::fs::remove_file(&path)
+                .await
+                .map_err(|e| AosError::Training(format!("Failed to delete checkpoint: {}", e)))?;
         }
 
         // Also delete latest checkpoint
@@ -332,7 +330,8 @@ mod tests {
             lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
         };
 
-        let checkpoint = TrainingCheckpoint::new(5, 100, 0.5, 0.001, config.clone(), weights.clone());
+        let checkpoint =
+            TrainingCheckpoint::new(5, 100, 0.5, 0.001, config.clone(), weights.clone());
 
         // Save checkpoint
         checkpoint.save(&checkpoint_path).await.unwrap();
@@ -360,7 +359,8 @@ mod tests {
 
         // Create checkpoints for epochs 2, 4, 6, 8
         for epoch in vec![2, 4, 6, 8] {
-            let checkpoint = TrainingCheckpoint::new(epoch, 0, 0.5, 0.001, config.clone(), weights.clone());
+            let checkpoint =
+                TrainingCheckpoint::new(epoch, 0, 0.5, 0.001, config.clone(), weights.clone());
             manager.save_checkpoint(&checkpoint).await.unwrap();
         }
 

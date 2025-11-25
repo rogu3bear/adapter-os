@@ -147,7 +147,6 @@ mod tests {
     #[test]
     fn test_metrics_session_creation() {
         let session = TrainingMetricsSession {
-            start_time: Instant::now(),
             metrics: TrainingMetrics::new(MetricsConfig::default()).unwrap(),
             batch_count: 0,
             epoch_count: 0,
@@ -160,7 +159,6 @@ mod tests {
     #[test]
     fn test_metrics_session_batch_recording() {
         let mut session = TrainingMetricsSession {
-            start_time: Instant::now(),
             metrics: TrainingMetrics::new(MetricsConfig::default()).unwrap(),
             batch_count: 0,
             epoch_count: 0,
@@ -173,7 +171,6 @@ mod tests {
     #[test]
     fn test_metrics_session_epoch_recording() {
         let mut session = TrainingMetricsSession {
-            start_time: Instant::now(),
             metrics: TrainingMetrics::new(MetricsConfig::default()).unwrap(),
             batch_count: 0,
             epoch_count: 0,
@@ -186,7 +183,6 @@ mod tests {
     #[test]
     fn test_learning_rate_adjustment_check() {
         let mut session = TrainingMetricsSession {
-            start_time: Instant::now(),
             metrics: TrainingMetrics::new(MetricsConfig::default()).unwrap(),
             batch_count: 0,
             epoch_count: 0,

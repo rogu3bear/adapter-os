@@ -25,9 +25,10 @@ impl CPID {
     /// Generate random CPID (for testing)
     #[cfg(test)]
     pub fn random() -> Self {
-        use rand::Rng;
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
         let mut bytes = [0u8; 16];
-        rand::thread_rng().fill(&mut bytes);
+        rng.fill(&mut bytes);
         Self(bytes)
     }
 

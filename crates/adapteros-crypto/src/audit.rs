@@ -24,7 +24,7 @@
 //! Each entry is signed to prevent tampering.
 
 use adapteros_core::{AosError, Result};
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -310,10 +310,7 @@ impl CryptoAuditLogger {
     /// Query audit log by result
     pub async fn query_by_result(&self, result: OperationResult) -> Vec<CryptoAuditEntry> {
         let log = self.log.read().await;
-        log.iter()
-            .filter(|e| e.result == result)
-            .cloned()
-            .collect()
+        log.iter().filter(|e| e.result == result).cloned().collect()
     }
 
     /// Query audit log by time range
@@ -341,9 +338,11 @@ impl CryptoAuditLogger {
 
         let canonical = entry.canonical_bytes();
         let signature = Signature::from_bytes(
-            &entry.signature.clone().try_into().map_err(|_| {
-                AosError::Crypto("Invalid signature length".to_string())
-            })?
+            &entry
+                .signature
+                .clone()
+                .try_into()
+                .map_err(|_| AosError::Crypto("Invalid signature length".to_string()))?,
         );
 
         match verifying_key.verify(&canonical, &signature) {
@@ -374,24 +373,21 @@ impl Default for CryptoAuditLogger {
 #[macro_export]
 macro_rules! audit_crypto_op {
     ($logger:expr, $operation:expr, $key_id:expr, $user_id:expr, $result:expr) => {
-        $logger.log(
-            $operation,
-            $key_id,
-            $user_id,
-            $result,
-            None,
-            serde_json::json!({}),
-        ).await
+        $logger
+            .log(
+                $operation,
+                $key_id,
+                $user_id,
+                $result,
+                None,
+                serde_json::json!({}),
+            )
+            .await
     };
     ($logger:expr, $operation:expr, $key_id:expr, $user_id:expr, $result:expr, $metadata:expr) => {
-        $logger.log(
-            $operation,
-            $key_id,
-            $user_id,
-            $result,
-            None,
-            $metadata,
-        ).await
+        $logger
+            .log($operation, $key_id, $user_id, $result, None, $metadata)
+            .await
     };
 }
 
@@ -445,7 +441,10 @@ mod tests {
 
         let failures = logger.query_by_result(OperationResult::Failure).await;
         assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].error_message, Some("Invalid ciphertext".to_string()));
+        assert_eq!(
+            failures[0].error_message,
+            Some("Invalid ciphertext".to_string())
+        );
     }
 
     #[tokio::test]
@@ -482,7 +481,9 @@ mod tests {
             .await
             .unwrap();
 
-        let key_gen_entries = logger.query_by_operation(CryptoOperation::KeyGenerate).await;
+        let key_gen_entries = logger
+            .query_by_operation(CryptoOperation::KeyGenerate)
+            .await;
         assert_eq!(key_gen_entries.len(), 2);
 
         let encrypt_entries = logger.query_by_operation(CryptoOperation::Encrypt).await;
@@ -636,7 +637,10 @@ mod tests {
     async fn test_operation_display() {
         assert_eq!(CryptoOperation::Encrypt.to_string(), "crypto.encrypt");
         assert_eq!(CryptoOperation::Decrypt.to_string(), "crypto.decrypt");
-        assert_eq!(CryptoOperation::KeyGenerate.to_string(), "crypto.key.generate");
+        assert_eq!(
+            CryptoOperation::KeyGenerate.to_string(),
+            "crypto.key.generate"
+        );
         assert_eq!(CryptoOperation::KeyRotate.to_string(), "crypto.key.rotate");
         assert_eq!(CryptoOperation::KeyDelete.to_string(), "crypto.key.delete");
         assert_eq!(CryptoOperation::Sign.to_string(), "crypto.sign");

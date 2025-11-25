@@ -45,7 +45,7 @@ impl Default for RotationPolicy {
     fn default() -> Self {
         Self {
             rotation_interval_secs: 90 * 24 * 3600, // 90 days
-            grace_period_secs: 7 * 24 * 3600,        // 7 days
+            grace_period_secs: 7 * 24 * 3600,       // 7 days
             max_historical_keys: 10,
             auto_rotate: true,
         }
@@ -107,20 +107,18 @@ pub struct RotationDaemon {
     history: RwLock<Vec<RotationHistoryEntry>>,
     /// Shutdown signal
     shutdown_tx: tokio::sync::broadcast::Sender<()>,
-    shutdown_rx: tokio::sync::broadcast::Receiver<()>,
 }
 
 impl RotationDaemon {
     /// Create a new rotation daemon
     pub fn new(provider: Arc<dyn KeyProvider>, policy: RotationPolicy) -> Self {
-        let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::broadcast::channel(1);
 
         Self {
             provider,
             policy: RwLock::new(policy),
             history: RwLock::new(Vec::new()),
             shutdown_tx,
-            shutdown_rx,
         }
     }
 
@@ -176,7 +174,7 @@ impl RotationDaemon {
 
         // Check if KEK needs rotation
         let kek_id = "kek-master";
-        if let Some(last_rotation) = history.iter().filter(|e| e.key_id == kek_id).last() {
+        if let Some(last_rotation) = history.iter().filter(|e| e.key_id == kek_id).next_back() {
             let elapsed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -206,7 +204,11 @@ impl RotationDaemon {
     }
 
     /// Rotate a specific key (KEK or DEK)
-    pub async fn rotate_key(&self, key_id: &str, reason: RotationReason) -> Result<RotationHistoryEntry> {
+    pub async fn rotate_key(
+        &self,
+        key_id: &str,
+        reason: RotationReason,
+    ) -> Result<RotationHistoryEntry> {
         info!(key_id = %key_id, reason = %reason, "Starting key rotation");
 
         // Generate new key
@@ -219,7 +221,9 @@ impl RotationDaemon {
         let receipt = self.provider.rotate(key_id).await?;
 
         // Count DEKs that need re-encryption
-        let deks_reencrypted = self.reencrypt_deks(&receipt.previous_key, &receipt.new_key).await?;
+        let deks_reencrypted = self
+            .reencrypt_deks(&receipt.previous_key, &receipt.new_key)
+            .await?;
 
         // Create history entry
         let timestamp = std::time::SystemTime::now()
@@ -249,7 +253,10 @@ impl RotationDaemon {
         if history.len() > policy.max_historical_keys {
             let to_remove = history.len() - policy.max_historical_keys;
             history.drain(0..to_remove);
-            info!(removed_count = to_remove, "Archived old rotation history entries");
+            info!(
+                removed_count = to_remove,
+                "Archived old rotation history entries"
+            );
         }
 
         info!(
@@ -329,8 +336,8 @@ impl RotationDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::keychain::KeychainProvider;
     use crate::key_provider::KeyProviderConfig;
+    use crate::providers::keychain::KeychainProvider;
 
     #[tokio::test]
     async fn test_rotation_policy_default() {
@@ -376,7 +383,10 @@ mod tests {
         } else {
             // Rotation may fail in test environment without proper keychain
             // This is acceptable for unit tests
-            println!("Manual rotation failed (expected in test env): {:?}", result);
+            println!(
+                "Manual rotation failed (expected in test env): {:?}",
+                result
+            );
         }
     }
 
@@ -384,7 +394,10 @@ mod tests {
     async fn test_rotation_history() {
         let config = KeyProviderConfig::default();
         let provider = KeychainProvider::new(config).expect("Should create provider");
-        let daemon = Arc::new(RotationDaemon::new(Arc::new(provider), RotationPolicy::default()));
+        let daemon = Arc::new(RotationDaemon::new(
+            Arc::new(provider),
+            RotationPolicy::default(),
+        ));
 
         // Create mock history entry
         let entry = RotationHistoryEntry {
@@ -414,7 +427,10 @@ mod tests {
     async fn test_policy_update() {
         let config = KeyProviderConfig::default();
         let provider = KeychainProvider::new(config).expect("Should create provider");
-        let daemon = Arc::new(RotationDaemon::new(Arc::new(provider), RotationPolicy::default()));
+        let daemon = Arc::new(RotationDaemon::new(
+            Arc::new(provider),
+            RotationPolicy::default(),
+        ));
 
         let new_policy = RotationPolicy {
             rotation_interval_secs: 30 * 24 * 3600, // 30 days
@@ -434,6 +450,9 @@ mod tests {
         assert_eq!(RotationReason::Scheduled.to_string(), "scheduled");
         assert_eq!(RotationReason::Manual.to_string(), "manual");
         assert_eq!(RotationReason::Compromise.to_string(), "compromise");
-        assert_eq!(RotationReason::PolicyEnforced.to_string(), "policy_enforced");
+        assert_eq!(
+            RotationReason::PolicyEnforced.to_string(),
+            "policy_enforced"
+        );
     }
 }

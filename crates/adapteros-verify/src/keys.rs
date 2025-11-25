@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use sysinfo::System;
 use tracing::{debug, info, warn};
 
-const FINGERPRINT_KEY_LABEL: &str = "com.adapteros.fingerprint.signing";
 const KEY_FILE_PATH: &str = "var/keys/fingerprint_key.bin";
 const DEVICE_FINGERPRINT_FILE: &str = "var/keys/device_fingerprint.json";
 

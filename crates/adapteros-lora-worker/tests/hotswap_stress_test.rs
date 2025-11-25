@@ -159,10 +159,7 @@ async fn test_concurrent_operations_with_checkpoints() {
         handles.push(tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(i as u64 * 10)).await;
             let _ = table_clone
-                .swap(
-                    &[format!("adapter{}", i)],
-                    &[format!("adapter{}", i - 1)],
-                )
+                .swap(&[format!("adapter{}", i)], &[format!("adapter{}", i - 1)])
                 .await;
         }));
     }
@@ -188,7 +185,10 @@ async fn test_checkpoint_limit_enforcement() {
 
     // Setup adapter
     let hash = B3Hash::hash(b"adapter");
-    table.preload("adapter".to_string(), hash, 10).await.unwrap();
+    table
+        .preload("adapter".to_string(), hash, 10)
+        .await
+        .unwrap();
     table.swap(&["adapter".to_string()], &[]).await.unwrap();
 
     // Create more checkpoints than limit
@@ -203,11 +203,7 @@ async fn test_checkpoint_limit_enforcement() {
 
     // Should only have 5 checkpoints (the most recent ones)
     let checkpoints = table.get_checkpoints(100);
-    assert_eq!(
-        checkpoints.len(),
-        5,
-        "Should respect checkpoint limit of 5"
-    );
+    assert_eq!(checkpoints.len(), 5, "Should respect checkpoint limit of 5");
 }
 
 #[test]
@@ -315,16 +311,8 @@ async fn test_hotswap_stress_1000_iterations() {
 
     // Assertions
     assert_eq!(failures, 0, "All 1000 swaps must succeed");
-    assert!(
-        p95 < 100,
-        "p95 latency must be <100ms, got {}ms",
-        p95
-    );
-    assert!(
-        p99 < 150,
-        "p99 latency should be reasonable, got {}ms",
-        p99
-    );
+    assert!(p95 < 100, "p95 latency must be <100ms, got {}ms", p95);
+    assert!(p99 < 150, "p99 latency should be reasonable, got {}ms", p99);
 }
 
 /// H5: Concurrent Hot-Swap Stress Test

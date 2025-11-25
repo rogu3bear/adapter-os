@@ -38,12 +38,7 @@ mod hardcoded_secrets {
     /// - API_KEY from env (if used)
     #[test]
     fn test_secrets_from_environment() {
-        let env_vars = vec![
-            "JWT_SECRET",
-            "DATABASE_URL",
-            "API_KEY",
-            "PRIVATE_KEY",
-        ];
+        let env_vars = vec!["JWT_SECRET", "DATABASE_URL", "API_KEY", "PRIVATE_KEY"];
 
         println!("Secrets from Environment:");
         for var in env_vars {
@@ -361,7 +356,11 @@ mod inference_permission {
 
         println!("RBAC Mapping for InferenceExecute:");
         for (role, has_permission) in role_mappings {
-            println!("  {} -> {}", role, if has_permission { "ALLOW" } else { "DENY" });
+            println!(
+                "  {} -> {}",
+                role,
+                if has_permission { "ALLOW" } else { "DENY" }
+            );
         }
     }
 

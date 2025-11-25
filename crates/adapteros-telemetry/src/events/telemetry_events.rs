@@ -353,6 +353,7 @@ pub struct KReductionRequestEvent {
 }
 
 impl KReductionRequestEvent {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         request_id: String,
         k_current: usize,
@@ -404,6 +405,7 @@ pub struct KReductionEvaluationEvent {
 }
 
 impl KReductionEvaluationEvent {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         request_id: String,
         evaluation_duration_us: u64,

@@ -455,7 +455,7 @@ impl CodeQualityVerifier {
         for entry in walkdir::WalkDir::new(&self.workspace_root)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
             .filter(|e| !e.path().to_string_lossy().contains("/target/"))
         {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
@@ -576,7 +576,7 @@ impl CodeQualityVerifier {
         for entry in walkdir::WalkDir::new(&self.workspace_root)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
             .filter(|e| !e.path().to_string_lossy().contains("/target/"))
         {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
@@ -786,7 +786,7 @@ impl CodeQualityVerifier {
         for entry in walkdir::WalkDir::new(&self.workspace_root)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
             .filter(|e| !e.path().to_string_lossy().contains("/target/"))
         {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
