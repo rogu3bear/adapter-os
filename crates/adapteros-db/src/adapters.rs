@@ -1283,4 +1283,17 @@ impl Db {
 
         Ok(())
     }
+
+    /// Update adapter tier
+    pub async fn update_adapter_tier(&self, adapter_id: &str, tier: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE adapters SET tier = ?, updated_at = datetime('now') WHERE adapter_id = ?"
+        )
+        .bind(tier)
+        .bind(adapter_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update adapter tier: {}", e)))?;
+        Ok(())
+    }
 }

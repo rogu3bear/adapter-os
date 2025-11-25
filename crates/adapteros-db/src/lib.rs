@@ -958,3 +958,27 @@ pub use unified_access::{
 };
 // Re-export canonical health types from adapteros-core
 pub use adapteros_core::{HealthCheckResult, HealthStatus};
+
+// Add update_anomaly_status method to Db impl
+impl Db {
+    /// Update anomaly status with investigation details
+    pub async fn update_anomaly_status(
+        &self,
+        anomaly_id: &str,
+        status: &str,
+        investigation_notes: &str,
+        investigated_by: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE process_anomalies SET status = ?, investigation_notes = ?, investigated_by = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(status)
+        .bind(investigation_notes)
+        .bind(investigated_by)
+        .bind(anomaly_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
+        Ok(())
+    }
+}

@@ -53,8 +53,39 @@ impl Db {
 
     /// Rename a tenant
     pub async fn rename_tenant(&self, id: &str, new_name: &str) -> Result<()> {
-        sqlx::query("UPDATE tenants SET name = ?, created_at = created_at WHERE id = ?")
+        sqlx::query("UPDATE tenants SET name = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(new_name)
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Update tenant ITAR flag
+    pub async fn update_tenant_itar_flag(&self, id: &str, itar_flag: bool) -> Result<()> {
+        sqlx::query("UPDATE tenants SET itar_flag = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(itar_flag)
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Pause a tenant
+    pub async fn pause_tenant(&self, id: &str) -> Result<()> {
+        sqlx::query("UPDATE tenants SET status = 'paused', updated_at = datetime('now') WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Archive a tenant
+    pub async fn archive_tenant(&self, id: &str) -> Result<()> {
+        sqlx::query("UPDATE tenants SET status = 'archived', updated_at = datetime('now') WHERE id = ?")
             .bind(id)
             .execute(self.pool())
             .await
@@ -192,5 +223,79 @@ impl Db {
             configs,
             snapshot_timestamp,
         })
+    }
+
+    /// Get default stack ID for a tenant
+    pub async fn get_default_stack(&self, tenant_id: &str) -> Result<Option<String>> {
+        let stack_id = sqlx::query("SELECT default_stack_id FROM tenants WHERE id = ?")
+            .bind(tenant_id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get default stack: {}", e)))?
+            .and_then(|row| row.get::<Option<String>, _>(0));
+
+        Ok(stack_id)
+    }
+
+    /// Set default stack for a tenant
+    pub async fn set_default_stack(&self, tenant_id: &str, stack_id: &str) -> Result<()> {
+        // Verify stack exists and belongs to tenant
+        let stack = self.get_stack(tenant_id, stack_id).await?;
+        if stack.is_none() {
+            return Err(AosError::Database(format!(
+                "Stack {} not found for tenant {}",
+                stack_id, tenant_id
+            )));
+        }
+
+        sqlx::query("UPDATE tenants SET default_stack_id = ? WHERE id = ?")
+            .bind(stack_id)
+            .bind(tenant_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to set default stack: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Clear default stack for a tenant
+    pub async fn clear_default_stack(&self, tenant_id: &str) -> Result<()> {
+        sqlx::query("UPDATE tenants SET default_stack_id = NULL WHERE id = ?")
+            .bind(tenant_id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to clear default stack: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Assign a policy to a tenant
+    pub async fn assign_policy_to_tenant(&self, tenant_id: &str, policy_id: &str, assigned_by: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO tenant_policies (tenant_id, cpid, assigned_by, assigned_at)
+             VALUES (?, ?, ?, datetime('now'))"
+        )
+        .bind(tenant_id)
+        .bind(policy_id)
+        .bind(assigned_by)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to assign policy to tenant: {}", e)))?;
+        Ok(())
+    }
+
+    /// Assign an adapter to a tenant
+    pub async fn assign_adapter_to_tenant(&self, tenant_id: &str, adapter_id: &str, assigned_by: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO tenant_adapters (tenant_id, adapter_id, assigned_by, assigned_at)
+             VALUES (?, ?, ?, datetime('now'))"
+        )
+        .bind(tenant_id)
+        .bind(adapter_id)
+        .bind(assigned_by)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to assign adapter to tenant: {}", e)))?;
+        Ok(())
     }
 }

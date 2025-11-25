@@ -268,4 +268,31 @@ impl Db {
 
         Ok(())
     }
+
+    /// Get training job by adapter ID
+    ///
+    /// Looks up the training job that produced a given adapter by searching
+    /// the metadata_json field for the adapter_id.
+    ///
+    /// Evidence: migrations/0050_training_jobs_extensions.sql:18-19
+    /// Pattern: metadata_json column for artifact tracking
+    pub async fn get_training_job_by_adapter_id(
+        &self,
+        adapter_id: &str,
+    ) -> Result<Option<TrainingJobRecord>> {
+        // Search in metadata_json for adapter_id
+        let job = sqlx::query_as::<_, TrainingJobRecord>(
+            "SELECT id, repo_id, training_config_json, status, progress_json,
+                    started_at, completed_at, created_by, adapter_name, template_id,
+                    created_at, metadata_json
+             FROM repository_training_jobs
+             WHERE metadata_json LIKE ?",
+        )
+        .bind(format!("%\"adapter_id\":\"{}\"%", adapter_id))
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(job)
+    }
 }

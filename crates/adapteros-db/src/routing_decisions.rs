@@ -226,6 +226,23 @@ impl Db {
         self.query_routing_decisions(&filters).await
     }
 
+    /// Get routing decisions for a chat session (request_id)
+    ///
+    /// Args: `request_id` - The request ID to query, `limit` - Maximum number of results
+    /// Errors: `AosError::Database` if query fails
+    pub async fn get_session_routing_decisions(
+        &self,
+        request_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<RoutingDecision>> {
+        let filters = RoutingDecisionFilters {
+            request_id: Some(request_id.to_string()),
+            limit,
+            ..Default::default()
+        };
+        self.query_routing_decisions(&filters).await
+    }
+
     /// Get routing decisions with high overhead (>8% budget)
     ///
     /// Args: `tenant_id` - Optional tenant filter, `limit` - Maximum number of results
@@ -334,6 +351,90 @@ impl Db {
             })?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Get adapter usage statistics from routing decisions
+    ///
+    /// Aggregates adapter usage from routing_decisions table:
+    /// - Count activations (where adapter appears in selected_adapter_ids)
+    /// - Average gate value (from candidate_adapters JSON where adapter was selected)
+    /// - Last used timestamp
+    ///
+    /// Args: `adapter_id` - The adapter ID to query
+    /// Errors: `AosError::Database` if query fails
+    pub async fn get_adapter_usage_stats(
+        &self,
+        adapter_id: &str,
+    ) -> Result<(i64, f64, Option<String>)> {
+        // Query routing decisions where adapter appears in selected_adapter_ids
+        // Use exact matching with comma-separated list handling to avoid partial ID matches
+        // Pattern: match adapter_id as whole word (preceded by comma or start, followed by comma or end)
+        let decisions = sqlx::query_as::<_, RoutingDecision>(
+            "SELECT id, tenant_id, timestamp, request_id, step, input_token_id, \
+             stack_id, stack_hash, entropy, tau, entropy_floor, k_value, \
+             candidate_adapters, selected_adapter_ids, router_latency_us, \
+             total_inference_latency_us, overhead_pct, created_at \
+             FROM routing_decisions \
+             WHERE selected_adapter_ids = ? \
+                OR selected_adapter_ids LIKE ? \
+                OR selected_adapter_ids LIKE ? \
+                OR selected_adapter_ids LIKE ? \
+             ORDER BY timestamp DESC",
+        )
+        .bind(adapter_id) // Exact match
+        .bind(format!("{},{}", adapter_id, "%")) // Start of list
+        .bind(format!("%,{},%", adapter_id)) // Middle of list
+        .bind(format!("%,{}", adapter_id)) // End of list
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!(
+                "Failed to query adapter usage stats: {}",
+                e
+            ))
+        })?;
+
+        let call_count = decisions.len() as i64;
+        let last_used = decisions.first().map(|d| d.timestamp.clone());
+
+        // Calculate average gate value from candidate_adapters JSON
+        // For each decision where adapter was selected, extract gate values
+        // Note: selected_adapter_ids contains adapter_id strings, but candidate_adapters
+        // contains adapter_idx (numeric). We average gate values from all selected
+        // candidates in decisions where this adapter was selected.
+        let mut gate_values = Vec::new();
+        for decision in &decisions {
+            if let Some(selected_ids) = &decision.selected_adapter_ids {
+                // Check if this adapter was selected in this decision
+                let adapter_selected = selected_ids
+                    .split(',')
+                    .any(|id| id.trim() == adapter_id);
+
+                if adapter_selected {
+                    // Parse candidates and collect gate values from selected candidates
+                    if let Ok(candidates) = serde_json::from_str::<Vec<RouterCandidate>>(&decision.candidate_adapters) {
+                        // Get top-K candidates (selected ones) and average their gates
+                        let mut sorted_candidates = candidates.clone();
+                        sorted_candidates.sort_by(|a, b| b.gate_q15.cmp(&a.gate_q15));
+                        let k = decision.k_value.unwrap_or(0) as usize;
+                        for candidate in sorted_candidates.iter().take(k) {
+                            if candidate.gate_q15 > 0 {
+                                let gate_float = (candidate.gate_q15 as f32) / 32767.0;
+                                gate_values.push(gate_float as f64);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let avg_gate = if !gate_values.is_empty() {
+            gate_values.iter().sum::<f64>() / gate_values.len() as f64
+        } else {
+            0.0
+        };
+
+        Ok((call_count, avg_gate, last_used))
     }
 }
 

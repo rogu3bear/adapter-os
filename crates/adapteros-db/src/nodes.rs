@@ -68,4 +68,14 @@ impl Db {
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
+
+    /// Delete a node
+    pub async fn delete_node(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM nodes WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to delete node: {}", e)))?;
+        Ok(())
+    }
 }
