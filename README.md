@@ -526,6 +526,23 @@ Contributions welcome! Please see `CONTRIBUTING.md` for guidelines.
 
 ### Development Setup
 
+#### Pre-commit Hooks
+
+Architectural pattern validation is enforced via pre-commit hooks:
+
+```bash
+# Install pre-commit hook
+cp .githooks/pre-commit-architectural .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+The hook checks:
+- Citation format validation (for extracted code)
+- Architectural pattern compliance (lifecycle manager usage, database access)
+- Error type validation (AosError vs generic errors)
+
+To skip hooks (not recommended): `git commit --no-verify`
+
 ```bash
 # Install development dependencies
 cargo install cargo-watch cargo-nextest

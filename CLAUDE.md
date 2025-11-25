@@ -166,10 +166,50 @@ pub async fn load(&self, path: &Path) -> Result<Data> {
 
 **Common `AosError` variants:** `PolicyViolation`, `DeterminismViolation`, `EgressViolation`, `IsolationViolation`, `Validation`, `Config`, `Io`, `Database`, `Crypto`, `Network`
 
+**Error Type Requirements:**
+- **Production code:** MUST use `AosError` (handlers, services, core logic)
+- **Test code:** May use `Box<dyn std::error::Error>` if test framework requires it
+- **Example code:** Should use `AosError` for consistency
+- **CLI error display:** May use `anyhow::Error` for user-friendly error messages
+
+**Conversion Pattern:**
+```rust
+// Convert generic errors to AosError
+.map_err(|e| AosError::Database(format!("Operation failed: {}", e)))?;
+
+// From anyhow (CLI only)
+impl From<anyhow::Error> for AosError {
+    fn from(err: anyhow::Error) -> Self {
+        AosError::Other(err.to_string())
+    }
+}
+```
+
 ### Logging (Use `tracing`, never `println!`)
+
+**Production Code:** MUST use `tracing` macros
 ```rust
 use tracing::{info, warn, error, debug, trace};
 info!(tenant_id = %tenant.id, adapter_id = %adapter.id, "Loading adapter");
+```
+
+**CLI Output:** `println!`/`eprintln!` acceptable for user-facing output
+```rust
+// ACCEPTABLE: CLI user output
+println!("Adapter loaded: {}", adapter_id);
+eprintln!("Error: {}", error_msg);
+
+// ACCEPTABLE: Deprecation warnings in CLI
+eprintln!("Warning: 'old-command' is deprecated. Use 'new-command' instead.");
+```
+
+**Debug Statements:** Use `tracing::debug!` or remove
+```rust
+// CORRECT: Use tracing::debug!
+tracing::debug!(adapter_id = %id, "Debug information");
+
+// WRONG: println! in production code
+println!("Debug: adapter {}", id); // ❌ Remove or convert to tracing::debug!
 ```
 
 **Log levels:** `trace!` (detailed debug) → `debug!` (dev info) → `info!` (general) → `warn!` (attention) → `error!` (action required)
@@ -276,6 +316,66 @@ manager.check_memory_pressure(total_mem, 0.85).await?; // Auto-evict
 
 **Full state machine diagram:** See [docs/LIFECYCLE.md](docs/LIFECYCLE.md)
 
+### Lifecycle Manager Integration Patterns
+
+**Database Integration:** Lifecycle manager has optional database integration (`db: Option<Db>`). Methods that update database automatically:
+- `update_adapter_state()` - Updates both internal state and database (if `db` is set). **Note:** Uses non-transactional `db.update_adapter_state()` (fire-and-forget async task). Internal state is updated synchronously; DB persistence happens asynchronously via `spawn_deterministic`.
+- `evict_adapter()` - Updates both internal state and database (if `db` is set). **Note:** Uses non-transactional `db.update_adapter_state()` (fire-and-forget async task).
+- `record_router_decision()` - Updates activation percentages in database (if `db` is set)
+
+**Methods that do NOT update database:**
+- `get_or_reload()` - Only loads adapter and updates internal state
+- `promote_adapter()` - Only updates internal state
+- `demote_adapter()` - Only updates internal state
+
+**Important:** Lifecycle manager's DB updates are **non-transactional** and **fire-and-forget**. For handlers that need transactional safety (e.g., preventing race conditions), use `db.update_adapter_state_tx()` directly in fallback paths. The lifecycle manager prioritizes performance (non-blocking) over transactional guarantees for its internal state persistence.
+
+**Correct Pattern for Manual Adapter Loading via API:**
+```rust
+// CORRECT: Use lifecycle manager methods that handle DB updates
+if let Some(ref lifecycle) = state.lifecycle_manager {
+    let mut manager = lifecycle.lock().await;
+    
+    // Load adapter (updates internal state only)
+    manager.get_or_reload(&adapter_id)?;
+    
+    // Update state (handles DB update if db is set)
+    // Note: This uses non-transactional DB update (fire-and-forget)
+    use adapteros_lora_lifecycle::AdapterState;
+    if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
+        manager.update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api").await?;
+    }
+} else {
+    // Fallback: direct DB update if no lifecycle manager
+    // Use transactional version for safety in handlers
+    state.db.update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api").await?;
+}
+```
+
+**Correct Pattern for Manual State Transitions:**
+```rust
+// CORRECT: Use update_adapter_state() which handles DB updates
+if let Some(ref lifecycle) = state.lifecycle_manager {
+    let manager = lifecycle.lock().await;
+    
+    // Promote internal state
+    manager.promote_adapter(adapter_idx)?;
+    
+    // Update state (handles DB update if db is set)
+    manager.update_adapter_state(adapter_idx, new_state, "manual_promotion").await?;
+} else {
+    // Fallback: direct DB update if no lifecycle manager
+    state.db.update_adapter_state_tx(&adapter_id, new_state, "manual_promotion").await?;
+}
+```
+
+**Key Principles:**
+- Always use lifecycle manager methods first if available
+- Use `update_adapter_state()` for state transitions (handles DB automatically)
+- Only update database directly if lifecycle manager doesn't exist
+- Never update database before lifecycle manager operations
+- Never create `AdapterLoader` directly - use lifecycle manager's loader via manager methods
+
 ### Deterministic Execution
 
 **Critical:** Seed derived from base model manifest hash via HKDF
@@ -292,6 +392,45 @@ init_global_executor(ExecutorConfig { global_seed, enable_event_logging: true, .
 ```
 
 **Details:** See [docs/DETERMINISTIC_EXECUTION.md](docs/DETERMINISTIC_EXECUTION.md) for HKDF hierarchy, global tick ledger, and multi-agent coordination
+
+### Deterministic Execution Requirements
+
+**When Deterministic Execution is Required:**
+- Inference operations (must be reproducible)
+- Training operations (must be reproducible)
+- Router decisions (affects adapter selection)
+- Any operation that affects model output or adapter routing
+
+**When `tokio::spawn` is Acceptable:**
+- Background monitoring tasks
+- Signal handlers (SIGHUP, SIGTERM, etc.)
+- CLI operations (user-facing commands)
+- Test code (unless testing determinism)
+- Telemetry/logging background tasks
+
+**Correct Pattern for Deterministic Contexts:**
+```rust
+// REQUIRED: Deterministic execution for inference, training, router decisions
+use adapteros_deterministic_exec::spawn_deterministic;
+spawn_deterministic("inference-task".to_string(), async move {
+    // Inference logic that must be reproducible
+})?;
+```
+
+**Correct Pattern for Non-Deterministic Contexts:**
+```rust
+// ACCEPTABLE: tokio::spawn for background tasks, CLI, tests
+tokio::spawn(async move {
+    // Background monitoring, signal handling, etc.
+});
+```
+
+**Decision Criteria:**
+- If operation affects model output → Use `spawn_deterministic`
+- If operation affects adapter routing → Use `spawn_deterministic`
+- If operation is user-facing CLI → Use `tokio::spawn`
+- If operation is background monitoring → Use `tokio::spawn`
+- If operation is in test code → Use `tokio::spawn` (unless testing determinism)
 
 ### .aos Archive Format
 
@@ -477,10 +616,56 @@ let stream = streaming_inference_handler(State(api_state), Json(request)).await;
 ## Common Patterns
 
 ### Database Access
+
+**Preferred Pattern:** Use `Db` trait methods for adapter operations and complex queries
 ```rust
-query("SELECT * FROM adapters WHERE tenant_id = ?").bind(&tenant_id).fetch_all(&db.pool).await
-    .map_err(|e| AosError::Database(format!("Query failed: {}", e)))?;
+// PREFERRED: Use Db trait methods for adapter operations
+state.db.update_adapter_state_tx(&adapter_id, "warm", "reason").await?;
+state.db.get_adapter(&adapter_id).await?;
+state.db.register_adapter(params).await?;
 ```
+
+**Acceptable Pattern:** Direct SQL for simple queries, performance-critical paths, or transaction contexts
+```rust
+// ACCEPTABLE: Direct SQL for simple queries or performance-critical paths
+sqlx::query("SELECT COUNT(*) FROM adapters WHERE tenant_id = ?")
+    .bind(&tenant_id)
+    .fetch_one(&db.pool())
+    .await
+    .map_err(|e| AosError::Database(format!("Query failed: {}", e)))?;
+
+// ACCEPTABLE: Direct SQL inside existing transactions (Db trait methods create their own transactions)
+let mut tx = db.pool().begin().await?;
+sqlx::query("UPDATE adapters SET tier = ? WHERE adapter_id = ?")
+    .bind(&new_tier)
+    .bind(&adapter_id)
+    .execute(&mut *tx)
+    .await?;
+tx.commit().await?;
+```
+
+**Required Pattern:** Db trait for operations that need transaction management
+```rust
+// REQUIRED: Db trait for operations that need transaction management
+state.db.update_adapter_state_tx(&adapter_id, state, reason).await?;
+```
+
+**Important Distinction:**
+- `db.update_adapter_state()` - Non-transactional, direct SQL (used by lifecycle manager for fire-and-forget persistence)
+- `db.update_adapter_state_tx()` - Transactional, with row locking (use in handlers for safety)
+
+**Guidelines:**
+- Use `Db` trait methods for adapter lifecycle operations (load, unload, state transitions)
+- Use `Db` trait methods for operations requiring transactions
+- Direct SQL is acceptable for simple read-only queries or performance-critical paths
+- Direct SQL is acceptable for specialized operations without Db trait methods (e.g., promotion workflow, diagnostics)
+- Never use direct SQL in handlers when `Db` trait method exists for the operation
+- Always map SQL errors to `AosError::Database`
+
+**Architectural Lint:**
+- The `adapteros-lint` tool detects violations of these patterns
+- Context-aware detection distinguishes acceptable patterns from violations
+- See `crates/adapteros-lint/README.md` for usage and violation types
 
 ### Async Task Spawning
 ```rust
