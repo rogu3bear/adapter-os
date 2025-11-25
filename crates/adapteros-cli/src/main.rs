@@ -175,6 +175,26 @@ Examples:
 ")]
     Doctor(commands::doctor::DoctorCommand),
 
+    /// Pre-flight system readiness check (run before launching server)
+    #[command(after_help = "\
+Examples:
+  # Run pre-flight checks
+  aosctl preflight
+
+  # Run checks with auto-fix
+  aosctl preflight --fix
+
+  # Check specific model path
+  aosctl preflight --model-path ./models/my-model
+
+  # Skip backend checks (faster)
+  aosctl preflight --skip-backends
+
+  # Check before launch (recommended)
+  aosctl preflight && cargo run -p adapteros-server-api
+")]
+    Preflight(commands::preflight::PreflightCommand),
+
     // ============================================================
     // Maintenance
     // ============================================================
@@ -1215,6 +1235,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // System Health Diagnostics (PRD-06)
         Commands::Doctor(cmd) => {
             commands::doctor::run(cmd.clone(), &output).await?;
+        }
+
+        // Pre-flight System Readiness Check
+        Commands::Preflight(cmd) => {
+            commands::preflight::run(cmd.clone(), &output).await?;
         }
 
         // Maintenance

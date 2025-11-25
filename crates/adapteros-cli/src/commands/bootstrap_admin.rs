@@ -48,8 +48,8 @@ fn derive_display_name(email: &str) -> String {
 }
 
 fn generate_password() -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
+    let mut rng = OsRng;
+    rng.sample_iter(&Alphanumeric)
         .take(24)
         .map(char::from)
         .collect()

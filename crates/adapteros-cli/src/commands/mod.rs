@@ -43,6 +43,8 @@ pub mod node_sync;
 pub mod node_verify;
 pub mod pin;
 pub mod policy;
+pub mod preflight;
+pub mod preflight_fix;
 pub mod profile;
 pub mod register_adapter;
 pub mod registry;
