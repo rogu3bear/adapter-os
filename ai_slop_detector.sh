@@ -1,11 +1,17 @@
 #!/bin/bash
 
 # AI Slop Detector for AdapterOS
-# Version: 1.0
-# Date: 2025-11-20
+# Version: 1.1
+# Date: 2025-11-25
 # Description: Automated detection of AI slop patterns in AdapterOS codebase
 
 set -euo pipefail
+
+# Dependency check
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required but not installed. Please install jq first."
+    exit 1
+fi
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,25 +46,33 @@ add_check_result() {
     local count="$3"
     local description="$4"
 
-    # Add to JSON
-    JSON_DATA=$(echo "$JSON_DATA" | jq --arg name "$check_name" \
-                                      --arg severity "$severity" \
-                                      --argjson count "$count" \
-                                      --arg desc "$description" \
-                                      '.checks += {($name): {"severity": $severity, "count": $count, "description": $desc}}')
+    # Use jq to safely add to JSON, with error handling
+    if ! JSON_DATA=$(echo "$JSON_DATA" | jq --arg name "$check_name" \
+                                          --arg severity "$severity" \
+                                          --argjson count "$count" \
+                                          --arg desc "$description" \
+                                          '.checks[$name] = {"severity": $severity, "count": $count, "description": $desc}' 2>/dev/null); then
+        log_warn "Failed to add check result to JSON for $check_name"
+        # Continue without JSON for this check
+    fi
 }
 
 # Function to run grep checks with proper error handling
 safe_grep() {
     local pattern="$1"
     local include="$2"
-    local exclude="${3:-}"
 
-    if [ -n "$exclude" ]; then
-        grep -r "$pattern" --include="$include" "$exclude" crates/ 2>/dev/null || true
-    else
-        grep -r "$pattern" --include="$include" crates/ 2>/dev/null || true
-    fi
+    # Search in crates/ directory, exclude common false positives
+    grep -r "$pattern" --include="$include" \
+         --exclude-dir="target" \
+         --exclude-dir=".git" \
+         --exclude-dir="node_modules" \
+         crates/ 2>/dev/null || true
+}
+
+# Function to count lines safely
+count_lines() {
+    wc -l | tr -d '[:space:]'
 }
 
 log_info "🔍 Starting AI Slop Detection for AdapterOS"
@@ -158,66 +172,75 @@ fi
 echo "" >> "$REPORT_FILE"
 
 # ============================================================================
-# CHECK 3: Generic Variable Names (MEDIUM PRIORITY)
+# CHECK 3: Code Duplication (MEDIUM PRIORITY)
 # ============================================================================
 
-log_info "Checking for generic variable names..."
+log_info "Checking for code duplication patterns..."
 
-GENERIC_VARS=$(safe_grep "\bdata\b\|\bresult\b\|\bvalue\b\|\bitem\b\|\binput\b\|\boutput\b" "*.rs" | grep -v "match\|enum\|struct\|fn")
-GENERIC_VAR_COUNT=$(echo "$GENERIC_VARS" | grep -v "^$" | wc -l)
+# Look for suspicious repetition patterns in function bodies
+# This is a simplified check - real duplication detection would need tools like jscpd
+DUPLICATE_PATTERNS=$(safe_grep "pub fn.*{" "*.rs" | grep -E "(create|build|parse|validate|process|handle)" | sort | uniq -c | sort -nr | awk '$1 > 2 {print $2}' | wc -l)
 
-add_check_result "generic_variables" "MEDIUM" "$GENERIC_VAR_COUNT" "Generic variable names lacking domain specificity"
+# Look for copy-paste error patterns (same function name with different casing)
+SUSPICIOUS_NAMES=$(safe_grep "pub fn [a-zA-Z_]*" "*.rs" | sed 's/.*pub fn \([a-zA-Z_]*\).*/\1/' | tr '[:upper:]' '[:lower:]' | sort | uniq -c | sort -nr | awk '$1 > 1 {print $2}' | wc -l)
+
+DUPLICATION_COUNT=$((DUPLICATE_PATTERNS + SUSPICIOUS_NAMES))
+
+add_check_result "code_duplication" "MEDIUM" "$DUPLICATION_COUNT" "Potential code duplication or copy-paste patterns"
 
 cat >> "$REPORT_FILE" << EOF
 
-## 🟡 Check 3: Generic Variable Names (MEDIUM PRIORITY)
+## 🟡 Check 3: Code Duplication (MEDIUM PRIORITY)
 
-**Status:** $([ "$GENERIC_VAR_COUNT" -gt 10 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
+**Status:** $([ "$DUPLICATION_COUNT" -gt 0 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
 
-**Count:** $GENERIC_VAR_COUNT instances
+**Count:** $DUPLICATION_COUNT suspicious patterns
 
-**Description:** Variables should have domain-specific names (e.g., \`adapter_weights\` instead of \`data\`).
+**Description:** Look for repeated function names or patterns that suggest copy-paste development instead of proper abstraction.
 
 EOF
 
-if [ "$GENERIC_VAR_COUNT" -gt 10 ]; then
-    echo "**Sample Issues:**" >> "$REPORT_FILE"
-    echo "$GENERIC_VARS" | head -10 | sed 's/^/- /' >> "$REPORT_FILE"
-    echo "- ... and $((GENERIC_VAR_COUNT - 10)) more instances" >> "$REPORT_FILE"
+if [ "$DUPLICATION_COUNT" -gt 0 ]; then
+    echo "**Note:** This check uses simple heuristics. For comprehensive duplication analysis, consider using \`jscpd\` or similar tools." >> "$REPORT_FILE"
 fi
 
 echo "" >> "$REPORT_FILE"
 
 # ============================================================================
-# CHECK 4: Repetitive Patterns (MEDIUM PRIORITY)
+# CHECK 4: Boilerplate Code (MEDIUM PRIORITY)
 # ============================================================================
 
-log_info "Checking for repetitive async function patterns..."
+log_info "Checking for boilerplate code patterns..."
 
-ASYNC_FUNCTIONS=$(safe_grep "pub async fn.*-> Result<.*>" "*.rs")
-REPETITIVE_COUNT=$(echo "$ASYNC_FUNCTIONS" | grep -v "^$" | wc -l)
+# Look for excessive error handling boilerplate
+BOILERPLATE_ERRORS=$(safe_grep "map_err.*format!" "*.rs" | wc -l)
 
-# Find patterns that appear more than 3 times
-REPETITIVE_PATTERNS=$(echo "$ASYNC_FUNCTIONS" | sed 's/.*pub async fn \([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/' | sort | uniq -c | sort -nr | awk '$1 > 3 {print $2 ": " $1 " times"}' | wc -l)
+# Look for repetitive validation patterns
+VALIDATION_PATTERNS=$(safe_grep "if.*is_empty\|if.*is_none\|if.*len.*==.*0" "*.rs" | wc -l)
 
-add_check_result "repetitive_patterns" "MEDIUM" "$REPETITIVE_PATTERNS" "Repetitive function patterns suggesting template reuse"
+# Look for repetitive logging patterns
+LOGGING_PATTERNS=$(safe_grep "tracing::info!\|\.await\?" "*.rs" | grep -E "(info|error|warn|debug)!" | wc -l)
+
+BOILERPLATE_COUNT=$((BOILERPLATE_ERRORS + VALIDATION_PATTERNS + LOGGING_PATTERNS))
+
+add_check_result "boilerplate_code" "MEDIUM" "$BOILERPLATE_COUNT" "Excessive boilerplate suggesting lack of helper functions or abstractions"
 
 cat >> "$REPORT_FILE" << EOF
 
-## 🟡 Check 4: Repetitive Patterns (MEDIUM PRIORITY)
+## 🟡 Check 4: Boilerplate Code (MEDIUM PRIORITY)
 
-**Status:** $([ "$REPETITIVE_PATTERNS" -gt 0 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
+**Status:** $([ "$BOILERPLATE_COUNT" -gt 50 ] && echo "⚠️ ISSUES FOUND" || echo "⚠️ NEEDS REVIEW")
 
-**Count:** $REPETITIVE_PATTERNS repetitive patterns
+**Count:** $BOILERPLATE_COUNT instances
 
-**Description:** Avoid repetitive function signatures and implementations that suggest copy-paste or template reuse.
+**Description:** Excessive boilerplate code suggests missing abstractions or helper functions. Look for opportunities to extract common patterns.
+
+**Breakdown:**
+- Error mapping patterns: $BOILERPLATE_ERRORS
+- Validation patterns: $VALIDATION_PATTERNS
+- Logging patterns: $LOGGING_PATTERNS
 
 EOF
-
-if [ "$REPETITIVE_PATTERNS" -gt 0 ]; then
-    echo "**Most Common Patterns:**" >> "$REPORT_FILE"
-    echo "$ASYNC_FUNCTIONS" | sed 's/.*pub async fn \([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/' | sort | uniq -c | sort -nr | head -5 | sed 's/^/- /' >> "$REPORT_FILE"
-fi
 
 echo "" >> "$REPORT_FILE"
 
@@ -227,11 +250,12 @@ echo "" >> "$REPORT_FILE"
 
 log_info "Checking for missing domain context..."
 
-MISSING_POLICY=$(safe_grep "policy\|Policy" "*.rs" | grep -v "AosError::PolicyViolation\|adapteros-policy\|PolicyId" | wc -l)
-MISSING_ADAPTER=$(safe_grep "adapter\|Adapter" "*.rs" | grep -v "AosError\|AdapterId\|adapteros-" | wc -l)
-MISSING_TENANT=$(safe_grep "tenant\|Tenant" "*.rs" | grep -v "AosError\|TenantId\|tenant_id" | wc -l)
+# Simplified check - just count basic patterns to avoid hanging
+GENERIC_POLICY_REFS=$(safe_grep "\bpolicy\b\|\bPolicy\b" "*.rs" | grep -c -v "AosError::PolicyViolation\|adapteros-policy\|PolicyId")
+GENERIC_ADAPTER_REFS=$(safe_grep "\badapter\b\|\bAdapter\b" "*.rs" | grep -c -v "AosError\|AdapterId\|adapteros-")
+GENERIC_TENANT_REFS=$(safe_grep "\btenant\b\|\bTenant\b" "*.rs" | grep -c -v "AosError\|TenantId\|tenant_id")
 
-CONTEXT_COUNT=$((MISSING_POLICY + MISSING_ADAPTER + MISSING_TENANT))
+CONTEXT_COUNT=$((GENERIC_POLICY_REFS + GENERIC_ADAPTER_REFS + GENERIC_TENANT_REFS))
 
 add_check_result "missing_context" "MEDIUM" "$CONTEXT_COUNT" "Generic references to domain concepts without specific AdapterOS context"
 
@@ -239,18 +263,22 @@ cat >> "$REPORT_FILE" << EOF
 
 ## 🟡 Check 5: Missing Domain Context (MEDIUM PRIORITY)
 
-**Status:** $([ "$CONTEXT_COUNT" -gt 50 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
+**Status:** $([ "$CONTEXT_COUNT" -gt 20 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
 
 **Count:** $CONTEXT_COUNT instances
 
-**Description:** References to core concepts (policies, adapters, tenants) should include specific AdapterOS context and error types.
+**Description:** References to core AdapterOS concepts should use specific types and error variants, not generic terms.
 
 **Breakdown:**
-- Generic policy references: $MISSING_POLICY
-- Generic adapter references: $MISSING_ADAPTER
-- Generic tenant references: $MISSING_TENANT
+- Generic policy references: $GENERIC_POLICY_REFS (should use AosError::PolicyViolation, PolicyId, etc.)
+- Generic adapter references: $GENERIC_ADAPTER_REFS (should use AdapterId, AdapterState, etc.)
+- Generic tenant references: $GENERIC_TENANT_REFS (should use TenantId, TenantInfo, etc.)
 
 EOF
+
+if [ "$CONTEXT_COUNT" -gt 20 ]; then
+    echo "**Note:** Review these for opportunities to use domain-specific types instead of generic terms." >> "$REPORT_FILE"
+fi
 
 echo "" >> "$REPORT_FILE"
 
@@ -286,21 +314,56 @@ fi
 echo "" >> "$REPORT_FILE"
 
 # ============================================================================
+# CHECK 6: Incomplete Code Markers (LOW PRIORITY)
+# ============================================================================
+
+log_info "Checking for incomplete code markers..."
+
+TODO_COMMENTS=$(safe_grep "TODO\|FIXME\|XXX\|HACK\|NOTE:" "*.rs")
+TODO_COUNT=$(echo "$TODO_COMMENTS" | grep -c "^")
+
+add_check_result "incomplete_code" "LOW" "$TODO_COUNT" "Incomplete code markers indicating unfinished work"
+
+cat >> "$REPORT_FILE" << EOF
+
+## 🟢 Check 6: Incomplete Code Markers (LOW PRIORITY)
+
+**Status:** $([ "$TODO_COUNT" -gt 20 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
+
+**Count:** $TODO_COUNT instances
+
+**Description:** TODO/FIXME comments should be resolved or converted to proper implementation plans.
+
+EOF
+
+if [ "$TODO_COUNT" -gt 20 ]; then
+    echo "**Sample Issues:**" >> "$REPORT_FILE"
+    echo "$TODO_COMMENTS" | head -10 | sed 's/^/- /' >> "$REPORT_FILE"
+    echo "- ... and $((TODO_COUNT - 10)) more instances" >> "$REPORT_FILE"
+fi
+
+echo "" >> "$REPORT_FILE"
+
+# ============================================================================
 # SUMMARY AND RECOMMENDATIONS
 # ============================================================================
 
 # Calculate overall score
-TOTAL_ISSUES=$((GENERIC_ERROR_COUNT + PLATFORM_COUNT + GENERIC_VAR_COUNT + REPETITIVE_PATTERNS + CONTEXT_COUNT + TODO_COUNT))
+TOTAL_ISSUES=$((GENERIC_ERROR_COUNT + PLATFORM_COUNT + DUPLICATION_COUNT + BOILERPLATE_COUNT + CONTEXT_COUNT + TODO_COUNT))
 
-# Update JSON summary
-JSON_DATA=$(echo "$JSON_DATA" | jq --argjson total "$TOTAL_ISSUES" '.summary.total_issues = $total')
+# Update JSON summary (with error handling)
+if ! JSON_DATA=$(echo "$JSON_DATA" | jq --argjson total "$TOTAL_ISSUES" '.summary.total_issues = $total' 2>/dev/null); then
+    log_warn "Failed to update JSON summary"
+fi
 
 HIGH_PRIORITY=$((GENERIC_ERROR_COUNT + PLATFORM_COUNT))
-MEDIUM_PRIORITY=$((GENERIC_VAR_COUNT + REPETITIVE_PATTERNS + CONTEXT_COUNT))
+MEDIUM_PRIORITY=$((DUPLICATION_COUNT + BOILERPLATE_COUNT + CONTEXT_COUNT))
 LOW_PRIORITY=$TODO_COUNT
 
-JSON_DATA=$(echo "$JSON_DATA" | jq --argjson high "$HIGH_PRIORITY" --argjson med "$MEDIUM_PRIORITY" --argjson low "$LOW_PRIORITY" \
-                                  '.summary += {"high_priority": $high, "medium_priority": $med, "low_priority": $low}')
+if ! JSON_DATA=$(echo "$JSON_DATA" | jq --argjson high "$HIGH_PRIORITY" --argjson med "$MEDIUM_PRIORITY" --argjson low "$LOW_PRIORITY" \
+                                      '.summary += {"high_priority": $high, "medium_priority": $med, "low_priority": $low}' 2>/dev/null); then
+    log_warn "Failed to update JSON priority counts"
+fi
 
 # Determine overall status
 if [ "$HIGH_PRIORITY" -gt 0 ]; then
@@ -331,17 +394,18 @@ $(if [ "$GENERIC_ERROR_COUNT" -gt 0 ]; then echo "- Replace generic error types 
 $(if [ "$PLATFORM_COUNT" -gt 0 ]; then echo "- Update platform-agnostic code to use AdapterOS patterns"; fi)
 
 #### **Short-term (Medium Priority):**
-$(if [ "$GENERIC_VAR_COUNT" -gt 10 ]; then echo "- Rename generic variables with domain-specific names"; fi)
-$(if [ "$REPETITIVE_PATTERNS" -gt 0 ]; then echo "- Extract common patterns into shared utilities"; fi)
-$(if [ "$CONTEXT_COUNT" -gt 50 ]; then echo "- Add specific AdapterOS context to domain references"; fi)
+$(if [ "$DUPLICATION_COUNT" -gt 0 ]; then echo "- Review potential code duplication and extract common patterns"; fi)
+$(if [ "$BOILERPLATE_COUNT" -gt 50 ]; then echo "- Extract boilerplate code into helper functions"; fi)
+$(if [ "$CONTEXT_COUNT" -gt 20 ]; then echo "- Add specific AdapterOS context to domain references"; fi)
 
 #### **Ongoing (Low Priority):**
 $(if [ "$TODO_COUNT" -gt 20 ]; then echo "- Resolve TODO/FIXME comments or create implementation plans"; fi)
 
 ### **Quality Metrics:**
-- **Domain Specificity:** $([ "$CONTEXT_COUNT" -lt 50 ] && echo "✅ Good" || echo "⚠️ Needs improvement")
+- **Domain Specificity:** $([ "$CONTEXT_COUNT" -lt 20 ] && echo "✅ Good" || echo "⚠️ Needs improvement")
 - **Error Handling:** $([ "$GENERIC_ERROR_COUNT" -eq 0 ] && echo "✅ Excellent" || echo "⚠️ Needs refactoring")
 - **Platform Awareness:** $([ "$PLATFORM_COUNT" -eq 0 ] && echo "✅ Excellent" || echo "⚠️ Critical fixes needed")
+- **Code Quality:** $([ "$BOILERPLATE_COUNT" -lt 50 ] && echo "✅ Good" || echo "⚠️ Could be improved")
 
 ---
 
@@ -366,6 +430,14 @@ echo "High Priority Issues: $HIGH_PRIORITY"
 echo "Medium Priority Issues: $MEDIUM_PRIORITY"
 echo "Low Priority Issues: $LOW_PRIORITY"
 echo "Total Issues: $TOTAL_ISSUES"
+echo ""
+echo "Checks Performed:"
+echo "• Generic Error Handling: $GENERIC_ERROR_COUNT"
+echo "• Platform Patterns: $PLATFORM_COUNT"
+echo "• Code Duplication: $DUPLICATION_COUNT"
+echo "• Boilerplate Code: $BOILERPLATE_COUNT"
+echo "• Domain Context: $CONTEXT_COUNT"
+echo "• TODO Comments: $TODO_COUNT"
 echo ""
 echo "Status: $OVERALL_STATUS"
 echo ""

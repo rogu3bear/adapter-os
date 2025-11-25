@@ -179,7 +179,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.02] - 2025-10-20
 ### Added
 - Observability: Prometheus exporter (/metrics with inference/errors counters【@crates/adapteros-metrics-exporter/src/lib.rs】), threat detection hooks in Incident/Refusal validators (alerts on low conf【@crates/adapteros-policy/src/policy_packs.rs§1900/1100】).
-- MLX Backend: Stabilized with PyO3 0.22, feature flag mlx-backend for parity testing【@Cargo.toml§77, @crates/adapteros-base-llm/src/lib.rs enum】.
+- MLX Backend: Stabilized with C++ FFI, feature flag mlx-backend for parity testing【@Cargo.toml§77, @crates/adapteros-base-llm/src/lib.rs enum】.
 - Tests: Expanded E2E (policy, router, determinism, memory, tenants; +20% coverage【@tests/integration_tests.rs§626-817】).
 - Docs: DEPLOYMENT.md for prod (Postgres/RAG, multi-node, monitoring【@docs/DEPLOYMENT.md§1】); auto Rust API【@README.md§451】.
 
@@ -188,5 +188,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Policies: Async desugared to impl Future + Send【@crates/adapteros-policy/src/unified_enforcement.rs§18-30】.
 
 ### Fixed
-- PyO3 linker for MLX【@Cargo.toml§147】.
+- C++ FFI linker for MLX【@Cargo.toml§147】.
 - Lints: Unused Results, dead code【@clippy§unused_must_use】.

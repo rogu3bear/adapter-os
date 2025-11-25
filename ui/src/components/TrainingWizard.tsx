@@ -1416,6 +1416,26 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
         updateState(stateToValidate);
       }
 
+      const selectedDataset =
+        stateToValidate.dataSourceType === 'dataset' && stateToValidate.datasetId
+          ? datasets.find((d) => d.id === stateToValidate.datasetId)
+          : undefined;
+
+      if (stateToValidate.dataSourceType === 'dataset') {
+        if (!stateToValidate.datasetId) {
+          setValidationError('Please select a dataset');
+          setIsLoading(false);
+          return;
+        }
+        if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+          setValidationError(
+            `Dataset ${selectedDataset.id} is not validated (status: ${selectedDataset.validation_status}). Please run validation first.`
+          );
+          setIsLoading(false);
+          return;
+        }
+      }
+
       // Validate form data against schema
       const validationResult = await TrainingConfigSchema.parseAsync({
         name: stateToValidate.name,
@@ -1854,10 +1874,14 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: Trainin
 }
 
 // Outer component with DensityProvider
-export function TrainingWizard({ onComplete, onCancel }: TrainingWizardProps) {
+export function TrainingWizard({ onComplete, onCancel, initialDatasetId }: TrainingWizardProps) {
   return (
     <DensityProvider pageKey="training-wizard">
-      <TrainingWizardInner onComplete={onComplete} onCancel={onCancel} />
+      <TrainingWizardInner
+        onComplete={onComplete}
+        onCancel={onCancel}
+        initialDatasetId={initialDatasetId}
+      />
     </DensityProvider>
   );
 }

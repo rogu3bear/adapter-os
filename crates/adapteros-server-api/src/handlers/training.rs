@@ -9,6 +9,7 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_core::AosError;
 use adapteros_lora_worker::memory::MemoryPressureLevel;
 use axum::{
     extract::State,
@@ -148,6 +149,35 @@ pub async fn get_training_job(
     Ok(Json(TrainingJobResponse::from(job)))
 }
 
+fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorResponse>) {
+    let error_message = error.to_string();
+    let is_validation_variant = matches!(error, AosError::Validation(_));
+    let is_dataset_validation_message = error_message
+        .to_ascii_lowercase()
+        .contains("not validated (status:");
+
+    if is_validation_variant || is_dataset_validation_message {
+        // Preserve the original validation message so the client can show actionable guidance
+        let message = match error {
+            AosError::Validation(msg) => msg.as_str(),
+            _ => error_message.as_str(),
+        };
+
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(message).with_code("VALIDATION_ERROR")),
+        );
+    }
+
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new(&format!("Failed to start training: {}", error))
+                .with_code("TRAINING_ERROR"),
+        ),
+    )
+}
+
 /// Start a new training job
 #[utoipa::path(
     post,
@@ -221,10 +251,7 @@ pub async fn start_training(
                 &e.to_string(),
             );
 
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(&format!("Failed to start training: {}", e)).with_code("TRAINING_ERROR")),
-            )
+            build_training_error_response(&e)
         })?;
 
     // Audit log: training start success
@@ -245,6 +272,45 @@ pub async fn start_training(
     );
 
     Ok(Json(TrainingJobResponse::from(job)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn training_error_response_preserves_dataset_validation_message() {
+        let error = AosError::Validation(
+            "Dataset ds-123 is not validated (status: draft)".to_string(),
+        );
+
+        let (status, axum::Json(body)) = build_training_error_response(&error);
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.code, "VALIDATION_ERROR");
+        assert_eq!(
+            body.error,
+            "Dataset ds-123 is not validated (status: draft)"
+        );
+    }
+
+    #[test]
+    fn training_error_response_maps_dataset_validation_string_to_400() {
+        // Some call sites wrap the validation message in a non-validation error; the handler
+        // should still surface a 400 with the actionable message.
+        let error = AosError::Database(
+            "Dataset ds-123 is not validated (status: draft)".to_string(),
+        );
+
+        let (status, axum::Json(body)) = build_training_error_response(&error);
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.code, "VALIDATION_ERROR");
+        assert_eq!(
+            body.error,
+            "Dataset ds-123 is not validated (status: draft)"
+        );
+    }
 }
 
 /// Cancel a running training job

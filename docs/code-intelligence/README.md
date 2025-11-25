@@ -153,7 +153,7 @@ This is a design/documentation phase providing the complete blueprint for implem
 **Dependency specification**
 - Tree-sitter + language grammars
 - SQLite FTS5, HNSW
-- Embedding models (PyO3 or Candle)
+- Embedding models (Candle)
 - Version pinning strategy
 - Cargo features
 - Platform support

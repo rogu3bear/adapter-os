@@ -82,7 +82,7 @@ Build queryable indices for fast symbol lookup and semantic search.
 
 2. **Vector index (HNSW)**
    - Chunking strategy (symbol-aware)
-   - Embedding generation (PyO3 or Candle)
+   - Embedding generation (Candle)
    - HNSW construction
    - Search interface with filters
 

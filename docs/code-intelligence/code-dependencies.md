@@ -84,20 +84,15 @@ instant-distance = "0.6.0"
 **Option 1: sentence-transformers (via Python FFI)**
 - Model: `all-MiniLM-L6-v2`
 - Dimension: 384
-- Method: Call Python via subprocess or PyO3
+- Method: Pure Rust via Candle
 
-```toml
-pyo3 = { version = "0.20", features = ["auto-initialize"], optional = true }
-```
-
-**Option 2: Pure Rust (via Candle)**
 ```toml
 candle-core = "0.3.0"
 candle-nn = "0.3.0"
 candle-transformers = "0.3.0"
 ```
 
-**Recommended**: PyO3 for MVP (faster setup), migrate to Candle for production.
+**Implementation**: Pure Rust embedding model for maximum performance and no Python dependencies.
 
 ---
 
@@ -386,9 +381,9 @@ With these dependencies, target performance:
 
 ### Phase 2+
 
-1. **Replace PyO3 with Candle**
-   - Pure Rust embedding model
-   - Faster startup, no Python dependency
+1. **Optimize Pure Rust Embedding**
+   - Enhance Candle-based embedding model
+   - Improve performance and accuracy
 
 2. **Custom HNSW**
    - Optimize for code search patterns

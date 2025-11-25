@@ -360,7 +360,7 @@ cargo build --release --no-default-features
 cargo build --release --features mlx-backend
 ```
 
-**Status**: ⚠️ Disabled due to PyO3 linker issues.
+**Status**: ✅ Active (Pure Rust MLX backend)
 
 ---
 

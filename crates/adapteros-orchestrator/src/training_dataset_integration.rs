@@ -378,6 +378,38 @@ impl TrainingDatasetManager {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use adapteros_core::AosError;
+    use adapteros_db::sqlx;
+    use adapteros_db::Db;
+
+    /// Minimal in-memory DB for dataset validation gates (no global migrations)
+    async fn minimal_dataset_db() -> Db {
+        let db = Db::connect(":memory:").await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE training_datasets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                file_count INTEGER NOT NULL DEFAULT 0,
+                total_size_bytes INTEGER NOT NULL DEFAULT 0,
+                format TEXT NOT NULL,
+                hash_b3 TEXT NOT NULL,
+                storage_path TEXT NOT NULL,
+                validation_status TEXT NOT NULL,
+                validation_errors TEXT,
+                metadata_json TEXT,
+                created_by TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        db
+    }
 
     #[tokio::test]
     async fn test_save_and_load_examples() {
@@ -424,5 +456,99 @@ mod tests {
         assert_eq!(loaded[0].target, vec![4, 5, 6]);
         assert_eq!(loaded[1].input, vec![7, 8, 9]);
         assert_eq!(loaded[1].target, vec![10, 11, 12]);
+    }
+
+    #[tokio::test]
+    async fn dataset_validation_gate_allows_valid_dataset() {
+        let temp_dir = TempDir::new().unwrap();
+        let dataset_path = temp_dir.path().join("dataset.jsonl");
+
+        // Prepare on-disk dataset file with a single training example
+        let example_json = r#"{"input":[1,2],"target":[3,4],"metadata":{},"weight":1.0}"#;
+        tokio::fs::write(&dataset_path, format!("{}\n", example_json))
+            .await
+            .unwrap();
+
+        // Create in-memory DB with minimal schema (skip global migrations)
+        let db = minimal_dataset_db().await;
+        let manager = TrainingDatasetManager::new(db.clone(), temp_dir.path().to_path_buf(), None);
+        let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO training_datasets (id, name, description, file_count, total_size_bytes, format, hash_b3, storage_path, validation_status, validation_errors, metadata_json, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("ds-valid")
+        .bind("Valid Dataset")
+        .bind(None::<String>)
+        .bind(1)
+        .bind(0_i64)
+        .bind("jsonl")
+        .bind(&hash)
+        .bind(dataset_path.to_string_lossy().to_string())
+        .bind("valid")
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let examples = manager
+            .load_dataset_examples("ds-valid")
+            .await
+            .expect("valid dataset should load");
+
+        assert_eq!(examples.len(), 1);
+        assert_eq!(examples[0].input, vec![1, 2]);
+        assert_eq!(examples[0].target, vec![3, 4]);
+    }
+
+    #[tokio::test]
+    async fn dataset_validation_gate_rejects_non_valid_dataset() {
+        let temp_dir = TempDir::new().unwrap();
+        let dataset_path = temp_dir.path().join("dataset.jsonl");
+
+        tokio::fs::write(&dataset_path, "{\"input\":[1],\"target\":[2],\"metadata\":{},\"weight\":1.0}\n")
+            .await
+            .unwrap();
+
+        let db = minimal_dataset_db().await;
+        let manager = TrainingDatasetManager::new(db.clone(), temp_dir.path().to_path_buf(), None);
+        let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO training_datasets (id, name, description, file_count, total_size_bytes, format, hash_b3, storage_path, validation_status, validation_errors, metadata_json, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("ds-draft")
+        .bind("Draft Dataset")
+        .bind(None::<String>)
+        .bind(1)
+        .bind(0_i64)
+        .bind("jsonl")
+        .bind(&hash)
+        .bind(dataset_path.to_string_lossy().to_string())
+        .bind("draft")
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .bind(None::<String>)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        let err = manager
+            .load_dataset_examples("ds-draft")
+            .await
+            .expect_err("non-valid datasets must be rejected");
+
+        match err {
+            AosError::Validation(msg) => {
+                assert!(msg.contains("ds-draft"));
+                assert!(msg.contains("draft"));
+                assert!(msg.contains("not validated"));
+            }
+            other => panic!("expected validation error, got {:?}", other),
+        }
     }
 }

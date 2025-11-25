@@ -57,7 +57,7 @@ This document defines the responsibilities, deliverables, and coordination model
 - **Nice to Have:**
   - MLX library experience
   - Neural Engine (ANE) optimization
-  - Python bindings (PyO3)
+  - C++ FFI bindings
 
 ### Coordination
 - **Daily Standup:** With Team 2 (Inference Engine)

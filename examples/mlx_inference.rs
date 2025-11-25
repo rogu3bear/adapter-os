@@ -1,4 +1,4 @@
-//! MLX inference example using adapteros-base-llm with PyO3 integration.
+//! MLX inference example using adapteros-base-llm with C++ FFI integration.
 //!
 //! # Environment Variables
 //! - `AOS_MODEL_PATH` - Path to the model directory (required)

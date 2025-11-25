@@ -448,11 +448,15 @@ async fn run_training_job(
             let jobs_ref_inner = jobs_ref_clone.clone();
             let job_id_inner = job_id_clone.clone();
             // Deterministic progress update (part of training execution)
+            let jobs_ref_for_det = jobs_ref_inner.clone();
+            let job_id_for_det = job_id_inner.clone();
+            let jobs_ref_for_fallback = jobs_ref_inner.clone();
+            let job_id_for_fallback = job_id_inner.clone();
             if let Err(e) = spawn_deterministic(
-                format!("training-progress:{}:epoch-{}", job_id_inner, epoch),
+                format!("training-progress:{}:epoch-{}", job_id_for_det, epoch),
                 async move {
-                    let mut jobs = jobs_ref_inner.write().await;
-                    if let Some(job) = jobs.get_mut(&job_id_inner) {
+                    let mut jobs = jobs_ref_for_det.write().await;
+                    if let Some(job) = jobs.get_mut(&job_id_for_det) {
                         job.current_epoch = epoch as u32;
                         job.current_loss = loss;
                         if job.total_epochs > 0 {
@@ -464,8 +468,8 @@ async fn run_training_job(
                 // Fallback: use tokio::spawn if deterministic executor not available
                 tracing::warn!("Failed to spawn deterministic progress update: {}", e);
                 tokio::spawn(async move {
-                    let mut jobs = jobs_ref_inner.write().await;
-                    if let Some(job) = jobs.get_mut(&job_id_inner) {
+                    let mut jobs = jobs_ref_for_fallback.write().await;
+                    if let Some(job) = jobs.get_mut(&job_id_for_fallback) {
                         job.current_epoch = epoch as u32;
                         job.current_loss = loss;
                         if job.total_epochs > 0 {

@@ -18,7 +18,7 @@ AdapterOS Worker
     │
     └──> MLX Backend (Training & Experimentation)
          ├──> adapteros-lora-mlx-ffi (C++ FFI - stub)
-         └──> adapteros-lora-mlx (PyO3 - future)
+         └──> adapteros-lora-mlx (C++ FFI - future)
 ```
 
 ## Current Implementation

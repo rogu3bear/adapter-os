@@ -388,9 +388,9 @@ async fn test_cross_language_import_detection() {
     std::fs::write(
         temp_dir.path().join("rust_file.rs"),
         r#"
-        use pyo3::prelude::*;
+        use std::collections::HashMap;
         use serde_json;
-        
+
         pub fn rust_function() -> i32 { 42 }
     "#,
     )

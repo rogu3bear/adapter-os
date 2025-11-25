@@ -99,13 +99,13 @@ MLX (Apple's machine learning framework) provides:
 
 ## Implementation Language Decisions
 
-### Objective-C++ vs Swift vs PyO3
+### Objective-C++ vs Swift vs C++
 
 | Language | Used For | Justification |
 |----------|----------|---------------|
 | **Objective-C++** | Metal, CoreML | Rust FFI compatibility, C ABI stability, pointer-level control |
 | **Swift** | *Not Used* | ABI instability, complex Rust FFI, reference counting overhead |
-| **PyO3** | MLX (future) | Required for Python interop, experimental-only |
+| **C++** | MLX | Direct FFI, no Python dependency, maximum performance |
 
 #### Why Objective-C++ for Metal & CoreML?
 
@@ -310,14 +310,14 @@ extern "C" void coreml_release_model(void* model_ptr) {
 
 **Key Pattern:** Use `__bridge_retained` to transfer ownership to Rust, pair with `CFRelease`.
 
-### MLX Backend (PyO3)
+### MLX Backend (C++ FFI)
 
-**Python Object Lifetime**
+**C++ Object Lifetime**
 ```rust
-use pyo3::prelude::*;
+use std::ffi::c_void;
 
 pub struct MLXFFIModel {
-    model: PyObject,  // Held by Rust, GIL-protected
+    model_handle: *mut c_void,  // Opaque C++ object handle
 }
 
 impl MLXFFIModel {

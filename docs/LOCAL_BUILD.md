@@ -281,7 +281,7 @@ telemetry = []
 metrics = []
 replay = []
 metal-backend = []
-mlx-backend = ["dep:pyo3"]
+mlx-backend = []
 full = ["telemetry", "metrics", "replay"]
 no-metal = []
 multi-backend = ["mlx-backend"]
@@ -421,19 +421,6 @@ cargo build --release -p adapteros-lora-router
 ```
 
 **Tracking**: See CLAUDE.md Known Build Issues section.
-
----
-
-#### 4. "PyO3 linker errors" (MLX backend)
-
-**Cause**: `mlx-backend` feature has PyO3 linker issues.
-
-**Status**: Experimental, disabled by default.
-
-**Fix**: Use Metal backend instead:
-```bash
-cargo build --release --features metal-backend
-```
 
 ---
 

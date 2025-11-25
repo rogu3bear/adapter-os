@@ -62,7 +62,7 @@ Welcome to the AdapterOS documentation. This directory contains comprehensive te
 ### 🤖 Model Integration
 - **[MLX Integration](MLX_INTEGRATION.md)** - Apple MLX framework integration
   - Model loading and conversion
-  - PyO3 bindings
+  - C++ FFI bindings
   - Metal kernel integration
   - Performance optimization
 

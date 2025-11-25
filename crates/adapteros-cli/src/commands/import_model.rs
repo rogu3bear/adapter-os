@@ -1,6 +1,6 @@
 //! Import MLX model command
 //!
-//! MLX backend is temporarily disabled due to PyO3 linker issues.
+//! MLX backend is temporarily disabled - requires MLX C++ library.
 //! See: crates/adapteros-lora-mlx-ffi/README.md for details.
 
 use crate::output::OutputWriter;
@@ -13,7 +13,7 @@ use tracing::warn;
 ///
 /// # Note
 ///
-/// MLX backend is temporarily disabled due to PyO3 linker issues.
+/// MLX backend is temporarily disabled - requires MLX C++ library.
 /// Use Metal backend for inference instead.
 ///
 /// See: `crates/adapteros-lora-mlx-ffi/README.md` for details.
@@ -34,13 +34,13 @@ pub async fn run(
         "MLX model import requested but MLX backend is disabled"
     );
 
-    output.error("MLX model import is temporarily disabled due to PyO3 linker issues");
+    output.error("MLX model import is temporarily disabled - requires MLX C++ library");
     output.info("Alternative: Use Metal backend for inference");
     output.info("See: crates/adapteros-lora-mlx-ffi/README.md for details");
 
     Err(AosError::FeatureDisabled {
         feature: "MLX model import".to_string(),
-        reason: "PyO3 linker issues - see crates/adapteros-lora-mlx-ffi/README.md".to_string(),
+        reason: "Requires MLX C++ library - see crates/adapteros-lora-mlx-ffi/README.md".to_string(),
         alternative: Some("Use Metal backend for inference".to_string()),
     }
     .into())

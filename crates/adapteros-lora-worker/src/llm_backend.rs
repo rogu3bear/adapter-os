@@ -57,7 +57,7 @@ pub struct LocalLlmBackend {
 impl LocalLlmBackend {
     /// Create a new local LLM backend
     pub fn new(_config: LocalLlmConfig) -> Result<Self> {
-        // MLX backend temporarily disabled due to PyO3 linker issues
+        // MLX backend temporarily disabled - requires MLX C++ library
         Err(AosError::Mlx(
             "MLX backend temporarily disabled".to_string(),
         ))
