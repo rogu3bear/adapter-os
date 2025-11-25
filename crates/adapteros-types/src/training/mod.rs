@@ -168,6 +168,14 @@ pub struct TrainingJob {
     /// Stack ID created for this adapter (populated on completion)
     #[serde(rename = "stack_id", skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
+
+    /// User who initiated this training job (for audit logging)
+    #[serde(rename = "initiated_by", skip_serializing_if = "Option::is_none")]
+    pub initiated_by: Option<String>,
+
+    /// Role of user who initiated this training job (for audit logging)
+    #[serde(rename = "initiated_by_role", skip_serializing_if = "Option::is_none")]
+    pub initiated_by_role: Option<String>,
 }
 
 impl TrainingJob {
@@ -197,6 +205,8 @@ impl TrainingJob {
             weights_hash_b3: None,
             tenant_id: None,
             stack_id: None,
+            initiated_by: None,
+            initiated_by_role: None,
         }
     }
 
@@ -399,10 +409,7 @@ pub struct TrainingConfig {
     pub checkpoint_frequency: Option<u32>,
 
     /// Maximum number of checkpoints to keep
-    #[serde(
-        rename = "max_checkpoints",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "max_checkpoints", skip_serializing_if = "Option::is_none")]
     pub max_checkpoints: Option<u32>,
 }
 
