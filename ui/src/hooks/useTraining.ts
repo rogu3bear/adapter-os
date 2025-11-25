@@ -45,18 +45,19 @@ const QUERY_KEYS = {
 // Training Jobs Hooks
 
 export function useTrainingJobs(
+  params?: { dataset_id?: string; status?: string; adapter_name?: string; template_id?: string; page?: number; page_size?: number },
   options?: Omit<UseQueryOptions<ListTrainingJobsResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery<ListTrainingJobsResponse, Error>({
-    queryKey: QUERY_KEYS.trainingJobs,
+    queryKey: [...QUERY_KEYS.trainingJobs, params],
     queryFn: async () => {
-      const jobs = await apiClient.listTrainingJobs();
+      const jobs = await apiClient.listTrainingJobs(params);
       return {
         schema_version: '1.0',
         jobs,
         total: jobs.length,
-        page: 1,
-        page_size: jobs.length,
+        page: params?.page || 1,
+        page_size: params?.page_size || jobs.length,
       };
     },
     refetchInterval: 5000, // Poll every 5 seconds for active jobs
@@ -72,6 +73,14 @@ export function useTrainingJob(
     queryKey: QUERY_KEYS.trainingJob(jobId),
     queryFn: () => apiClient.getTrainingJob(jobId),
     enabled: !!jobId,
+    refetchInterval: (query) => {
+      // Poll every 2-3 seconds while job is running or pending
+      const job = query.state.data;
+      if (job && (job.status === 'running' || job.status === 'pending')) {
+        return 2500; // 2.5 seconds
+      }
+      return false; // Stop polling when completed/failed/cancelled
+    },
     ...options,
   });
 }

@@ -478,8 +478,8 @@ export interface StreamingInferRequest {
   /** Stop sequences to halt generation */
   stop?: string[];
 
-  /** Adapter stack to use for inference */
-  adapter_stack?: string;
+  /** Adapter stack to use for inference (array of adapter IDs) */
+  adapter_stack?: string[] | string;
 
   /** Random seed for reproducible generation */
   seed?: number;

@@ -816,8 +816,18 @@ class ApiClient {
   // (duplicate methods removed; see definitions above returning types.Adapter)
 
   // Training endpoints
-  async listTrainingJobs(): Promise<trainingTypes.TrainingJob[]> {
-    return this.request<trainingTypes.TrainingJob[]>('/v1/training/jobs');
+  async listTrainingJobs(params?: { dataset_id?: string; status?: string; adapter_name?: string; template_id?: string; page?: number; page_size?: number }): Promise<trainingTypes.TrainingJob[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.dataset_id) queryParams.append('dataset_id', params.dataset_id);
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.adapter_name) queryParams.append('adapter_name', params.adapter_name);
+    if (params?.template_id) queryParams.append('template_id', params.template_id);
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.page_size) queryParams.append('page_size', params.page_size.toString());
+    
+    const queryString = queryParams.toString();
+    const url = queryString ? `/v1/training/jobs?${queryString}` : '/v1/training/jobs';
+    return this.request<trainingTypes.TrainingJob[]>(url);
   }
 
   async getTrainingJob(jobId: string): Promise<trainingTypes.TrainingJob> {
@@ -963,11 +973,107 @@ class ApiClient {
     if (params?.page) queryParams.append('page', String(params.page));
     if (params?.page_size) queryParams.append('page_size', String(params.page_size));
     const query = queryParams.toString();
-    return this.request<trainingTypes.ListDatasetsResponse>(`/v1/datasets${query ? `?${query}` : ''}`);
+    
+    // Backend returns array directly, but frontend expects wrapped response
+    const response = await this.request<Array<{
+      dataset_id: string;
+      name: string;
+      hash: string;
+      total_size_bytes: number;
+      file_count: number;
+      format: string;
+      storage_path: string;
+      validation_status: string;
+      validation_errors?: string;
+      created_by: string;
+      created_at: string;
+      updated_at: string;
+      description?: string;
+    }>>(`/v1/datasets${query ? `?${query}` : ''}`);
+    
+    // Map backend responses to frontend Dataset type
+    const datasets: trainingTypes.Dataset[] = response.map((d) => ({
+      id: d.dataset_id,
+      name: d.name,
+      hash_b3: d.hash,
+      source_type: 'uploaded_files' as trainingTypes.DatasetSourceType, // Default, parse from metadata_json if needed
+      file_count: d.file_count,
+      total_size_bytes: d.total_size_bytes,
+      total_tokens: 0, // Will be fetched separately if needed
+      validation_status: d.validation_status as trainingTypes.DatasetValidationStatus,
+      created_at: d.created_at,
+      updated_at: d.updated_at,
+      format: d.format,
+      storage_path: d.storage_path,
+      validation_errors: d.validation_errors,
+      created_by: d.created_by,
+      description: d.description,
+    }));
+    
+    return {
+      schema_version: '1.0',
+      datasets,
+      total: datasets.length,
+      page: params?.page || 1,
+      page_size: params?.page_size || datasets.length,
+    };
   }
 
   async getDataset(datasetId: string): Promise<trainingTypes.Dataset> {
-    return this.request<trainingTypes.Dataset>(`/v1/datasets/${datasetId}`);
+    const response = await this.request<{
+      dataset_id: string;
+      name: string;
+      hash: string;
+      total_size_bytes: number;
+      file_count: number;
+      format: string;
+      storage_path: string;
+      validation_status: string;
+      validation_errors?: string;
+      created_by: string;
+      created_at: string;
+      updated_at: string;
+      description?: string;
+    }>(`/v1/datasets/${datasetId}`);
+    
+    // Try to get statistics for total_tokens
+    let totalTokens = 0;
+    try {
+      const stats = await this.request<{ total_tokens: number }>(`/v1/datasets/${datasetId}/statistics`).catch(() => null);
+      if (stats) {
+        totalTokens = stats.total_tokens;
+      }
+    } catch {
+      // Statistics not available, use 0
+    }
+    
+    // Parse metadata_json for source_type if available
+    let sourceType: trainingTypes.DatasetSourceType = 'uploaded_files';
+    try {
+      // Try to infer from format or other fields
+      // For now, default to uploaded_files
+    } catch {
+      // Use default
+    }
+    
+    // Map backend response to frontend Dataset type
+    return {
+      id: response.dataset_id,
+      name: response.name,
+      hash_b3: response.hash,
+      source_type: sourceType,
+      file_count: response.file_count,
+      total_size_bytes: response.total_size_bytes,
+      total_tokens: totalTokens,
+      validation_status: response.validation_status as trainingTypes.DatasetValidationStatus,
+      created_at: response.created_at,
+      updated_at: response.updated_at,
+      format: response.format,
+      storage_path: response.storage_path,
+      validation_errors: response.validation_errors,
+      created_by: response.created_by,
+      description: response.description,
+    };
   }
 
   async validateDataset(datasetId: string): Promise<trainingTypes.DatasetValidationResult> {
@@ -1018,6 +1124,10 @@ class ApiClient {
 
   async getAdapterStats(adapterId: string): Promise<types.AdapterStats> {
     return this.request<types.AdapterStats>(`/v1/adapters/${adapterId}/stats`);
+  }
+
+  async getAdapterUsage(adapterId: string): Promise<types.AdapterUsageResponse> {
+    return this.request<types.AdapterUsageResponse>(`/v1/adapters/${adapterId}/usage`);
   }
 
   async getAdapterActivations(adapterId: string): Promise<types.AdapterActivation[]> {
@@ -1576,16 +1686,36 @@ class ApiClient {
 
   // Adapter Stack API
   async listAdapterStacks(): Promise<types.AdapterStack[]> {
-    const response = await this.request<types.ListAdapterStacksResponse>('/v1/adapter-stacks');
-    return response.stacks;
+    // Backend returns StackResponse[] with adapter_ids, map to AdapterStack
+    const backendStacks = await this.request<Array<{
+      id: string;
+      name: string;
+      adapter_ids: string[];
+      description?: string;
+      created_at: string;
+      updated_at: string;
+      version?: number;
+      workflow_type?: string;
+    }>>('/v1/adapter-stacks');
+    
+    return backendStacks.map(stack => ({
+      id: stack.id,
+      name: stack.name,
+      adapter_ids: stack.adapter_ids,
+      description: stack.description,
+      created_at: stack.created_at,
+      updated_at: stack.updated_at,
+      version: stack.version,
+      workflow_type: stack.workflow_type as 'Parallel' | 'UpstreamDownstream' | 'Sequential' | undefined,
+    }));
   }
 
-  async createAdapterStack(stack: types.CreateAdapterStackRequest): Promise<types.AdapterStack> {
+  async createAdapterStack(stack: types.CreateAdapterStackRequest): Promise<types.AdapterStackResponse> {
     const response = await this.request<types.AdapterStackResponse>('/v1/adapter-stacks', {
       method: 'POST',
       body: JSON.stringify(stack),
     });
-    return response.stack;
+    return response;
   }
 
   async getAdapterStack(id: string): Promise<types.AdapterStack> {
@@ -1597,6 +1727,10 @@ class ApiClient {
     return this.request<void>(`/v1/adapter-stacks/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  async getAdapterStackHistory(id: string): Promise<types.LifecycleHistoryEvent[]> {
+    return this.request<types.LifecycleHistoryEvent[]>(`/v1/adapter-stacks/${id}/history`);
   }
 
   async updateAdapterStack(id: string, data: types.UpdateAdapterStackRequest): Promise<types.AdapterStack> {
@@ -1617,6 +1751,34 @@ class ApiClient {
   async deactivateAdapterStack(): Promise<void> {
     return this.request<void>('/v1/adapter-stacks/deactivate', {
       method: 'POST',
+    });
+  }
+
+  async getDefaultAdapterStack(tenantId: string = 'default'): Promise<types.AdapterStack | null> {
+    try {
+      const response = await this.request<types.DefaultStackResponse>(`/v1/tenants/${tenantId}/default-stack`);
+      if (response.stack_id) {
+        return await this.getAdapterStack(response.stack_id);
+      }
+      return null;
+    } catch (error: any) {
+      if (error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async setDefaultAdapterStack(stackId: string, tenantId: string = 'default'): Promise<void> {
+    return this.request<void>(`/v1/tenants/${tenantId}/default-stack`, {
+      method: 'PUT',
+      body: JSON.stringify({ stack_id: stackId }),
+    });
+  }
+
+  async clearDefaultAdapterStack(tenantId: string = 'default'): Promise<void> {
+    return this.request<void>(`/v1/tenants/${tenantId}/default-stack`, {
+      method: 'DELETE',
     });
   }
 
@@ -2029,17 +2191,40 @@ class ApiClient {
   }
 
   // Routing methods
+  async getSessionRouterView(requestId: string): Promise<types.SessionRouterViewResponse> {
+    return this.request<types.SessionRouterViewResponse>(`/v1/routing/sessions/${requestId}`);
+  }
+
+  async getDeterminismStatus(): Promise<types.DeterminismStatusResponse> {
+    return this.request<types.DeterminismStatusResponse>('/v1/diagnostics/determinism-status');
+  }
+
+  async getDiagnosticsQuarantineStatus(): Promise<types.QuarantineStatusResponse> {
+    return this.request<types.QuarantineStatusResponse>('/v1/diagnostics/quarantine-status');
+  }
+
+  async getCapacity(): Promise<types.CapacityResponse> {
+    return this.request<types.CapacityResponse>('/v1/system/capacity');
+  }
+
   async getRoutingDecisions(filters?: types.RoutingDecisionFilters): Promise<types.TransformedRoutingDecision[]> {
     const params = new URLSearchParams();
-    // Backend requires 'tenant_id' parameter in query struct
-    // Always send tenant_id parameter - use provided value or 'default' as fallback
+    // Backend requires 'tenant' parameter (not tenant_id) - see RoutingDecisionsQuery
     const tenantId = filters?.tenant_id || 'default';
-    params.append('tenant_id', tenantId);
+    params.append('tenant', tenantId);
 
     if (filters?.limit) {
       params.append('limit', filters.limit.toString());
     }
-    // Note: adapter_id is not in the backend query struct, so we skip it
+    if (filters?.offset) {
+      params.append('offset', filters.offset.toString());
+    }
+    if (filters?.adapter_id) {
+      params.append('adapter_id', filters.adapter_id);
+    }
+    if (filters?.stack_id) {
+      params.append('stack_id', filters.stack_id);
+    }
     if (filters?.since) {
       params.append('since', filters.since);
     }
@@ -2048,6 +2233,12 @@ class ApiClient {
     }
     if (filters?.min_entropy !== undefined) {
       params.append('min_entropy', filters.min_entropy.toString());
+    }
+    if (filters?.max_overhead_pct !== undefined) {
+      params.append('max_overhead_pct', filters.max_overhead_pct.toString());
+    }
+    if (filters?.anomalies_only) {
+      params.append('anomalies_only', 'true');
     }
 
     const query = `?${params.toString()}`;

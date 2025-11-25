@@ -1,16 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Slider } from './ui/slider';
+import { Button } from './ui/button';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { HelpTooltip } from './ui/help-tooltip';
-import { TransformedRoutingDecision, RouterCandidateInfo } from '../api/types';
+import { ExportMenu } from './ui/export-menu';
+import { TransformedRoutingDecision, RouterCandidateInfo, RoutingDecisionFilters } from '../api/types';
 import apiClient from '../api/client';
 import { useTenant } from '../providers/FeatureProviders';
 import { useRBAC } from '@/hooks/useRBAC';
+import { Calendar } from './ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { CalendarIcon } from 'lucide-react';
+import { format as formatDate } from 'date-fns';
 
 interface RoutingInspectorProps {
   className?: string;
@@ -21,22 +29,85 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
   const [filter, setFilter] = useState('all');
   const [searchHash, setSearchHash] = useState('');
   const [selectedDecision, setSelectedDecision] = useState<TransformedRoutingDecision | null>(null);
+  const [stackId, setStackId] = useState<string>('');
+  const [adapterId, setAdapterId] = useState<string>('');
+  const [minEntropy, setMinEntropy] = useState<number>(0);
+  const [sinceDate, setSinceDate] = useState<Date | undefined>();
+  const [untilDate, setUntilDate] = useState<Date | undefined>();
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const { selectedTenant } = useTenant();
   const { can, userRole } = useRBAC();
 
+  // Fetch stacks and adapters for dropdowns
+  const { data: stacks } = useQuery({
+    queryKey: ['adapter-stacks'],
+    queryFn: () => apiClient.listAdapterStacks(),
+  });
+
+  const { data: adapters } = useQuery({
+    queryKey: ['adapters'],
+    queryFn: () => apiClient.listAdapters(),
+  });
+
+  // Build filters object
+  const filters: RoutingDecisionFilters = useMemo(() => {
+    const f: RoutingDecisionFilters = {
+      limit,
+      tenant_id: selectedTenant || 'default',
+      anomalies_only: filter === 'anomalies',
+    };
+    if (stackId) f.stack_id = stackId;
+    if (adapterId) f.adapter_id = adapterId;
+    if (minEntropy > 0) f.min_entropy = minEntropy;
+    if (sinceDate) f.since = formatDate(sinceDate, "yyyy-MM-dd'T'HH:mm:ss");
+    if (untilDate) f.until = formatDate(untilDate, "yyyy-MM-dd'T'HH:mm:ss");
+    return f;
+  }, [limit, selectedTenant, filter, stackId, adapterId, minEntropy, sinceDate, untilDate]);
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['/v1/routing/decisions', limit, filter, selectedTenant],
+    queryKey: ['/v1/routing/decisions', filters],
     queryFn: async () => {
-      return apiClient.getRoutingDecisions({
-        limit,
-        tenant_id: selectedTenant || 'default',
-        anomalies_only: filter === 'anomalies',
-      });
+      return apiClient.getRoutingDecisions(filters);
     },
     refetchInterval: 5000, // Refresh every 5 seconds
     retry: 1,
     retryDelay: 1000,
   });
+
+  // Export functionality
+  const handleExport = async (format: 'csv' | 'json') => {
+    const decisions = data || [];
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(decisions, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `routing-decisions-${formatDate(new Date(), 'yyyy-MM-dd')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // CSV export
+      const headers = ['Time', 'Step', 'K', 'Adapters', 'Gates', 'Entropy', 'Overhead %', 'Latency μs'];
+      const rows = decisions.map(d => [
+        d.timestamp,
+        d.step?.toString() || '',
+        d.k_value?.toString() || '0',
+        d.candidates?.filter(c => c.selected).map(c => c.adapter_idx).join(',') || '',
+        d.candidates?.filter(c => c.selected).map(c => c.gate_float.toFixed(3)).join(',') || '',
+        d.entropy?.toFixed(3) || '0',
+        d.overhead_pct?.toFixed(1) || '',
+        d.router_latency_us?.toString() || '',
+      ]);
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `routing-decisions-${formatDate(new Date(), 'yyyy-MM-dd')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
 
   const decisions = data || [];
 
@@ -115,34 +186,101 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
     <div className={className}>
       <Card>
         <CardHeader>
-          <CardTitle>Routing Inspector</CardTitle>
-          <div className="flex flex-col sm:flex-row gap-4 mt-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Search by stack hash or request ID..."
-                value={searchHash}
-                onChange={(e) => setSearchHash(e.target.value)}
-              />
+          <div className="flex items-center justify-between">
+            <CardTitle>Routing Inspector</CardTitle>
+            <ExportMenu onExport={handleExport} filename="routing-decisions" />
+          </div>
+          <div className="flex flex-col gap-4 mt-4">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <Input
+                  placeholder="Search by stack hash or request ID..."
+                  value={searchHash}
+                  onChange={(e) => setSearchHash(e.target.value)}
+                />
+              </div>
+              <Select value={filter} onValueChange={setFilter}>
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Decisions</SelectItem>
+                  <SelectItem value="anomalies">Anomalies Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={limit.toString()} onValueChange={(value) => setLimit(parseInt(value))}>
+                <SelectTrigger className="w-20">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Decisions</SelectItem>
-                <SelectItem value="anomalies">Anomalies Only</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={limit.toString()} onValueChange={(value) => setLimit(parseInt(value))}>
-              <SelectTrigger className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Select value={stackId} onValueChange={setStackId}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Filter by Stack" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Stacks</SelectItem>
+                  {stacks?.map(stack => (
+                    <SelectItem key={stack.id} value={stack.id}>{stack.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={adapterId} onValueChange={setAdapterId}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Filter by Adapter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Adapters</SelectItem>
+                  {adapters?.map(adapter => (
+                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>{adapter.name || adapter.adapter_id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground min-w-[80px]">Min Entropy:</span>
+                  <Slider
+                    value={[minEntropy]}
+                    onValueChange={([value]) => setMinEntropy(value)}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    className="flex-1"
+                  />
+                  <span className="text-sm font-mono w-12">{minEntropy.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full sm:w-[200px] justify-start text-left font-normal">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {sinceDate ? formatDate(sinceDate, 'PPP') : 'Since date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={sinceDate} onSelect={setSinceDate} />
+                </PopoverContent>
+              </Popover>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full sm:w-[200px] justify-start text-left font-normal">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {untilDate ? formatDate(untilDate, 'PPP') : 'Until date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar mode="single" selected={untilDate} onSelect={setUntilDate} />
+                </PopoverContent>
+              </Popover>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -198,7 +336,12 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
                       <TableRow
                         key={decision.id}
                         className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => setSelectedDecision(decision)}
+                        onClick={() => {
+                          setSelectedDecision(decision);
+                          if (decision.request_id) {
+                            setSelectedRequestId(decision.request_id);
+                          }
+                        }}
                       >
                         <TableCell className="font-mono text-sm">
                           {formatTimestamp(decision.timestamp)}
@@ -257,6 +400,14 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
           )}
         </CardContent>
       </Card>
+
+      {/* Session Router View Modal */}
+      {selectedRequestId && (
+        <SessionDetailModal
+          requestId={selectedRequestId}
+          onClose={() => setSelectedRequestId(null)}
+        />
+      )}
 
       {/* Decision Detail Modal */}
       {selectedDecision && (
@@ -358,5 +509,117 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
         </Card>
       )}
     </div>
+  );
+};
+
+// Session Detail Modal Component
+interface SessionDetailModalProps {
+  requestId: string;
+  onClose: () => void;
+}
+
+const SessionDetailModal: React.FC<SessionDetailModalProps> = ({ requestId, onClose }) => {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['session-router-view', requestId],
+    queryFn: () => apiClient.getSessionRouterView(requestId),
+    enabled: !!requestId,
+  });
+
+  const getEntropyColor = (entropy: number) => {
+    if (entropy > 0.8) return 'bg-green-100 text-green-800';
+    if (entropy > 0.5) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-red-100 text-red-800';
+  };
+
+  return (
+    <Dialog open={!!requestId} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Session Router View: {requestId}</DialogTitle>
+          <DialogDescription>
+            {data && (
+              <>
+                Stack: {data.stack_id || 'N/A'} | Total Steps: {data.total_steps}
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        {isLoading && (
+          <div className="flex items-center justify-center h-32">
+            <div className="text-muted-foreground">Loading session details...</div>
+          </div>
+        )}
+        {error && (
+          <div className="text-red-600">Failed to load session details</div>
+        )}
+        {data && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">Stack ID</div>
+                <div className="text-sm font-mono">{data.stack_id || 'N/A'}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">Stack Hash</div>
+                <div className="text-sm font-mono">{data.stack_hash || 'N/A'}</div>
+              </div>
+            </div>
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Step</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Input Token</TableHead>
+                    <TableHead>Adapters Fired</TableHead>
+                    <TableHead>Gate Values</TableHead>
+                    <TableHead>Entropy</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.steps.map((step) => (
+                    <TableRow key={step.step}>
+                      <TableCell className="font-mono">{step.step}</TableCell>
+                      <TableCell className="text-sm">
+                        {formatDate(new Date(step.timestamp), 'HH:mm:ss.SSS')}
+                      </TableCell>
+                      <TableCell className="font-mono">
+                        {step.input_token_id ?? '—'}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {step.adapters_fired
+                            .filter(a => a.selected)
+                            .map((adapter, idx) => (
+                              <Badge
+                                key={idx}
+                                variant={adapter.selected ? 'default' : 'outline'}
+                                className="text-xs"
+                              >
+                                #{adapter.adapter_idx}
+                              </Badge>
+                            ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {step.adapters_fired
+                          .filter(a => a.selected)
+                          .map(a => a.gate_value.toFixed(3))
+                          .join(', ')}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={getEntropyColor(step.entropy)}>
+                          {step.entropy.toFixed(3)}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 };

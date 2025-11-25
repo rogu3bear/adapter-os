@@ -23,10 +23,13 @@ import { useProgressOperation } from '../hooks/useProgressOperation';
 import { HelpTooltip } from './ui/help-tooltip';
 import { useRBAC } from '../hooks/useRBAC';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
+import { useAdapterStacks } from '../hooks/useAdmin';
+import { TrainingJobMonitor } from './TrainingJobMonitor';
 
 function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {}) {
   const { can, userRole } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const { data: stacks = [] } = useAdapterStacks();
 
   // Determine polling speed based on active jobs
   const [hasActiveJobs, setHasActiveJobs] = useState(false);
@@ -56,6 +59,16 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [trainingConfig, setTrainingConfig] = useState<any>(null); // State to hold training config for wizard
   const [cancellingJobs, setCancellingJobs] = useState<Set<string>>(new Set()); // Track jobs being cancelled
+
+  // Monitor all active training jobs for completion notifications
+  const handleAdapterCreated = (adapterId: string, jobId: string) => {
+    logger.info('Adapter created from training', {
+      component: 'TrainingPage',
+      adapterId,
+      jobId,
+    });
+    refreshData(); // Refresh to show new adapter links
+  };
 
   // Progress tracking for training operations
   const { operation: activeTrainingOperation, start: startTrainingOperation, cancel: cancelTrainingOperation } = useProgressOperation();
@@ -183,6 +196,9 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
 
   return (
     <div className="space-y-6">
+      {/* Monitor all active training jobs */}
+      <TrainingJobMonitor jobs={trainingJobs} onAdapterCreated={handleAdapterCreated} />
+
       <ConfigPageHeader
         title="Training Management"
         description="Manage training jobs, templates, and monitoring"
@@ -385,11 +401,37 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
                                 </Button>
                               )}
                               {jobTyped.status === 'completed' && (
-                                <Link to="/testing">
-                                  <Button size="sm" variant="default" aria-label={`Test ${jobTyped.adapter_name}`}>
-                                    Test Adapter
-                                  </Button>
-                                </Link>
+                                <div className="flex items-center gap-2">
+                                  {jobTyped.adapter_id && (
+                                    <Link to={`/adapters/${jobTyped.adapter_id}`}>
+                                      <Button size="sm" variant="outline" aria-label={`View adapter ${jobTyped.adapter_id}`}>
+                                        View Adapter
+                                      </Button>
+                                    </Link>
+                                  )}
+                                  {jobTyped.stack_id && (
+                                    <Link to={`/adapter-stacks/${jobTyped.stack_id}`}>
+                                      <Button size="sm" variant="outline" aria-label={`View stack ${jobTyped.stack_id}`}>
+                                        View Stack
+                                      </Button>
+                                    </Link>
+                                  )}
+                                  {!jobTyped.stack_id && jobTyped.adapter_id && (() => {
+                                    const stack = stacks.find(s => s.adapter_ids?.includes(jobTyped.adapter_id!));
+                                    return stack ? (
+                                      <Link to={`/adapter-stacks/${stack.id}`}>
+                                        <Button size="sm" variant="outline" aria-label={`View stack ${stack.id}`}>
+                                          View Stack
+                                        </Button>
+                                      </Link>
+                                    ) : null;
+                                  })()}
+                                  <Link to="/inference">
+                                    <Button size="sm" variant="default" aria-label={`Test ${jobTyped.adapter_name}`}>
+                                      Test in Chat
+                                    </Button>
+                                  </Link>
+                                </div>
                               )}
                             </div>
                           </TableCell>

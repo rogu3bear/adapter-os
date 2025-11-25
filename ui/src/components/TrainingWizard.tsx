@@ -13,10 +13,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Checkbox } from './ui/checkbox';
 import { Slider } from './ui/slider';
 import { Alert, AlertDescription } from './ui/alert';
+import { Switch } from './ui/switch';
 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
-import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder, Settings, RotateCcw, ChevronDown } from 'lucide-react';
+import { Code, Zap, GitBranch, Database, Clock, AlertTriangle, CheckCircle, FileText, Folder, Settings, RotateCcw, ChevronDown, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
 import { logger, toError } from '../utils/logger';
@@ -38,6 +39,7 @@ import {
 interface TrainingWizardProps {
   onComplete: (trainingJobId: string) => void;
   onCancel: () => void;
+  initialDatasetId?: string;
 }
 
 interface WizardState {
@@ -53,11 +55,12 @@ interface WizardState {
   scope: AdapterScope;
 
   // Step 3: Data Source
-  dataSourceType: 'repository' | 'template' | 'custom' | 'directory';
+  dataSourceType: 'repository' | 'template' | 'custom' | 'directory' | 'dataset';
   repositoryId?: string;
   templateId?: string;
   customData?: string;
   datasetPath?: string;
+  datasetId?: string;
   directoryRoot?: string;
   directoryPath?: string;
   
@@ -121,15 +124,17 @@ const LORA_TARGETS = [
 
 
 // Inner component that uses density context
-function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX.Element {
+function TrainingWizardInner({ onComplete, onCancel, initialDatasetId }: TrainingWizardProps): JSX.Element {
   const { density, setDensity, spacing, textSizes } = useDensity();
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
+  const [datasets, setDatasets] = useState<Array<{ id: string; name: string; validation_status: string }>>([]);
   const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedState, setSavedState] = useState<WizardState | null>(null);
+  const [simpleMode, setSimpleMode] = useState(true); // Default to simple mode for MVP
 
   const initialState: WizardState = {
     currentStep: 0,
@@ -137,7 +142,8 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     name: '',
     description: '',
     scope: 'global',
-    dataSourceType: 'template',
+    dataSourceType: initialDatasetId ? 'dataset' : 'template',
+    datasetId: initialDatasetId,
     rank: 8,
     alpha: 16,
     targets: ['q_proj', 'v_proj'],
@@ -179,12 +185,18 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
 
         setWizardError(null);
 
-        const [reposData, templatesData] = await Promise.all([
+        const [reposData, templatesData, datasetsData] = await Promise.all([
           apiClient.listRepositories(),
           apiClient.listTrainingTemplates(),
+          apiClient.listDatasets().catch(() => ({ datasets: [] })), // Gracefully handle if datasets endpoint fails
         ]);
         setRepositories(reposData);
         setTemplates(templatesData);
+        setDatasets(datasetsData.datasets?.map((d: any) => ({ 
+          id: d.id, 
+          name: d.name,
+          validation_status: d.validation_status || 'draft'
+        })) || []);
       } catch (error) {
 
         const err = error instanceof Error ? error : new Error('Failed to load repositories and templates');
@@ -310,10 +322,129 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     </div>
   );
 
+  // Simple Mode: Dataset Selection Step (only dataset option)
+  const SimpleDatasetStep = () => (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Select a validated dataset to train your adapter. The dataset must be validated before training.
+      </p>
+      <div className="space-y-2">
+        <Label htmlFor="dataset">Select Dataset</Label>
+        <Select value={state.datasetId} onValueChange={(value) => {
+          updateState({ 
+            datasetId: value, 
+            dataSourceType: 'dataset',
+            // Set defaults for simple mode
+            category: state.category || 'codebase',
+            name: state.name || `adapter-${Date.now()}`,
+            scope: state.scope || 'tenant',
+            packageAfter: true,
+            registerAfter: true,
+            adaptersRoot: './adapters',
+            tier: 'warm',
+            targets: state.targets.length > 0 ? state.targets : ['q_proj', 'v_proj'],
+          });
+        }}>
+          <SelectTrigger id="dataset">
+            <SelectValue placeholder="Choose a dataset..." />
+          </SelectTrigger>
+          <SelectContent>
+            {datasets.length === 0 ? (
+              <SelectItem value="" disabled>No datasets available</SelectItem>
+            ) : (
+              datasets.map((dataset) => (
+                <SelectItem key={dataset.id} value={dataset.id}>
+                  <div className="flex items-center gap-2">
+                    <span>{dataset.name}</span>
+                    <Badge variant="outline" className="text-xs">
+                      {dataset.validation_status}
+                    </Badge>
+                  </div>
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+        {datasets.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No datasets available. Upload a dataset first from the Datasets page.
+          </p>
+        )}
+        {state.datasetId && (() => {
+          const selectedDataset = datasets.find(d => d.id === state.datasetId);
+          if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+            return (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Dataset "{selectedDataset.name}" must be validated before training. 
+                  Current status: {selectedDataset.validation_status}. 
+                  Please validate the dataset from the Datasets page.
+                </AlertDescription>
+              </Alert>
+            );
+          }
+          return null;
+        })()}
+      </div>
+    </div>
+  );
+
+  // Simple Mode: Training Parameters Step (only rank, alpha, epochs)
+  const SimpleTrainingParamsStep = () => (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Configure essential training parameters. Advanced options are available in advanced mode.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-1">
+            <Label htmlFor="rank">Rank (r)</Label>
+            <HelpTooltip content="Controls capacity of learned patterns. Higher = more expressive but slower. Start with 8-16 for most tasks." />
+          </div>
+          <Input
+            id="rank"
+            type="number"
+            value={state.rank}
+            onChange={(e) => updateState({ rank: parseInt(e.target.value) || 8 })}
+          />
+          <p className="text-xs text-muted-foreground">LoRA rank dimension (typically 4-32)</p>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1">
+            <Label htmlFor="alpha">Alpha</Label>
+            <HelpTooltip content="Controls how strongly adapter influences model. Usually keep at 2x your Rank value." />
+          </div>
+          <Input
+            id="alpha"
+            type="number"
+            value={state.alpha}
+            onChange={(e) => updateState({ alpha: parseInt(e.target.value) || 16 })}
+          />
+          <p className="text-xs text-muted-foreground">LoRA scaling factor (typically 2r)</p>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-1">
+            <Label htmlFor="epochs">Epochs</Label>
+            <HelpTooltip content="Number of times to repeat training data. More = better learning but risk of overfitting. Start with 3-5." />
+          </div>
+          <Input
+            id="epochs"
+            type="number"
+            value={state.epochs}
+            onChange={(e) => updateState({ epochs: parseInt(e.target.value) || 3 })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   // Step 3: Data Source Selection
   const DataSourceStep = () => (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card
           className={`cursor-pointer transition-all ${
             state.dataSourceType === 'template' ? 'border-primary bg-primary/5' : ''
@@ -343,6 +474,22 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
               {state.dataSourceType === 'repository' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
             </CardTitle>
             <CardDescription>Train from a registered repository</CardDescription>
+          </CardHeader>
+        </Card>
+
+        <Card
+          className={`cursor-pointer transition-all ${
+            state.dataSourceType === 'dataset' ? 'border-primary bg-primary/5' : ''
+          }`}
+          onClick={() => updateState({ dataSourceType: 'dataset' })}
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Dataset
+              {state.dataSourceType === 'dataset' && <CheckCircle className="h-4 w-4 text-primary ml-auto" />}
+            </CardTitle>
+            <CardDescription>Use an uploaded dataset</CardDescription>
           </CardHeader>
         </Card>
 
@@ -459,6 +606,54 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
               ))}
             </SelectContent>
           </Select>
+        </div>
+      )}
+
+      {state.dataSourceType === 'dataset' && (
+        <div className="space-y-2">
+          <Label htmlFor="dataset">Select Dataset</Label>
+          <Select value={state.datasetId} onValueChange={(value) => updateState({ datasetId: value })}>
+            <SelectTrigger id="dataset">
+              <SelectValue placeholder="Choose a dataset..." />
+            </SelectTrigger>
+            <SelectContent>
+              {datasets.length === 0 ? (
+                <SelectItem value="" disabled>No datasets available</SelectItem>
+              ) : (
+                datasets.map((dataset) => (
+                  <SelectItem key={dataset.id} value={dataset.id}>
+                    <div className="flex items-center gap-2">
+                      <span>{dataset.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {dataset.validation_status}
+                      </Badge>
+                    </div>
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          {datasets.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No datasets available. Upload a dataset first from the Datasets page.
+            </p>
+          )}
+          {state.datasetId && (() => {
+            const selectedDataset = datasets.find(d => d.id === state.datasetId);
+            if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+              return (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Dataset "{selectedDataset.name}" must be validated before training. 
+                    Current status: {selectedDataset.validation_status}. 
+                    Please validate the dataset from the Datasets page.
+                  </AlertDescription>
+                </Alert>
+              );
+            }
+            return null;
+          })()}
         </div>
       )}
 
@@ -1172,118 +1367,170 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     setValidationError(null);
     setIsLoading(true);
     try {
+      // For simple mode, ensure all required fields are set
+      let stateToValidate = { ...state };
+      if (simpleMode) {
+        if (!stateToValidate.datasetId) {
+          setValidationError('Please select a dataset');
+          setIsLoading(false);
+          return;
+        }
+        
+        // Enforce dataset validation status
+        const selectedDataset = datasets.find(d => d.id === stateToValidate.datasetId);
+        if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+          setValidationError(
+            `Dataset "${selectedDataset.name}" must be validated before training. ` +
+            `Current status: ${selectedDataset.validation_status}. ` +
+            `Please validate the dataset from the Datasets page.`
+          );
+          setIsLoading(false);
+          return;
+        }
+        // Set all required defaults for simple mode
+        if (!stateToValidate.name || stateToValidate.name.trim() === '') {
+          stateToValidate.name = `adapter-${Date.now()}`;
+        }
+        if (!stateToValidate.category) {
+          stateToValidate.category = 'codebase';
+        }
+        if (!stateToValidate.scope) {
+          stateToValidate.scope = 'tenant';
+        }
+        if (stateToValidate.targets.length === 0) {
+          stateToValidate.targets = ['q_proj', 'v_proj'];
+        }
+        if (stateToValidate.packageAfter === undefined) {
+          stateToValidate.packageAfter = true;
+        }
+        if (stateToValidate.registerAfter === undefined) {
+          stateToValidate.registerAfter = true;
+        }
+        if (!stateToValidate.adaptersRoot) {
+          stateToValidate.adaptersRoot = './adapters';
+        }
+        if (!stateToValidate.tier) {
+          stateToValidate.tier = 'warm';
+        }
+        // Update persisted state with all defaults
+        updateState(stateToValidate);
+      }
+
       // Validate form data against schema
       const validationResult = await TrainingConfigSchema.parseAsync({
-        name: state.name,
-        description: state.description,
-        category: state.category,
-        scope: state.scope,
-        dataSourceType: state.dataSourceType,
-        templateId: state.templateId,
-        repositoryId: state.repositoryId,
-        customData: state.customData,
-        datasetPath: state.datasetPath,
-        directoryRoot: state.directoryRoot,
-        directoryPath: state.directoryPath,
-        language: state.language,
-        symbolTargets: state.symbolTargets,
-        frameworkId: state.frameworkId,
-        frameworkVersion: state.frameworkVersion,
-        apiPatterns: state.apiPatterns,
-        repoScope: state.repoScope,
-        filePatterns: state.filePatterns,
-        excludePatterns: state.excludePatterns,
-        ttlSeconds: state.ttlSeconds,
-        contextWindow: state.contextWindow,
-        rank: state.rank,
-        alpha: state.alpha,
-        epochs: state.epochs,
-        learningRate: state.learningRate,
-        batchSize: state.batchSize,
-        targets: state.targets,
-        warmupSteps: state.warmupSteps,
-        maxSeqLength: state.maxSeqLength,
-        packageAfter: state.packageAfter,
-        registerAfter: state.registerAfter,
-        adaptersRoot: state.adaptersRoot,
-        adapterId: state.adapterId,
-        tier: state.tier,
+        name: stateToValidate.name,
+        description: stateToValidate.description,
+        category: stateToValidate.category,
+        scope: stateToValidate.scope,
+        dataSourceType: stateToValidate.dataSourceType,
+        templateId: stateToValidate.templateId,
+        repositoryId: stateToValidate.repositoryId,
+        customData: stateToValidate.customData,
+        datasetPath: stateToValidate.datasetPath,
+        directoryRoot: stateToValidate.directoryRoot,
+        directoryPath: stateToValidate.directoryPath,
+        language: stateToValidate.language,
+        symbolTargets: stateToValidate.symbolTargets,
+        frameworkId: stateToValidate.frameworkId,
+        frameworkVersion: stateToValidate.frameworkVersion,
+        apiPatterns: stateToValidate.apiPatterns,
+        repoScope: stateToValidate.repoScope,
+        filePatterns: stateToValidate.filePatterns,
+        excludePatterns: stateToValidate.excludePatterns,
+        ttlSeconds: stateToValidate.ttlSeconds,
+        contextWindow: stateToValidate.contextWindow,
+        rank: stateToValidate.rank,
+        alpha: stateToValidate.alpha,
+        epochs: stateToValidate.epochs,
+        learningRate: stateToValidate.learningRate,
+        batchSize: stateToValidate.batchSize,
+        targets: stateToValidate.targets,
+        warmupSteps: stateToValidate.warmupSteps,
+        maxSeqLength: stateToValidate.maxSeqLength,
+        packageAfter: stateToValidate.packageAfter,
+        registerAfter: stateToValidate.registerAfter,
+        adaptersRoot: stateToValidate.adaptersRoot,
+        adapterId: stateToValidate.adapterId,
+        tier: stateToValidate.tier,
       });
 
       // Build training config
       const trainingConfig: TrainingConfig = {
-        rank: state.rank,
-        alpha: state.alpha,
-        targets: state.targets,
-        epochs: state.epochs,
-        learning_rate: state.learningRate,
-        batch_size: state.batchSize,
-        warmup_steps: state.warmupSteps,
-        max_seq_length: state.maxSeqLength,
+        rank: stateToValidate.rank,
+        alpha: stateToValidate.alpha,
+        targets: stateToValidate.targets,
+        epochs: stateToValidate.epochs,
+        learning_rate: stateToValidate.learningRate,
+        batch_size: stateToValidate.batchSize,
+        warmup_steps: stateToValidate.warmupSteps,
+        max_seq_length: stateToValidate.maxSeqLength,
       };
 
       // Start training
       const trainingRequest: any = {
-        adapter_name: state.name,
+        adapter_name: stateToValidate.name,
         config: trainingConfig,
-        adapters_root: state.adaptersRoot || undefined,
-        package: !!state.packageAfter,
-        register: !!state.registerAfter,
-        adapter_id: state.adapterId || undefined,
-        tier: state.tier,
+        adapters_root: stateToValidate.adaptersRoot || undefined,
+        package: !!stateToValidate.packageAfter,
+        register: !!stateToValidate.registerAfter,
+        adapter_id: stateToValidate.adapterId || undefined,
+        tier: stateToValidate.tier,
       };
 
       // Add category and configuration fields
-      trainingRequest.category = state.category || 'codebase';
+      trainingRequest.category = stateToValidate.category || 'codebase';
 
-      switch (state.category) {
+      switch (stateToValidate.category) {
         case 'code':
-          trainingRequest.language = state.language;
-          if (state.symbolTargets && state.symbolTargets.length > 0) {
-            trainingRequest.symbol_targets = state.symbolTargets;
+          trainingRequest.language = stateToValidate.language;
+          if (stateToValidate.symbolTargets && stateToValidate.symbolTargets.length > 0) {
+            trainingRequest.symbol_targets = stateToValidate.symbolTargets;
           }
           break;
         case 'framework':
-          trainingRequest.framework_id = state.frameworkId;
-          trainingRequest.framework_version = state.frameworkVersion;
-          if (state.apiPatterns && state.apiPatterns.length > 0) {
-            trainingRequest.api_patterns = state.apiPatterns;
+          trainingRequest.framework_id = stateToValidate.frameworkId;
+          trainingRequest.framework_version = stateToValidate.frameworkVersion;
+          if (stateToValidate.apiPatterns && stateToValidate.apiPatterns.length > 0) {
+            trainingRequest.api_patterns = stateToValidate.apiPatterns;
           }
           break;
         case 'codebase':
-          trainingRequest.repo_scope = state.repoScope;
-          if (state.filePatterns && state.filePatterns.length > 0) {
-            trainingRequest.file_patterns = state.filePatterns;
+          trainingRequest.repo_scope = stateToValidate.repoScope;
+          if (stateToValidate.filePatterns && stateToValidate.filePatterns.length > 0) {
+            trainingRequest.file_patterns = stateToValidate.filePatterns;
           }
-          if (state.excludePatterns && state.excludePatterns.length > 0) {
-            trainingRequest.exclude_patterns = state.excludePatterns;
+          if (stateToValidate.excludePatterns && stateToValidate.excludePatterns.length > 0) {
+            trainingRequest.exclude_patterns = stateToValidate.excludePatterns;
           }
           break;
         case 'ephemeral':
-          if (state.ttlSeconds) {
-            trainingRequest.ttl_seconds = state.ttlSeconds;
+          if (stateToValidate.ttlSeconds) {
+            trainingRequest.ttl_seconds = stateToValidate.ttlSeconds;
           }
-          if (state.contextWindow) {
-            trainingRequest.context_window = state.contextWindow;
+          if (stateToValidate.contextWindow) {
+            trainingRequest.context_window = stateToValidate.contextWindow;
           }
           break;
       }
 
       // Add data source based on type
-      if (state.dataSourceType === 'template' && state.templateId) {
-        trainingRequest.template_id = state.templateId;
-      } else if (state.dataSourceType === 'repository' && state.repositoryId) {
-        trainingRequest.repo_id = state.repositoryId;
-      } else if (state.dataSourceType === 'directory') {
+      if (stateToValidate.dataSourceType === 'template' && stateToValidate.templateId) {
+        trainingRequest.template_id = stateToValidate.templateId;
+      } else if (stateToValidate.dataSourceType === 'repository' && stateToValidate.repositoryId) {
+        trainingRequest.repo_id = stateToValidate.repositoryId;
+      } else if (stateToValidate.dataSourceType === 'dataset' && stateToValidate.datasetId) {
+        // Dataset-based training
+        trainingRequest.dataset_id = stateToValidate.datasetId;
+      } else if (stateToValidate.dataSourceType === 'directory') {
         // Directory-based training
-        trainingRequest.directory_root = state.directoryRoot;
-        trainingRequest.directory_path = state.directoryPath || '.';
-      } else if (state.dataSourceType === 'custom') {
+        trainingRequest.directory_root = stateToValidate.directoryRoot;
+        trainingRequest.directory_path = stateToValidate.directoryPath || '.';
+      } else if (stateToValidate.dataSourceType === 'custom') {
         // For custom, dataset_path is included
       }
 
-      if (state.datasetPath) {
-        trainingRequest.dataset_path = state.datasetPath;
+      if (stateToValidate.datasetPath) {
+        trainingRequest.dataset_path = stateToValidate.datasetPath;
       }
 
       const job = await apiClient.startTraining(trainingRequest);
@@ -1318,7 +1565,59 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
     }
   };
 
-  const steps: WizardStep[] = [
+  // Simple mode steps: Dataset → Rank/Alpha → Review
+  const simpleModeSteps: WizardStep[] = [
+    {
+      id: 'dataset',
+      title: 'Select Dataset',
+      description: 'Choose your training data',
+      component: <SimpleDatasetStep />,
+      validate: () => {
+        setValidationError(null);
+        if (!state.datasetId?.trim()) {
+          setValidationError('Please select a dataset');
+          return false;
+        }
+        const selectedDataset = datasets.find(d => d.id === state.datasetId);
+        if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+          setValidationError(`Dataset "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
+          return false;
+        }
+        return true;
+      },
+    },
+    {
+      id: 'training-params',
+      title: 'Training Parameters',
+      description: 'Set rank, alpha, and epochs',
+      component: <SimpleTrainingParamsStep />,
+      validate: () => {
+        setValidationError(null);
+        if (state.rank < 1) {
+          setValidationError('Rank must be at least 1');
+          return false;
+        }
+        if (state.alpha < 1) {
+          setValidationError('Alpha must be at least 1');
+          return false;
+        }
+        if (state.epochs < 1) {
+          setValidationError('Epochs must be at least 1');
+          return false;
+        }
+        return true;
+      },
+    },
+    {
+      id: 'review',
+      title: 'Review & Start',
+      description: 'Confirm and start training',
+      component: <ReviewStep />,
+    },
+  ];
+
+  // Full mode steps: All 7 steps
+  const fullModeSteps: WizardStep[] = [
     {
       id: 'category',
       title: 'Category',
@@ -1366,6 +1665,17 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
           setValidationError('Please provide a directory root path for directory-based training');
           return false;
         }
+        if (state.dataSourceType === 'dataset' && !state.datasetId?.trim()) {
+          setValidationError('Please select a dataset for dataset-based training');
+          return false;
+        }
+        if (state.dataSourceType === 'dataset' && state.datasetId) {
+          const selectedDataset = datasets.find(d => d.id === state.datasetId);
+          if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+            setValidationError(`Dataset "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
+            return false;
+          }
+        }
         if (state.dataSourceType === 'custom' && !state.datasetPath?.trim()) {
           setValidationError('For custom training, please provide a dataset_path pointing to a training JSON file');
           return false;
@@ -1406,6 +1716,8 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
       component: <ReviewStep />,
     },
   ];
+
+  const steps = simpleMode ? simpleModeSteps : fullModeSteps;
 
   return (
     <div className={spacing.sectionGap}>
@@ -1455,7 +1767,33 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
       <BreadcrumbNavigation />
       <div className="flex justify-between items-center mb-4">
         <h2 className={textSizes.title}>Training Wizard</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="simple-mode"
+              checked={simpleMode}
+              onCheckedChange={(checked) => {
+                setSimpleMode(checked);
+                // Reset to first step when switching modes
+                setCurrentStep(0);
+                // Reset state defaults for simple mode
+                if (checked) {
+                  updateState({
+                    dataSourceType: 'dataset',
+                    packageAfter: true,
+                    registerAfter: true,
+                    adaptersRoot: './adapters',
+                    tier: 'warm',
+                    targets: ['q_proj', 'v_proj'], // Default targets for simple mode
+                  });
+                }
+              }}
+            />
+            <Label htmlFor="simple-mode" className="flex items-center gap-2 cursor-pointer">
+              <Sparkles className="h-4 w-4" />
+              <span className="text-sm">Simple Mode</span>
+            </Label>
+          </div>
           {hasSavedState && !showResumeDialog && (
             <Button
               variant="outline"
@@ -1474,6 +1812,15 @@ function TrainingWizardInner({ onComplete, onCancel }: TrainingWizardProps): JSX
           )}
         </div>
       </div>
+      {simpleMode && (
+        <Alert className="mb-4">
+          <Sparkles className="h-4 w-4" />
+          <AlertDescription>
+            Simple mode streamlines the training process to just 3 steps: Select Dataset → Configure Parameters → Start Training.
+            Toggle off for advanced options like repositories, templates, and custom configurations.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Error Recovery */}
       {wizardError && (

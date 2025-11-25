@@ -32,6 +32,7 @@ import {
   FileCode,
   GitBranch,
   PlusCircle,
+  MessageSquare,
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
@@ -49,6 +50,7 @@ const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
 const TelemetryPage = lazy(() => import('@/pages/TelemetryPage'));
 const ObservabilityPage = lazy(() => import('@/pages/ObservabilityPage'));
 const InferencePage = lazy(() => import('@/pages/InferencePage'));
+const ChatPage = lazy(() => import('@/pages/ChatPage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
 const CompliancePage = lazy(() => import('@/pages/Security/ComplianceTab').then(m => ({ default: m.ComplianceTab })));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
@@ -57,6 +59,7 @@ const TrainingPage = lazy(() => import('@/pages/TrainingPage'));
 const TrainingJobsPage = lazy(() => import('@/pages/Training/TrainingJobsPage'));
 const TrainingJobDetailPage = lazy(() => import('@/pages/Training/TrainingJobDetail'));
 const TrainingDatasetsPage = lazy(() => import('@/pages/Training/DatasetsTab').then(m => ({ default: m.DatasetsTab })));
+const DatasetDetailPage = lazy(() => import('@/pages/Training/DatasetDetailPage'));
 const TrainingTemplatesPage = lazy(() => import('@/pages/Training/TemplatesTab').then(m => ({ default: m.TemplatesTab })));
 const TestingPage = lazy(() => import('@/pages/TestingPage'));
 const GoldenPage = lazy(() => import('@/pages/GoldenPage'));
@@ -78,6 +81,7 @@ const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
 const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
 const CodeIntelligencePage = lazy(() => import('@/pages/CodeIntelligencePage'));
 const AdvancedMetricsPage = lazy(() => import('@/pages/AdvancedMetricsPage'));
+const GuidedFlowPage = lazy(() => import('@/pages/GuidedFlowPage'));
 
 export interface RouteConfig {
   path: string;
@@ -141,6 +145,17 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Personas',
   },
   {
+    path: '/flow/lora',
+    component: GuidedFlowPage,
+    requiresAuth: true,
+    navGroup: 'Home',
+    navTitle: 'Guided LoRA Flow',
+    navIcon: Compass,
+    navOrder: 5,
+    skeletonVariant: 'default',
+    breadcrumb: 'Guided Flow',
+  },
+  {
     path: '/trainer',
     component: TrainerPage,
     requiresAuth: true,
@@ -185,6 +200,14 @@ export const routes: RouteConfig[] = [
     skeletonVariant: 'table',
     breadcrumb: 'Datasets',
     parentPath: '/training',
+  },
+  {
+    path: '/training/datasets/:datasetId',
+    component: DatasetDetailPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Dataset Detail',
+    parentPath: '/training/datasets',
   },
   {
     path: '/training/templates',
@@ -261,6 +284,14 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Activations',
+    parentPath: '/adapters/:adapterId',
+  },
+  {
+    path: '/adapters/:adapterId/usage',
+    component: lazy(() => import('@/pages/Adapters/AdapterUsage')),
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Usage',
     parentPath: '/adapters/:adapterId',
   },
   {
@@ -381,6 +412,17 @@ export const routes: RouteConfig[] = [
     navOrder: 1,
     skeletonVariant: 'form',
     breadcrumb: 'Inference',
+  },
+  {
+    path: '/chat',
+    component: ChatPage,
+    requiresAuth: true,
+    navGroup: 'Operations',
+    navTitle: 'Chat',
+    navIcon: MessageSquare,
+    navOrder: 2,
+    skeletonVariant: 'form',
+    breadcrumb: 'Chat',
   },
   {
     path: '/telemetry',

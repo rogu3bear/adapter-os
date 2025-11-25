@@ -22,8 +22,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity } from 'lucide-react';
+import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity, Layers, ExternalLink, Plus } from 'lucide-react';
 import { getLifecycleVariant } from '../utils/lifecycle';
+import { AddToStackModal } from './AddToStackModal';
+import { useAdapterStacks } from '@/hooks/useAdmin';
 
 export const AdapterDetail: React.FC = () => {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -38,9 +40,16 @@ export const AdapterDetail: React.FC = () => {
   // Dialog state
   const [showPromoteDialog, setShowPromoteDialog] = useState(false);
   const [showDemoteDialog, setShowDemoteDialog] = useState(false);
+  const [showAddToStackDialog, setShowAddToStackDialog] = useState(false);
   const [promoteReason, setPromoteReason] = useState('');
   const [demoteReason, setDemoteReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Fetch stacks to find which ones use this adapter
+  const { data: stacks = [] } = useAdapterStacks();
+  const stacksUsingAdapter = stacks.filter(stack => 
+    stack.adapter_ids?.includes(adapterId || '')
+  );
 
   useEffect(() => {
     if (!adapterId) return;
@@ -171,6 +180,10 @@ export const AdapterDetail: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button onClick={() => setShowAddToStackDialog(true)} variant="default" size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            Add to Stack
+          </Button>
           <Button onClick={() => setShowPromoteDialog(true)} variant="outline" size="sm">
             <ArrowUp className="mr-2 h-4 w-4" />
             Promote
@@ -299,6 +312,39 @@ export const AdapterDetail: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Stacks Using This Adapter */}
+      {stacksUsingAdapter.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5" />
+              Stacks Using This Adapter ({stacksUsingAdapter.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {stacksUsingAdapter.map(stack => (
+                <div
+                  key={stack.id}
+                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                  onClick={() => navigate(`/admin/stacks?stack=${stack.id}`)}
+                >
+                  <div className="flex-1">
+                    <p className="font-medium">{stack.name}</p>
+                    {stack.description && (
+                      <p className="text-sm text-muted-foreground">{stack.description}</p>
+                    )}
+                  </div>
+                  <Button variant="ghost" size="sm">
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Lineage */}
       {lineage && (
@@ -461,6 +507,15 @@ export const AdapterDetail: React.FC = () => {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Add to Stack Modal */}
+      {adapterId && (
+        <AddToStackModal
+          open={showAddToStackDialog}
+          onOpenChange={setShowAddToStackDialog}
+          adapterId={adapterId}
+        />
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import {
   Dialog,
@@ -18,8 +18,26 @@ import apiClient from '@/api/client';
 import type { AdapterStack, CreateAdapterStackRequest, ActiveAdapter } from '@/api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, AlertTriangle } from 'lucide-react';
 import { LoadingState } from '@/components/ui/loading-state';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { calculateTotalMemory } from '@/utils/memoryEstimation';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { StackSortableAdapterItem } from '@/components/StackSortableAdapterItem';
+import { useStackUpdateNotifications } from '@/hooks/useTrainingNotifications';
 
 interface StackFormModalProps {
   open: boolean;
@@ -40,11 +58,19 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
   const isEdit = !!stack;
   const createStack = useCreateAdapterStack();
   const updateStack = useUpdateAdapterStack();
+  const { notifyStackUpdate } = useStackUpdateNotifications();
 
   // Fetch available adapters
   const { data: availableAdapters, isLoading: loadingAdapters } = useQuery({
     queryKey: ['adapters'],
     queryFn: () => apiClient.listAdapters(),
+    enabled: open,
+  });
+
+  // Fetch capacity for memory warnings
+  const { data: capacity } = useQuery({
+    queryKey: ['capacity'],
+    queryFn: () => apiClient.getCapacity(),
     enabled: open,
   });
 
@@ -65,10 +91,34 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, move } = useFieldArray({
     control,
     name: 'adapters',
   });
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = fields.findIndex((field) => field.id === active.id);
+      const newIndex = fields.findIndex((field) => field.id === over.id);
+      if (oldIndex !== -1 && newIndex !== -1) {
+        move(oldIndex, newIndex);
+      }
+    }
+  }, [fields, move]);
 
   useEffect(() => {
     if (stack) {
@@ -89,8 +139,92 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
     }
   }, [stack, reset]);
 
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [hasCriticalWarning, setHasCriticalWarning] = useState(false);
+
+  // Memoize adapter IDs from form fields
+  const currentAdapterIds = useMemo(() => {
+    return fields.map(f => f.adapter_id).filter(Boolean);
+  }, [fields]);
+
+  // Calculate memory usage and check capacity
+  const calculateMemoryWarnings = useCallback((adapterIds: string[]): { warnings: string[]; isCritical: boolean } => {
+    const warnings: string[] = [];
+    let isCritical = false;
+    
+    if (!capacity || !availableAdapters) {
+      return { warnings, isCritical };
+    }
+
+    // Calculate total memory for selected adapters (with estimation if needed)
+    const { totalBytes: totalMemoryBytes, estimated, missing } = calculateTotalMemory(
+      adapterIds,
+      availableAdapters
+    );
+
+    // Warn about missing adapters
+    if (missing.length > 0) {
+      warnings.push(
+        `Warning: ${missing.length} adapter(s) not found: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '...' : ''}`
+      );
+    }
+
+    // Warn if estimation was used
+    if (estimated) {
+      warnings.push(
+        'Memory estimate may be inaccurate. Some adapters do not have memory_bytes set.'
+      );
+    }
+
+    const totalMemoryMB = totalMemoryBytes / (1024 * 1024);
+    const totalRAMBytes = capacity.total_ram_bytes || 0;
+    const totalRAMMB = totalRAMBytes / (1024 * 1024);
+    const memoryUsagePercent = totalRAMBytes > 0 ? (totalMemoryBytes / totalRAMBytes) * 100 : 0;
+
+    // Warn if exceeds 85% of capacity (critical - should prevent submission)
+    if (memoryUsagePercent > 85) {
+      isCritical = true;
+      warnings.push(
+        `Stack memory usage (${totalMemoryMB.toFixed(1)} MB) exceeds 85% of node capacity (${totalRAMMB.toFixed(1)} MB). ` +
+        `Current usage: ${memoryUsagePercent.toFixed(1)}%`
+      );
+    } else if (memoryUsagePercent > 70) {
+      warnings.push(
+        `Stack memory usage (${totalMemoryMB.toFixed(1)} MB) is high (${memoryUsagePercent.toFixed(1)}% of capacity). ` +
+        `Consider reducing adapter count or using smaller adapters.`
+      );
+    }
+
+    return { warnings, isCritical };
+  }, [capacity, availableAdapters]);
+
+  // Memoize current warnings calculation
+  const currentWarnings = useMemo(() => {
+    if (currentAdapterIds.length === 0) {
+      setHasCriticalWarning(false);
+      return { warnings: [], isCritical: false };
+    }
+    const result = calculateMemoryWarnings(currentAdapterIds);
+    setHasCriticalWarning(result.isCritical);
+    return result;
+  }, [currentAdapterIds, calculateMemoryWarnings]);
+
   const onSubmit = async (data: FormData) => {
     try {
+      // Calculate memory warnings before submission
+      const adapterIds = data.adapters.map(a => a.adapter_id);
+      const { warnings: memoryWarnings, isCritical } = calculateMemoryWarnings(adapterIds);
+      
+      // Prevent submission if critical warning exists
+      if (isCritical) {
+        setWarnings(memoryWarnings);
+        setHasCriticalWarning(true);
+        return; // Don't submit
+      }
+      
+      setWarnings(memoryWarnings);
+      setHasCriticalWarning(false);
+
       const createData: CreateAdapterStackRequest = {
         name: data.name,
         description: data.description,
@@ -101,7 +235,7 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
       };
 
       if (isEdit && stack) {
-        await updateStack.mutateAsync({
+        const updatedStack = await updateStack.mutateAsync({
           stackId: stack.id,
           data: {
             name: data.name,
@@ -112,12 +246,21 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
             })),
           },
         });
+        notifyStackUpdate(stack.id, data.name);
+        onOpenChange(false);
+        reset();
       } else {
-        await createStack.mutateAsync(createData);
+        const newStack = await createStack.mutateAsync(createData);
+        // Show memory warnings if any
+        if (memoryWarnings.length > 0) {
+          setWarnings(memoryWarnings);
+          // Don't close modal if there are warnings - let user see them
+        } else {
+          notifyStackUpdate(newStack.stack.id, data.name);
+          onOpenChange(false);
+          reset();
+        }
       }
-
-      onOpenChange(false);
-      reset();
     } catch (error) {
       // Error handling is done in the hook
     }
@@ -141,6 +284,46 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
           </DialogHeader>
 
           <div className="grid gap-4 py-4">
+            {/* Show memory warnings prominently (memoized) */}
+            {currentWarnings.warnings.length > 0 && (
+              <Alert variant={currentWarnings.isCritical ? "destructive" : "default"} className={currentWarnings.isCritical ? "border-2" : ""}>
+                <AlertTriangle className="h-5 w-5" />
+                <AlertTitle className="text-base font-semibold">
+                  {currentWarnings.isCritical ? "Critical Memory Warning" : "Memory Capacity Warnings"}
+                </AlertTitle>
+                <AlertDescription className="mt-2">
+                  <ul className="list-disc list-inside space-y-1.5">
+                    {currentWarnings.warnings.map((warning, idx) => (
+                      <li key={idx} className="font-medium">{warning}</li>
+                    ))}
+                  </ul>
+                  {currentWarnings.isCritical && (
+                    <p className="mt-2 text-sm font-semibold text-destructive">
+                      Submission blocked: Memory usage exceeds safe limits. Please reduce adapter count or use smaller adapters.
+                    </p>
+                  )}
+                  {!currentWarnings.isCritical && (
+                    <p className="mt-2 text-sm">
+                      Consider reducing the number of adapters or using smaller adapters to avoid memory issues.
+                    </p>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            
+            {warnings.length > 0 && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Capacity Warnings</AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc list-inside space-y-1">
+                    {warnings.map((warning, idx) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="grid gap-2">
               <Label htmlFor="name">
                 Name <span className="text-destructive">*</span>
@@ -184,52 +367,39 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
 
               {loadingAdapters && <LoadingState message="Loading adapters..." />}
 
-              <div className="space-y-2">
-                {fields.map((field, index) => (
-                  <div key={field.id} className="flex gap-2 items-start">
-                    <div className="flex-1">
-                      <Select
-                        value={field.adapter_id}
-                        onValueChange={(value) => {
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={fields.map((f) => f.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {fields.map((field, index) => (
+                      <StackSortableAdapterItem
+                        key={field.id}
+                        id={field.id}
+                        adapterId={field.adapter_id}
+                        gate={field.gate}
+                        availableAdapters={availableAdapters}
+                        onAdapterChange={(value) => {
                           const current = fields[index];
                           remove(index);
                           append({ adapter_id: value, gate: current.gate });
                         }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select adapter" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableAdapters?.map((adapter) => (
-                            <SelectItem key={adapter.id} value={adapter.id}>
-                              {adapter.id}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="w-32">
-                      <Input
-                        type="number"
-                        placeholder="Gate (Q15)"
-                        {...register(`adapters.${index}.gate`, {
-                          valueAsNumber: true,
-                          min: { value: 0, message: 'Gate must be >= 0' },
-                          max: { value: 32767, message: 'Gate must be <= 32767' },
-                        })}
+                        onGateChange={() => {
+                          // Gate change is handled by react-hook-form register
+                        }}
+                        onRemove={() => remove(index)}
+                        register={register}
+                        index={index}
                       />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => remove(index)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
 
               {fields.length === 0 && (
                 <p className="text-sm text-muted-foreground">

@@ -77,6 +77,10 @@ export function StartTrainingForm({
 
   // Validation state
   const [nameError, setNameError] = useState<string | null>(null);
+  
+  // Get selected dataset validation status
+  const selectedDataset = datasets.find(d => d.id === datasetId);
+  const isDatasetValid = !datasetId || selectedDataset?.validation_status === 'valid';
 
   // Load templates and datasets
   useEffect(() => {
@@ -160,6 +164,12 @@ export function StartTrainingForm({
 
     if (!validateAdapterName(adapterName)) {
       setError('Invalid adapter name format');
+      return;
+    }
+
+    // Check dataset validation status
+    if (datasetId && selectedDataset && selectedDataset.validation_status !== 'valid') {
+      setError(`Dataset "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
       return;
     }
 
@@ -354,6 +364,15 @@ export function StartTrainingForm({
                 ))}
               </SelectContent>
             </Select>
+            {selectedDataset && selectedDataset.validation_status !== 'valid' && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Dataset "{selectedDataset.name}" is not validated (status: {selectedDataset.validation_status}).
+                  Please validate the dataset before starting training.
+                </AlertDescription>
+              </Alert>
+            )}
             {datasets.length === 0 && (
               <Alert>
                 <Info className="h-4 w-4" />
@@ -489,7 +508,11 @@ export function StartTrainingForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={isSubmitting}>
+        <Button 
+          type="submit" 
+          disabled={isSubmitting || !isDatasetValid}
+          title={!isDatasetValid ? 'Dataset must be validated before training' : undefined}
+        >
           {isSubmitting ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

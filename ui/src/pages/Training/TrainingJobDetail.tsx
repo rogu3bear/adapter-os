@@ -23,6 +23,8 @@ import {
   Package,
   Settings,
   AlertTriangle,
+  ExternalLink,
+  Box,
 } from 'lucide-react';
 import apiClient from '@/api/client';
 import { useSSE } from '@/hooks/useSSE';
@@ -200,10 +202,21 @@ function TrainingJobDetailContent() {
             <p className="text-sm text-muted-foreground">Job ID: {job.id}</p>
           </div>
         </div>
-        <Badge variant="outline" className={`gap-1 ${statusClass}`}>
-          <StatusIcon className="h-4 w-4" />
-          {statusConfig[job.status]?.label || job.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {job.status === 'completed' && job.adapter_id && (
+            <Button
+              onClick={() => navigate(`/adapters/${job.adapter_id}`)}
+              variant="default"
+            >
+              <Box className="h-4 w-4 mr-2" />
+              View Adapter
+            </Button>
+          )}
+          <Badge variant="outline" className={`gap-1 ${statusClass}`}>
+            <StatusIcon className="h-4 w-4" />
+            {statusConfig[job.status]?.label || job.status}
+          </Badge>
+        </div>
       </div>
 
       {/* Progress Card */}
@@ -294,8 +307,34 @@ function TrainingJobDetailContent() {
               <dl className="grid grid-cols-2 gap-4">
                 <div>
                   <dt className="text-sm text-muted-foreground">Dataset ID</dt>
-                  <dd className="font-mono text-sm">{job.dataset_id || '-'}</dd>
+                  <dd className="flex items-center gap-2">
+                    <span className="font-mono text-sm">{job.dataset_id || '-'}</span>
+                    {job.dataset_id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/training/datasets/${job.dataset_id}`)}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </dd>
                 </div>
+                {job.adapter_id && (
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Result Adapter ID</dt>
+                    <dd className="flex items-center gap-2">
+                      <span className="font-mono text-sm">{job.adapter_id}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/adapters/${job.adapter_id}`)}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-sm text-muted-foreground">Template ID</dt>
                   <dd className="font-mono text-sm">{job.template_id || '-'}</dd>

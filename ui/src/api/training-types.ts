@@ -30,6 +30,8 @@ export interface TrainingJob {
   metrics?: Record<string, number>;
   artifact_path?: string;
   learning_rate?: number;
+  tenant_id?: string;
+  stack_id?: string;
 }
 
 export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
@@ -138,6 +140,7 @@ export interface Dataset {
   language?: string;
   framework?: string;
   file_count: number;
+  total_size_bytes: number;
   total_tokens: number;
   validation_status: DatasetValidationStatus;
   created_at: string;
@@ -145,12 +148,15 @@ export interface Dataset {
   metadata_json?: string;
   sample_count?: number;
   created_by?: string;
+  format?: string;
+  storage_path?: string;
+  validation_errors?: string;
 }
 
 export type TrainingDataset = Dataset;
 
 export type DatasetSourceType = 'code_repo' | 'uploaded_files' | 'generated';
-export type DatasetValidationStatus = 'pending' | 'validating' | 'valid' | 'invalid' | 'failed';
+export type DatasetValidationStatus = 'draft' | 'validating' | 'valid' | 'invalid' | 'failed';
 export type Strictness = 'strict' | 'epsilon-tolerant' | 'relaxed';
 
 export interface CreateDatasetRequest {

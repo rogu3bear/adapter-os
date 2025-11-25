@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +35,7 @@ import { useTraining } from '@/hooks/useTraining';
 import { useRBAC } from '@/hooks/useRBAC';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
+import { TrainingWizard } from '@/components/TrainingWizard';
 import {
   Database,
   Upload,
@@ -45,6 +47,7 @@ import {
   Trash2,
   Eye,
   AlertCircle,
+  Play,
 } from 'lucide-react';
 import type { Dataset, DatasetSourceType, DatasetValidationStatus } from '@/api/training-types';
 
@@ -53,10 +56,10 @@ const STATUS_CONFIG: Record<DatasetValidationStatus, {
   className: string;
   label: string;
 }> = {
-  pending: {
+  draft: {
     icon: Clock,
     className: 'text-yellow-500',
-    label: 'Pending',
+    label: 'Draft',
   },
   validating: {
     icon: RefreshCw,
@@ -81,7 +84,7 @@ const STATUS_CONFIG: Record<DatasetValidationStatus, {
 };
 
 function StatusBadge({ status }: { status: DatasetValidationStatus }) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.draft;
   const Icon = config.icon;
 
   return (
@@ -95,10 +98,12 @@ function StatusBadge({ status }: { status: DatasetValidationStatus }) {
 export function DatasetsTab() {
   const { can } = useRBAC();
   const { errors, addError, clearError } = usePageErrors();
+  const navigate = useNavigate();
 
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [deleteDatasetId, setDeleteDatasetId] = useState<string | null>(null);
-  const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
+  const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
+  const [initialDatasetId, setInitialDatasetId] = useState<string | undefined>(undefined);
 
   const {
     data: datasetsData,
@@ -260,7 +265,10 @@ export function DatasetsTab() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">
-                          {dataset.source_type}
+                          {dataset.source_type === 'uploaded_files' ? 'Uploaded' :
+                           dataset.source_type === 'code_repo' ? 'Code Repository' :
+                           dataset.source_type === 'generated' ? 'Generated' :
+                           dataset.source_type}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -283,13 +291,28 @@ export function DatasetsTab() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setSelectedDataset(dataset)}
+                            onClick={() => navigate(`/training/datasets/${dataset.id}`)}
                             title="View dataset details"
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
 
-                          {dataset.validation_status === 'pending' && can('dataset:validate') && (
+                          {dataset.validation_status === 'valid' && can('training:start') && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => {
+                                setInitialDatasetId(dataset.id);
+                                setIsTrainingWizardOpen(true);
+                              }}
+                              title="Start training with this dataset"
+                            >
+                              <Play className="h-4 w-4 mr-1" />
+                              Train
+                            </Button>
+                          )}
+
+                          {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && can('dataset:validate') && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -413,8 +436,22 @@ export function DatasetsTab() {
                 <Label className="text-muted-foreground">Hash (BLAKE3)</Label>
                 <p className="font-mono text-xs break-all">{selectedDataset.hash_b3}</p>
               </div>
-            </div>
-          )}
+
+      {/* Training Wizard Dialog */}
+      <Dialog open={isTrainingWizardOpen} onOpenChange={setIsTrainingWizardOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <TrainingWizard
+            initialDatasetId={initialDatasetId}
+            onComplete={(jobId) => {
+              setIsTrainingWizardOpen(false);
+              setInitialDatasetId(undefined);
+              // Optionally navigate to training jobs page or show notification
+            }}
+            onCancel={() => {
+              setIsTrainingWizardOpen(false);
+              setInitialDatasetId(undefined);
+            }}
+          />
         </DialogContent>
       </Dialog>
     </div>

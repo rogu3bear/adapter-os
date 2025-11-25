@@ -33,6 +33,9 @@ import { useSSE } from '../hooks/useSSE';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { SectionErrorBoundary } from './ui/section-error-boundary';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { calculateTrainingETA, formatDuration as formatDurationUtil } from '../utils/trainingEta';
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -225,6 +228,50 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
     }
   }, [trainingData]);
 
+  // Adapter registration polling: if job completed but adapter_id missing, poll adapters list
+  const shouldPollAdapters = job?.status === 'completed' && !job?.adapter_id;
+  const { data: adapters = [] } = useQuery({
+    queryKey: ['adapters', 'registration-check'],
+    queryFn: async () => {
+      try {
+        return await apiClient.listAdapters();
+      } catch (e) {
+        logger.error('Failed to fetch adapters for registration check', {
+          component: 'TrainingMonitor',
+          operation: 'adapter-polling',
+        }, toError(e));
+        return [];
+      }
+    },
+    enabled: shouldPollAdapters,
+    refetchInterval: shouldPollAdapters ? 3000 : false, // Poll every 3 seconds if waiting for adapter
+    staleTime: 0, // Always fetch fresh data when polling
+  });
+
+  // Check if adapter appeared in the list
+  useEffect(() => {
+    if (!shouldPollAdapters || !job || !adapters.length) return;
+
+    // Try to find adapter by name (adapter_name might match registered adapter name)
+    const foundAdapter = adapters.find(a => 
+      a.name === job.adapter_name || 
+      a.id === job.adapter_id ||
+      (job.adapter_name && a.name?.includes(job.adapter_name))
+    );
+
+    if (foundAdapter && !job.adapter_id) {
+      // Update job state with found adapter_id
+      setJob(prev => prev ? { ...prev, adapter_id: foundAdapter.id } : null);
+      toast.success(`Adapter "${foundAdapter.name}" registered successfully`);
+      logger.info('Adapter registration detected', {
+        component: 'TrainingMonitor',
+        operation: 'adapter-polling',
+        adapterId: foundAdapter.id,
+        adapterName: foundAdapter.name,
+      });
+    }
+  }, [adapters, shouldPollAdapters, job]);
+
   const handlePause = async () => {
     if (!sessionId) {
       toast.error('Pause is only available for training sessions');
@@ -379,20 +426,14 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
     return `${diffMins}m`;
   };
 
-  const formatETA = (startTime: string, progress: number) => {
+  const formatETA = (startTime: string, progress: number, jobStatus?: string) => {
     if (progress === 0) return 'Calculating...';
+    if (jobStatus === 'paused') return 'Paused';
     
-    const start = new Date(startTime);
-    const now = new Date();
-    const elapsedMs = now.getTime() - start.getTime();
-    const totalEstimatedMs = (elapsedMs / progress) * 100;
-    const remainingMs = totalEstimatedMs - elapsedMs;
+    const etaSeconds = calculateTrainingETA(progress, startTime, undefined, jobStatus);
+    if (etaSeconds === null) return 'Calculating...';
     
-    const remainingMins = Math.floor(remainingMs / 60000);
-    const remainingHours = Math.floor(remainingMins / 60);
-    
-    if (remainingHours > 0) return `${remainingHours}h ${remainingMins % 60}m`;
-    return `${remainingMins}m`;
+    return formatDurationUtil(etaSeconds);
   };
 
   if (error) {
@@ -459,7 +500,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
               {(status === 'running' || status === 'paused') && progress > 0 && (
                 <>
                   <span>•</span>
-                  <span>ETA: {formatETA(startTime, progress)}</span>
+                  <span>ETA: {formatETA(startTime, progress, status)}</span>
                 </>
               )}
             </div>
@@ -644,6 +685,21 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         </CardContent>
       </Card>
 
+      {/* Adapter Registration Pending Warning */}
+      {shouldPollAdapters && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Training completed, but adapter registration is pending. Checking adapter registry...
+            {adapters.length > 0 && (
+              <span className="ml-2 text-sm text-muted-foreground">
+                ({adapters.length} adapters found, still searching...)
+              </span>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Artifacts & Verification */}
       {artifacts && (
         <Card>
@@ -690,6 +746,25 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
                 </Badge>
               </div>
             </div>
+            {job?.status === 'completed' && artifacts?.adapter_id && (
+              <div className="mt-4 pt-4 border-t space-y-2">
+                <div className="flex items-center gap-2">
+                  <Link to={`/adapters/${artifacts.adapter_id}`}>
+                    <Button variant="outline" size="sm">
+                      View Adapter
+                    </Button>
+                  </Link>
+                  <Link to="/inference">
+                    <Button variant="default" size="sm">
+                      Test in Chat
+                    </Button>
+                  </Link>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Adapter registered successfully. A default stack was created automatically.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -325,7 +325,6 @@ export type ErrorResponse = z.infer<typeof errorResponseSchema>;
  * For authentication form validation
  */
 export const LoginFormSchema = z.object({
-  username: z.string().min(3, 'Username must be at least 3 characters').max(50, 'Username must not exceed 50 characters'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   email: z.string().email('Invalid email address').max(254, 'Email must not exceed 254 characters'),
 });

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { useTraining } from '@/hooks/useTraining';
 import { Brain, AlertCircle } from 'lucide-react';
 import type { StartTrainingRequest, TrainingConfigRequest } from '@/api/training-types';
@@ -58,6 +59,11 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Check dataset validation status
+    if (datasetId && selectedDataset && selectedDataset.validation_status !== 'valid') {
+      return; // Will be prevented by disabled button, but add check for safety
+    }
+
     const config: TrainingConfigRequest = {
       learning_rate: parseFloat(learningRate),
       epochs: parseInt(epochs),
@@ -79,6 +85,8 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
 
   const datasets = datasetsData?.datasets || [];
   const templates = templatesData || [];
+  const selectedDataset = datasets.find(d => d.id === datasetId);
+  const isDatasetValid = !datasetId || selectedDataset?.validation_status === 'valid';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -126,11 +134,24 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
                 <SelectItem value="">None</SelectItem>
                 {datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>
-                    {dataset.name}
+                    <div className="flex items-center gap-2">
+                      <span>{dataset.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {dataset.validation_status}
+                      </Badge>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {selectedDataset && selectedDataset.validation_status !== 'valid' && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Dataset must be validated before training. Current status: {selectedDataset.validation_status}
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
 
           <div>
@@ -244,7 +265,11 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending}>
+            <Button 
+              type="submit" 
+              disabled={isPending || !isDatasetValid}
+              title={!isDatasetValid ? 'Dataset must be validated before training' : undefined}
+            >
               {isPending ? (
                 <>
                   <Brain className="h-4 w-4 mr-2 animate-pulse" />

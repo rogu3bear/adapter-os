@@ -160,10 +160,27 @@ export interface ActiveAdapter {
 export interface AdapterStack {
   id: string;
   name: string;
-  adapters: ActiveAdapter[];
+  adapters?: ActiveAdapter[]; // Frontend representation (with gates)
+  adapter_ids?: string[]; // Backend representation (just IDs)
   description?: string;
   created_at: string;
   updated_at: string;
+  is_default?: boolean;
+  version?: number;
+  workflow_type?: 'Parallel' | 'UpstreamDownstream' | 'Sequential';
+  lifecycle_state?: string; // active, deprecated, retired, draft
+}
+
+export interface LifecycleHistoryEvent {
+  id: string;
+  entity_id: string;
+  version: string;
+  lifecycle_state: string;
+  previous_lifecycle_state?: string;
+  reason?: string;
+  initiated_by: string;
+  metadata_json?: string;
+  created_at: string;
 }
 
 export interface CreateAdapterStackRequest {
@@ -194,6 +211,16 @@ export interface ActivateStackRequest {
 }
 
 export interface DeactivateStackRequest {
+  stack_id: string;
+}
+
+export interface SetDefaultStackRequest {
+  stack_id: string;
+}
+
+export interface DefaultStackResponse {
+  schema_version: string;
+  tenant_id: string;
   stack_id: string;
 }
 
@@ -355,6 +382,13 @@ export interface AdapterStats {
   avg_latency_ms: number;
   error_rate: number;
   last_24h_inferences: number;
+}
+
+export interface AdapterUsageResponse {
+  adapter_id: string;
+  call_count: number;
+  average_gate_value: number;
+  last_used: string | null;
 }
 
 export interface AdapterActivation {

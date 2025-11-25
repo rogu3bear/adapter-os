@@ -195,13 +195,17 @@ export function useCreateAdapterStack() {
 
   return useMutation({
     mutationFn: (data: CreateAdapterStackRequest) => apiClient.createAdapterStack(data),
-    onSuccess: (newStack) => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
-      toast.success(`Adapter stack "${newStack.name}" created successfully`);
+      // Only show success toast if no warnings (warnings will be shown in UI)
+      if (!response.warnings || response.warnings.length === 0) {
+        toast.success(`Adapter stack "${response.stack.name}" created successfully`);
+      }
       logger.info('Adapter stack created', {
         component: 'useAdmin',
         operation: 'createAdapterStack',
-        stackId: newStack.id,
+        stackId: response.stack.id,
+        warnings: response.warnings?.length || 0,
       });
     },
     onError: (error: Error) => {
@@ -305,6 +309,65 @@ export function useDeactivateAdapterStack() {
       logger.error('Failed to deactivate adapter stack', {
         component: 'useAdmin',
         operation: 'deactivateAdapterStack',
+      }, error);
+    },
+  });
+}
+
+export function useGetDefaultStack(tenantId: string = 'default') {
+  return useQuery({
+    queryKey: ['default-stack', tenantId],
+    queryFn: () => apiClient.getDefaultAdapterStack(tenantId),
+    staleTime: 30000,
+  });
+}
+
+export function useSetDefaultStack(tenantId: string = 'default') {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (stackId: string) => apiClient.setDefaultAdapterStack(stackId, tenantId),
+    onSuccess: (_, stackId) => {
+      queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
+      queryClient.invalidateQueries({ queryKey: ['default-stack', tenantId] });
+      toast.success('Default stack set successfully');
+      logger.info('Default stack set', {
+        component: 'useAdmin',
+        operation: 'setDefaultStack',
+        stackId,
+        tenantId,
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to set default stack: ${error.message}`);
+      logger.error('Failed to set default stack', {
+        component: 'useAdmin',
+        operation: 'setDefaultStack',
+      }, error);
+    },
+  });
+}
+
+export function useClearDefaultStack(tenantId: string = 'default') {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => apiClient.clearDefaultAdapterStack(tenantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
+      queryClient.invalidateQueries({ queryKey: ['default-stack', tenantId] });
+      toast.success('Default stack cleared');
+      logger.info('Default stack cleared', {
+        component: 'useAdmin',
+        operation: 'clearDefaultStack',
+        tenantId,
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to clear default stack: ${error.message}`);
+      logger.error('Failed to clear default stack', {
+        component: 'useAdmin',
+        operation: 'clearDefaultStack',
       }, error);
     },
   });

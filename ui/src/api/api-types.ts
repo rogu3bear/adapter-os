@@ -525,6 +525,7 @@ export interface InferRequest {
   top_k?: number;
   stream?: boolean;
   adapter_stack?: string[];
+  stack_id?: string;
   seed?: number;
   require_evidence?: boolean;
   adapters?: string[];
@@ -1175,13 +1176,81 @@ export interface TroubleshootingStep {
 
 export interface RoutingDecisionFilters {
   adapter_id?: string;
+  stack_id?: string;
   since?: string;
   until?: string;
   min_entropy?: number;
+  max_overhead_pct?: number;
   limit?: number;
   offset?: number;
   tenant_id?: string;
   anomalies_only?: boolean;
+}
+
+export interface AdapterFired {
+  adapter_idx: number;
+  gate_value: number;
+  selected: boolean;
+}
+
+export interface SessionStep {
+  step: number;
+  timestamp: string;
+  input_token_id?: number;
+  adapters_fired: AdapterFired[];
+  entropy: number;
+  tau: number;
+}
+
+export interface SessionRouterViewResponse {
+  request_id: string;
+  stack_id?: string;
+  stack_hash?: string;
+  steps: SessionStep[];
+  total_steps: number;
+}
+
+export interface DeterminismStatusResponse {
+  last_run: string | null;
+  result: 'pass' | 'fail' | null;
+  runs?: number;
+  divergences?: number;
+}
+
+export interface QuarantineStatusResponse {
+  quarantined_count: number;
+  quarantined_adapters: Array<{
+    id: string;
+    reason: string;
+    created_at: string;
+  }>;
+  in_active_stacks: boolean;
+}
+
+export type NodeHealth = 'ok' | 'warning' | 'critical';
+
+export interface CapacityLimits {
+  models_per_worker?: number;
+  models_per_tenant?: number;
+  concurrent_requests?: number;
+}
+
+export interface CapacityUsage {
+  models_loaded: number;
+  adapters_loaded: number;
+  active_requests: number;
+  ram_used_bytes: number;
+  vram_used_bytes: number;
+  ram_headroom_pct: number;
+  vram_headroom_pct: number;
+}
+
+export interface CapacityResponse {
+  total_ram_bytes: number;
+  total_vram_bytes: number;
+  limits: CapacityLimits;
+  usage: CapacityUsage;
+  node_health: NodeHealth;
 }
 
 export interface ResolveAlertRequest {
@@ -1275,6 +1344,8 @@ export interface CreateReplaySessionRequest {
 
 // Inference session for tracking inference history
 export interface InferenceSession {
+  stack_id?: string;
+  stack_name?: string;
   id: string;
   created_at: string;
   prompt: string;
@@ -1349,6 +1420,27 @@ export interface RouterCandidateInfo {
   selected: boolean;
   rank?: number;
   score?: number;
+}
+
+// Extended router decision with additional fields needed by UI
+// Note: We can't extend RoutingDecision directly because candidates type conflicts
+// (RoutingDecision has candidates?: string[], we need RouterCandidateInfo[])
+export interface ExtendedRouterDecision {
+  request_id: string;
+  selected_adapters: string[];
+  scores: Record<string, number>;
+  timestamp: string;
+  latency_ms: number;
+  overhead_pct?: number;
+  tau?: number;
+  step?: number;
+  stack_hash?: string;
+  input_token_id?: number;
+  entropy_floor?: number;
+  entropy?: number;
+  candidates?: RouterCandidateInfo[]; // Extended: detailed candidate info instead of string[]
+  k_value?: number; // Extended: K-sparse value
+  adapter_map?: Map<number, string>; // Extended: For debugging: maps adapter_idx to adapter_id
 }
 
 // Audit log entry

@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, Play, Square, Eye } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, Play, Square, Eye, Star, StarOff } from 'lucide-react';
 import type { AdapterStack } from '@/api/types';
 import type { ColumnDef } from '@/components/shared/DataTable/types';
 import { StackFormModal } from './StackFormModal';
@@ -17,6 +17,9 @@ import {
   useDeleteAdapterStack,
   useActivateAdapterStack,
   useDeactivateAdapterStack,
+  useSetDefaultStack,
+  useGetDefaultStack,
+  useClearDefaultStack,
 } from '@/hooks/useAdmin';
 import {
   Dialog,
@@ -26,18 +29,24 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { useTenant } from '@/layout/LayoutProvider';
 
 interface StackTableProps {
   stacks: AdapterStack[];
 }
 
 export function StackTable({ stacks }: StackTableProps) {
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant || 'default';
   const [editingStack, setEditingStack] = useState<AdapterStack | null>(null);
   const [viewingStack, setViewingStack] = useState<AdapterStack | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdapterStack | null>(null);
   const deleteStack = useDeleteAdapterStack();
   const activateStack = useActivateAdapterStack();
   const deactivateStack = useDeactivateAdapterStack();
+  const setDefaultStack = useSetDefaultStack(tenantId);
+  const clearDefaultStack = useClearDefaultStack(tenantId);
+  const { data: defaultStack } = useGetDefaultStack(tenantId);
 
   const handleActivate = async (stack: AdapterStack) => {
     await activateStack.mutateAsync(stack.id);
@@ -54,15 +63,39 @@ export function StackTable({ stacks }: StackTableProps) {
     }
   };
 
+  const handleSetDefault = async (stack: AdapterStack) => {
+    await setDefaultStack.mutateAsync(stack.id);
+  };
+
+  const handleClearDefault = async () => {
+    await clearDefaultStack.mutateAsync();
+  };
+
+  const isDefaultStack = (stackId: string) => {
+    return defaultStack?.id === stackId;
+  };
+
   const columns: ColumnDef<AdapterStack>[] = [
     {
       id: 'name',
       header: 'Name',
       accessorKey: 'name',
       enableSorting: true,
-      cell: (context) => (
-        <span className="font-medium">{context.getValue() as string}</span>
-      ),
+      cell: (context) => {
+        const stack = context.row.original;
+        const isDefault = isDefaultStack(stack.id);
+        return (
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{context.getValue() as string}</span>
+            {isDefault && (
+              <Badge variant="default" className="text-xs">
+                <Star className="h-3 w-3 mr-1" />
+                Default
+              </Badge>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: 'adapters',
@@ -100,6 +133,41 @@ export function StackTable({ stacks }: StackTableProps) {
       },
     },
     {
+      id: 'lifecycle_state',
+      header: 'State',
+      accessorKey: 'lifecycle_state',
+      enableSorting: true,
+      cell: (context) => {
+        const state = (context.getValue() as string | undefined) || 'active';
+        const stateConfig: Record<string, { variant: 'default' | 'secondary' | 'outline'; className: string }> = {
+          active: { variant: 'default', className: 'bg-green-500 text-white hover:bg-green-600' },
+          deprecated: { variant: 'secondary', className: 'bg-yellow-500 text-white hover:bg-yellow-600' },
+          retired: { variant: 'outline', className: 'bg-gray-500 text-white hover:bg-gray-600' },
+          draft: { variant: 'secondary', className: 'bg-blue-500 text-white hover:bg-blue-600' },
+        };
+        const config = stateConfig[state.toLowerCase()] || stateConfig.active;
+        return (
+          <Badge variant={config.variant} className={`text-xs ${config.className}`}>
+            {state.charAt(0).toUpperCase() + state.slice(1)}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: 'version',
+      header: 'Version',
+      accessorKey: 'version',
+      enableSorting: true,
+      cell: (context) => {
+        const version = context.getValue() as number | undefined;
+        return (
+          <span className="text-sm font-mono">
+            {version ?? 1}
+          </span>
+        );
+      },
+    },
+    {
       id: 'created_at',
       header: 'Created',
       accessorKey: 'created_at',
@@ -126,6 +194,17 @@ export function StackTable({ stacks }: StackTableProps) {
                 <Eye className="h-4 w-4 mr-2" />
                 View Details
               </DropdownMenuItem>
+              {isDefaultStack(stack.id) ? (
+                <DropdownMenuItem onClick={handleClearDefault}>
+                  <StarOff className="h-4 w-4 mr-2" />
+                  Clear Default
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => handleSetDefault(stack)}>
+                  <Star className="h-4 w-4 mr-2" />
+                  Set as Default
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => handleActivate(stack)}>
                 <Play className="h-4 w-4 mr-2" />
                 Activate

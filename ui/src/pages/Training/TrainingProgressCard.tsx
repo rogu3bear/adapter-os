@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useSSE } from '@/hooks/useSSE';
 import { Activity, AlertCircle, CheckCircle, XCircle, Clock, Zap } from 'lucide-react';
 import type { TrainingJob, TrainingMetrics } from '@/api/training-types';
+import { calculateTrainingETA, formatDuration as formatDurationUtil } from '@/utils/trainingEta';
 
 interface TrainingProgressCardProps {
   jobId: string;
@@ -28,21 +29,8 @@ interface TrainingEvent {
   };
 }
 
-function formatDuration(seconds?: number): string {
-  if (!seconds || seconds <= 0) return '-';
-
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  }
-  return `${secs}s`;
-}
+// Use utility function for formatting
+const formatDuration = formatDurationUtil;
 
 export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCardProps) {
   const [progress, setProgress] = useState<TrainingMetrics>({
@@ -210,14 +198,20 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
         )}
 
         {/* ETA */}
-        {progress.eta_seconds !== undefined && progress.eta_seconds > 0 && status === 'running' && (
+        {(status === 'running' || status === 'pending') && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" />
               Estimated Time Remaining
             </span>
             <span className="font-medium">
-              {formatDuration(progress.eta_seconds)}
+              {status === 'paused' 
+                ? 'Paused'
+                : progress.eta_seconds !== undefined && progress.eta_seconds > 0
+                ? formatDuration(progress.eta_seconds)
+                : initialJob?.started_at && progress.progress_pct
+                ? formatDuration(calculateTrainingETA(progress.progress_pct, initialJob.started_at, undefined, status))
+                : 'Calculating...'}
             </span>
           </div>
         )}

@@ -48,6 +48,7 @@ import { useCancellableOperation } from '../hooks/useCancellableOperation';
 import { PromptTemplateManager } from './PromptTemplateManager';
 import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '../hooks/usePromptTemplates';
 import { InferenceRequestSchema, BatchPromptSchema } from '../schemas';
+import { useAdapterStacks, useGetDefaultStack, useSetDefaultStack } from '@/hooks/useAdmin';
 
 interface InferencePlaygroundProps {
   selectedTenant: string;
@@ -119,6 +120,13 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('none');
+  const [selectedStackId, setSelectedStackId] = useState<string>('');
+  
+  // Fetch stacks and default stack
+  const tenantId = selectedTenant || 'default';
+  const { data: stacks = [] } = useAdapterStacks();
+  const { data: defaultStack } = useGetDefaultStack(tenantId);
+  const { mutateAsync: setDefaultStack } = useSetDefaultStack();
 
   // Template management
   const { recordTemplateUsage, substituteVariables, getRecentTemplates } = usePromptTemplates();
@@ -421,7 +429,21 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     loadAdapters();
   }, [searchParams]);
 
+  // Load default stack on mount if none selected
+  useEffect(() => {
+    if (defaultStack && !selectedStackId) {
+      setSelectedStackId(defaultStack.id);
+      logger.info('Default stack loaded', {
+        component: 'InferencePlayground',
+        operation: 'loadDefaultStack',
+        stackId: defaultStack.id,
+        stackName: defaultStack.name,
+      });
+    }
+  }, [defaultStack, selectedStackId]);
+
   const saveSession = (config: InferenceConfig, response: InferResponse) => {
+    const selectedStack = stacks.find(s => s.id === selectedStackId);
     const session: InferenceSession = {
       id: Date.now().toString(),
       created_at: new Date().toISOString(),
@@ -429,6 +451,8 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
       request: config,
       response,
       status: 'completed',
+      stack_id: selectedStackId || undefined,
+      stack_name: selectedStack?.name || undefined,
     };
 
     // Use managed sessions to prevent memory leaks
@@ -445,6 +469,14 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     setResponse(null);
 
     try {
+      // Resolve stack to adapter IDs for validation
+      const validationAdapterIds = selectedStackId
+        ? (() => {
+            const selectedStack = stacks.find(s => s.id === selectedStackId);
+            return selectedStack?.adapter_ids || undefined;
+          })()
+        : (selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined);
+
       // Validate prompt against schema
       const validationResult = await InferenceRequestSchema.parseAsync({
         prompt: config.prompt,
@@ -454,14 +486,22 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         top_p: config.top_p,
         seed: config.seed,
         require_evidence: config.require_evidence,
-        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+        adapter_stack: validationAdapterIds,
       });
 
       await startInference(async (signal) => {
         // Include adapters array if selected
+        // Resolve stack to adapter IDs if stack is selected
+        const adapterIds = selectedStackId
+          ? (() => {
+              const selectedStack = stacks.find(s => s.id === selectedStackId);
+              return selectedStack?.adapter_ids || undefined;
+            })()
+          : (selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined);
+
         const inferenceRequest: InferRequest = {
           ...config,
-          adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+          adapter_stack: adapterIds,
         };
         const response = await apiClient.infer(inferenceRequest, {}, false, signal);
         setResponse(response);
@@ -514,6 +554,14 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
     let tokenCount = 0;
 
     try {
+      // Resolve stack to adapter IDs for streaming inference
+      const streamAdapterIds = selectedStackId
+        ? (() => {
+            const selectedStack = stacks.find(s => s.id === selectedStackId);
+            return selectedStack?.adapter_ids || undefined;
+          })()
+        : (selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined);
+
       // Validate prompt against schema
       await InferenceRequestSchema.parseAsync({
         prompt: config.prompt,
@@ -523,7 +571,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         top_p: config.top_p,
         seed: config.seed,
         require_evidence: config.require_evidence,
-        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+        adapter_stack: streamAdapterIds,
       });
 
       await apiClient.streamInfer(
@@ -534,7 +582,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
           top_k: config.top_k,
           top_p: config.top_p,
           seed: config.seed,
-          adapter_stack: selectedAdapterId && selectedAdapterId !== 'none' ? selectedAdapterId : undefined,
+          adapter_stack: Array.isArray(streamAdapterIds) ? streamAdapterIds : (streamAdapterIds ? [streamAdapterIds] : undefined),
         },
         {
           onToken: (token, chunk) => {
@@ -781,7 +829,12 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
         top_p: configA.top_p,
         seed: configA.seed,
         require_evidence: configA.require_evidence,
-        adapters: selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined,
+        adapter_stack: selectedStackId
+          ? (() => {
+              const selectedStack = stacks.find(s => s.id === selectedStackId);
+              return selectedStack?.adapter_ids || undefined;
+            })()
+          : (selectedAdapterId && selectedAdapterId !== 'none' ? [selectedAdapterId] : undefined),
       };
 
       const response = await apiClient.batchInfer({ requests: [batchItem] });
@@ -919,8 +972,25 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
       {/* Header */}
       <ToolPageHeader
-        title="Inference Playground"
-        description="Test model inference with advanced configuration options"
+        title={
+          <div className="flex items-center gap-2">
+            <span>Inference Playground</span>
+            {selectedStackId && (() => {
+              const selectedStack = stacks.find(s => s.id === selectedStackId);
+              return selectedStack ? (
+                <Badge variant="secondary" className="text-xs">
+                  <Layers className="h-3 w-3 mr-1" />
+                  {selectedStack.name}
+                </Badge>
+              ) : null;
+            })()}
+          </div>
+        }
+        description={
+          selectedStackId
+            ? `Using stack: ${stacks.find(s => s.id === selectedStackId)?.name || selectedStackId}`
+            : "Test model inference with advanced configuration options"
+        }
         secondaryActions={
           <div className="flex gap-2">
             <div className="flex gap-1 border rounded-md p-1">
@@ -1054,6 +1124,109 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                     </AlertDescription>
                   </Alert>
                 )}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="stack" className="flex items-center gap-1">
+                      Stack {selectedStackId && defaultStack?.id === selectedStackId && <Badge variant="outline" className="text-xs ml-1">Default</Badge>}
+                      <HelpTooltip helpId="inference-stack">
+                        <span className="cursor-help text-muted-foreground hover:text-foreground">
+                          <HelpCircle className="h-3 w-3" />
+                        </span>
+                      </HelpTooltip>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      {selectedStackId && selectedStackId !== defaultStack?.id && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            if (!selectedTenant) {
+                              toast.error('No tenant selected');
+                              return;
+                            }
+                            try {
+                              await setDefaultStack({ tenantId: selectedTenant, stackId: selectedStackId });
+                            } catch (error) {
+                              logger.error('Failed to set default stack', {
+                                component: 'InferencePlayground',
+                                operation: 'setDefaultStack',
+                                stackId: selectedStackId,
+                              }, toError(error));
+                            }
+                          }}
+                          className="h-6 text-xs"
+                          title="Set as default stack for this tenant"
+                        >
+                          Set Default
+                        </Button>
+                      )}
+                      {selectedStackId && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedStackId('');
+                            setSelectedAdapterId('none');
+                          }}
+                          className="h-6 text-xs"
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <Select value={selectedStackId} onValueChange={(value) => {
+                    setSelectedStackId(value);
+                    // Clear adapter selection when stack is selected
+                    if (value) {
+                      setSelectedAdapterId('none');
+                    }
+                  }}>
+                    <SelectTrigger id="stack">
+                      <SelectValue placeholder={stacks.length === 0 ? "No stacks available" : "Select stack..."} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None (Use individual adapters)</SelectItem>
+                      {stacks
+                        .filter((stack) => {
+                          const state = stack.lifecycle_state?.toLowerCase() || 'active';
+                          return state === 'active' || state === 'draft';
+                        })
+                        .map((stack) => {
+                          const state = stack.lifecycle_state?.toLowerCase() || 'active';
+                          const stateConfig: Record<string, { variant: 'default' | 'secondary' | 'outline'; className: string }> = {
+                            active: { variant: 'default', className: 'bg-green-500 text-white' },
+                            draft: { variant: 'secondary', className: 'bg-blue-500 text-white' },
+                          };
+                          const config = stateConfig[state] || stateConfig.active;
+
+                          return (
+                            <SelectItem key={stack.id} value={stack.id}>
+                              <div className="flex items-center gap-2">
+                                <Layers className="h-4 w-4" aria-hidden="true" />
+                                <span>{stack.name}</span>
+                                <Badge variant={config.variant} className={`text-xs ${config.className}`}>
+                                  {state.charAt(0).toUpperCase() + state.slice(1)}
+                                </Badge>
+                                {defaultStack?.id === stack.id && (
+                                  <Badge variant="secondary" className="text-xs">Default</Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  ({stack.adapter_ids?.length || 0} adapters)
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedStackId
+                      ? 'Using adapters from selected stack. Stack adapters will be shown below.'
+                      : 'Stacks are reusable combinations of adapters. Select a stack to use its configured adapters for inference.'}
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="adapter" className="flex items-center gap-1">
                     Adapter (Optional) {adapters.length === 0 && <span className="text-muted-foreground text-xs">(None available)</span>}

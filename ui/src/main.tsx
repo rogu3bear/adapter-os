@@ -27,7 +27,8 @@ function LoginRoute() {
           onLogin={async (creds) => {
             try {
               setLoginError(null);
-              await login(creds);
+              // Convert to format expected by login (may need username for backend compatibility)
+              await login({ username: creds.email.split('@')[0], email: creds.email, password: creds.password });
               navigate("/dashboard", { replace: true });
             } catch (err) {
               let errorMessage = 'Login failed';
