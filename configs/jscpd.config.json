@@ -23,6 +23,7 @@
     "**/deprecated/**",
     "**/baselines/**",
     "**/golden_runs/**",
+    "**/ai_slop_reports/**",
     "**/test_data/**",
     "**/adapters/**",
     "**/migrations_postgres/**",

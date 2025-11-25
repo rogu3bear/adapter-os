@@ -66,6 +66,7 @@ members = [
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
     # "crates/sign-migrations",  # Migration signing tool - directory missing
+    "crates/adapteros-plugin-advanced-metrics",  # Advanced metrics plugin
     "xtask",
     "fuzz",
 ]

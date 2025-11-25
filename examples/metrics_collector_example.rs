@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create metrics collector
     let collector = Arc::new(MetricsCollector::new(
-        adapteros_telemetry::metrics::MetricsConfig::default()
+        adapteros_telemetry::metrics::MetricsConfig::default(),
     ));
     println!("Created metrics collector");
 
@@ -123,9 +123,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_collector_example() {
-        let collector = MetricsCollector::new(
-            adapteros_telemetry::metrics::MetricsConfig::default()
-        );
+        let collector =
+            MetricsCollector::new(adapteros_telemetry::metrics::MetricsConfig::default());
 
         // Test basic metrics recording
         collector.record_inference_latency("test_tenant", "test_adapter", 0.025);

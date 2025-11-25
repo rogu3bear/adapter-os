@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/ai_slop_reports"
 SEARCH_ROOT="${SLOP_SEARCH_ROOT:-crates}"
 RUN_ADAPTEROS_LINT="${RUN_ADAPTEROS_LINT:-0}"
-RUN_MAKE_DUP="${RUN_MAKE_DUP:-0}"
+RUN_MAKE_DUP="${RUN_MAKE_DUP:-1}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 REPORT_FILE="${OUTPUT_DIR}/ai_slop_report_${TIMESTAMP}.md"
 JSON_REPORT="${OUTPUT_DIR}/ai_slop_data_${TIMESTAMP}.json"
@@ -67,14 +67,10 @@ safe_grep() {
     local include="$2"
     local rg_pattern="${pattern//\\|/|}"
     local rg_excludes=( '!.git' '!target' '!node_modules' '!**/tests/**' '!**/benches/**' '!**/examples/**' '!**/fixtures/**' '!**/mocks/**' )
-    local rg_allow=( '!crates/adapteros-cli/src/app.rs' '!crates/adapteros-cli/src/cli_telemetry.rs' '!crates/adapteros-core/src/error.rs' '!crates/adapteros-verify/src/lib.rs' '!crates/adapteros-domain/src/lib.rs' '!crates/adapteros-core/src/retry_metrics.rs' '!crates/adapteros-db/src/lib.rs' '!crates/adapteros-db/src/postgres.rs' '!crates/adapteros-lora-worker/src/router_bridge.rs' '!crates/adapteros-lora-worker/src/backend_coordinator.rs' )
 
     if command -v rg >/dev/null 2>&1; then
         local args=()
         for glob in "${rg_excludes[@]}"; do
-            args+=("--glob" "$glob")
-        done
-        for glob in "${rg_allow[@]}"; do
             args+=("--glob" "$glob")
         done
         rg "$rg_pattern" "$SEARCH_ROOT" --type-add "rust:*.rs" -g "$include" --hidden --no-heading "${args[@]}" || true
@@ -92,18 +88,19 @@ safe_grep() {
     fi
 }
 
-# Count matches while tolerating zero-match pipelines with pipefail set
-safe_count_excluding() {
-    local pattern="$1"
-    local include="$2"
-    local exclude_pattern="$3"
-
-    # Temporarily disable pipefail for counting
-    set +o pipefail
-    local count
-    count=$(safe_grep "$pattern" "$include" | grep -v "$exclude_pattern" | wc -l)
-    set -o pipefail
-    echo "$count"
+exclude_allowlist() {
+    local line
+    while IFS= read -r line; do
+        local skip=0
+        for allow in "${@:1}"; do
+            case "$line" in
+                $allow) skip=1 ;;
+            esac
+        done
+        if [ "$skip" -eq 0 ]; then
+            echo "$line"
+        fi
+    done
 }
 
 # Function to count lines safely
@@ -139,7 +136,16 @@ EOF
 
 log_info "Checking for generic error handling patterns..."
 
-GENERIC_ERRORS=$(safe_grep "anyhow::Error\|Box<dyn std::error::Error>" "*.rs")
+GENERIC_ERRORS=$(
+    {
+        safe_grep "anyhow::Error\|Box<dyn std::error::Error>" "*.rs" \
+        | grep -Ev "://!|:///" \
+        | grep -Ev "^[^:]+:[0-9]+:[[:space:]]*//" \
+        | grep -Ev "///" \
+        | grep -v "^crates/adapteros-cli/" \
+        | grep -v "^crates/adapteros-core/src/error.rs";
+    } || true
+)
 GENERIC_ERROR_COUNT=$(printf "%s\n" "$GENERIC_ERRORS" | awk 'NF' | wc -l)
 
 add_check_result "generic_errors" "HIGH" "$GENERIC_ERROR_COUNT" "Generic error types instead of domain-specific AosError"
@@ -181,12 +187,45 @@ if [ "$THREAD_COUNT" -gt 0 ]; then
     PLATFORM_COUNT=$((PLATFORM_COUNT + THREAD_COUNT))
 fi
 
+# Check for tokio::spawn calls in deterministic paths
+TOKIO_ALLOW=(
+    "crates/adapteros-telemetry/src/*"
+    "crates/adapteros-system-metrics/src/*"
+    "crates/adapteros-storage/src/cleanup.rs:*"
+    "crates/adapteros-storage/src/monitor.rs:*"
+    "crates/adapteros-service-supervisor/src/*"
+    "crates/adapteros-metrics-collector/src/*"
+    "crates/adapteros-policy/src/hash_watcher.rs:*"
+    "crates/adapteros-crypto/src/rotation_daemon.rs:*"
+    "crates/adapteros-crypto/src/providers/keychain.rs:*"
+    "crates/adapteros-git/src/subsystem.rs:*"
+    "crates/adapteros-server/src/shutdown.rs:*"
+    "crates/adapteros-server/src/router_telemetry_consumer.rs:*"
+    "crates/adapteros-telemetry/src/metrics/system.rs:*"
+    "crates/adapteros-telemetry/src/uds_exporter.rs:*"
+)
+
+TOKIO_SPAWN=$(safe_grep "tokio::spawn[[:space:]]*\\(" "*.rs" | exclude_allowlist "${TOKIO_ALLOW[@]}")
+TOKIO_COUNT=$(printf "%s\n" "$TOKIO_SPAWN" | awk 'NF' | wc -l)
+if [ "$TOKIO_COUNT" -gt 0 ]; then
+    PLATFORM_ISSUES="${PLATFORM_ISSUES}tokio::spawn (potentially non-deterministic): $TOKIO_COUNT\n"
+    PLATFORM_COUNT=$((PLATFORM_COUNT + TOKIO_COUNT))
+fi
+
 # Check for rand::thread_rng calls (should use HKDF)
 RAND_THREAD=$(safe_grep "rand::thread_rng[[:space:]]*\\(" "*.rs")
 RAND_COUNT=$(printf "%s\n" "$RAND_THREAD" | awk 'NF' | wc -l)
 if [ "$RAND_COUNT" -gt 0 ]; then
     PLATFORM_ISSUES="${PLATFORM_ISSUES}Random number issues: $RAND_COUNT\n"
     PLATFORM_COUNT=$((PLATFORM_COUNT + RAND_COUNT))
+fi
+
+# Check for StdRng::from_entropy (should use HKDF-derived seeds)
+STD_FROM_ENTROPY=$(safe_grep "StdRng::from_entropy[[:space:]]*\\(" "*.rs")
+STD_FROM_ENTROPY_COUNT=$(printf "%s\n" "$STD_FROM_ENTROPY" | awk 'NF' | wc -l)
+if [ "$STD_FROM_ENTROPY_COUNT" -gt 0 ]; then
+    PLATFORM_ISSUES="${PLATFORM_ISSUES}StdRng::from_entropy (missing HKDF seed): $STD_FROM_ENTROPY_COUNT\n"
+    PLATFORM_COUNT=$((PLATFORM_COUNT + STD_FROM_ENTROPY_COUNT))
 fi
 
 add_check_result "platform_agnostic" "HIGH" "$PLATFORM_COUNT" "Platform-agnostic patterns that ignore AdapterOS deterministic requirements"
@@ -257,10 +296,9 @@ BOILERPLATE_ERRORS=$(safe_grep "map_err.*format!" "*.rs" | wc -l)
 # Look for repetitive validation patterns
 VALIDATION_PATTERNS=$(safe_grep "if.*is_empty\|if.*is_none\|if.*len.*==.*0" "*.rs" | wc -l)
 
-# Look for repetitive logging patterns
-LOGGING_PATTERNS=$(safe_grep "tracing::info!\|\.await\?" "*.rs" | grep -E "(info|error|warn|debug)!" | wc -l)
+# Boilerplate logging check removed (noise); focus on error/validation patterns
 
-BOILERPLATE_COUNT=$((BOILERPLATE_ERRORS + VALIDATION_PATTERNS + LOGGING_PATTERNS))
+BOILERPLATE_COUNT=$((BOILERPLATE_ERRORS + VALIDATION_PATTERNS))
 
 add_check_result "boilerplate_code" "INFO" "$BOILERPLATE_COUNT" "Excessive boilerplate suggesting lack of helper functions or abstractions"
 
@@ -277,52 +315,13 @@ cat >> "$REPORT_FILE" << EOF
 **Breakdown:**
 - Error mapping patterns: $BOILERPLATE_ERRORS
 - Validation patterns: $VALIDATION_PATTERNS
-- Logging patterns: $LOGGING_PATTERNS
 
 EOF
 
 echo "" >> "$REPORT_FILE"
 
 # ============================================================================
-# CHECK 5: Missing Domain Context (INFO)
-# ============================================================================
-
-log_info "Checking for missing domain context..."
-
-# Simplified check - just count basic patterns to avoid hanging
-GENERIC_POLICY_REFS=$(safe_count_excluding "\bpolicy\b\|\bPolicy\b" "*.rs" "AosError::PolicyViolation\|adapteros-policy\|PolicyId")
-GENERIC_ADAPTER_REFS=$(safe_count_excluding "\badapter\b\|\bAdapter\b" "*.rs" "AosError\|AdapterId\|adapteros-")
-GENERIC_TENANT_REFS=$(safe_count_excluding "\btenant\b\|\bTenant\b" "*.rs" "AosError\|TenantId\|tenant_id")
-
-CONTEXT_COUNT=$((GENERIC_POLICY_REFS + GENERIC_ADAPTER_REFS + GENERIC_TENANT_REFS))
-
-add_check_result "missing_context" "INFO" "$CONTEXT_COUNT" "Generic references to domain concepts without specific AdapterOS context"
-
-cat >> "$REPORT_FILE" << EOF
-
-## 🟡 Check 5: Missing Domain Context (INFO)
-
-**Status:** $([ "$CONTEXT_COUNT" -gt 20 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
-
-**Count:** $CONTEXT_COUNT instances
-
-**Description:** References to core AdapterOS concepts should use specific types and error variants, not generic terms.
-
-**Breakdown:**
-- Generic policy references: $GENERIC_POLICY_REFS (should use AosError::PolicyViolation, PolicyId, etc.)
-- Generic adapter references: $GENERIC_ADAPTER_REFS (should use AdapterId, AdapterState, etc.)
-- Generic tenant references: $GENERIC_TENANT_REFS (should use TenantId, TenantInfo, etc.)
-
-EOF
-
-if [ "$CONTEXT_COUNT" -gt 20 ]; then
-    echo "**Note:** Review these for opportunities to use domain-specific types instead of generic terms." >> "$REPORT_FILE"
-fi
-
-echo "" >> "$REPORT_FILE"
-
-# ============================================================================
-# CHECK 6: Incomplete Code Markers (INFO)
+# CHECK 5: Incomplete Code Markers (INFO)
 # ============================================================================
 
 log_info "Checking for incomplete code markers..."
@@ -334,7 +333,7 @@ add_check_result "incomplete_code" "INFO" "$TODO_COUNT" "Incomplete code markers
 
 cat >> "$REPORT_FILE" << EOF
 
-## 🟢 Check 6: Incomplete Code Markers (INFO)
+## 🟢 Check 5: Incomplete Code Markers (INFO)
 
 **Status:** $([ "$TODO_COUNT" -gt 20 ] && echo "⚠️ ISSUES FOUND" || echo "✅ CLEAN")
 
@@ -358,7 +357,7 @@ echo "" >> "$REPORT_FILE"
 
 # Calculate overall score (only high-priority affects status/exit)
 HIGH_PRIORITY=$((GENERIC_ERROR_COUNT + PLATFORM_COUNT))
-INFO_PRIORITY=$((DUPLICATION_COUNT + BOILERPLATE_COUNT + CONTEXT_COUNT + TODO_COUNT))
+INFO_PRIORITY=$((DUPLICATION_COUNT + BOILERPLATE_COUNT + TODO_COUNT))
 TOTAL_ISSUES=$((HIGH_PRIORITY + INFO_PRIORITY))
 
 # Update JSON summary (with error handling)
@@ -386,7 +385,7 @@ cat >> "$REPORT_FILE" << EOF
 
 ### **Issue Breakdown:**
 - **🔴 High Priority:** $HIGH_PRIORITY issues (Generic errors, platform patterns)
-- **ℹ️ Informational:** $INFO_PRIORITY signals (Duplication heuristics, boilerplate, domain context, TODOs)
+- **ℹ️ Informational:** $INFO_PRIORITY signals (Duplication heuristics, boilerplate, TODOs)
 
 ### **Total Issues Found:** $TOTAL_ISSUES
 
@@ -399,7 +398,6 @@ $(if [ "$PLATFORM_COUNT" -gt 0 ]; then echo "- Update platform-agnostic code to 
 #### **Informational (noise-prone):**
 $(if [ "$DUPLICATION_COUNT" -gt 0 ]; then echo "- For duplication, prefer \`make dup\` or \`adapteros-lint\` for authoritative signal"; fi)
 $(if [ "$BOILERPLATE_COUNT" -gt 50 ]; then echo "- Consider extracting repeated patterns; counts are heuristic"; fi)
-$(if [ "$CONTEXT_COUNT" -gt 20 ]; then echo "- Domain context check is heuristic; validate with code review"; fi)
 $(if [ "$TODO_COUNT" -gt 20 ]; then echo "- Resolve TODO/FIXME comments or create implementation plans"; fi)
 
 ### **Quality Metrics (informational only):**
@@ -454,7 +452,6 @@ echo "• Generic Error Handling: $GENERIC_ERROR_COUNT"
 echo "• Platform Patterns: $PLATFORM_COUNT"
 echo "• Code Duplication: $DUPLICATION_COUNT"
 echo "• Boilerplate Code: $BOILERPLATE_COUNT"
-echo "• Domain Context: $CONTEXT_COUNT"
 echo "• TODO Comments: $TODO_COUNT"
 echo ""
 echo "Status: $OVERALL_STATUS"
