@@ -303,11 +303,8 @@ impl DependencySecurityPolicy {
                 Ok(entries) => {
                     debug!(count = entries.len(), "Loaded known vulnerabilities");
                     for entry in entries {
-                        let key = format!(
-                            "{}:{}",
-                            entry.package_name,
-                            entry.affected_versions.join(",")
-                        );
+                        // Index by package name only (not version) for efficient lookup
+                        let key = entry.package_name.clone();
                         vulnerabilities
                             .entry(key)
                             .or_insert_with(Vec::new)
@@ -325,11 +322,8 @@ impl DependencySecurityPolicy {
                 Ok(entries) => {
                     debug!(count = entries.len(), "Loaded NVD responses");
                     for entry in entries {
-                        let key = format!(
-                            "{}:{}",
-                            entry.package_name,
-                            entry.affected_versions.join(",")
-                        );
+                        // Index by package name only for efficient lookup
+                        let key = entry.package_name.clone();
                         vulnerabilities
                             .entry(key)
                             .or_insert_with(Vec::new)
@@ -347,11 +341,8 @@ impl DependencySecurityPolicy {
                 Ok(entries) => {
                     debug!(count = entries.len(), "Loaded OSV responses");
                     for entry in entries {
-                        let key = format!(
-                            "{}:{}",
-                            entry.package_name,
-                            entry.affected_versions.join(",")
-                        );
+                        // Index by package name only for efficient lookup
+                        let key = entry.package_name.clone();
                         vulnerabilities
                             .entry(key)
                             .or_insert_with(Vec::new)
@@ -401,25 +392,97 @@ impl DependencySecurityPolicy {
     }
 
     /// Query offline database for CVE entries
-    async fn query_offline_database(&self, package_name: &str, _version: &str) -> Vec<CveEntry> {
+    ///
+    /// Performs intelligent version matching against the offline CVE database:
+    /// 1. Looks up package name in indexed HashMap (O(1) lookup)
+    /// 2. For each CVE entry, checks if the provided version matches any affected_versions
+    /// 3. Supports both exact version matching and semver range matching
+    async fn query_offline_database(&self, package_name: &str, version: &str) -> Vec<CveEntry> {
+        use crate::packs::version_matcher::{Version, VersionRange};
+
         let offline_db = self.offline_db.read().await;
 
-        // Search for matching package in offline database
-        let matching = offline_db
-            .iter()
-            .filter(|(key, _)| key.starts_with(package_name))
-            .flat_map(|(_, entries)| entries.clone())
-            .collect::<Vec<_>>();
+        // Parse the requested version
+        let requested_version = match Version::parse(version) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(
+                    package = %package_name,
+                    version = %version,
+                    error = %e,
+                    "Failed to parse version, skipping offline database lookup"
+                );
+                return vec![];
+            }
+        };
 
-        if !matching.is_empty() {
+        // Fast lookup by package name (database is indexed by package name)
+        let entries = match offline_db.get(package_name) {
+            Some(entries) => entries,
+            None => {
+                debug!(
+                    package = %package_name,
+                    "Package not found in offline database"
+                );
+                return vec![];
+            }
+        };
+
+        let mut matching_cves = Vec::new();
+
+        // Check each CVE entry for version match
+        for entry in entries {
+            // Check if requested version is in affected_versions list
+            let is_affected = entry.affected_versions.iter().any(|affected_version| {
+                // Try exact string match first (fast path)
+                if affected_version == version {
+                    return true;
+                }
+
+                // Try parsing as version range (e.g., ">=1.0.0,<2.0.0")
+                if let Ok(range) = VersionRange::parse(affected_version) {
+                    if range.matches(&requested_version) {
+                        return true;
+                    }
+                }
+
+                // Try parsing as exact version and compare
+                if let Ok(affected_ver) = Version::parse(affected_version) {
+                    if affected_ver == requested_version {
+                        return true;
+                    }
+                }
+
+                false
+            });
+
+            if is_affected {
+                matching_cves.push(entry.clone());
+                debug!(
+                    package = %package_name,
+                    version = %version,
+                    cve_id = %entry.cve_id,
+                    "Found matching CVE in offline database"
+                );
+            }
+        }
+
+        if !matching_cves.is_empty() {
+            info!(
+                package = %package_name,
+                version = %version,
+                count = matching_cves.len(),
+                "Found vulnerabilities in offline database"
+            );
+        } else {
             debug!(
                 package = %package_name,
-                count = matching.len(),
-                "Found vulnerabilities in offline database"
+                version = %version,
+                "No vulnerabilities found in offline database"
             );
         }
 
-        matching
+        matching_cves
     }
 
     /// Check dependency for known vulnerabilities

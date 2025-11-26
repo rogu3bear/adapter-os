@@ -165,10 +165,9 @@ impl crate::Db {
         use tracing::{info, warn};
 
         if start_sequence > end_sequence {
-            return Err(AosError::Validation(
-                "start_sequence must be <= end_sequence".to_string(),
-            )
-            .into());
+            return Err(
+                AosError::Validation("start_sequence must be <= end_sequence".to_string()).into(),
+            );
         }
 
         info!(
@@ -346,7 +345,10 @@ impl crate::Db {
         .fetch_all(self.pool())
         .await
         .map_err(|e| {
-            AosError::Database(format!("Failed to query audit entries by time range: {}", e))
+            AosError::Database(format!(
+                "Failed to query audit entries by time range: {}",
+                e
+            ))
         })?;
 
         let mut entries = Vec::new();
@@ -457,8 +459,8 @@ impl adapteros_crypto::audit::CryptoAuditDb for crate::Db {
                     }
                 };
 
-                let metadata: serde_json::Value = serde_json::from_str(&entry.metadata)
-                    .unwrap_or_else(|_| serde_json::json!({}));
+                let metadata: serde_json::Value =
+                    serde_json::from_str(&entry.metadata).unwrap_or_else(|_| serde_json::json!({}));
 
                 Ok(Some(adapteros_crypto::audit::CryptoAuditEntry {
                     id: entry.id,
@@ -480,7 +482,8 @@ impl adapteros_crypto::audit::CryptoAuditDb for crate::Db {
     }
 
     async fn verify_audit_chain(&self, start_sequence: u64, end_sequence: u64) -> Result<bool> {
-        self.verify_crypto_audit_chain(start_sequence, end_sequence).await
+        self.verify_crypto_audit_chain(start_sequence, end_sequence)
+            .await
     }
 }
 

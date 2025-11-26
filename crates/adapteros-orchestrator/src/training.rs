@@ -160,8 +160,27 @@ impl TrainingService {
         tenant_id: Option<String>,
         initiated_by: Option<String>,
         initiated_by_role: Option<String>,
+        base_model_id: Option<String>,
+        collection_id: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
+
+        // Compute config hash for reproducibility tracking
+        let config_params = adapteros_db::training_jobs::TrainingConfigParams {
+            rank: config.rank as usize,
+            alpha: config.alpha as f32,
+            learning_rate: config.learning_rate,
+            batch_size: config.batch_size as usize,
+            epochs: config.epochs as usize,
+            hidden_dim: 768, // Default hidden dimension
+        };
+        let config_hash = adapteros_db::training_jobs::compute_config_hash(&config_params).ok();
+
+        // Get build ID from environment or use default
+        let build_id = std::env::var("BUILD_ID")
+            .or_else(|_| std::env::var("GIT_COMMIT"))
+            .ok()
+            .or_else(|| Some("dev".to_string()));
 
         let mut job = TrainingJob::new(job_id.clone(), adapter_name, config.clone());
         job.template_id = template_id;
@@ -170,6 +189,10 @@ impl TrainingService {
         job.tenant_id = tenant_id.clone();
         job.initiated_by = initiated_by;
         job.initiated_by_role = initiated_by_role;
+        job.base_model_id = base_model_id;
+        job.collection_id = collection_id;
+        job.build_id = build_id;
+        job.config_hash_b3 = config_hash;
 
         {
             let mut jobs = self.jobs.write().await;
@@ -590,6 +613,20 @@ async fn run_training_job(
                                 job_id = %job_id,
                                 error = %e,
                                 "Failed to update job artifact metadata (non-fatal)"
+                            );
+                        }
+
+                        // Link adapter back to training job for provenance
+                        if let Err(e) = database
+                            .update_adapter_training_job_id(&packaged.adapter_id, &job_id)
+                            .await
+                        {
+                            // Log but don't fail - adapter is already registered
+                            tracing::warn!(
+                                job_id = %job_id,
+                                adapter_id = %packaged.adapter_id,
+                                error = %e,
+                                "Failed to link adapter to training job (non-fatal)"
                             );
                         }
 

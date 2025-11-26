@@ -101,6 +101,29 @@ pub struct TrainingJob {
     #[serde(rename = "dataset_id")]
     pub dataset_id: Option<String>,
 
+    /// Optional reference to base model used for training
+    #[serde(rename = "base_model_id", skip_serializing_if = "Option::is_none")]
+    pub base_model_id: Option<String>,
+
+    /// Optional reference to document collection used
+    #[serde(rename = "collection_id", skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
+
+    /// Build ID for CI/CD traceability (git commit, version, etc.)
+    #[serde(rename = "build_id", skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
+
+    /// Immutable snapshot of source documents used for training (JSON)
+    #[serde(
+        rename = "source_documents_json",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_documents_json: Option<String>,
+
+    /// BLAKE3 hash of training config for reproducibility
+    #[serde(rename = "config_hash_b3", skip_serializing_if = "Option::is_none")]
+    pub config_hash_b3: Option<String>,
+
     /// Current job status in lifecycle
     #[serde(rename = "status")]
     pub status: TrainingJobStatus,
@@ -188,6 +211,11 @@ impl TrainingJob {
             template_id: None,
             repo_id: None,
             dataset_id: None,
+            base_model_id: None,
+            collection_id: None,
+            build_id: None,
+            source_documents_json: None,
+            config_hash_b3: None,
             status: TrainingJobStatus::Pending,
             progress_pct: 0.0,
             current_epoch: 0,
@@ -249,6 +277,36 @@ impl TrainingJob {
     /// Builder method to set weights hash
     pub fn with_weights_hash(mut self, hash: String) -> Self {
         self.weights_hash_b3 = Some(hash);
+        self
+    }
+
+    /// Builder method to set base model ID
+    pub fn with_base_model_id(mut self, base_model_id: String) -> Self {
+        self.base_model_id = Some(base_model_id);
+        self
+    }
+
+    /// Builder method to set collection ID
+    pub fn with_collection_id(mut self, collection_id: String) -> Self {
+        self.collection_id = Some(collection_id);
+        self
+    }
+
+    /// Builder method to set build ID
+    pub fn with_build_id(mut self, build_id: String) -> Self {
+        self.build_id = Some(build_id);
+        self
+    }
+
+    /// Builder method to set source documents JSON
+    pub fn with_source_documents(mut self, source_documents_json: String) -> Self {
+        self.source_documents_json = Some(source_documents_json);
+        self
+    }
+
+    /// Builder method to set config hash
+    pub fn with_config_hash(mut self, config_hash: String) -> Self {
+        self.config_hash_b3 = Some(config_hash);
         self
     }
 

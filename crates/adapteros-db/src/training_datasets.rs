@@ -199,7 +199,10 @@ impl Db {
         .fetch_all(&*self.pool())
         .await
         .map_err(|e| {
-            AosError::Database(format!("Failed to list training datasets for tenant: {}", e))
+            AosError::Database(format!(
+                "Failed to list training datasets for tenant: {}",
+                e
+            ))
         })?;
         Ok(datasets)
     }

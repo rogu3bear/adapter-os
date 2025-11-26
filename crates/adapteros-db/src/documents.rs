@@ -110,6 +110,33 @@ impl Db {
         Ok(documents)
     }
 
+    /// Find document by content hash within a tenant (for deduplication)
+    ///
+    /// Uses the existing idx_documents_content_hash index for efficient lookup.
+    /// Returns the first document with matching hash, scoped to tenant for isolation.
+    ///
+    /// Evidence: migrations/0094_documents_collections.sql - idx_documents_content_hash index
+    /// Pattern: Content-addressed deduplication
+    pub async fn find_document_by_content_hash(
+        &self,
+        tenant_id: &str,
+        content_hash: &str,
+    ) -> Result<Option<Document>> {
+        let document = sqlx::query_as::<_, Document>(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json
+             FROM documents
+             WHERE tenant_id = ? AND content_hash = ?
+             LIMIT 1",
+        )
+        .bind(tenant_id)
+        .bind(content_hash)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to find document by hash: {}", e)))?;
+        Ok(document)
+    }
+
     /// Update document status
     pub async fn update_document_status(&self, id: &str, status: &str) -> Result<()> {
         sqlx::query(

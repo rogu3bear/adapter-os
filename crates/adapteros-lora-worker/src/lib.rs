@@ -137,8 +137,8 @@ pub use test_executor::{TestExecutor, TestFailure, TestFramework, TestResult};
 pub use timeout::{CircuitBreaker, TimeoutConfig, TimeoutWrapper};
 pub use training::{
     AdapterManifest, AdapterPackager, DatasetGenerator, LoRAQuantizer, LoRAWeights,
-    MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingConfig, TrainingExample,
-    TrainingResult,
+    MicroLoRATrainer, PackagedAdapter, QuantizedLoRAWeights, TrainingBackend, TrainingConfig,
+    TrainingExample, TrainingResult,
 };
 pub use vision_adapter::{
     ColorSpace, VisionAdapter, VisionAdapterConfig, VisionAdapterMetrics, VisionBatch,

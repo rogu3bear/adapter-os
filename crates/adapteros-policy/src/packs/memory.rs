@@ -183,7 +183,7 @@ impl MemoryPolicy {
             memory_pressure,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as u64,
         }
     }
@@ -212,7 +212,7 @@ impl MemoryPolicy {
                 if let Some(ttl) = adapter.ttl_expires {
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_millis() as u64;
                     if now > ttl {
                         adapters_to_evict.push(adapter.clone());
@@ -262,7 +262,7 @@ impl MemoryPolicy {
             eviction_reason: EvictionReason::MemoryPressure,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as u64,
         })
     }

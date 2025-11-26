@@ -13,16 +13,20 @@ use serde_json::Value;
 use tracing::info;
 
 pub mod branch_manager;
+pub mod config;
 pub mod diff_analyzer;
 pub mod subsystem;
+pub mod types;
 
 pub use branch_manager::BranchManager;
+pub use config::{CommitConfig, WatcherConfig};
 pub use diff_analyzer::{
     ChangedSymbol, DiffAnalysis, DiffAnalyzer, DiffSummary, SymbolChangeType, SymbolKind,
 };
 pub use subsystem::{
     CommitDiff, CommitInfo, GitBranchInfo, GitConfig, GitStatusResponse, GitSubsystem,
 };
+pub use types::{ChangeBatch, ChangeType, FileChangeEvent};
 
 #[async_trait]
 impl Plugin for GitSubsystem {
@@ -45,21 +49,51 @@ impl Plugin for GitSubsystem {
     }
 
     async fn start(&self) -> Result<()> {
-        // NOTE: start_polling requires &mut self but Plugin trait uses &self.
-        // Full implementation pending interior mutability refactor.
-        info!("GitSubsystem start called (stubbed)");
+        info!("Starting Git plugin");
+        if self.enabled {
+            self.start_polling().await?;
+            info!("Git plugin started successfully");
+        } else {
+            info!("Git plugin disabled, not starting polling");
+        }
         Ok(())
     }
 
     async fn stop(&self) -> Result<()> {
-        // NOTE: stop_polling requires &mut self but Plugin trait uses &self.
-        // Full implementation pending interior mutability refactor.
-        info!("GitSubsystem stop called (stubbed)");
+        info!("Stopping Git plugin");
+        self.stop_polling().await?;
+        info!("Git plugin stopped successfully");
         Ok(())
     }
 
-    async fn reload(&self, _config: &PluginConfig) -> Result<()> {
-        // Reload branch manager if config changes
+    async fn reload(&self, config: &PluginConfig) -> Result<()> {
+        info!("Reloading Git plugin configuration");
+
+        // Parse the new config
+        let config_value = serde_json::Value::Object(
+            config
+                .specific
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        );
+        let git_cfg: GitConfig = serde_json::from_value(config_value)?;
+
+        // Stop polling if currently running
+        self.stop_polling().await?;
+
+        // Reload branch manager config if needed
+        let branch_manager = self.branch_manager();
+        let bm = branch_manager.write().await;
+        // BranchManager doesn't expose reload currently, but we can recreate if needed
+        drop(bm);
+
+        // Restart if enabled
+        if git_cfg.enabled {
+            self.start_polling().await?;
+        }
+
+        info!("Git plugin configuration reloaded successfully");
         Ok(())
     }
 

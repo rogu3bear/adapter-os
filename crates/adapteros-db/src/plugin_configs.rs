@@ -316,8 +316,6 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to list tenant plugin enables: {}", e))
-        })
+        .map_err(|e| AosError::Database(format!("Failed to list tenant plugin enables: {}", e)))
     }
 }

@@ -758,9 +758,19 @@ impl LifecycleManager {
 
             if let Some(record) = states.get_mut(&adapter_id) {
                 let old_state = record.state;
+                let memory_bytes = record.memory_bytes;
                 record.pin();
 
-                info!("Pinned adapter {} to resident state", record.adapter_id);
+                // Structured log for adapter state transition (PRD-INFRA-01)
+                info!(
+                    adapter_id = %record.adapter_id,
+                    from_state = %old_state,
+                    to_state = "resident",
+                    reason = "manual_pin",
+                    memory_bytes = memory_bytes,
+                    event_type = "adapter_state_transition",
+                    "Adapter state transition: pinned to resident"
+                );
 
                 if let Some(ref telemetry) = self.telemetry {
                     telemetry.log(
@@ -857,11 +867,18 @@ impl LifecycleManager {
 
         if let Some(record) = states.get_mut(&adapter_id) {
             let old_state = record.state;
+            let memory_bytes = record.memory_bytes;
 
             if record.promote() {
+                // Structured log for adapter state transition (PRD-INFRA-01)
                 info!(
-                    "Promoted adapter {} from {} to {}",
-                    record.adapter_id, old_state, record.state
+                    adapter_id = %record.adapter_id,
+                    from_state = %old_state,
+                    to_state = %record.state,
+                    reason = "manual_promotion",
+                    memory_bytes = memory_bytes,
+                    event_type = "adapter_state_transition",
+                    "Adapter state transition: promoted"
                 );
 
                 if let Some(ref telemetry) = self.telemetry {
@@ -897,11 +914,18 @@ impl LifecycleManager {
 
         if let Some(record) = states.get_mut(&adapter_id) {
             let old_state = record.state;
+            let memory_bytes = record.memory_bytes;
 
             if record.demote() {
+                // Structured log for adapter state transition (PRD-INFRA-01)
                 info!(
-                    "Demoted adapter {} from {} to {}",
-                    record.adapter_id, old_state, record.state
+                    adapter_id = %record.adapter_id,
+                    from_state = %old_state,
+                    to_state = %record.state,
+                    reason = "manual_demotion",
+                    memory_bytes = memory_bytes,
+                    event_type = "adapter_state_transition",
+                    "Adapter state transition: demoted"
                 );
 
                 if let Some(ref telemetry) = self.telemetry {
@@ -1031,12 +1055,20 @@ impl LifecycleManager {
         for (adapter_id, metric) in candidates {
             if let Some(record) = states.get_mut(&adapter_id) {
                 if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
-                    let _old_state = record.state;
+                    let old_state = record.state;
+                    let memory_freed = record.memory_bytes;
                     record.state = AdapterState::Unloaded;
 
+                    // Structured log for adapter eviction (PRD-INFRA-01)
                     info!(
-                        "Evicted adapter {} due to memory pressure",
-                        record.adapter_id
+                        adapter_id = %record.adapter_id,
+                        from_state = %old_state,
+                        to_state = "unloaded",
+                        reason = "memory_pressure",
+                        memory_freed_bytes = memory_freed,
+                        category = %record.category,
+                        event_type = "adapter_eviction",
+                        "Adapter evicted due to memory pressure"
                     );
 
                     if let Some(ref telemetry) = self.telemetry {
@@ -1046,7 +1078,7 @@ impl LifecycleManager {
                                 adapter_id: record.adapter_id.clone(),
                                 from_state: record.state.to_string(),
                                 category: record.category.clone(),
-                                memory_freed: record.memory_bytes,
+                                memory_freed,
                             },
                         )?;
                     }
@@ -1529,7 +1561,19 @@ impl LifecycleManager {
             });
         }
 
-        // Log eviction (non-blocking)
+        // Structured log for adapter eviction (PRD-INFRA-01)
+        info!(
+            adapter_id = %adapter_id_str,
+            from_state = %old_state,
+            to_state = "unloaded",
+            reason = "lru_eviction",
+            memory_freed_bytes = memory_freed,
+            category = %category,
+            event_type = "adapter_eviction",
+            "Adapter evicted via LRU policy"
+        );
+
+        // Log eviction (non-blocking telemetry)
         if let Some(ref telemetry) = self.telemetry {
             telemetry.log(
                 "adapter_evicted",
@@ -1541,11 +1585,6 @@ impl LifecycleManager {
                 },
             )?;
         }
-
-        info!(
-            "Evicted adapter {} ({} -> unloaded)",
-            adapter_id_str, old_state
-        );
 
         Ok(())
     }

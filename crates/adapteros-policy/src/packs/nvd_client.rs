@@ -5,7 +5,7 @@
 
 use adapteros_core::{AosError, Result};
 use chrono::{DateTime, Utc};
-use governor::{Quota, RateLimiter};
+use governor::{clock::DefaultClock, state::InMemoryState, state::NotKeyed, Quota, RateLimiter};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -172,7 +172,7 @@ impl From<NvdError> for AosError {
 pub struct NvdClient {
     http_client: Client,
     api_key: Option<String>,
-    rate_limiter: Arc<RateLimiter<governor::state::Direct>>,
+    rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
 }
 
 impl NvdClient {
@@ -215,88 +215,92 @@ impl NvdClient {
     }
 
     /// Query NVD with automatic retry on transient failures
-    async fn query_with_retry(
-        &self,
-        cpe_search: &str,
+    fn query_with_retry<'a>(
+        &'a self,
+        cpe_search: &'a str,
         attempt: u32,
-    ) -> std::result::Result<Vec<NvdCve>, NvdError> {
-        if attempt > MAX_RETRIES {
-            return Err(NvdError::Transient(
-                "Max retries exceeded".to_string(),
-            ));
-        }
-
-        // Apply rate limiting
-        self.rate_limiter.check().map_err(|_| NvdError::RateLimited)?;
-
-        // Build request
-        let mut url = reqwest::Url::parse(NVD_API_ENDPOINT)
-            .map_err(|e| NvdError::Config(format!("Invalid endpoint URL: {}", e)))?;
-
-        url.query_pairs_mut().append_pair("cpeName", cpe_search);
-
-        let mut req = self.http_client.get(url);
-
-        // Add API key header if available
-        if let Some(ref key) = self.api_key {
-            req = req.header("X-API-Key", key);
-        }
-
-        // Execute request
-        let response = match req.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    attempt = attempt,
-                    "NVD API request failed, will retry"
-                );
-                tokio::time::sleep(tokio::time::Duration::from_millis(
-                    RETRY_DELAY_MS * (attempt as u64 + 1),
-                ))
-                .await;
-                return self.query_with_retry(cpe_search, attempt + 1).await;
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::result::Result<Vec<NvdCve>, NvdError>> + 'a>,
+    > {
+        Box::pin(async move {
+            if attempt > MAX_RETRIES {
+                return Err(NvdError::Transient("Max retries exceeded".to_string()));
             }
-        };
 
-        // Check status code
-        match response.status() {
-            reqwest::StatusCode::OK => {}
-            reqwest::StatusCode::NOT_FOUND => return Err(NvdError::NotFound),
-            reqwest::StatusCode::TOO_MANY_REQUESTS => {
-                warn!("NVD API rate limit hit, will retry with backoff");
-                tokio::time::sleep(tokio::time::Duration::from_secs(2_u64.pow(attempt))).await;
-                return self.query_with_retry(cpe_search, attempt + 1).await;
+            // Apply rate limiting
+            self.rate_limiter
+                .check()
+                .map_err(|_| NvdError::RateLimited)?;
+
+            // Build request
+            let mut url = reqwest::Url::parse(NVD_API_ENDPOINT)
+                .map_err(|e| NvdError::Config(format!("Invalid endpoint URL: {}", e)))?;
+
+            url.query_pairs_mut().append_pair("cpeName", cpe_search);
+
+            let mut req = self.http_client.get(url);
+
+            // Add API key header if available
+            if let Some(ref key) = self.api_key {
+                req = req.header("X-API-Key", key);
             }
-            status if status.is_server_error() => {
-                warn!(
-                    status = %status,
-                    "NVD API server error, will retry"
-                );
-                tokio::time::sleep(tokio::time::Duration::from_millis(
-                    RETRY_DELAY_MS * (attempt as u64 + 1),
-                ))
-                .await;
-                return self.query_with_retry(cpe_search, attempt + 1).await;
+
+            // Execute request
+            let response = match req.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        attempt = attempt,
+                        "NVD API request failed, will retry"
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        RETRY_DELAY_MS * (attempt as u64 + 1),
+                    ))
+                    .await;
+                    return Box::pin(self.query_with_retry(cpe_search, attempt + 1)).await;
+                }
+            };
+
+            // Check status code
+            match response.status() {
+                reqwest::StatusCode::OK => {}
+                reqwest::StatusCode::NOT_FOUND => return Err(NvdError::NotFound),
+                reqwest::StatusCode::TOO_MANY_REQUESTS => {
+                    warn!("NVD API rate limit hit, will retry with backoff");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2_u64.pow(attempt))).await;
+                    return Box::pin(self.query_with_retry(cpe_search, attempt + 1)).await;
+                }
+                status if status.is_server_error() => {
+                    warn!(
+                        status = %status,
+                        "NVD API server error, will retry"
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        RETRY_DELAY_MS * (attempt as u64 + 1),
+                    ))
+                    .await;
+                    return Box::pin(self.query_with_retry(cpe_search, attempt + 1)).await;
+                }
+                status => {
+                    return Err(NvdError::Network(format!(
+                        "Unexpected status code: {}",
+                        status
+                    )))
+                }
             }
-            status => {
-                return Err(NvdError::Network(format!(
-                    "Unexpected status code: {}",
-                    status
-                )))
-            }
-        }
 
-        // Parse response
-        let body = response
-            .text()
-            .await
-            .map_err(|e| NvdError::Network(format!("Failed to read response body: {}", e)))?;
+            // Parse response
+            let body = response
+                .text()
+                .await
+                .map_err(|e| NvdError::Network(format!("Failed to read response body: {}", e)))?;
 
-        let api_response: NvdApiResponse = serde_json::from_str(&body)
-            .map_err(|e| NvdError::InvalidResponse(format!("Failed to parse JSON: {}", e)))?;
+            let api_response: NvdApiResponse = serde_json::from_str(&body)
+                .map_err(|e| NvdError::InvalidResponse(format!("Failed to parse JSON: {}", e)))?;
 
-        Ok(api_response.results.into_iter().map(|w| w.cve).collect())
+            Ok(api_response.results.into_iter().map(|w| w.cve).collect())
+        })
     }
 
     /// Extract CVSS base score from CVE
@@ -378,8 +382,8 @@ mod tests {
 
     #[test]
     fn test_nvd_client_creation() {
-        let client = NvdClient::new().expect("Failed to create client");
-        assert!(client.http_client.is_ok());
+        let client = NvdClient::new();
+        assert!(client.is_ok(), "Failed to create NVD client");
     }
 
     #[test]
@@ -470,12 +474,10 @@ mod tests {
             references: vec![],
             published: None,
             modified: None,
-            weaknesses: vec![
-                NvdWeakness {
-                    source: Some("NVD".to_string()),
-                    cwe_id: vec!["CWE-94".to_string(), "CWE-117".to_string()],
-                },
-            ],
+            weaknesses: vec![NvdWeakness {
+                source: Some("NVD".to_string()),
+                cwe_id: vec!["CWE-94".to_string(), "CWE-117".to_string()],
+            }],
         };
 
         let cwe_ids = NvdClient::extract_cwe_ids(&cve);
@@ -488,12 +490,10 @@ mod tests {
         let cve = NvdCve {
             id: "CVE-2021-44228".to_string(),
             metrics: NvdMetrics::default(),
-            descriptions: vec![
-                NvdDescription {
-                    lang: Some("en".to_string()),
-                    value: "Remote code execution vulnerability".to_string(),
-                },
-            ],
+            descriptions: vec![NvdDescription {
+                lang: Some("en".to_string()),
+                value: "Remote code execution vulnerability".to_string(),
+            }],
             references: vec![],
             published: None,
             modified: None,

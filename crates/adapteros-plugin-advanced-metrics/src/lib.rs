@@ -157,9 +157,7 @@ impl Plugin for AdvancedMetricsPlugin {
     async fn set_tenant_enabled(&self, tenant_id: &str, enabled: bool) -> Result<()> {
         debug!(
             plugin = self.name(),
-            tenant_id,
-            enabled,
-            "Tenant metrics collection toggle"
+            tenant_id, enabled, "Tenant metrics collection toggle"
         );
 
         // Metrics collection is global - tenant filtering handled at query time

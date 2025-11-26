@@ -208,15 +208,20 @@ impl Default for WatcherConfig {
     }
 }
 
+/// Mutable state for GitSubsystem (wrapped in Arc<RwLock<>>)
+struct GitSubsystemState {
+    watcher: Option<GitWatcher>,
+    daemon_handle: Option<JoinHandle<()>>,
+    is_polling: bool,
+}
+
 /// Git subsystem manager
 pub struct GitSubsystem {
     pub enabled: bool,
     pub db: Db,
-    branch_manager: BranchManager,
+    branch_manager: Arc<RwLock<BranchManager>>,
     pub enabled_tenants: Arc<RwLock<HashSet<String>>>,
-    watcher: Option<GitWatcher>,
-    daemon_handle: Option<JoinHandle<()>>,
-    pub is_polling: bool,
+    state: Arc<RwLock<GitSubsystemState>>,
 }
 
 impl std::fmt::Debug for GitSubsystem {
@@ -235,16 +240,18 @@ impl GitSubsystem {
         Ok(Self {
             enabled: cfg.enabled,
             db,
-            branch_manager,
+            branch_manager: Arc::new(RwLock::new(branch_manager)),
             enabled_tenants: Arc::new(RwLock::new(HashSet::new())),
-            watcher: None,
-            daemon_handle: None,
-            is_polling: false,
+            state: Arc::new(RwLock::new(GitSubsystemState {
+                watcher: None,
+                daemon_handle: None,
+                is_polling: false,
+            })),
         })
     }
 
     /// Start background tasks. Currently a no-op.
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&self) -> Result<()> {
         if self.enabled {
             self.start_polling().await?;
         }
@@ -404,7 +411,8 @@ impl GitSubsystem {
     }
 
     pub async fn get_status(&self) -> Result<GitStatusResponse> {
-        let active_sessions = self.branch_manager.list_active_sessions().await.len() as u32;
+        let branch_manager = self.branch_manager.read().await;
+        let active_sessions = branch_manager.list_active_sessions().await.len() as u32;
         let repositories = self.db.list_git_repositories().await.unwrap_or_default();
         let repositories_tracked = repositories.len() as u32;
 
@@ -535,8 +543,8 @@ impl GitSubsystem {
     }
 
     /// Get reference to the branch manager
-    pub fn branch_manager(&self) -> &BranchManager {
-        &self.branch_manager
+    pub fn branch_manager(&self) -> Arc<RwLock<BranchManager>> {
+        self.branch_manager.clone()
     }
 
     async fn resolve_repository(&self, repo_id: Option<&str>) -> Result<GitRepository> {
@@ -554,8 +562,10 @@ impl GitSubsystem {
         }
     }
 
-    pub async fn start_polling(&mut self) -> Result<()> {
-        if self.is_polling {
+    pub async fn start_polling(&self) -> Result<()> {
+        let mut state = self.state.write().await;
+
+        if state.is_polling {
             debug!("Git polling already active");
             return Ok(());
         }
@@ -575,7 +585,7 @@ impl GitSubsystem {
         let (tx, mut rx) = mpsc::channel::<()>(1024);
         let mut watcher = GitWatcher::new(config, self.db.clone(), tx).await?;
         watcher.start().await?;
-        self.watcher = Some(watcher);
+        state.watcher = Some(watcher);
 
         // Start daemon to process change notifications
         let enabled_tenants = self.enabled_tenants.clone();
@@ -613,15 +623,17 @@ impl GitSubsystem {
                 }
             }
         });
-        self.daemon_handle = Some(daemon_handle);
+        state.daemon_handle = Some(daemon_handle);
 
-        self.is_polling = true;
+        state.is_polling = true;
         info!("Git polling started");
         Ok(())
     }
 
-    pub async fn stop_polling(&mut self) -> Result<()> {
-        if !self.is_polling {
+    pub async fn stop_polling(&self) -> Result<()> {
+        let mut state = self.state.write().await;
+
+        if !state.is_polling {
             debug!("Git polling not active");
             return Ok(());
         }
@@ -629,12 +641,12 @@ impl GitSubsystem {
         info!("Stopping Git polling");
 
         // Stop watcher
-        if let Some(mut watcher) = self.watcher.take() {
+        if let Some(mut watcher) = state.watcher.take() {
             watcher.stop().await?;
         }
 
         // Abort daemon
-        if let Some(handle) = self.daemon_handle.take() {
+        if let Some(handle) = state.daemon_handle.take() {
             handle.abort();
             match handle.await {
                 Ok(()) => debug!("Git daemon task completed"),
@@ -643,7 +655,7 @@ impl GitSubsystem {
             }
         }
 
-        self.is_polling = false;
+        state.is_polling = false;
         info!("Git polling stopped");
         Ok(())
     }

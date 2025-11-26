@@ -65,9 +65,7 @@ impl Db {
         .bind(&params.chunking_config_json)
         .execute(&*self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to create training snapshot: {}", e))
-        })?;
+        .map_err(|e| AosError::Database(format!("Failed to create training snapshot: {}", e)))?;
 
         Ok(id)
     }
@@ -151,9 +149,7 @@ impl Db {
         .bind(collection_id)
         .fetch_all(&*self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to fetch collection snapshots: {}", e))
-        })?;
+        .map_err(|e| AosError::Database(format!("Failed to fetch collection snapshots: {}", e)))?;
 
         Ok(records.into_iter().map(Into::into).collect())
     }
@@ -224,10 +220,7 @@ mod tests {
         assert!(!id.is_empty());
 
         // Retrieve snapshot
-        let snapshot = db
-            .get_adapter_training_snapshot(adapter_id)
-            .await
-            .unwrap();
+        let snapshot = db.get_adapter_training_snapshot(adapter_id).await.unwrap();
         assert!(snapshot.is_some());
 
         let snapshot = snapshot.unwrap();
@@ -236,8 +229,7 @@ mod tests {
         assert_eq!(snapshot.chunk_manifest_hash, "manifest_hash_123");
 
         // Verify JSON fields can be parsed
-        let docs: serde_json::Value =
-            serde_json::from_str(&snapshot.documents_json).unwrap();
+        let docs: serde_json::Value = serde_json::from_str(&snapshot.documents_json).unwrap();
         assert!(docs.is_array());
         assert_eq!(docs.as_array().unwrap().len(), 2);
 
@@ -300,10 +292,7 @@ mod tests {
         }
 
         // Retrieve all snapshots for the collection
-        let snapshots = db
-            .get_snapshots_by_collection(collection_id)
-            .await
-            .unwrap();
+        let snapshots = db.get_snapshots_by_collection(collection_id).await.unwrap();
         assert_eq!(snapshots.len(), 2);
 
         // Verify all have the same collection ID

@@ -25,6 +25,8 @@ pub struct EgressConfig {
     pub media_import: MediaImportConfig,
     /// DNS resolution policy
     pub dns_policy: DnsPolicy,
+    /// Enforcement level: determines whether violations block or warn
+    pub enforcement_level: EnforcementLevel,
 }
 
 /// Egress mode configuration
@@ -60,6 +62,17 @@ pub struct DnsPolicy {
     pub allowed_servers: Vec<String>,
 }
 
+/// Enforcement level for egress policy
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EnforcementLevel {
+    /// Log violations only, don't block
+    Warn,
+    /// Block violations with errors
+    Block,
+    /// Automatically determine based on runtime mode
+    Auto,
+}
+
 impl Default for EgressConfig {
     fn default() -> Self {
         Self {
@@ -78,7 +91,31 @@ impl Default for EgressConfig {
                 log_dns_attempts: true,
                 allowed_servers: vec![],
             },
+            enforcement_level: EnforcementLevel::Auto,
         }
+    }
+}
+
+/// Runtime mode for egress enforcement
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeMode {
+    /// Development mode: relaxed enforcement
+    Dev,
+    /// Staging mode: moderate enforcement
+    Staging,
+    /// Production mode: strict enforcement
+    Prod,
+}
+
+impl RuntimeMode {
+    /// Check if this mode should block egress violations
+    pub fn should_block_egress(&self) -> bool {
+        matches!(self, RuntimeMode::Prod)
+    }
+
+    /// Check if this mode allows egress
+    pub fn allows_egress(&self) -> bool {
+        matches!(self, RuntimeMode::Dev)
     }
 }
 
@@ -91,6 +128,17 @@ impl EgressPolicy {
     /// Create a new egress policy
     pub fn new(config: EgressConfig) -> Self {
         Self { config }
+    }
+
+    /// Determine if violations should block based on enforcement level and runtime mode
+    fn should_block(&self, runtime_mode: Option<RuntimeMode>) -> bool {
+        match self.config.enforcement_level {
+            EnforcementLevel::Warn => false,
+            EnforcementLevel::Block => true,
+            EnforcementLevel::Auto => runtime_mode
+                .map(|m| m.should_block_egress())
+                .unwrap_or(false),
+        }
     }
 
     /// Validate PF rules are active
@@ -107,13 +155,25 @@ impl EgressPolicy {
 
     /// Validate no network sockets are open
     pub fn validate_no_network_sockets(&self) -> Result<()> {
+        self.validate_no_network_sockets_with_mode(None)
+    }
+
+    /// Validate no network sockets are open (with runtime mode)
+    pub fn validate_no_network_sockets_with_mode(
+        &self,
+        runtime_mode: Option<RuntimeMode>,
+    ) -> Result<()> {
         if !self.config.allow_tcp && !self.config.allow_udp {
             tracing::info!("Validating no network sockets are open");
             Ok(())
         } else {
-            Err(AosError::PolicyViolation(
-                "Network sockets are not allowed in deny_all mode".to_string(),
-            ))
+            let msg = "Network sockets are not allowed in deny_all mode".to_string();
+            if self.should_block(runtime_mode) {
+                Err(AosError::PolicyViolation(msg))
+            } else {
+                tracing::warn!("{}", msg);
+                Ok(())
+            }
         }
     }
 
@@ -153,12 +213,60 @@ impl EgressPolicy {
 
     /// Check DNS resolution policy
     pub fn check_dns_policy(&self, domain: &str) -> Result<()> {
+        self.check_dns_policy_with_mode(domain, None)
+    }
+
+    /// Check DNS resolution policy (with runtime mode)
+    pub fn check_dns_policy_with_mode(
+        &self,
+        domain: &str,
+        runtime_mode: Option<RuntimeMode>,
+    ) -> Result<()> {
         if self.config.dns_policy.block_dns_serving {
-            tracing::warn!("DNS resolution blocked for domain: {}", domain);
-            Err(AosError::PolicyViolation(format!(
-                "DNS resolution blocked during serving: {}",
-                domain
-            )))
+            let msg = format!("DNS resolution blocked during serving: {}", domain);
+            if self.should_block(runtime_mode) {
+                tracing::error!("{}", msg);
+                Err(AosError::PolicyViolation(msg))
+            } else {
+                tracing::warn!("{}", msg);
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check network egress attempt (new method for runtime enforcement)
+    pub fn check_network_egress(
+        &self,
+        protocol: &str,
+        destination: &str,
+        runtime_mode: Option<RuntimeMode>,
+    ) -> Result<()> {
+        // Allow UDS always
+        if protocol == "uds" {
+            return Ok(());
+        }
+
+        // Check if protocol is allowed
+        let allowed = match protocol {
+            "tcp" => self.config.allow_tcp,
+            "udp" => self.config.allow_udp,
+            _ => false,
+        };
+
+        if !allowed {
+            let msg = format!(
+                "Egress blocked: {} to {} (protocol not allowed)",
+                protocol, destination
+            );
+            if self.should_block(runtime_mode) {
+                tracing::error!("{}", msg);
+                Err(AosError::PolicyViolation(msg))
+            } else {
+                tracing::warn!("{}", msg);
+                Ok(())
+            }
         } else {
             Ok(())
         }
@@ -178,31 +286,53 @@ impl Policy for EgressPolicy {
         Severity::Critical
     }
 
-    fn enforce(&self, _ctx: &dyn PolicyContext) -> Result<Audit> {
+    fn enforce(&self, ctx: &dyn PolicyContext) -> Result<Audit> {
         let mut violations = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Extract runtime mode from context metadata
+        let runtime_mode = ctx
+            .metadata()
+            .get("runtime_mode")
+            .and_then(|s| match s.as_str() {
+                "dev" | "development" => Some(RuntimeMode::Dev),
+                "staging" | "stage" => Some(RuntimeMode::Staging),
+                "prod" | "production" => Some(RuntimeMode::Prod),
+                _ => None,
+            });
+
+        let should_block = self.should_block(runtime_mode);
 
         // Validate PF rules
         if let Err(e) = self.validate_pf_rules() {
-            violations.push(Violation {
-                severity: Severity::Critical,
-                message: e.to_string(),
-                details: Some("PF rules validation failed".to_string()),
-            });
+            if should_block {
+                violations.push(Violation {
+                    severity: Severity::Critical,
+                    message: e.to_string(),
+                    details: Some("PF rules validation failed".to_string()),
+                });
+            } else {
+                warnings.push(format!("PF rules validation failed: {}", e));
+            }
         }
 
-        // Validate network sockets
-        if let Err(e) = self.validate_no_network_sockets() {
-            violations.push(Violation {
-                severity: Severity::Critical,
-                message: e.to_string(),
-                details: Some("Network socket validation failed".to_string()),
-            });
+        // Validate network sockets with runtime mode
+        if let Err(e) = self.validate_no_network_sockets_with_mode(runtime_mode) {
+            if should_block {
+                violations.push(Violation {
+                    severity: Severity::Critical,
+                    message: e.to_string(),
+                    details: Some("Network socket validation failed".to_string()),
+                });
+            } else {
+                warnings.push(format!("Network socket validation failed: {}", e));
+            }
         }
 
         if violations.is_empty() {
-            Ok(Audit::passed(self.id()))
+            Ok(Audit::passed(self.id()).with_warnings(warnings))
         } else {
-            Ok(Audit::failed(self.id(), violations))
+            Ok(Audit::failed(self.id(), violations).with_warnings(warnings))
         }
     }
 }
@@ -263,5 +393,98 @@ mod tests {
 
         // DNS should be blocked by default
         assert!(policy.check_dns_policy("example.com").is_err());
+    }
+
+    #[test]
+    fn test_runtime_mode_enforcement() {
+        // Test that dev mode allows egress
+        assert!(RuntimeMode::Dev.allows_egress());
+        assert!(!RuntimeMode::Dev.should_block_egress());
+
+        // Test that staging mode doesn't allow egress by default
+        assert!(!RuntimeMode::Staging.allows_egress());
+        assert!(!RuntimeMode::Staging.should_block_egress());
+
+        // Test that prod mode blocks egress
+        assert!(!RuntimeMode::Prod.allows_egress());
+        assert!(RuntimeMode::Prod.should_block_egress());
+    }
+
+    #[test]
+    fn test_enforcement_level_warn() {
+        let mut config = EgressConfig::default();
+        config.enforcement_level = EnforcementLevel::Warn;
+        config.allow_tcp = true; // This would normally cause a violation
+        let policy = EgressPolicy::new(config);
+
+        // Should not block even in prod mode with Warn enforcement
+        assert!(!policy.should_block(Some(RuntimeMode::Prod)));
+    }
+
+    #[test]
+    fn test_enforcement_level_block() {
+        let mut config = EgressConfig::default();
+        config.enforcement_level = EnforcementLevel::Block;
+        let policy = EgressPolicy::new(config);
+
+        // Should always block with Block enforcement, regardless of mode
+        assert!(policy.should_block(Some(RuntimeMode::Dev)));
+        assert!(policy.should_block(Some(RuntimeMode::Staging)));
+        assert!(policy.should_block(Some(RuntimeMode::Prod)));
+    }
+
+    #[test]
+    fn test_enforcement_level_auto() {
+        let mut config = EgressConfig::default();
+        config.enforcement_level = EnforcementLevel::Auto;
+        let policy = EgressPolicy::new(config);
+
+        // Should only block in prod mode with Auto enforcement
+        assert!(!policy.should_block(Some(RuntimeMode::Dev)));
+        assert!(!policy.should_block(Some(RuntimeMode::Staging)));
+        assert!(policy.should_block(Some(RuntimeMode::Prod)));
+    }
+
+    #[test]
+    fn test_check_network_egress_with_runtime_mode() {
+        let config = EgressConfig::default();
+        let policy = EgressPolicy::new(config);
+
+        // UDS should always be allowed
+        assert!(policy
+            .check_network_egress("uds", "/var/run/aos/test.sock", Some(RuntimeMode::Prod))
+            .is_ok());
+
+        // TCP should be blocked in prod mode (default config has allow_tcp=false)
+        assert!(policy
+            .check_network_egress("tcp", "example.com:443", Some(RuntimeMode::Prod))
+            .is_err());
+
+        // TCP should warn but not block in dev mode with Auto enforcement
+        let mut dev_config = EgressConfig::default();
+        dev_config.enforcement_level = EnforcementLevel::Auto;
+        let dev_policy = EgressPolicy::new(dev_config);
+        assert!(dev_policy
+            .check_network_egress("tcp", "example.com:443", Some(RuntimeMode::Dev))
+            .is_ok());
+    }
+
+    #[test]
+    fn test_dns_policy_with_runtime_mode() {
+        let config = EgressConfig::default();
+        let policy = EgressPolicy::new(config);
+
+        // DNS should block in prod mode by default
+        assert!(policy
+            .check_dns_policy_with_mode("example.com", Some(RuntimeMode::Prod))
+            .is_err());
+
+        // DNS should warn but not block in dev mode with Auto enforcement
+        let mut dev_config = EgressConfig::default();
+        dev_config.enforcement_level = EnforcementLevel::Auto;
+        let dev_policy = EgressPolicy::new(dev_config);
+        assert!(dev_policy
+            .check_dns_policy_with_mode("example.com", Some(RuntimeMode::Dev))
+            .is_ok());
     }
 }

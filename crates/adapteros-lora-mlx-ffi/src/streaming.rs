@@ -465,15 +465,23 @@ impl MLXStreamingGenerator {
             let tx_clone = tx.clone();
             let interval = self.config.keep_alive_interval;
             let task_name = format!("mlx-stream-keep-alive-{}", self.tokens_generated);
-            Some(spawn_deterministic(task_name, async move {
-                let mut ticker = tokio::time::interval(interval);
-                loop {
-                    ticker.tick().await;
-                    if tx_clone.send(StreamEvent::KeepAlive).await.is_err() {
-                        break;
+            Some(
+                spawn_deterministic(task_name, async move {
+                    let mut ticker = tokio::time::interval(interval);
+                    loop {
+                        ticker.tick().await;
+                        if tx_clone.send(StreamEvent::KeepAlive).await.is_err() {
+                            break;
+                        }
                     }
-                }
-            }).map_err(|e| AosError::DeterminismViolation(format!("Failed to spawn keep-alive task: {}", e)))?)
+                })
+                .map_err(|e| {
+                    AosError::DeterminismViolation(format!(
+                        "Failed to spawn keep-alive task: {}",
+                        e
+                    ))
+                })?,
+            )
         } else {
             None
         };

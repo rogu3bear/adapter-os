@@ -408,7 +408,10 @@ impl PasswordFallbackKeyring {
 
     /// Get or create key handle from keystore
     fn get_or_create_key_handle(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
-        let mut keys = self.keys.lock().unwrap();
+        let mut keys = self.keys.lock().map_err(|e| {
+            error!(error = %e, "Keystore mutex poisoned");
+            AosError::Crypto("Keystore mutex poisoned".to_string())
+        })?;
 
         if let Some(handle) = keys.get(key_id) {
             return Ok(handle.clone());
@@ -503,7 +506,7 @@ impl PasswordFallbackKeyring {
             serde_json::Value::String(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_secs()
                     .to_string(),
             ),
@@ -578,7 +581,10 @@ impl KeyringImpl for PasswordFallbackKeyring {
         // Cache in memory
         self.keys
             .lock()
-            .unwrap()
+            .map_err(|e| {
+                error!(error = %e, "Keystore mutex poisoned");
+                AosError::Crypto("Keystore mutex poisoned".to_string())
+            })?
             .insert(key_id.to_string(), handle.clone());
 
         info!(key_id = %key_id, algorithm = ?alg_clone, "Generated key and stored in password fallback keystore");
@@ -748,7 +754,7 @@ impl KeyringImpl for PasswordFallbackKeyring {
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         // Create receipt data to sign
@@ -775,15 +781,21 @@ impl KeyringImpl for PasswordFallbackKeyring {
     async fn attest(&self) -> Result<ProviderAttestation> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         // Calculate policy hash from provider configuration and state
+        let key_count = self
+            .keys
+            .lock()
+            .map_err(|e| {
+                error!(error = %e, "Keystore mutex poisoned");
+                AosError::Crypto("Keystore mutex poisoned".to_string())
+            })?
+            .len();
         let policy_data = format!(
             "provider:password-fallback|service:{}|timestamp:{}|keys:{}",
-            self.service_name,
-            timestamp,
-            self.keys.lock().unwrap().len()
+            self.service_name, timestamp, key_count
         );
         use sha2::{Digest, Sha256};
         let policy_hash = format!("{:x}", Sha256::digest(&policy_data));

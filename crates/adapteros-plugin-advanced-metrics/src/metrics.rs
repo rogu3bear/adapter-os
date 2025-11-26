@@ -107,7 +107,10 @@ impl MetricsCollector {
             )
             .expect("Failed to create tenant_tokens_per_sec metric"),
             system_cpu_percent: GaugeVec::new(
-                Opts::new("adapteros_system_cpu_percent", "System CPU usage percentage"),
+                Opts::new(
+                    "adapteros_system_cpu_percent",
+                    "System CPU usage percentage",
+                ),
                 &["node"],
             )
             .expect("Failed to create system_cpu_percent metric"),
@@ -213,10 +216,7 @@ impl MetricsCollector {
         }
 
         // Record duration when job completes
-        if matches!(
-            event.status.as_str(),
-            "completed" | "failed" | "cancelled"
-        ) {
+        if matches!(event.status.as_str(), "completed" | "failed" | "cancelled") {
             if let Some(start_time) = self.training_job_starts.remove(&event.job_id) {
                 let duration_secs = start_time.elapsed().as_secs_f64();
 
@@ -246,9 +246,7 @@ impl MetricsCollector {
 
         // System metrics
         if let Some(cpu) = event.cpu_percent {
-            self.system_cpu_percent
-                .with_label_values(&[node])
-                .set(cpu);
+            self.system_cpu_percent.with_label_values(&[node]).set(cpu);
         }
 
         if let Some(mem_bytes) = event.memory_bytes {
@@ -390,9 +388,7 @@ mod tests {
             metadata: HashMap::new(),
         };
 
-        assert!(collector
-            .record_training_job_event(&complete_event)
-            .is_ok());
+        assert!(collector.record_training_job_event(&complete_event).is_ok());
         assert_eq!(collector.training_job_starts.len(), 0); // Cleaned up
 
         let stats = collector.get_stats();

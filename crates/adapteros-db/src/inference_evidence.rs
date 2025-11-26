@@ -81,9 +81,7 @@ impl Db {
         .bind(&params.context_hash)
         .execute(&*self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to create inference evidence: {}", e))
-        })?;
+        .map_err(|e| AosError::Database(format!("Failed to create inference evidence: {}", e)))?;
 
         Ok(id)
     }

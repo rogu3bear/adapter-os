@@ -147,9 +147,9 @@ impl CryptoAuditEntry {
             result,
             error_message,
             metadata,
-            signature: vec![], // Will be set by audit logger
-            entry_hash: None,   // Will be computed by audit logger
-            previous_hash: None, // Will be set by audit logger
+            signature: vec![],    // Will be set by audit logger
+            entry_hash: None,     // Will be computed by audit logger
+            previous_hash: None,  // Will be set by audit logger
             chain_sequence: None, // Will be set by audit logger
         }
     }

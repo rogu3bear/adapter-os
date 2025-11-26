@@ -32,6 +32,10 @@ pub struct StartTrainingRequest {
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
     pub dataset_id: Option<String>,
+    /// Base model ID for provenance tracking
+    pub base_model_id: Option<String>,
+    /// Document collection ID for provenance tracking
+    pub collection_id: Option<String>,
 }
 
 /// Training job response
@@ -45,6 +49,18 @@ pub struct TrainingJobResponse {
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
     pub dataset_id: Option<String>,
+    /// Base model ID used for training
+    pub base_model_id: Option<String>,
+    /// Document collection ID used for training
+    pub collection_id: Option<String>,
+    /// Build ID for CI/CD traceability
+    pub build_id: Option<String>,
+    /// BLAKE3 hash of training config for reproducibility
+    pub config_hash_b3: Option<String>,
+    /// Adapter ID after packaging (populated on completion)
+    pub adapter_id: Option<String>,
+    /// BLAKE3 hash of adapter weights (for verification)
+    pub weights_hash_b3: Option<String>,
     pub status: String,
     pub progress_pct: f32,
     pub current_epoch: u32,
@@ -68,6 +84,12 @@ impl From<TrainingJob> for TrainingJobResponse {
             template_id: job.template_id,
             repo_id: job.repo_id,
             dataset_id: job.dataset_id,
+            base_model_id: job.base_model_id,
+            collection_id: job.collection_id,
+            build_id: job.build_id,
+            config_hash_b3: job.config_hash_b3,
+            adapter_id: job.adapter_id,
+            weights_hash_b3: job.weights_hash_b3,
             status: job.status.to_string(),
             progress_pct: job.progress_pct,
             current_epoch: job.current_epoch,

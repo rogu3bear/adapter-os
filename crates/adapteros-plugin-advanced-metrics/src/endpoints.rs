@@ -41,12 +41,10 @@ pub async fn metrics_endpoint(
     let metric_families = prometheus::gather();
 
     let mut buffer = Vec::new();
-    encoder
-        .encode(&metric_families, &mut buffer)
-        .map_err(|e| {
-            error!(error = %e, "Failed to encode Prometheus metrics");
-            format!("Failed to encode metrics: {}", e)
-        })?;
+    encoder.encode(&metric_families, &mut buffer).map_err(|e| {
+        error!(error = %e, "Failed to encode Prometheus metrics");
+        format!("Failed to encode metrics: {}", e)
+    })?;
 
     let body = String::from_utf8(buffer).map_err(|e| {
         error!(error = %e, "Failed to convert metrics to UTF-8");

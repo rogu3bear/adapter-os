@@ -82,6 +82,23 @@ pub struct ComplianceScore {
     pub metadata_json: Option<String>,
 }
 
+/// Category compliance score (for stack compliance summary)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryComplianceData {
+    pub score: f64,
+    pub passed: i32,
+    pub failed: i32,
+}
+
+/// Stack compliance summary (calculated from violations)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StackComplianceData {
+    pub overall_score: f64,
+    pub status: String,
+    pub by_category: std::collections::HashMap<String, CategoryComplianceData>,
+    pub last_calculated: String,
+}
+
 impl Db {
     // ========== Policy Pack Methods ==========
 
@@ -501,6 +518,161 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Failed to get compliance score: {}", e)))?;
 
         Ok(score)
+    }
+
+    /// Get policy assignments specifically for a stack
+    pub async fn get_policy_assignments_for_stack(
+        &self,
+        stack_id: &str,
+    ) -> Result<Vec<PolicyAssignment>> {
+        let assignments = sqlx::query_as::<_, PolicyAssignment>(
+            "SELECT * FROM policy_assignments
+             WHERE target_type = 'stack' AND target_id = ?
+             ORDER BY priority DESC, assigned_at DESC",
+        )
+        .bind(stack_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get stack policy assignments: {}", e))
+        })?;
+
+        Ok(assignments)
+    }
+
+    /// Calculate compliance summary for a stack
+    ///
+    /// Returns a StackComplianceData with overall score and category breakdowns
+    pub async fn calculate_stack_compliance(
+        &self,
+        stack_id: &str,
+        _tenant_id: &str,
+    ) -> Result<StackComplianceData> {
+        use std::collections::HashMap;
+
+        // Get violations for this stack (unresolved) to calculate compliance
+        let violations = sqlx::query_as::<_, PolicyViolation>(
+            "SELECT pv.* FROM policy_violations pv
+             JOIN policy_assignments pa ON pv.policy_assignment_id = pa.id
+             WHERE pa.target_type = 'stack' AND pa.target_id = ?
+             AND pv.resolved_at IS NULL
+             ORDER BY pv.detected_at DESC",
+        )
+        .bind(stack_id)
+        .fetch_all(&*self.pool())
+        .await
+        .unwrap_or_else(|_| vec![]);
+
+        // Get policy assignments for the stack to count total policies
+        let assignments = self.get_policy_assignments_for_stack(stack_id).await?;
+
+        // Calculate scores by category
+        // Categories: security, quality, compliance, performance
+        let mut by_category: HashMap<String, CategoryComplianceData> = HashMap::new();
+
+        // Initialize categories
+        for cat in &["security", "quality", "compliance", "performance"] {
+            by_category.insert(
+                cat.to_string(),
+                CategoryComplianceData {
+                    score: 100.0,
+                    passed: 0,
+                    failed: 0,
+                },
+            );
+        }
+
+        // Count violations by severity and map to categories
+        let mut total_violations = 0;
+        let mut critical_violations = 0;
+        let mut high_violations = 0;
+
+        for v in &violations {
+            total_violations += 1;
+            match v.severity.as_str() {
+                "critical" => critical_violations += 1,
+                "high" => high_violations += 1,
+                _ => {}
+            }
+
+            // Map violation resource_type to category
+            let category = match v.resource_type.as_str() {
+                "egress" | "isolation" | "secrets" => "security",
+                "determinism" | "router" | "naming" => "quality",
+                "evidence" | "telemetry" | "audit" => "compliance",
+                "memory" | "latency" | "throughput" => "performance",
+                _ => "compliance", // Default to compliance
+            };
+
+            if let Some(cat_score) = by_category.get_mut(category) {
+                cat_score.failed += 1;
+            }
+        }
+
+        // Calculate passed count based on assignments
+        let total_checks = assignments.len() as i32;
+        for cat_score in by_category.values_mut() {
+            // Distribute total checks evenly across categories for simplicity
+            let cat_total = total_checks / 4;
+            cat_score.passed = (cat_total - cat_score.failed).max(0);
+            // Calculate score: (passed / total) * 100
+            if cat_total > 0 {
+                cat_score.score = (cat_score.passed as f64 / cat_total as f64) * 100.0;
+            }
+        }
+
+        // Calculate overall score
+        // Formula: 100 - (critical * 25) - (high * 10) - (other * 2), min 0
+        let overall_score = (100.0
+            - (critical_violations as f64 * 25.0)
+            - (high_violations as f64 * 10.0)
+            - ((total_violations - critical_violations - high_violations) as f64 * 2.0))
+            .max(0.0)
+            .min(100.0);
+
+        // Determine status
+        let status = if overall_score >= 90.0 {
+            "compliant"
+        } else if overall_score >= 70.0 {
+            "warning"
+        } else {
+            "non_compliant"
+        };
+
+        let now = chrono::Utc::now().to_rfc3339();
+
+        Ok(StackComplianceData {
+            overall_score,
+            status: status.to_string(),
+            by_category,
+            last_calculated: now,
+        })
+    }
+
+    /// Get recent policy violations for a stack (within the last N hours)
+    pub async fn get_recent_stack_violations(
+        &self,
+        stack_id: &str,
+        hours: i64,
+    ) -> Result<Vec<PolicyViolation>> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::hours(hours);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let violations = sqlx::query_as::<_, PolicyViolation>(
+            "SELECT pv.* FROM policy_violations pv
+             JOIN policy_assignments pa ON pv.policy_assignment_id = pa.id
+             WHERE pa.target_type = 'stack' AND pa.target_id = ?
+             AND pv.detected_at >= ?
+             ORDER BY pv.detected_at DESC
+             LIMIT 50",
+        )
+        .bind(stack_id)
+        .bind(&cutoff_str)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get recent stack violations: {}", e)))?;
+
+        Ok(violations)
     }
 
     /// Get compliance scores over time for trending

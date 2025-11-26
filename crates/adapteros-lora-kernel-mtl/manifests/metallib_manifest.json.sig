@@ -1,6 +1,6 @@
 {
-  "signature": "AUWU4Q2VS/eqoOHi9qYHOTiwOLzg5yh84MGnkH8zu6tAEVSY08sT6LVQIaS5t/iXM6tzENXJelZKxcsHMYoEBQ==",
+  "signature": "Jkvyp1WJWndtZdDCjlKuVFuAWPDvm1KQDERYCMXfjsJGiZ7xsh9vRYkfGegK2afI3Al557miHsgM6yCrDRI+Aw==",
   "public_key": "YHvOlgysu1n7L4DcBSLwNVWxH66LEhEgfutMZWmamx0=",
   "algorithm": "Ed25519",
-  "canonical_json": "{\"kernel_hash\":\"37c3cac121d4b42d111ef83c421f768261585a2f70902b77ece79444bd031dfe\",\"xcrun_version\":\"xcrun version 72.\",\"sdk_version\":\"26.1\",\"rust_version\":\"\",\"build_timestamp\":\"2025-11-25T23:42:06.155980+00:00\",\"toolchain_metadata\":{\"xcode_version\":\"xcrun version 72.\",\"sdk_version\":\"26.1\",\"rust_version\":\"\",\"metal_version\":\"3.1\"}}"
+  "canonical_json": "{\"kernel_hash\":\"37c3cac121d4b42d111ef83c421f768261585a2f70902b77ece79444bd031dfe\",\"xcrun_version\":\"xcrun version 72.\",\"sdk_version\":\"26.1\",\"rust_version\":\"\",\"build_timestamp\":\"2025-11-26T06:28:39.374571+00:00\",\"toolchain_metadata\":{\"xcode_version\":\"xcrun version 72.\",\"sdk_version\":\"26.1\",\"rust_version\":\"\",\"metal_version\":\"3.1\"}}"
 }

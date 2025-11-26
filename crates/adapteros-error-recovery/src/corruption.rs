@@ -224,7 +224,7 @@ impl CorruptionDetector {
     async fn check_file_metadata(&self, path: &Path) -> Result<()> {
         let metadata = fs::metadata(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to get file metadata: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?;
 
         // Check if metadata is reasonable
         if metadata.len() == 0 && metadata.is_file() {
@@ -235,9 +235,7 @@ impl CorruptionDetector {
         // Check if file size is reasonable (not negative, not too large)
         if metadata.len() > 100 * 1024 * 1024 * 1024 {
             // 100GB
-            return Err(AosError::Recovery(
-                "File size unreasonably large".to_string(),
-            ));
+            return Err(AosError::Io("File size unreasonably large".to_string()));
         }
 
         Ok(())
@@ -247,7 +245,7 @@ impl CorruptionDetector {
     async fn check_file_permissions(&self, path: &Path) -> Result<()> {
         let metadata = fs::metadata(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to get file permissions: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to get file permissions: {}", e)))?;
 
         // Check if permissions are reasonable
         #[cfg(unix)]
@@ -257,7 +255,7 @@ impl CorruptionDetector {
 
             // Check for suspicious permissions (e.g., world-writable)
             if mode & 0o002 != 0 {
-                return Err(AosError::Recovery(
+                return Err(AosError::Io(
                     "File has world-writable permissions".to_string(),
                 ));
             }
@@ -270,15 +268,15 @@ impl CorruptionDetector {
     async fn check_file_size_consistency(&self, path: &Path) -> Result<()> {
         let metadata = fs::metadata(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to get file metadata: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to get file metadata: {}", e)))?;
 
         // Read file and check actual size
         let content = fs::read(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read file: {}", e)))?;
 
         if content.len() as u64 != metadata.len() {
-            return Err(AosError::Recovery(format!(
+            return Err(AosError::Io(format!(
                 "Size mismatch: metadata={}, actual={}",
                 metadata.len(),
                 content.len()
@@ -294,14 +292,14 @@ impl CorruptionDetector {
         // In production, this would use a more robust checksum algorithm
         let content = fs::read(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read file for checksum: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read file for checksum: {}", e)))?;
 
         let checksum = self.calculate_checksum(&content);
 
         // Check against cached checksum if available
         if let Some(cached_checksum) = self.checksum_cache.get(path) {
             if &checksum != cached_checksum {
-                return Err(AosError::Recovery("Checksum mismatch".to_string()));
+                return Err(AosError::Io("Checksum mismatch".to_string()));
             }
         } else {
             // Cache the checksum for future comparison
@@ -316,7 +314,7 @@ impl CorruptionDetector {
     async fn check_file_content_integrity(&self, path: &Path) -> Result<()> {
         let content = fs::read(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read file content: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read file content: {}", e)))?;
 
         // Check for common corruption patterns
         if content.is_empty() {
@@ -327,7 +325,7 @@ impl CorruptionDetector {
         // Check for null bytes in text files
         if let Some(ext_str) = path.extension().and_then(|ext| ext.to_str()) {
             if matches!(ext_str, "txt" | "json" | "toml" | "yaml" | "md") && content.contains(&0) {
-                return Err(AosError::Recovery("File contains null bytes".to_string()));
+                return Err(AosError::Io("File contains null bytes".to_string()));
             }
         }
 
@@ -338,10 +336,10 @@ impl CorruptionDetector {
     async fn check_directory_metadata(&self, path: &Path) -> Result<()> {
         let metadata = fs::metadata(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to get directory metadata: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to get directory metadata: {}", e)))?;
 
         if !metadata.is_dir() {
-            return Err(AosError::Recovery("Path is not a directory".to_string()));
+            return Err(AosError::Io("Path is not a directory".to_string()));
         }
 
         Ok(())
@@ -349,9 +347,9 @@ impl CorruptionDetector {
 
     /// Check directory permissions
     async fn check_directory_permissions(&self, path: &Path) -> Result<()> {
-        let metadata = fs::metadata(path).await.map_err(|e| {
-            AosError::Recovery(format!("Failed to get directory permissions: {}", e))
-        })?;
+        let metadata = fs::metadata(path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to get directory permissions: {}", e)))?;
 
         // Check if permissions are reasonable
         #[cfg(unix)]
@@ -361,7 +359,7 @@ impl CorruptionDetector {
 
             // Check for suspicious permissions
             if mode & 0o002 != 0 {
-                return Err(AosError::Recovery(
+                return Err(AosError::Io(
                     "Directory has world-writable permissions".to_string(),
                 ));
             }
@@ -374,20 +372,20 @@ impl CorruptionDetector {
     async fn check_directory_structure(&self, path: &Path) -> Result<()> {
         let mut entries = fs::read_dir(path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read directory: {}", e)))?;
 
         let mut entry_count = 0;
         while let Some(entry) = entries
             .next_entry()
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read directory entry: {}", e)))?
+            .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?
         {
             entry_count += 1;
 
             // Check if entry is accessible
             let entry_path = entry.path();
             if let Err(e) = fs::metadata(&entry_path).await {
-                return Err(AosError::Recovery(format!(
+                return Err(AosError::Io(format!(
                     "Cannot access directory entry {}: {}",
                     entry_path.display(),
                     e
@@ -397,9 +395,7 @@ impl CorruptionDetector {
 
         // Check for reasonable entry count
         if entry_count > 10000 {
-            return Err(AosError::Recovery(
-                "Directory has too many entries".to_string(),
-            ));
+            return Err(AosError::Io("Directory has too many entries".to_string()));
         }
 
         Ok(())
