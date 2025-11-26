@@ -70,6 +70,7 @@ flate2 = "1.0"
 tar = "0.4"
 zip = "0.6"
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+hostname.workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true }

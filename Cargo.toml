@@ -59,6 +59,7 @@ members = [
     "crates/adapteros-verify",
     "crates/adapteros-federation",
     "crates/adapteros-domain",
+    "crates/adapteros-error-recovery",
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
