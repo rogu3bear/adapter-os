@@ -413,7 +413,7 @@ export function AdaptersPage() {
               <CardContent className="pt-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Pinned</p>
+                    <p className="text-sm text-muted-foreground">Protected</p>
                     <p className="text-2xl font-bold">{pinnedCount}</p>
                   </div>
                   <Badge variant="secondary" className="h-8 px-3">

@@ -59,28 +59,6 @@ function getStatusVariant(status?: string): 'default' | 'secondary' | 'outline' 
 export default function TenantsCard({ tenants, isLoading }: TenantsCardProps) {
   const navigate = useNavigate();
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Building2 className="h-5 w-5" />
-            Tenants
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
   // Calculate status counts
   const activeTenants = tenants.filter((t) => t.status === 'active').length;
   const pausedTenants = tenants.filter((t) => t.status === 'paused').length;
@@ -105,6 +83,18 @@ export default function TenantsCard({ tenants, isLoading }: TenantsCardProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {isLoading ? (
+          <>
+            <div className="grid grid-cols-3 gap-4">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </>
+        ) : (
+          <>
         {/* Status Summary */}
         <div className="grid grid-cols-3 gap-4">
           <div className="text-center p-3 bg-slate-50 rounded-lg">
@@ -190,6 +180,8 @@ export default function TenantsCard({ tenants, isLoading }: TenantsCardProps) {
           View All Tenants
           <ExternalLink className="ml-2 h-4 w-4" />
         </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   );

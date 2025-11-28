@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -19,8 +19,12 @@ import {
   CheckCircle,
   Activity,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { logger } from '../../utils/logger';
+import { useWorkspaces } from '../../hooks/useWorkspaces';
+import apiClient from '../../api/client';
+import type { WorkspaceResource, Message } from '../../api/types';
 
 // Shared experiment interface
 interface SharedExperiment {
@@ -50,72 +54,136 @@ interface ExperimentComment {
   };
 }
 
-// Mock shared experiments
-const mockExperiments: SharedExperiment[] = [
-  {
-    id: 'exp-001',
-    name: 'Code Completion v3',
-    owner: 'alice@team.com',
-    status: 'completed',
-    sharedWith: ['bob@team.com', 'charlie@team.com'],
-    createdAt: '2025-01-15T10:00:00Z',
-    updatedAt: '2025-01-16T14:30:00Z',
-    metrics: { accuracy: 0.923, loss: 0.234 },
-  },
-  {
-    id: 'exp-002',
-    name: 'Bug Detection Model',
-    owner: 'bob@team.com',
-    status: 'running',
-    sharedWith: ['alice@team.com'],
-    createdAt: '2025-01-16T09:00:00Z',
-    updatedAt: '2025-01-16T15:00:00Z',
-    metrics: { accuracy: 0.891, loss: 0.312 },
-  },
-  {
-    id: 'exp-003',
-    name: 'Documentation Generator',
-    owner: 'charlie@team.com',
-    status: 'failed',
-    sharedWith: ['alice@team.com', 'bob@team.com'],
-    createdAt: '2025-01-14T11:00:00Z',
-    updatedAt: '2025-01-14T16:45:00Z',
-    metrics: { accuracy: 0.756, loss: 0.567 },
-  },
-];
+/**
+ * Map WorkspaceResource to SharedExperiment
+ * Resources of type 'training_job' or 'experiment' are considered experiments
+ */
+const mapResourceToExperiment = (resource: WorkspaceResource): SharedExperiment => {
+  return {
+    id: resource.id,
+    name: resource.resource_name || `Resource ${resource.resource_id}`,
+    owner: resource.shared_by || 'unknown',
+    status: 'completed', // Default status, can be enhanced with metadata
+    sharedWith: [], // Can be enhanced by fetching workspace members
+    createdAt: resource.shared_at || new Date().toISOString(),
+    updatedAt: resource.shared_at || new Date().toISOString(),
+    metrics: {}, // Can be enhanced with resource metadata
+  };
+};
 
-// Mock comments
-const mockComments: ExperimentComment[] = [
-  {
-    id: 'comment-001',
-    experimentId: 'exp-001',
-    author: 'bob@team.com',
-    content: 'Great results! The accuracy improvement over the baseline is impressive.',
-    createdAt: '2025-01-16T10:30:00Z',
-  },
-  {
-    id: 'comment-002',
-    experimentId: 'exp-001',
-    author: 'charlie@team.com',
-    content: 'Consider increasing batch size for faster convergence. Also, check the learning rate warmup.',
-    createdAt: '2025-01-16T11:15:00Z',
-  },
-  {
-    id: 'comment-003',
-    experimentId: 'exp-002',
-    author: 'alice@team.com',
-    content: 'The validation loss seems to plateau after epoch 15. Might need early stopping.',
-    createdAt: '2025-01-16T14:00:00Z',
-  },
-];
+/**
+ * Map Message to ExperimentComment
+ */
+const mapMessageToComment = (message: Message, experimentId: string): ExperimentComment => {
+  return {
+    id: message.id,
+    experimentId,
+    author: message.from_user_display_name || message.from || 'unknown',
+    content: message.content || message.body,
+    createdAt: message.created_at || message.timestamp,
+  };
+};
 
 export default function DataScientistCollaborationHub() {
-  const [experiments] = useState<SharedExperiment[]>(mockExperiments);
-  const [comments, setComments] = useState<ExperimentComment[]>(mockComments);
+  const { userWorkspaces, loading: workspacesLoading, error: workspacesError } = useWorkspaces();
+  const [experiments, setExperiments] = useState<SharedExperiment[]>([]);
+  const [comments, setComments] = useState<ExperimentComment[]>([]);
   const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
+  const [loadingResources, setLoadingResources] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [resourcesError, setResourcesError] = useState<string | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+
+  // Fetch workspace resources (experiments)
+  useEffect(() => {
+    const fetchExperiments = async () => {
+      if (userWorkspaces.length === 0) return;
+
+      setLoadingResources(true);
+      setResourcesError(null);
+
+      try {
+        // Fetch resources from all user workspaces
+        const resourcePromises = userWorkspaces.map((workspace) =>
+          apiClient.listWorkspaceResources(workspace.id)
+        );
+        const allResources = await Promise.all(resourcePromises);
+        const flatResources = allResources.flat();
+
+        // Filter for experiment-related resources and map to SharedExperiment
+        const experimentResources = flatResources.filter(
+          (resource) =>
+            resource.resource_type === 'training_job' ||
+            resource.resource_type === 'experiment' ||
+            resource.resource_type === 'adapter'
+        );
+        const mappedExperiments = experimentResources.map(mapResourceToExperiment);
+
+        setExperiments(mappedExperiments);
+
+        logger.info('Experiments loaded', {
+          component: 'DataScientistCollaborationHub',
+          count: mappedExperiments.length,
+        });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load experiments';
+        setResourcesError(errorMessage);
+        logger.error('Failed to fetch experiments', {
+          component: 'DataScientistCollaborationHub',
+        }, err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        setLoadingResources(false);
+      }
+    };
+
+    fetchExperiments();
+  }, [userWorkspaces]);
+
+  // Fetch workspace messages (comments) for selected experiment
+  useEffect(() => {
+    const fetchComments = async () => {
+      if (!selectedExperiment || userWorkspaces.length === 0) return;
+
+      setLoadingComments(true);
+      setCommentsError(null);
+
+      try {
+        // Fetch messages from all user workspaces
+        const messagePromises = userWorkspaces.map((workspace) =>
+          apiClient.listWorkspaceMessages(workspace.id)
+        );
+        const allMessages = await Promise.all(messagePromises);
+        const flatMessages = allMessages.flat();
+
+        // Map messages to comments for the selected experiment
+        const mappedComments = flatMessages.map((message) =>
+          mapMessageToComment(message, selectedExperiment)
+        );
+
+        setComments(mappedComments);
+
+        logger.info('Comments loaded', {
+          component: 'DataScientistCollaborationHub',
+          experimentId: selectedExperiment,
+          count: mappedComments.length,
+        });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load comments';
+        setCommentsError(errorMessage);
+        logger.error('Failed to fetch comments', {
+          component: 'DataScientistCollaborationHub',
+          experimentId: selectedExperiment,
+        }, err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        setLoadingComments(false);
+      }
+    };
+
+    fetchComments();
+  }, [selectedExperiment, userWorkspaces]);
 
   const getStatusBadge = (status: SharedExperiment['status']) => {
     switch (status) {
@@ -158,24 +226,31 @@ export default function DataScientistCollaborationHub() {
     return comments.filter((c) => c.experimentId === experimentId);
   };
 
-  const handleAddComment = () => {
-    if (!selectedExperiment || !newComment.trim()) return;
+  const handleAddComment = async () => {
+    if (!selectedExperiment || !newComment.trim() || userWorkspaces.length === 0) return;
 
-    const comment: ExperimentComment = {
-      id: `comment-${Date.now()}`,
-      experimentId: selectedExperiment,
-      author: 'you@team.com',
-      content: newComment.trim(),
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      // Use the first workspace for creating messages
+      const workspace = userWorkspaces[0];
+      const newMessage = await apiClient.createMessage(workspace.id, {
+        content: newComment.trim(),
+        subject: `Comment on experiment ${selectedExperiment}`,
+      });
 
-    setComments([...comments, comment]);
-    setNewComment('');
+      const comment = mapMessageToComment(newMessage, selectedExperiment);
+      setComments([...comments, comment]);
+      setNewComment('');
 
-    logger.info('Comment added', {
-      component: 'DataScientistCollaborationHub',
-      experimentId: selectedExperiment,
-    });
+      logger.info('Comment added', {
+        component: 'DataScientistCollaborationHub',
+        experimentId: selectedExperiment,
+      });
+    } catch (err) {
+      logger.error('Failed to add comment', {
+        component: 'DataScientistCollaborationHub',
+        experimentId: selectedExperiment,
+      }, err instanceof Error ? err : new Error(String(err)));
+    }
   };
 
   const handleShareExperiment = () => {
@@ -252,6 +327,7 @@ export default function DataScientistCollaborationHub() {
   };
 
   const selectedExp = experiments.find((e) => e.id === selectedExperiment);
+  const isLoading = workspacesLoading || loadingResources;
 
   return (
     <div className="space-y-6 p-4">
@@ -268,39 +344,68 @@ export default function DataScientistCollaborationHub() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* Show workspace error */}
+          {workspacesError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+              <p className="text-sm font-medium">Failed to load workspaces</p>
+              <p className="text-sm">{workspacesError}</p>
+            </div>
+          )}
+
+          {/* Show resources error */}
+          {resourcesError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+              <p className="text-sm font-medium">Failed to load experiments</p>
+              <p className="text-sm">{resourcesError}</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Experiment List */}
             <div>
               <h3 className="text-sm font-medium mb-3">Shared Experiments</h3>
               <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Owner</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Updated</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {experiments.map((exp) => (
-                      <TableRow
-                        key={exp.id}
-                        className={`cursor-pointer ${selectedExperiment === exp.id ? 'bg-muted' : ''}`}
-                        onClick={() => setSelectedExperiment(exp.id)}
-                      >
-                        <TableCell className="font-medium">{exp.name}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {exp.owner.split('@')[0]}
-                        </TableCell>
-                        <TableCell>{getStatusBadge(exp.status)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(exp.updatedAt)}
-                        </TableCell>
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-sm text-muted-foreground">Loading experiments...</span>
+                  </div>
+                ) : experiments.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-sm">No shared experiments found</p>
+                    <p className="text-xs mt-1">Create and share experiments to collaborate with your team</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Owner</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Updated</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {experiments.map((exp) => (
+                        <TableRow
+                          key={exp.id}
+                          className={`cursor-pointer ${selectedExperiment === exp.id ? 'bg-muted' : ''}`}
+                          onClick={() => setSelectedExperiment(exp.id)}
+                        >
+                          <TableCell className="font-medium">{exp.name}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {exp.owner.split('@')[0]}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(exp.status)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDate(exp.updatedAt)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
             </div>
 
@@ -360,42 +465,60 @@ export default function DataScientistCollaborationHub() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4 max-h-64 overflow-y-auto mb-4">
-                          {getExperimentComments(selectedExp.id).length > 0 ? (
-                            getExperimentComments(selectedExp.id).map((comment) => (
-                              <div key={comment.id} className="border-l-2 border-primary/30 pl-3 py-1">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                                  <User className="h-3 w-3" />
-                                  <span>{comment.author.split('@')[0]}</span>
-                                  <Clock className="h-3 w-3 ml-2" />
-                                  <span>{formatDate(comment.createdAt)}</span>
-                                </div>
-                                <p className="text-sm">{comment.content}</p>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-sm text-muted-foreground text-center py-4">
-                              No comments yet. Be the first to add one!
-                            </p>
-                          )}
-                        </div>
+                        {/* Show comments error */}
+                        {commentsError && (
+                          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded mb-4">
+                            <p className="text-xs font-medium">Failed to load comments</p>
+                            <p className="text-xs">{commentsError}</p>
+                          </div>
+                        )}
 
-                        <div className="flex gap-2">
-                          <Textarea
-                            placeholder="Add a comment or annotation..."
-                            value={newComment}
-                            onChange={(e) => setNewComment(e.target.value)}
-                            className="resize-none"
-                            rows={2}
-                          />
-                          <Button
-                            size="icon"
-                            onClick={handleAddComment}
-                            disabled={!newComment.trim()}
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        {loadingComments ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                            <span className="ml-2 text-sm text-muted-foreground">Loading comments...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="space-y-4 max-h-64 overflow-y-auto mb-4">
+                              {getExperimentComments(selectedExp.id).length > 0 ? (
+                                getExperimentComments(selectedExp.id).map((comment) => (
+                                  <div key={comment.id} className="border-l-2 border-primary/30 pl-3 py-1">
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                                      <User className="h-3 w-3" />
+                                      <span>{comment.author.split('@')[0]}</span>
+                                      <Clock className="h-3 w-3 ml-2" />
+                                      <span>{formatDate(comment.createdAt)}</span>
+                                    </div>
+                                    <p className="text-sm">{comment.content}</p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm text-muted-foreground text-center py-4">
+                                  No comments yet. Be the first to add one!
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex gap-2">
+                              <Textarea
+                                placeholder="Add a comment or annotation..."
+                                value={newComment}
+                                onChange={(e) => setNewComment(e.target.value)}
+                                className="resize-none"
+                                rows={2}
+                                disabled={loadingComments}
+                              />
+                              <Button
+                                size="icon"
+                                onClick={handleAddComment}
+                                disabled={!newComment.trim() || loadingComments}
+                              >
+                                <Send className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>

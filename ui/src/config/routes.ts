@@ -34,6 +34,9 @@ import {
   PlusCircle,
   MessageSquare,
   Crown,
+  HelpCircle,
+  Network,
+  Globe,
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
@@ -86,6 +89,9 @@ const AdvancedMetricsPage = lazy(() => import('@/pages/AdvancedMetricsPage'));
 const GuidedFlowPage = lazy(() => import('@/pages/GuidedFlowPage'));
 const DocumentLibraryPage = lazy(() => import('@/pages/DocumentLibrary'));
 const DocumentChatPage = lazy(() => import('@/pages/DocumentLibrary/DocumentChatPage'));
+const HelpCenterPage = lazy(() => import('@/pages/HelpCenterPage'));
+const RouterConfigPage = lazy(() => import('@/pages/RouterConfigPage'));
+const FederationPage = lazy(() => import('@/pages/FederationPage'));
 
 export interface RouteConfig {
   path: string;
@@ -154,7 +160,7 @@ export const routes: RouteConfig[] = [
     component: PersonasPage,
     requiresAuth: false,
     navGroup: 'Home',
-    navTitle: 'Persona Demo',
+    navTitle: 'Product Tour',
     navIcon: Users,
     navOrder: 4,
     skeletonVariant: 'default',
@@ -165,7 +171,7 @@ export const routes: RouteConfig[] = [
     component: GuidedFlowPage,
     requiresAuth: true,
     navGroup: 'Home',
-    navTitle: 'Guided LoRA Flow',
+    navTitle: 'Getting Started',
     navIcon: Compass,
     navOrder: 5,
     skeletonVariant: 'default',
@@ -175,8 +181,8 @@ export const routes: RouteConfig[] = [
     path: '/trainer',
     component: TrainerPage,
     requiresAuth: true,
-    navGroup: 'ML Pipeline',
-    navTitle: 'Single-File Trainer',
+    navGroup: 'Training',
+    navTitle: 'Quick Training',
     navIcon: Upload,
     navOrder: 1,
     skeletonVariant: 'form',
@@ -186,7 +192,7 @@ export const routes: RouteConfig[] = [
     path: '/training',
     component: TrainingPage,
     requiresAuth: true,
-    navGroup: 'ML Pipeline',
+    navGroup: 'Training',
     navTitle: 'Training',
     navIcon: Zap,
     navOrder: 2,
@@ -237,7 +243,7 @@ export const routes: RouteConfig[] = [
     path: '/testing',
     component: TestingPage,
     requiresAuth: true,
-    navGroup: 'ML Pipeline',
+    navGroup: 'Training',
     navTitle: 'Testing',
     navIcon: FlaskConical,
     navOrder: 3,
@@ -248,7 +254,7 @@ export const routes: RouteConfig[] = [
     path: '/golden',
     component: GoldenPage,
     requiresAuth: true,
-    navGroup: 'ML Pipeline',
+    navGroup: 'Training',
     navTitle: 'Baseline Comparisons',
     navIcon: GitCompare,
     navOrder: 4,
@@ -259,7 +265,7 @@ export const routes: RouteConfig[] = [
     path: '/promotion',
     component: PromotionPage,
     requiresAuth: true,
-    navGroup: 'ML Pipeline',
+    navGroup: 'Training',
     navTitle: 'Promotion',
     navIcon: TrendingUp,
     navOrder: 5,
@@ -270,7 +276,7 @@ export const routes: RouteConfig[] = [
     path: '/adapters',
     component: AdaptersPage,
     requiresAuth: true,
-    navGroup: 'ML Pipeline',
+    navGroup: 'Training',
     navTitle: 'Adapters',
     navIcon: Box,
     navOrder: 6,
@@ -353,7 +359,7 @@ export const routes: RouteConfig[] = [
     component: RoutingPage,
     requiresAuth: true,
     navGroup: 'Monitoring',
-    navTitle: 'Adapter Selection Logs',
+    navTitle: 'Routing History',
     navIcon: Route,
     navOrder: 3,
     skeletonVariant: 'default',
@@ -517,21 +523,6 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Compliance',
   },
   {
-    path: '/policies',
-    component: PoliciesPage,
-    requiresAuth: true,
-    skeletonVariant: 'table',
-    breadcrumb: 'Policies',
-  },
-  {
-    path: '/audit',
-    component: AuditPage,
-    requiresAuth: true,
-    requiredPermissions: ['audit.view'],
-    skeletonVariant: 'table',
-    breadcrumb: 'Audit Logs',
-  },
-  {
     path: '/admin',
     component: AdminPage,
     requiresAuth: true,
@@ -549,11 +540,11 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     requiredRoles: ['admin'],
     navGroup: 'Administration',
-    navTitle: 'Tenants',
+    navTitle: 'Organizations',
     navIcon: Building,
     navOrder: 2,
     skeletonVariant: 'table',
-    breadcrumb: 'Tenants',
+    breadcrumb: 'Organizations',
     parentPath: '/admin',
   },
   {
@@ -562,7 +553,7 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'default',
-    breadcrumb: 'Tenant Detail',
+    breadcrumb: 'Organization Detail',
     parentPath: '/admin/tenants',
   },
   {
@@ -616,14 +607,6 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Reports',
   },
   {
-    path: '/tenants',
-    component: TenantsPage,
-    requiresAuth: true,
-    requiredRoles: ['admin'],
-    skeletonVariant: 'table',
-    breadcrumb: 'Tenants',
-  },
-  {
     path: '/base-models',
     component: BaseModelsPage,
     requiresAuth: true,
@@ -651,6 +634,41 @@ export const routes: RouteConfig[] = [
     navOrder: 4,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Advanced Metrics',
+  },
+  {
+    path: '/help',
+    component: HelpCenterPage,
+    requiresAuth: false,
+    navGroup: 'Resources',
+    navTitle: 'Help Center',
+    navIcon: HelpCircle,
+    navOrder: 1,
+    skeletonVariant: 'default',
+    breadcrumb: 'Help Center',
+  },
+  {
+    path: '/router-config',
+    component: RouterConfigPage,
+    requiresAuth: true,
+    requiredRoles: ['admin', 'operator'],
+    navGroup: 'System',
+    navTitle: 'Adapter Routing',
+    navIcon: Network,
+    navOrder: 6,
+    skeletonVariant: 'form',
+    breadcrumb: 'Router Configuration',
+  },
+  {
+    path: '/federation',
+    component: FederationPage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    navGroup: 'System',
+    navTitle: 'Federation',
+    navIcon: Globe,
+    navOrder: 7,
+    skeletonVariant: 'table',
+    breadcrumb: 'Federation',
   },
 ];
 
@@ -711,9 +729,9 @@ export function getBreadcrumbs(pathname: string): Array<{ path: string; label: s
 
 // Helper to check if user has access to route
 export function canAccessRoute(route: RouteConfig, userRole?: UserRole, userPermissions?: string[]): boolean {
-  // Check role-based access
+  // Check role-based access (case-insensitive)
   if (route.requiredRoles && route.requiredRoles.length > 0) {
-    if (!userRole || !route.requiredRoles.includes(userRole)) {
+    if (!userRole || !route.requiredRoles.some(role => role.toLowerCase() === userRole.toLowerCase())) {
       return false;
     }
   }

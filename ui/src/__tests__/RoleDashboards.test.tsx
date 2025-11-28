@@ -84,14 +84,14 @@ const mockViewerUser: User = {
 const mockTenants: Tenant[] = [
   {
     id: 'tenant-1',
-    name: 'Tenant 1',
+    name: 'Organization 1',
     status: 'active',
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
   },
   {
     id: 'tenant-2',
-    name: 'Tenant 2',
+    name: 'Organization 2',
     status: 'paused',
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
@@ -336,7 +336,7 @@ describe('AdminDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Tenant Summary')).toBeTruthy();
+      expect(screen.getByText('Organization Summary')).toBeTruthy();
     });
   });
 
@@ -624,7 +624,7 @@ describe('Dashboard Router', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Admin Dashboard')).toBeTruthy();
-      expect(screen.getByText('Tenant Summary')).toBeTruthy();
+      expect(screen.getByText('Organization Summary')).toBeTruthy();
     });
   });
 
@@ -695,7 +695,7 @@ describe('Permission-Based Widget Filtering', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Tenant Summary')).toBeTruthy();
+      expect(screen.getByText('Organization Summary')).toBeTruthy();
       expect(screen.getByText('User Activity')).toBeTruthy();
       expect(screen.getByText('Security Overview')).toBeTruthy();
       expect(screen.getByText('System Resource Usage')).toBeTruthy();
@@ -718,7 +718,7 @@ describe('Permission-Based Widget Filtering', () => {
     });
 
     // Should NOT see admin-only widgets
-    expect(screen.queryByText('Tenant Summary')).toBeNull();
+    expect(screen.queryByText('Organization Summary')).toBeNull();
     expect(screen.queryByText('User Activity')).toBeNull();
   });
 
@@ -738,7 +738,7 @@ describe('Permission-Based Widget Filtering', () => {
 
     // Should NOT see operational widgets
     expect(screen.queryByText('Training Progress')).toBeNull();
-    expect(screen.queryByText('Tenant Summary')).toBeNull();
+    expect(screen.queryByText('Organization Summary')).toBeNull();
   });
 });
 

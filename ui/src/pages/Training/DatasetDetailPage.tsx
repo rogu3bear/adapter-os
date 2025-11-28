@@ -161,8 +161,7 @@ export default function DatasetDetailPage() {
               Back
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">{dataset.name}</h1>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-sm text-muted-foreground">
                 {dataset.id}
               </p>
             </div>

@@ -7,7 +7,7 @@
 
 import { logger } from '../utils/logger';
 
-const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '';
+const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
 
 // Security info response
 export interface SecurityInfo {

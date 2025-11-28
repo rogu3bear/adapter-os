@@ -200,7 +200,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
                   <AccordionContent>
                     <div className="grid grid-cols-2 gap-2 text-sm pt-2">
                       <div>
-                        <span className="text-muted-foreground">CPID:</span>
+                        <span className="text-muted-foreground">Policy ID:</span>
                         <div className="font-mono">{currentSession.cpid}</div>
                       </div>
                       <div>
@@ -255,7 +255,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
-                  <span className="text-muted-foreground">CPID:</span>
+                  <span className="text-muted-foreground">Policy ID:</span>
                   <div className="font-mono">{currentSession.cpid}</div>
                 </div>
                 <div>
@@ -386,11 +386,11 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect }: ReplayPan
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="font-medium text-sm mb-1">Tenant</label>
+              <label className="font-medium text-sm mb-1">Organization</label>
               <Input value={tenantId} readOnly />
             </div>
             <div>
-              <label className="font-medium text-sm mb-1">CPID</label>
+              <label className="font-medium text-sm mb-1">Policy ID</label>
               <Input value={newCpid} onChange={(e) => setNewCpid(e.target.value)} placeholder="cp_..." />
             </div>
             <div>

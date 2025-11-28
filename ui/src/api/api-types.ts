@@ -5,16 +5,24 @@
 
 import { Policy } from './adapter-types';
 
-export interface OpenAIModelInfo {
+export interface ModelWithStatsResponse {
   id: string;
-  object: string;
-  created: number;
-  owned_by: string;
+  name: string;
+  format?: string | null;
+  backend?: string | null;
+  size_bytes?: number | null;
+  import_status?: string | null;
+  model_path?: string | null;
+  capabilities?: string[] | null;
+  adapter_count: number;
+  training_job_count: number;
+  imported_at?: string | null;
+  updated_at?: string | null;
 }
 
-export interface OpenAIModelsListResponse {
-  object: string;
-  data: OpenAIModelInfo[];
+export interface ModelListResponse {
+  models: ModelWithStatsResponse[];
+  total: number;
 }
 
 export interface UpdateMonitoringRuleRequest {
@@ -621,11 +629,11 @@ export interface TelemetryQuery {
 
 // Health & System types
 export interface HealthResponse {
-  schema_version: string; // Required by backend API
+  schema_version?: string; // Optional - may not be in all responses
   status: 'healthy' | 'degraded' | 'unhealthy';
-  version: string;
-  uptime_seconds: number;
-  components: Record<string, ComponentHealth>;
+  version?: string;
+  uptime_seconds?: number;
+  components?: Record<string, ComponentHealth>;
   checks?: Record<string, boolean>;
 }
 
@@ -697,6 +705,12 @@ export interface MetaResponse {
   last_updated?: string;
   uptime?: number;
   build_hash?: string;
+  /** Runtime environment: "dev", "staging", or "prod" */
+  environment?: string;
+  /** Whether production mode is enabled in config */
+  production_mode?: boolean;
+  /** Whether dev login bypass is enabled */
+  dev_login_enabled?: boolean;
 }
 
 export interface JourneyState {
@@ -724,7 +738,7 @@ export interface JourneyStep {
   metadata?: Record<string, unknown>;
 }
 
-export interface ServiceStatus {
+export interface ProcessServiceStatus {
   name: string;
   status: 'running' | 'stopped' | 'error';
   pid?: number;
@@ -1517,6 +1531,31 @@ export interface AuditLog {
   details?: Record<string, unknown>;
   tenant_id?: string;
   session_id?: string;
+  user_role?: string;
+  error_message?: string;
+  metadata_json?: string;
+}
+
+export interface AuditLogResponse {
+  id: string;
+  timestamp: string;
+  user_id: string;
+  user_role: string;
+  tenant_id: string;
+  action: string;
+  resource_type: string;
+  resource_id?: string;
+  status: 'success' | 'failure' | 'error';
+  error_message?: string;
+  ip_address?: string;
+  metadata_json?: string;
+}
+
+export interface AuditLogsResponse {
+  logs: AuditLogResponse[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface AuditLogFilters {

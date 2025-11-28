@@ -88,7 +88,7 @@ export function PoliciesTab() {
 
   const handleCompare = useCallback(async () => {
     if (!compareCpid1 || !compareCpid2) {
-      toast.error('Please enter both policy CPIDs to compare');
+      toast.error('Please enter both Policy IDs to compare');
       return;
     }
     try {
@@ -106,7 +106,7 @@ export function PoliciesTab() {
       return;
     }
     if (!applyCpid || !applyContent) {
-      toast.error('Please enter both CPID and policy content');
+      toast.error('Please enter both Policy ID and policy content');
       return;
     }
     try {
@@ -320,12 +320,12 @@ export function PoliciesTab() {
           <DialogHeader>
             <DialogTitle>Apply Policy</DialogTitle>
             <DialogDescription>
-              Enter the policy CPID and content to apply a new or updated policy.
+              Enter the Policy ID and content to apply a new or updated policy.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="cpid">Policy CPID</Label>
+              <Label htmlFor="cpid">Policy ID</Label>
               <Input
                 id="cpid"
                 value={applyCpid}
@@ -361,13 +361,13 @@ export function PoliciesTab() {
           <DialogHeader>
             <DialogTitle>Compare Policies</DialogTitle>
             <DialogDescription>
-              Enter two policy CPIDs to compare their differences.
+              Enter two Policy IDs to compare their differences.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="cpid1">First Policy CPID</Label>
+                <Label htmlFor="cpid1">First Policy ID</Label>
                 <Input
                   id="cpid1"
                   value={compareCpid1}
@@ -376,7 +376,7 @@ export function PoliciesTab() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cpid2">Second Policy CPID</Label>
+                <Label htmlFor="cpid2">Second Policy ID</Label>
                 <Input
                   id="cpid2"
                   value={compareCpid2}

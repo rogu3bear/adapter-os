@@ -107,7 +107,7 @@ export function BaseModelWidget() {
   const [statusMessage, setStatusMessage] = useState<{ message: string; variant: 'success' | 'info' | 'warning' } | null>(null);
   const [errorRecovery, setErrorRecovery] = useState<React.ReactElement | null>(null);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role.toLowerCase() === 'admin';
   const canRegister = can('adapter:register');
 
   // Cleanup stale operations on mount
@@ -336,11 +336,11 @@ export function BaseModelWidget() {
               <div className="flex gap-2">
                 <Button onClick={handleLoad} disabled={!canLoad || isActionLoading} className="flex-1">
                   <Play className="h-4 w-4 mr-2" />
-                  Load
+                  Activate
                 </Button>
                 <Button onClick={handleUnload} variant="outline" disabled={!canUnload || isActionLoading} className="flex-1">
                   <Pause className="h-4 w-4 mr-2" />
-                  Unload
+                  Deactivate
                 </Button>
               </div>
               <div className="flex gap-2">

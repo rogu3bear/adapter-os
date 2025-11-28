@@ -100,12 +100,10 @@ export default function AdapterDetailPage() {
     if (isAdapterStateTransitionEvent(event) && event.adapter_id === adapterId) {
       setStreamingState(prev => ({
         ...prev,
-        currentState: event.new_state,
+        currentState: event.current_state,
       }));
       // Show toast for state transitions
-      toast.info(`Adapter state: ${event.previous_state} -> ${event.new_state}`, {
-        description: `Trigger: ${event.trigger}`,
-      });
+      toast.info(`Adapter state: ${event.previous_state || 'unknown'} -> ${event.current_state}`);
     }
     // Handle pin events
     if ('action' in event && (event.action === 'pinned' || event.action === 'unpinned') && event.adapter_id === adapterId) {
@@ -225,7 +223,7 @@ export default function AdapterDetailPage() {
     const isPinned = adapter.adapter?.pinned ?? false;
     try {
       await pinAdapter(adapterId, !isPinned);
-      toast.success(isPinned ? 'Adapter unpinned' : 'Adapter pinned');
+      toast.success(isPinned ? 'Adapter can now be removed when memory is needed' : 'Adapter is now protected and will stay in memory');
     } catch (err) {
       logger.error('Failed to toggle pin', { component: 'AdapterDetailPage', adapterId }, err as Error);
     }
@@ -325,10 +323,7 @@ export default function AdapterDetailPage() {
               Back
             </Button>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">{adapterName}</h1>
               <ConceptTooltip concept="adapter" />
-            </div>
-            <div className="flex items-center gap-2">
               <Badge variant={getLifecycleVariant(lifecycleState)}>
                 {lifecycleState}
               </Badge>
@@ -336,7 +331,7 @@ export default function AdapterDetailPage() {
               {isPinned && (
                 <Badge variant="secondary">
                   <Pin className="h-3 w-3 mr-1" />
-                  Pinned
+                  Protected
                 </Badge>
               )}
               {/* Streaming indicator */}
@@ -386,22 +381,22 @@ export default function AdapterDetailPage() {
                   disabled={!canLoad || currentState === 'resident'}
                 >
                   <Power className="h-4 w-4 mr-2" />
-                  Load Adapter
-                  <HelpTooltip content="Load adapter weights into GPU memory" />
+                  Activate Adapter
+                  <HelpTooltip content="Activate adapter - load weights into GPU memory" />
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleUnload}
                   disabled={!canUnload || currentState === 'unloaded'}
                 >
                   <PowerOff className="h-4 w-4 mr-2" />
-                  Unload Adapter
-                  <HelpTooltip content="Remove adapter from GPU memory" />
+                  Deactivate Adapter
+                  <HelpTooltip content="Deactivate adapter - remove from GPU memory" />
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleTogglePin} disabled={!canLoad}>
                   <Pin className="h-4 w-4 mr-2" />
-                  {isPinned ? 'Unpin Adapter' : 'Pin Adapter'}
-                  <HelpTooltip content={isPinned ? 'Allow eviction under memory pressure' : 'Prevent eviction'} />
+                  {isPinned ? 'Allow Removal' : 'Protect Adapter'}
+                  <HelpTooltip content={isPinned ? 'Allow removal when memory is needed' : 'Keep in memory always'} />
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setShowAddToStackModal(true)}
@@ -501,8 +496,8 @@ export default function AdapterDetailPage() {
         <PolicyPreflightDialog
           open={showPreflightDialog}
           onOpenChange={setShowPreflightDialog}
-          title={`Policy Validation - ${preflightOperation === 'load' ? 'Load' : 'Unload'} Adapter`}
-          description={`The following policies will be enforced when ${preflightOperation === 'load' ? 'loading' : 'unloading'} this adapter`}
+          title={`Policy Validation - ${preflightOperation === 'load' ? 'Activate' : 'Deactivate'} Adapter`}
+          description={`The following policies will be enforced when ${preflightOperation === 'load' ? 'activating' : 'deactivating'} this adapter`}
           checks={preflightResult.checks}
           canProceed={preflightResult.canProceed}
           onProceed={handlePreflightProceed}

@@ -266,15 +266,15 @@ describe('RouteGuard', () => {
       });
 
       const unrestrrictedRoute = {
-        path: '/audit',
+        path: '/security/audit',
         component: TestComponent,
         requiresAuth: true,
       };
 
       render(
-        <MemoryRouter initialEntries={['/audit']}>
+        <MemoryRouter initialEntries={['/security/audit']}>
           <Routes>
-            <Route path="/audit" element={<RouteGuard route={unrestrrictedRoute} />} />
+            <Route path="/security/audit" element={<RouteGuard route={unrestrrictedRoute} />} />
           </Routes>
         </MemoryRouter>
       );
@@ -367,7 +367,7 @@ describe('RouteGuard', () => {
     });
 
     it('should have tenants route requiring admin role', () => {
-      const tenantsRoute = routes.find(r => r.path === '/tenants');
+      const tenantsRoute = routes.find(r => r.path === '/admin/tenants');
       expect(tenantsRoute?.requiredRoles).toContain('admin');
     });
   });
@@ -439,5 +439,29 @@ describe('canAccessRoute helper', () => {
 
     expect(canAccessRoute(adminRoute, 'viewer')).toBe(false);
     expect(canAccessRoute(adminRoute, 'operator')).toBe(false);
+  });
+
+  it('should return false when user lacks required permissions', async () => {
+    const { canAccessRoute } = await import('../config/routes');
+    const auditRoute = {
+      path: '/security/audit',
+      component: TestComponent,
+      requiresAuth: true,
+      requiredPermissions: ['audit.view'],
+    };
+
+    expect(canAccessRoute(auditRoute, 'admin', ['adapter.view'])).toBe(false);
+  });
+
+  it('should return true when user has required permissions', async () => {
+    const { canAccessRoute } = await import('../config/routes');
+    const auditRoute = {
+      path: '/security/audit',
+      component: TestComponent,
+      requiresAuth: true,
+      requiredPermissions: ['audit.view'],
+    };
+
+    expect(canAccessRoute(auditRoute, 'admin', ['audit.view'])).toBe(true);
   });
 });

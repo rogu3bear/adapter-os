@@ -355,7 +355,7 @@ export function PolicyEditor({
         <div className="space-y-4">
           {/* CPID Input */}
           <div className="space-y-2">
-            <Label htmlFor="cpid">CPID (Control Plane ID)</Label>
+            <Label htmlFor="cpid">Policy ID</Label>
             <Input
               id="cpid"
               placeholder="cp-2024-001"

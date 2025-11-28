@@ -45,11 +45,19 @@ vi.mock('@/config/routes', () => {
       navOrder: 1,
     },
     {
-      path: '/policies',
+      path: '/security/policies',
       navGroup: 'Compliance',
       navTitle: 'Policies',
       navIcon: () => null,
       navOrder: 1,
+    },
+    {
+      path: '/security/audit',
+      navGroup: 'Compliance',
+      navTitle: 'Audit Logs',
+      navIcon: () => null,
+      navOrder: 2,
+      requiredPermissions: ['audit.view'],
     },
     {
       path: '/reports',
@@ -64,23 +72,39 @@ vi.mock('@/config/routes', () => {
       navTitle: 'IT Admin',
       navIcon: () => null,
       navOrder: 1,
-      requiredRoles: ['Admin'],
+      requiredRoles: ['admin'],
     },
     {
-      path: '/tenants',
+      path: '/admin/tenants',
       navGroup: 'Administration',
       navTitle: 'Tenants',
       navIcon: () => null,
       navOrder: 3,
-      requiredRoles: ['Admin'],
+      requiredRoles: ['admin'],
     },
   ];
 
-  const canAccessRoute = (route: (typeof routes)[number], userRole?: string) => {
-    if (!route.requiredRoles || route.requiredRoles.length === 0) {
-      return true;
+  const canAccessRoute = (
+    route: (typeof routes)[number],
+    userRole?: string,
+    userPermissions?: string[],
+  ) => {
+    if (route.requiredRoles && route.requiredRoles.length > 0) {
+      if (!userRole || !route.requiredRoles.includes(userRole)) {
+        return false;
+      }
     }
-    return userRole ? route.requiredRoles.includes(userRole) : false;
+
+    if (route.requiredPermissions && route.requiredPermissions.length > 0) {
+      if (
+        !userPermissions ||
+        !route.requiredPermissions.every((perm) => userPermissions.includes(perm))
+      ) {
+        return false;
+      }
+    }
+
+    return true;
   };
 
   return { routes, canAccessRoute };
@@ -90,13 +114,13 @@ import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation
 
 describe('generateNavigationGroups', () => {
   it('orders navigation groups consistently for operators', () => {
-    const groups = generateNavigationGroups('Operator');
+    const groups = generateNavigationGroups('Operator', []);
     const titles = groups.map((group) => group.title);
     expect(titles.slice(0, 4)).toEqual(['Home', 'ML Pipeline', 'Monitoring', 'Operations']);
   });
 
   it('excludes restricted routes while keeping shared groups for non-admins', () => {
-    const operatorGroups = generateNavigationGroups('Operator');
+    const operatorGroups = generateNavigationGroups('Operator', []);
     const adminGroup = operatorGroups.find((group) => group.title === 'Administration');
     expect(adminGroup).toBeDefined();
     expect(adminGroup?.items.map((item) => item.label)).toEqual(expect.arrayContaining(['Reports']));
@@ -104,7 +128,7 @@ describe('generateNavigationGroups', () => {
   });
 
   it('includes restricted administration routes for admins', () => {
-    const adminGroups = generateNavigationGroups('Admin');
+    const adminGroups = generateNavigationGroups('admin', []);
     const adminGroup = adminGroups.find((group) => group.title === 'Administration');
     expect(adminGroup).toBeDefined();
     expect(adminGroup?.items.map((item) => item.label)).toEqual(
@@ -113,11 +137,23 @@ describe('generateNavigationGroups', () => {
     // Group roles are set from the first route in the group (Reports has no requiredRoles)
     expect(adminGroup?.roles).toBeUndefined();
   });
+
+  it('filters permission-restricted routes when missing permissions', () => {
+    const complianceGroups = generateNavigationGroups('Operator', []);
+    const complianceGroup = complianceGroups.find((group) => group.title === 'Compliance');
+    expect(complianceGroup?.items.map((item) => item.label)).not.toContain('Audit Logs');
+  });
+
+  it('shows permission-restricted routes when permissions are present', () => {
+    const complianceGroups = generateNavigationGroups('Operator', ['audit.view']);
+    const complianceGroup = complianceGroups.find((group) => group.title === 'Compliance');
+    expect(complianceGroup?.items.map((item) => item.label)).toEqual(expect.arrayContaining(['Policies', 'Audit Logs']));
+  });
 });
 
 describe('shouldShowNavGroup', () => {
   it('returns true for groups without role restrictions', () => {
-    const adminGroups = generateNavigationGroups('Admin');
+    const adminGroups = generateNavigationGroups('admin', []);
     const adminGroup = adminGroups.find((group) => group.title === 'Administration');
     expect(adminGroup).toBeDefined();
     // Administration group has no role restrictions (roles from first route which is Reports)
@@ -125,14 +161,14 @@ describe('shouldShowNavGroup', () => {
   });
 
   it('returns true when group is unrestricted or matches role', () => {
-    const operatorGroups = generateNavigationGroups('Operator');
+    const operatorGroups = generateNavigationGroups('Operator', []);
     const operationsGroup = operatorGroups.find((group) => group.title === 'Operations');
     expect(operationsGroup).toBeDefined();
     expect(shouldShowNavGroup(operationsGroup!, 'Operator')).toBe(true);
 
-    const adminGroups = generateNavigationGroups('Admin');
+    const adminGroups = generateNavigationGroups('admin', []);
     const adminGroup = adminGroups.find((group) => group.title === 'Administration');
     expect(adminGroup).toBeDefined();
-    expect(shouldShowNavGroup(adminGroup!, 'Admin')).toBe(true);
+    expect(shouldShowNavGroup(adminGroup!, 'admin')).toBe(true);
   });
 });

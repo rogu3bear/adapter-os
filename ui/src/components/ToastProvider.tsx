@@ -90,15 +90,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
   const getToastStyles = (type: Toast['type']) => {
     switch (type) {
       case 'success':
-        return 'bg-green-50 border-green-200 text-green-800';
+        return 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300';
       case 'error':
-        return 'bg-red-50 border-red-200 text-red-800';
+        return 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300';
       case 'warning':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800';
+        return 'bg-yellow-500/10 border-yellow-500/30 text-yellow-700 dark:text-yellow-300';
       case 'info':
-        return 'bg-blue-50 border-blue-200 text-blue-800';
+        return 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300';
       default:
-        return 'bg-gray-50 border-gray-200 text-gray-800';
+        return 'bg-background/80 border-border/50 text-foreground';
     }
   };
 
@@ -121,6 +121,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
     <div
       className={`
         max-w-sm w-full border rounded-lg shadow-lg p-4
+        backdrop-blur-xl
         ${getToastStyles(toast.type)}
         animate-in slide-in-from-right-full duration-300
       `}
@@ -134,13 +135,13 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
             <div className="text-sm font-medium">{toast.title}</div>
           )}
           {toast.description && (
-            <div className="text-sm mt-1">{toast.description}</div>
+            <div className="text-sm mt-1 opacity-90">{toast.description}</div>
           )}
         </div>
         <div className="ml-4 flex-shrink-0">
           <button
             onClick={onRemove}
-            className="text-gray-400 hover:text-gray-600 focus:outline-none"
+            className="opacity-60 hover:opacity-100 focus:outline-hidden transition-opacity"
           >
             <span className="sr-only">Close</span>
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">

@@ -10,7 +10,8 @@ import { useAuth } from './CoreProviders';
 // Tenant Context
 interface TenantContextValue {
   selectedTenant: string;
-  setSelectedTenant: (tenantId: string) => void;
+  /** Returns true if tenant was successfully selected, false if tenant doesn't exist */
+  setSelectedTenant: (tenantId: string) => boolean;
   tenants: Tenant[];
   isLoading: boolean;
   refreshTenants: () => Promise<void>;
@@ -89,15 +90,15 @@ function TenantProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const setSelectedTenant = useCallback((tenantId: string) => {
+  const setSelectedTenant = useCallback((tenantId: string): boolean => {
     // Validate tenant exists in list (unless we're still loading)
     if (!isLoading && tenants.length > 0 && !tenants.some((t) => t.id === tenantId)) {
-      logger.warn('Attempted to select non-existent tenant', { 
-        component: 'TenantProvider', 
+      logger.warn('Attempted to select non-existent tenant', {
+        component: 'TenantProvider',
         tenantId,
         availableTenants: tenants.map((t) => t.id)
       });
-      return;
+      return false;
     }
 
     setSelectedTenantState(tenantId);
@@ -106,11 +107,19 @@ function TenantProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
     }
+    return true;
   }, [tenants, isLoading]);
 
+  // Only fetch tenants when user is authenticated
   useEffect(() => {
-    refreshTenants();
-  }, [refreshTenants]);
+    if (user) {
+      refreshTenants();
+    } else {
+      // Reset tenants state when not authenticated
+      setTenants([]);
+      setIsLoading(false);
+    }
+  }, [refreshTenants, user]);
 
   // Align initial tenant selection with claims when available
   useEffect(() => {

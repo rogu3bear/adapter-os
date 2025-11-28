@@ -4,7 +4,6 @@ import { UserReportsPage } from '@/components/UserReportsPage';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import { PageHeader } from '@/components/ui/page-header';
 
 export default function ReportsPage() {
   const { selectedTenant } = useTenant();
@@ -14,11 +13,10 @@ export default function ReportsPage() {
   if (!can('MetricsView')) {
     return (
       <DensityProvider pageKey="reports">
-        <FeatureLayout title="Reports">
-          <PageHeader
-            title="Reports"
-            description="Activity reports and metrics"
-          />
+        <FeatureLayout
+          title="Reports"
+          description="Activity reports and metrics"
+        >
           {errorRecoveryTemplates.permissionError(() => window.location.reload())}
         </FeatureLayout>
       </DensityProvider>
@@ -27,11 +25,10 @@ export default function ReportsPage() {
 
   return (
     <DensityProvider pageKey="reports">
-      <FeatureLayout title="Reports">
-        <PageHeader
-          title="Reports"
-          description="Activity reports and metrics"
-        />
+      <FeatureLayout
+        title="Reports"
+        description="Activity reports and metrics"
+      >
         <UserReportsPage tenantId={selectedTenant} />
       </FeatureLayout>
     </DensityProvider>

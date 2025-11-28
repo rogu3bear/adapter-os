@@ -3,8 +3,8 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import { ChevronLeft, ChevronRight, Download, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
 
 // Set worker path for pdf.js
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -36,7 +36,7 @@ export function PDFViewer({ documentId, documentName, initialPage = 1, isOpen, o
     setIsLoading(false);
   };
 
-  const pdfUrl = `/v1/documents/${documentId}/download`;
+  const pdfUrl = `/api/v1/documents/${documentId}/download`;
 
   return (
     <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>

@@ -115,20 +115,20 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
     try {
       const savedValue = JSON.stringify(recentCommands.slice(0, 10));
       localStorage.setItem('aos_recent_commands', savedValue);
-      // Notify other tabs of changes
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: 'aos_recent_commands',
-        newValue: savedValue,
-      }));
+      // Note: Real storage events are automatically dispatched to other tabs
+      // when localStorage changes. We don't need to manually dispatch.
     } catch (err) {
       logger.error('Failed to save recent commands', { component: 'CommandPalette' }, toError(err));
     }
   }, [recentCommands]);
 
   // Listen for storage events from other tabs
+  // Note: The 'storage' event only fires for changes from OTHER windows/tabs,
+  // not for changes made in the current tab.
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'aos_recent_commands' && e.newValue) {
+      // Only react to real cross-tab events (storageArea is set for real events)
+      if (e.key === 'aos_recent_commands' && e.newValue && e.storageArea === localStorage) {
         try {
           const parsed = JSON.parse(e.newValue);
           setRecentCommands(Array.isArray(parsed) ? parsed : []);
@@ -454,23 +454,23 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
           id: `tenant-${tenant.id}`,
           type: 'tenant',
           title: tenant.name,
-          description: `Tenant • ${tenant.isolation_level || 'Unknown isolation'}`,
+          description: `Organization • ${tenant.isolation_level || 'Unknown isolation'}`,
           url: `/tenants?tenant=${encodeURIComponent(tenant.id)}`,
           entityId: tenant.id,
-          group: 'Tenants',
+          group: 'Organizations',
           metadata: {
             entity: tenant,
             actions: [
               {
                 id: 'navigate',
                 kind: 'navigate',
-                label: 'Open tenant overview',
+                label: 'Open organization overview',
                 url: `/tenants?tenant=${encodeURIComponent(tenant.id)}`,
               },
               {
                 id: 'export',
                 kind: 'export',
-                label: 'Export tenant manifest',
+                label: 'Export organization manifest',
                 url: `/v1/tenants/${tenant.id}/export`,
               },
             ],

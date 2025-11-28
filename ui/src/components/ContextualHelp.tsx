@@ -27,7 +27,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       title: 'System Dashboard',
       tips: [
         'Monitor overall system health and resource utilization',
-        'Check adapter deployment status across tenants',
+        'Check adapter deployment status across organizations',
         'Review recent alerts and system events'
       ],
       relatedPages: [
@@ -67,8 +67,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Check for policy violations'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Review policy configurations' },
-        { label: 'Audit', route: '/audit', description: 'Access audit trails' }
+        { label: 'Policies', route: '/security/policies', description: 'Review policy configurations' },
+        { label: 'Audit', route: '/security/audit', description: 'Access audit trails' }
       ]
     },
     auditor: {
@@ -79,8 +79,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Track policy enforcement status'
       ],
       relatedPages: [
-        { label: 'Audit Trails', route: '/audit', description: 'Detailed audit logs' },
-        { label: 'Policies', route: '/policies', description: 'Policy configurations' }
+        { label: 'Audit Trails', route: '/security/audit', description: 'Detailed audit logs' },
+        { label: 'Policies', route: '/security/policies', description: 'Policy configurations' }
       ]
     },
     viewer: {
@@ -100,7 +100,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     admin: {
       title: 'Adapter Management',
       tips: [
-        'Manage adapters across all tenants',
+        'Manage adapters across all organizations',
         'Review deployment status and resource usage',
         'Monitor adapter performance metrics'
       ],
@@ -142,8 +142,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor adapter policy adherence'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Review policies' },
-        { label: 'Audit', route: '/audit', description: 'Adapter audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Review policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Adapter audit logs' }
       ]
     },
     auditor: {
@@ -154,7 +154,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export adapter audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -169,13 +169,13 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       ]
     }
   },
-  '/tenants': {
+  '/admin/tenants': {
     admin: {
-      title: 'Tenant Management',
+      title: 'Organization Management',
       tips: [
-        'Create and manage tenant workspaces',
-        'Configure tenant isolation and resources',
-        'Monitor tenant activity and usage'
+        'Create and manage organization workspaces',
+        'Configure organization isolation and resources',
+        'Monitor organization activity and usage'
       ],
       relatedPages: [
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' },
@@ -184,42 +184,42 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     },
     operator: { title: '', tips: [], relatedPages: [] },
     sre: {
-      title: 'Tenant Infrastructure',
+      title: 'Organization Infrastructure',
       tips: [
-        'Monitor tenant resource allocation',
-        'Review tenant isolation status',
-        'Check tenant node assignments'
+        'Monitor organization resource allocation',
+        'Review organization isolation status',
+        'Check organization node assignments'
       ],
       relatedPages: [
         { label: 'Metrics', route: '/metrics', description: 'Resource metrics' }
       ]
     },
     compliance: {
-      title: 'Tenant Compliance',
+      title: 'Organization Compliance',
       tips: [
-        'Review tenant data classification',
-        'Verify tenant isolation compliance',
-        'Check tenant policy assignments'
+        'Review organization data classification',
+        'Verify organization isolation compliance',
+        'Check organization policy assignments'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Tenant policies' },
-        { label: 'Audit', route: '/audit', description: 'Tenant audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Organization policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Organization audit logs' }
       ]
     },
     auditor: {
-      title: 'Tenant Audit',
+      title: 'Organization Audit',
       tips: [
-        'Review tenant configuration history',
-        'Verify tenant access controls',
-        'Export tenant audit data'
+        'Review organization configuration history',
+        'Verify organization access controls',
+        'Export organization audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: { title: '', tips: [], relatedPages: [] }
   },
-  '/policies': {
+  '/security/policies': {
     admin: {
       title: 'Policy Management',
       tips: [
@@ -229,7 +229,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       ],
       relatedPages: [
         { label: 'Telemetry', route: '/telemetry', description: 'View policy enforcement logs' },
-        { label: 'Audit Trails', route: '/audit', description: 'Review policy changes' }
+        { label: 'Audit Trails', route: '/security/audit', description: 'Review policy changes' }
       ]
     },
     compliance: {
@@ -240,7 +240,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor policy violations and enforcement'
       ],
       relatedPages: [
-        { label: 'Audit Trails', route: '/audit', description: 'Review policy audit trail' },
+        { label: 'Audit Trails', route: '/security/audit', description: 'Review policy audit trail' },
         { label: 'Telemetry', route: '/telemetry', description: 'Export compliance data' }
       ]
     },
@@ -252,7 +252,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export policy configurations for review'
       ],
       relatedPages: [
-        { label: 'Audit Trails', route: '/audit', description: 'Full audit history' }
+        { label: 'Audit Trails', route: '/security/audit', description: 'Full audit history' }
       ]
     },
     operator: {
@@ -333,8 +333,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Review audit event frequency'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy configurations' },
-        { label: 'Audit', route: '/audit', description: 'Audit trails' }
+        { label: 'Policies', route: '/security/policies', description: 'Policy configurations' },
+        { label: 'Audit', route: '/security/audit', description: 'Audit trails' }
       ]
     },
     auditor: {
@@ -345,7 +345,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Track compliance trends'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Detailed audit logs' }
+        { label: 'Audit', route: '/security/audit', description: 'Detailed audit logs' }
       ]
     },
     viewer: {
@@ -367,7 +367,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Track telemetry bundle sizes and frequency'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Audit trails' },
+        { label: 'Audit', route: '/security/audit', description: 'Audit trails' },
         { label: 'Metrics', route: '/metrics', description: 'System metrics' }
       ]
     },
@@ -403,8 +403,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor compliance event telemetry'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy events' },
-        { label: 'Audit', route: '/audit', description: 'Audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Policy events' },
+        { label: 'Audit', route: '/security/audit', description: 'Audit logs' }
       ]
     },
     auditor: {
@@ -415,7 +415,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export telemetry for external analysis'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Audit trails' }
+        { label: 'Audit', route: '/security/audit', description: 'Audit trails' }
       ]
     },
     viewer: {
@@ -474,7 +474,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Verify system trace integrity'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Audit trails' }
+        { label: 'Audit', route: '/security/audit', description: 'Audit trails' }
       ]
     },
     viewer: { title: '', tips: [], relatedPages: [] }
@@ -483,7 +483,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     admin: {
       title: 'Inference Testing',
       tips: [
-        'Test adapters across all tenants',
+        'Test adapters across all organizations',
         'Monitor inference performance and resource usage',
         'Review inference request patterns'
       ],
@@ -524,8 +524,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor inference data handling'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy configurations' },
-        { label: 'Audit', route: '/audit', description: 'Inference audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Policy configurations' },
+        { label: 'Audit', route: '/security/audit', description: 'Inference audit logs' }
       ]
     },
     auditor: {
@@ -536,7 +536,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export inference audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -551,7 +551,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       ]
     }
   },
-  '/audit': {
+  '/security/audit': {
     admin: {
       title: 'Audit Trails',
       tips: [
@@ -560,7 +560,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export audit data for compliance'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy audit logs' },
+        { label: 'Policies', route: '/security/policies', description: 'Policy audit logs' },
         { label: 'Telemetry', route: '/telemetry', description: 'Telemetry audit' }
       ]
     },
@@ -596,7 +596,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor policy enforcement audit logs'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy audit' },
+        { label: 'Policies', route: '/security/policies', description: 'Policy audit' },
         { label: 'Telemetry', route: '/telemetry', description: 'Export telemetry' }
       ]
     },
@@ -608,7 +608,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Verify audit log integrity and completeness'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy audit' },
+        { label: 'Policies', route: '/security/policies', description: 'Policy audit' },
         { label: 'Reports', route: '/reports', description: 'Audit reports' }
       ]
     },
@@ -628,7 +628,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       tips: [
         'Manage base model configurations',
         'Review base model resource allocation',
-        'Monitor base model usage across tenants'
+        'Monitor base model usage across organizations'
       ],
       relatedPages: [
         { label: 'Adapters', route: '/adapters', description: 'View adapter models' },
@@ -715,8 +715,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Track compliance workflow progress'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Review policies' },
-        { label: 'Audit', route: '/audit', description: 'Audit setup' }
+        { label: 'Policies', route: '/security/policies', description: 'Review policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Audit setup' }
       ]
     },
     auditor: {
@@ -727,8 +727,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Track audit workflow progress'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Audit trails' },
-        { label: 'Policies', route: '/policies', description: 'Policy review' }
+        { label: 'Audit', route: '/security/audit', description: 'Audit trails' },
+        { label: 'Policies', route: '/security/policies', description: 'Policy review' }
       ]
     },
     viewer: {
@@ -789,8 +789,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor training policy adherence'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Training policies' },
-        { label: 'Audit', route: '/audit', description: 'Training audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Training policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Training audit logs' }
       ]
     },
     auditor: {
@@ -801,7 +801,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export training audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -860,8 +860,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor test policy adherence'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Testing policies' },
-        { label: 'Audit', route: '/audit', description: 'Testing audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Testing policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Testing audit logs' }
       ]
     },
     auditor: {
@@ -872,7 +872,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export testing audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -931,7 +931,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export baseline audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -966,7 +966,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor promotion metrics'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Promotion policies' },
+        { label: 'Policies', route: '/security/policies', description: 'Promotion policies' },
         { label: 'Metrics', route: '/metrics', description: 'Promotion metrics' }
       ]
     },
@@ -990,8 +990,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor promotion approvals'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Promotion policies' },
-        { label: 'Audit', route: '/audit', description: 'Promotion audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Promotion policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Promotion audit logs' }
       ]
     },
     auditor: {
@@ -1002,7 +1002,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export promotion audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -1062,7 +1062,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export routing audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {
@@ -1085,7 +1085,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       ],
       relatedPages: [
         { label: 'Observability', route: '/observability', description: 'System diagnostics' },
-        { label: 'Audit', route: '/audit', description: 'Event history' }
+        { label: 'Audit', route: '/security/audit', description: 'Event history' }
       ]
     },
     operator: {
@@ -1120,7 +1120,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor replay usage'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Replay audit logs' }
+        { label: 'Audit', route: '/security/audit', description: 'Replay audit logs' }
       ]
     },
     auditor: {
@@ -1131,7 +1131,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export replay audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: { title: '', tips: [], relatedPages: [] }
@@ -1148,7 +1148,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       relatedPages: [
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' },
         { label: 'Metrics', route: '/metrics', description: 'System metrics' },
-        { label: 'Tenants', route: '/tenants', description: 'Tenant management' }
+        { label: 'Organizations', route: '/admin/tenants', description: 'Organization management' }
       ]
     },
     operator: { title: '', tips: [], relatedPages: [] },
@@ -1214,8 +1214,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Review policy compliance trends'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Policy data' },
-        { label: 'Audit', route: '/audit', description: 'Audit data' }
+        { label: 'Policies', route: '/security/policies', description: 'Policy data' },
+        { label: 'Audit', route: '/security/audit', description: 'Audit data' }
       ]
     },
     auditor: {
@@ -1226,7 +1226,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Review audit trends and patterns'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Audit trails' }
+        { label: 'Audit', route: '/security/audit', description: 'Audit trails' }
       ]
     },
     viewer: {
@@ -1285,8 +1285,8 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Monitor training policy adherence'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/policies', description: 'Training policies' },
-        { label: 'Audit', route: '/audit', description: 'Training audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Training policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Training audit logs' }
       ]
     },
     auditor: {
@@ -1297,7 +1297,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         'Export training audit data'
       ],
       relatedPages: [
-        { label: 'Audit', route: '/audit', description: 'Full audit trail' }
+        { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
       ]
     },
     viewer: {

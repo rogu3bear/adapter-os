@@ -51,7 +51,6 @@ import {
   XCircle,
   Clock,
 } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
 import type { Repository } from '@/api/types';
 
 function CodeIntelligencePageInner() {
@@ -179,14 +178,11 @@ function CodeIntelligencePageInner() {
   };
 
   return (
-    <FeatureLayout title="Code Intelligence">
-      <PageHeader
-        title="Code Intelligence"
-        description="Manage code repositories and trigger scans"
-      >
-        <DensityControls density={density} onDensityChange={setDensity} />
-      </PageHeader>
-
+    <FeatureLayout
+      title="Code Intelligence"
+      description="Manage code repositories and trigger scans"
+      headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
+    >
       <div className="space-y-6">
         {/* Controls */}
         <Card>

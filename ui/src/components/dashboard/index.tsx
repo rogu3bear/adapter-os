@@ -22,7 +22,7 @@ export { roleConfigs } from './config/roleConfigs';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const role = user?.role || 'viewer';
+  const role = (user?.role || 'viewer').toLowerCase();
 
   switch (role) {
     case 'admin':

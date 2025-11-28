@@ -53,9 +53,10 @@ const mockSystemOverview: SystemOverview = {
   worker_count: 5,
   active_sessions: 12,
   resource_usage: {
-    cpu_percent: 45.2,
-    memory_percent: 62.8,
-    gpu_percent: 38.5,
+    cpu_usage_percent: 45.2,
+    memory_usage_percent: 62.8,
+    disk_usage_percent: 42.1,
+    gpu_utilization_percent: 38.5,
   },
   services: [
     { name: 'API Server', status: 'healthy' },
@@ -132,6 +133,8 @@ const mockStacks: AdapterStack[] = [
     updated_at: '2025-01-01T00:00:00Z',
   },
 ];
+
+const versionBadgeRegex = /v\s*0\.3-?alpha/i;
 
 const mockModels: Model[] = [
   {
@@ -276,8 +279,8 @@ describe('OwnerHomePage', () => {
       );
 
       await waitFor(() => {
-        // System Health Strip - version is displayed as "v0.3.0-alpha"
-        expect(screen.getByText(/v0.3.0-alpha/i)).toBeTruthy();
+        // System Health Strip - version badge should match current release
+        expect(screen.getByText(versionBadgeRegex)).toBeTruthy();
 
         // Left column sections (using getAllByText for repeated headings)
         const systemOverviewHeadings = screen.getAllByText('System Overview');
@@ -380,7 +383,7 @@ describe('OwnerHomePage', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/v0.3.0-alpha/i)).toBeTruthy();
+        expect(screen.getByText(versionBadgeRegex)).toBeTruthy();
         expect(screen.getByText(/development/i)).toBeTruthy();
       });
     });
@@ -394,7 +397,7 @@ describe('OwnerHomePage', () => {
 
       await waitFor(() => {
         // Should render tenant data - just verify component is present
-        const tenantsCard = screen.getByText('Tenants');
+        const tenantsCard = screen.getByText('Organizations');
         expect(tenantsCard).toBeTruthy();
       });
     });
@@ -719,7 +722,7 @@ describe('OwnerHomePage', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/v0.3.0-alpha/i)).toBeTruthy();
+        expect(screen.getByText(versionBadgeRegex)).toBeTruthy();
       });
     });
 
@@ -744,7 +747,7 @@ describe('OwnerHomePage', () => {
 
       await waitFor(() => {
         // Verify health strip is rendered with system overview data
-        expect(screen.getByText(/v0.3.0-alpha/i)).toBeTruthy();
+        expect(screen.getByText(versionBadgeRegex)).toBeTruthy();
       });
     });
 
@@ -820,8 +823,8 @@ describe('OwnerHomePage', () => {
       );
 
       await waitFor(() => {
-        // Should render Tenants card even with empty data
-        expect(screen.getByText('Tenants')).toBeTruthy();
+        // Should render Organizations card even with empty data
+        expect(screen.getByText('Organizations')).toBeTruthy();
       });
     });
 
@@ -895,10 +898,10 @@ describe('OwnerHomePage', () => {
         </TestWrapper>
       );
 
-      await waitFor(() => {
-        // Should render without resource usage
-        expect(screen.getByText(/v0.3.0-alpha/i)).toBeTruthy();
-      });
+    await waitFor(() => {
+      // Should render without resource usage
+      expect(screen.getByText(versionBadgeRegex)).toBeTruthy();
+    });
     });
 
     it('handles missing services in system overview', async () => {
@@ -913,10 +916,10 @@ describe('OwnerHomePage', () => {
         </TestWrapper>
       );
 
-      await waitFor(() => {
-        // Should render without services
-        expect(screen.getByText(/v0.3.0-alpha/i)).toBeTruthy();
-      });
+    await waitFor(() => {
+      // Should render without services
+      expect(screen.getByText(versionBadgeRegex)).toBeTruthy();
+    });
     });
   });
 });

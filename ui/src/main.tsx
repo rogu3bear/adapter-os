@@ -27,7 +27,7 @@ function LoginRoute() {
       isLoggingIn.current = false;
 
       // Check if this is an admin user's first login
-      if (user.role === 'admin') {
+      if (user.role.toLowerCase() === 'admin') {
         try {
           const hasCompletedFirstRun = localStorage.getItem(FIRST_RUN_KEY);
           if (!hasCompletedFirstRun) {
@@ -136,7 +136,7 @@ function LoginRoute() {
 
             {/* Legacy redirects */}
             <Route path="/alerts" element={<Navigate to="/metrics" replace />} />
-            <Route path="/journeys" element={<Navigate to="/audit" replace />} />
+            <Route path="/journeys" element={<Navigate to="/security/audit" replace />} />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>

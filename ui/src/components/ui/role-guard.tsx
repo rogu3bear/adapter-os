@@ -21,8 +21,10 @@ interface RoleGuardProps {
  */
 export function RoleGuard({ allowedRoles, children, fallback = null }: RoleGuardProps) {
   const { user } = useAuth();
-  
-  if (!user || !allowedRoles.includes(user.role)) {
+
+  // Case-insensitive role comparison for defense-in-depth
+  const normalizedUserRole = user?.role.toLowerCase();
+  if (!user || !allowedRoles.some(role => role.toLowerCase() === normalizedUserRole)) {
     return <>{fallback}</>;
   }
   

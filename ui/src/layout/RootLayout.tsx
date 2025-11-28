@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Outlet, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Toaster } from '@/components/ui/sonner';
+import { AppHeader } from '@/components/header';
 import {
   Sidebar,
   SidebarContent,
@@ -19,16 +17,16 @@ import {
 } from '@/components/ui/sidebar';
 
 import { useTheme, useAuth } from '@/providers/CoreProviders';
-import { useTenant } from '@/providers/FeatureProviders';
 import { CommandPaletteProvider, type CommandItem, useCommandPalette } from '@/contexts/CommandPaletteContext';
 import { CommandPalette } from '@/components/CommandPalette';
 import { HelpCenter } from '@/components/HelpCenter';
-import { NotificationBell } from '@/components/NotificationBell';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { useKeyboardShortcuts } from '@/utils/accessibility';
 import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
 import { cn } from '@/components/ui/utils';
-import { Lock, ChevronDown, ChevronRight, HelpCircle } from 'lucide-react';
+import { Lock, ChevronDown, ChevronRight } from 'lucide-react';
+import { LiveDataStatusProvider } from '@/hooks/useLiveDataStatus';
+import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
@@ -39,7 +37,6 @@ interface RootLayoutContentProps {
 function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
-  const { selectedTenant, setSelectedTenant, tenants } = useTenant();
   const location = useLocation();
   const navigate = useNavigate();
   const { openPalette } = useCommandPalette();
@@ -106,9 +103,9 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         Skip to navigation
       </a>
 
-      {/* Sidebar */}
-      <Sidebar>
-        <SidebarContent id="navigation" className="pt-4" role="navigation" aria-label="Main navigation">
+      {/* Sidebar - collapsible to icon mode */}
+      <Sidebar collapsible="icon">
+        <SidebarContent id="navigation" className="pt-2" role="navigation" aria-label="Main navigation">
           {navigationGroups.filter(group => shouldShowNavGroup(group, user.role)).map((group) => {
             const isCollapsed = collapsedGroups[group.title];
             return (
@@ -163,55 +160,20 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
       {/* Main content area */}
       <SidebarInset>
         {/* Header */}
-        <header className="border-b bg-card sticky top-0 z-10">
-          <div className="flex h-16 items-center justify-between px-4 md:px-6">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger className="md:hidden" />
-              <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 text-primary" />
-                <h1 className="font-medium">AdapterOS Control Plane</h1>
-              </div>
-              <Badge variant="outline" className="text-xs hidden sm:inline-flex">Zero Egress Mode</Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setHelpCenterOpen(true)}
-                aria-label="Open help"
-                title="Help (?)"
-              >
-                <HelpCircle className="h-5 w-5" />
-              </Button>
-              <NotificationBell
-                onOpenChange={setNotificationCenterOpen}
-                showCountLabel
-              />
-              {tenants.length > 0 && (
-                <Select value={selectedTenant} onValueChange={setSelectedTenant}>
-                  <SelectTrigger className="w-[180px] hidden sm:flex">
-                    <SelectValue placeholder="Select tenant" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Default</SelectItem>
-                    {tenants.filter(t => t.id && t.id !== '').map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {user.tenant_id && selectedTenant && user.tenant_id !== selectedTenant && (
-                <span className="text-xs text-muted-foreground hidden lg:inline">
-                  Session tenant: {user.tenant_id} (UI tenant: {selectedTenant})
-                </span>
-              )}
-              <Badge variant="secondary" className="hidden sm:inline-flex">{user.role}</Badge>
-              <span className="text-muted-foreground hidden md:inline">{user.email}</span>
-              <Button variant="outline" size="sm" onClick={toggleTheme} aria-label="Toggle theme">
-                {theme === 'dark' ? 'Light' : 'Dark'}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void logout()} className="hidden sm:inline-flex">Logout</Button>
-            </div>
+        <header className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
+          <AppHeader
+              user={user}
+              theme={theme}
+              onLogout={() => void logout()}
+              onOpenHelp={() => setHelpCenterOpen(true)}
+              onOpenNotifications={setNotificationCenterOpen}
+              onOpenPalette={openPalette}
+              onToggleTheme={toggleTheme}
+              className="flex-1"
+            />
+          {/* Global connection status indicator */}
+          <div className="px-3">
+            <ConnectionStatusIndicator />
           </div>
         </header>
 
@@ -242,7 +204,7 @@ export default function RootLayout() {
   const location = useLocation();
 
   // Generate navigation groups from centralized route config
-  const navigationGroups = useMemo(() => generateNavigationGroups(user?.role), [user?.role]);
+  const navigationGroups = useMemo(() => generateNavigationGroups(user?.role, user?.permissions), [user?.role, user?.permissions]);
 
   // Convert navigation groups to command items for command palette
   const commandItems: CommandItem[] = useMemo(() => {
@@ -294,15 +256,34 @@ export default function RootLayout() {
     return items;
   }, [navigationGroups, user?.role]);
 
-  // Show loading state
+  // Show loading state with skeleton layout that includes Outlet
+  // This prevents blank pages during auth check while preserving route rendering
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Lock className="h-8 w-8 text-primary mx-auto mb-4 animate-pulse" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
+      <CommandPaletteProvider routes={[]}>
+        <SidebarProvider>
+          <Sidebar collapsible="icon">
+            <SidebarContent id="navigation" className="pt-2" role="navigation" aria-label="Main navigation">
+              <div className="animate-pulse space-y-3 p-2">
+                <div className="h-4 bg-muted rounded w-3/4" />
+                <div className="h-4 bg-muted rounded w-1/2" />
+                <div className="h-4 bg-muted rounded w-2/3" />
+              </div>
+            </SidebarContent>
+          </Sidebar>
+          <SidebarInset>
+            <header className="flex items-center gap-2 border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10 px-2 h-12">
+              <Lock className="h-4 w-4 text-primary animate-pulse" />
+              <span className="font-medium text-sm text-muted-foreground">Loading...</span>
+            </header>
+            <main id="main-content" className="flex-1 p-4 md:p-6" role="main" tabIndex={-1}>
+              <div className="mx-auto max-w-[1440px]">
+                <Outlet />
+              </div>
+            </main>
+          </SidebarInset>
+        </SidebarProvider>
+      </CommandPaletteProvider>
     );
   }
 
@@ -322,10 +303,12 @@ export default function RootLayout() {
   }
 
   return (
-    <CommandPaletteProvider routes={commandItems}>
-      <SidebarProvider>
-        <RootLayoutContent navigationGroups={navigationGroups} />
-      </SidebarProvider>
-    </CommandPaletteProvider>
+    <LiveDataStatusProvider>
+      <CommandPaletteProvider routes={commandItems}>
+        <SidebarProvider>
+          <RootLayoutContent navigationGroups={navigationGroups} />
+        </SidebarProvider>
+      </CommandPaletteProvider>
+    </LiveDataStatusProvider>
   );
 }

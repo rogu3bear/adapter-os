@@ -182,7 +182,7 @@ const securityStage1: Stage = {
     whatAppears: 'Policies page showing 23 canonical policy packs (Egress, Determinism, Router, Evidence, etc.) with enforcement status',
     why: 'Define and enforce security policies across tenants, adapters, and execution',
     context: 'Policy packs enforce rules at all layers of the mental model',
-    route: '/policies',
+    route: '/security/policies',
     mentalModelExplanation: 'Policies enforce rules across all entities: **Tenants** (isolation), **Stacks** (composition), **Router** (selection), **Kernel** (execution). Example: Egress Policy ensures zero network egress in production.'
   }
 };
@@ -303,7 +303,7 @@ const productManagerStage3: Stage = {
     whatAppears: 'Tenants page where you can create tenants, configure resource limits, and assign policies',
     why: 'Define service tiers (free, pro, enterprise) by configuring tenant resource limits and policies',
     context: 'Product tier management and tenant provisioning',
-    route: '/tenants',
+    route: '/admin/tenants',
     mentalModelExplanation: '**Tenants** are the isolation boundary. Configure memory limits, adapter quotas, and policy packs per tenant to create service tiers (e.g., free tier = 1GB, 5 adapters; pro tier = 10GB, unlimited adapters).'
   }
 };

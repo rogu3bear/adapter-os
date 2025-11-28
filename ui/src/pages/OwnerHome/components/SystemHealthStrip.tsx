@@ -17,22 +17,35 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
+  Database,
+  Layers,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { SystemOverview } from '@/api/owner-types';
+import type { BaseModelStatus, BackendStatus } from '@/api/api-types';
+import type { AdapterStack } from '@/api/adapter-types';
 
 interface SystemHealthStripProps {
   systemOverview?: SystemOverview;
   isLoading: boolean;
   error?: Error | null;
+  baseModelStatus?: BaseModelStatus;
+  backends?: BackendStatus[];
+  activeStack?: AdapterStack | null;
+  /** Whether real-time SSE updates are active */
+  isLive?: boolean;
 }
 
 export default function SystemHealthStrip({
   systemOverview,
   isLoading,
   error,
+  baseModelStatus,
+  backends,
+  activeStack,
+  isLive = false,
 }: SystemHealthStripProps) {
   if (isLoading) {
     return (
@@ -91,8 +104,64 @@ export default function SystemHealthStrip({
             <Badge variant="outline" className="text-xs">
               development
             </Badge>
+            {isLive && (
+              <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-300 bg-green-50">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                Live
+              </Badge>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* Active Context - Model, Backend, Stack */}
+      <div className="flex items-center gap-4 px-4 py-2 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Base Model */}
+        <HelpTooltip content="Currently loaded base model">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-indigo-500" />
+            <span className="text-sm truncate max-w-[140px]">
+              {baseModelStatus?.model_name || 'No model loaded'}
+            </span>
+            {baseModelStatus?.status === 'ready' || baseModelStatus?.status === 'loaded' ? (
+              <Badge variant="default" className="text-xs">Ready</Badge>
+            ) : baseModelStatus?.status === 'loading' ? (
+              <Badge variant="secondary" className="text-xs">Loading</Badge>
+            ) : null}
+          </div>
+        </HelpTooltip>
+
+        <span className="text-slate-300">|</span>
+
+        {/* Backend */}
+        <HelpTooltip content="Active inference backend">
+          <div className="flex items-center gap-2">
+            <Cpu className="h-4 w-4 text-blue-500" />
+            <span className="text-sm">
+              {backends?.find(b => b.status === 'healthy')?.backend?.toUpperCase() || 'Auto'}
+            </span>
+            {backends?.some(b => b.status === 'healthy') && (
+              <Badge variant="default" className="text-xs">OK</Badge>
+            )}
+          </div>
+        </HelpTooltip>
+
+        <span className="text-slate-300">|</span>
+
+        {/* Active Stack */}
+        <HelpTooltip content="Active adapter stack">
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-purple-500" />
+            <span className="text-sm truncate max-w-[120px]">
+              {activeStack?.name || 'No active stack'}
+            </span>
+            {activeStack && (
+              <Badge variant="secondary" className="text-xs">
+                {activeStack.adapter_ids?.length || activeStack.adapters?.length || 0} adapters
+              </Badge>
+            )}
+          </div>
+        </HelpTooltip>
       </div>
 
       {/* Center: Health Indicators */}

@@ -180,7 +180,6 @@ function DocumentChatLayoutInner({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     // Note: 'document' in dependency warning refers to global DOM object, not the component prop
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePanelIndex]);
 
   // PDF Viewer Component
@@ -359,7 +358,7 @@ function DocumentChatLayoutInner({
               role="region"
               aria-label="Chat conversation panel"
               tabIndex={-1}
-              className="h-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+              className="h-full focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-inset"
               data-panel-active={activePanelIndex === 0}
             >
               <ChatInterface
@@ -387,7 +386,7 @@ function DocumentChatLayoutInner({
               role="region"
               aria-label={`PDF viewer: ${document.name}`}
               tabIndex={-1}
-              className="h-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+              className="h-full focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-inset"
               data-panel-active={activePanelIndex === 1}
             >
               <PDFViewer />

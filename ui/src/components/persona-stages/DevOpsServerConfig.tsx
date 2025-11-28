@@ -93,8 +93,8 @@ export default function DevOpsServerConfig() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Tenant Isolation</Label>
-                    <p className="text-sm text-muted-foreground">Multi-tenant data separation</p>
+                    <Label>Organization Isolation</Label>
+                    <p className="text-sm text-muted-foreground">Multi-organization data separation</p>
                   </div>
                   <Switch defaultChecked />
                 </div>
@@ -126,7 +126,7 @@ export default function DevOpsServerConfig() {
                   <Input type="number" defaultValue="32" />
                 </div>
                 <div>
-                  <Label>Eviction Threshold (%)</Label>
+                  <Label>Removal Threshold (%)</Label>
                   <Input type="number" defaultValue="85" />
                 </div>
               </div>

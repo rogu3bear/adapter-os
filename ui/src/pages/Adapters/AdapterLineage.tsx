@@ -220,7 +220,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate(`/datasets/${lineage.lineage!.dataset_id}`)}
+                    onClick={() => navigate(`/training/datasets/${lineage.lineage!.dataset_id}`)}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>

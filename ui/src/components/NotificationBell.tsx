@@ -59,8 +59,8 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="sm"
-            className="relative"
+            size="icon"
+            className="relative h-10 w-10"
             onClick={handleClick}
             aria-label={`Notifications ${hasUnread ? `(${unreadCount} unread)` : '(no unread)'}`}
             title={`Notifications ${hasUnread ? `(${unreadCount} unread)` : '(no unread)'}`}
@@ -71,21 +71,18 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
               <Bell className="h-5 w-5" />
             )}
             {hasUnread && (
-              <Badge
-                variant="destructive"
-                className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs"
-              >
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </Badge>
+              <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-medium flex items-center justify-center">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
             )}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-80">
-          <div className="px-2 py-1.5 border-b">
+        <DropdownMenuContent align="end" className="w-80 backdrop-blur-xl bg-background/90 border-border/50">
+          <div className="px-2 py-1.5 border-b border-border/30">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">Notifications</h3>
               {summary && (
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-background/50">
                   {unreadCount} unread
                 </Badge>
               )}
@@ -95,9 +92,9 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
           <div className="p-2">
             {loading && (
               <div className="space-y-2">
-                <div className="h-4 bg-muted animate-pulse rounded" />
-                <div className="h-4 bg-muted animate-pulse rounded w-5/6" />
-                <div className="h-4 bg-muted animate-pulse rounded w-4/6" />
+                <div className="h-4 bg-muted/50 animate-pulse rounded" />
+                <div className="h-4 bg-muted/50 animate-pulse rounded w-5/6" />
+                <div className="h-4 bg-muted/50 animate-pulse rounded w-4/6" />
               </div>
             )}
 
@@ -114,7 +111,7 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
                     No unread notifications
                   </div>
                 ) : (
-                  <div className="text-sm">
+                  <div className="text-sm text-muted-foreground">
                     You have {summary.unread_count} unread notification{summary.unread_count !== 1 ? 's' : ''}
                   </div>
                 )}
@@ -122,7 +119,7 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full"
+                  className="w-full bg-background/50 hover:bg-background/80"
                   onClick={() => setDialogOpen(true)}
                 >
                   View All Notifications

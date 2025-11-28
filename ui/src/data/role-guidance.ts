@@ -149,7 +149,9 @@ export const roleGuidanceDatabase: RoleGuidanceItem[] = [
 ];
 
 export function getRoleGuidance(role: UserRole): RoleGuidanceItem | undefined {
-  return roleGuidanceDatabase.find(item => item.role === role);
+  // Case-insensitive role lookup for defense-in-depth
+  const normalizedRole = role.toLowerCase();
+  return roleGuidanceDatabase.find(item => item.role.toLowerCase() === normalizedRole);
 }
 
 export function getRoleCapabilities(role: UserRole): string[] {

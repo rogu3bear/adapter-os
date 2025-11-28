@@ -222,7 +222,7 @@ export function useStackUpdateNotifications(stackId?: string, stackName?: string
       action: {
         label: 'View Stack',
         onClick: () => {
-          window.location.href = `/adapter-stacks/${id}`;
+          window.location.href = `/admin/stacks`;
         },
       },
     });

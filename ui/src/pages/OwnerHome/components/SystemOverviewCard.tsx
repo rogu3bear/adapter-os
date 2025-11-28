@@ -81,24 +81,6 @@ export default function SystemOverviewCard({
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Server className="h-5 w-5" />
-            System Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-10 w-32" />
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card>
       <CardHeader>
@@ -108,6 +90,14 @@ export default function SystemOverviewCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {isLoading ? (
+          <>
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-10 w-32" />
+          </>
+        ) : (
+          <>
         {/* System Metrics */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
@@ -166,7 +156,7 @@ export default function SystemOverviewCard({
         {systemOverview?.resource_usage && (
           <div className="space-y-2">
             <h4 className="text-sm font-medium text-slate-700">Resource Usage</h4>
-            <div className="grid grid-cols-3 gap-2 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
               <div className="p-2 bg-slate-50 rounded">
                 <span className="text-muted-foreground">Memory</span>
                 <p className="font-medium">{systemOverview.resource_usage.memory_usage_percent.toFixed(1)}%</p>
@@ -219,6 +209,8 @@ export default function SystemOverviewCard({
           <span>View Details</span>
           <ExternalLink className="h-4 w-4 ml-2" />
         </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   );

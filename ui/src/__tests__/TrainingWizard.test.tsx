@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { TrainingWizard } from '@/components/TrainingWizard';
 
@@ -45,11 +46,13 @@ describe('TrainingWizard dataset validation guard', () => {
     startTrainingMock.mockResolvedValue({ id: 'job-1' });
 
     render(
-      <TrainingWizard
-        onComplete={vi.fn()}
-        onCancel={() => {}}
-        initialDatasetId="ds-draft"
-      />,
+      <MemoryRouter>
+        <TrainingWizard
+          onComplete={vi.fn()}
+          onCancel={() => {}}
+          initialDatasetId="ds-draft"
+        />
+      </MemoryRouter>,
     );
 
     const user = userEvent.setup();
@@ -72,11 +75,13 @@ describe('TrainingWizard dataset validation guard', () => {
     const onComplete = vi.fn();
 
     render(
-      <TrainingWizard
-        onComplete={onComplete}
-        onCancel={() => {}}
-        initialDatasetId="ds-valid"
-      />,
+      <MemoryRouter>
+        <TrainingWizard
+          onComplete={onComplete}
+          onCancel={() => {}}
+          initialDatasetId="ds-valid"
+        />
+      </MemoryRouter>,
     );
 
     const user = userEvent.setup();

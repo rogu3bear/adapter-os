@@ -207,7 +207,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
         icon: FileText,
         color: 'text-blue-600',
         helpId: 'compliance-audit-logs',
-        onClick: () => window.open('/admin/audit', '_blank'),
+        onClick: () => window.open('/security/audit', '_blank'),
       },
       {
         label: 'Policy Report',
@@ -247,11 +247,11 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
         },
       },
       {
-        label: 'Review Evidence',
+        label: 'View Audit Trail',
         icon: Eye,
         color: 'text-amber-600',
-        helpId: 'compliance-review-evidence',
-        onClick: () => window.open('/evidence', '_blank'),
+        helpId: 'compliance-view-audit-trail',
+        onClick: () => window.open('/security/audit', '_blank'),
       },
     ],
     [complianceData, auditLogs, refetchCompliance]
@@ -508,7 +508,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
             <div className="flex items-center justify-between">
               <CardTitle>Recent Violations</CardTitle>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/admin/audit">View All</Link>
+                <Link to="/security/audit">View All</Link>
               </Button>
             </div>
           </CardHeader>
@@ -545,7 +545,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
                       </p>
                     </div>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link to={`/admin/audit?id=${violation.id}`}>
+                      <Link to={`/security/audit?id=${violation.id}`}>
                         <Search className="h-4 w-4" />
                       </Link>
                     </Button>

@@ -62,11 +62,11 @@ const routeIcons: Record<string, React.ComponentType<{ className?: string }>> = 
   '/inference': Play,
   '/telemetry': Eye,
   '/replay': RotateCcw,
-  '/policies': Shield,
-  '/audit': FileText,
+  '/security/policies': Shield,
+  '/security/audit': FileText,
   '/admin': Settings,
   '/reports': BarChart3,
-  '/tenants': Building,
+  '/admin/tenants': Building,
 };
 
 function getIconForItem(item: CmdItem): React.ComponentType<{ className?: string }> {
@@ -94,7 +94,7 @@ function groupResults(results: CmdItem[]): Map<string, CmdItem[]> {
   return grouped;
 }
 
-const groupOrder = ['Quick Actions', 'Pages', 'Favorites', 'Recent', 'Adapters', 'Tenants', 'Policies', 'Nodes', 'Workers'];
+const groupOrder = ['Quick Actions', 'Pages', 'Favorites', 'Recent', 'Adapters', 'Organizations', 'Policies', 'Nodes', 'Workers'];
 
 export function CommandPalette() {
   const {

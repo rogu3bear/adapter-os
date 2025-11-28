@@ -8,12 +8,14 @@ import { logger, toError } from '../utils/logger';
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
+  authError: Error | null;
   login: (credentials: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   refreshSession: () => Promise<void>;
   logoutAllSessions: () => Promise<void>;
   updateProfile: (updates: { display_name?: string; avatar_url?: string }) => Promise<void>;
+  clearAuthError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -85,7 +87,12 @@ export function RequireAuth({ children, fallback }: RequireAuthProps) {
 function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState<Error | null>(null);
   const isRefreshingRef = useRef(false);
+
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
 
   const refreshUser = useCallback(async () => {
     // Prevent concurrent refresh calls
@@ -107,15 +114,19 @@ function AuthProvider({ children }: { children: ReactNode }) {
         mfa_enabled: userInfo.mfa_enabled,
         token_last_rotated_at: userInfo.token_last_rotated_at,
       });
+      setAuthError(null);
     } catch (error) {
       setUser(null);
-      logger.error('Failed to fetch user', { component: 'AuthProvider' }, toError(error));
+      const err = toError(error);
+      setAuthError(err);
+      logger.error('Failed to fetch user', { component: 'AuthProvider' }, err);
     } finally {
       isRefreshingRef.current = false;
     }
   }, []);
 
   const login = useCallback(async (credentials: LoginRequest) => {
+    setAuthError(null);
     try {
       logger.info('Initiating login', {
         component: 'AuthProvider',
@@ -131,7 +142,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
       });
       await refreshUser();
     } catch (error) {
-      logger.error('Login failed', { component: 'AuthProvider' }, toError(error));
+      const err = toError(error);
+      setAuthError(err);
+      logger.error('Login failed', { component: 'AuthProvider' }, err);
       throw error; // Re-throw so caller can handle
     }
   }, [refreshUser]);
@@ -143,6 +156,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       logger.error('Logout error', { component: 'AuthProvider' }, toError(error));
     } finally {
       setUser(null);
+      setAuthError(null); // Clear auth error on logout
       try {
         localStorage.removeItem('selectedTenant');
       } catch {
@@ -156,7 +170,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
       await apiClient.refreshSession();
       await refreshUser();
     } catch (error) {
-      logger.error('Session refresh error', { component: 'AuthProvider' }, toError(error));
+      const err = toError(error);
+      setAuthError(err);
+      logger.error('Session refresh error', { component: 'AuthProvider' }, err);
       setUser(null);
     }
   }, [refreshUser]);
@@ -165,6 +181,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiClient.logoutAllSessions();
       setUser(null);
+      setAuthError(null); // Clear auth error on logout
     } catch (error) {
       logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
     } finally {
@@ -188,18 +205,34 @@ function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   useEffect(() => {
-    refreshUser().finally(() => setIsLoading(false));
+    // Only attempt to refresh user if we have an auth token (cookie-based auth)
+    // Check if we might be authenticated by looking for existing session indicators
+    // This prevents 401 errors on initial page load before login
+    const checkAuth = async () => {
+      try {
+        // Attempt to get current user - if 401, we're not authenticated
+        await refreshUser();
+      } catch {
+        // Not authenticated - this is expected on initial load
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    checkAuth();
   }, [refreshUser]);
 
   const value: AuthContextValue = {
     user,
     isLoading,
+    authError,
     login,
     logout,
     refreshUser,
     refreshSession,
     logoutAllSessions,
     updateProfile,
+    clearAuthError,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

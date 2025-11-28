@@ -167,7 +167,7 @@ export function SpawnWorkerModal({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="tenant">Tenant ID</Label>
+            <Label htmlFor="tenant">Organization ID</Label>
             <div className="p-2 bg-muted rounded border text-sm font-mono">
               {tenantId}
             </div>

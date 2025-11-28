@@ -150,7 +150,7 @@ Response: { policies: [...] }
 ```tsx
 async function validateAndLoad(adapterId: string) {
   // Fetch policy checks
-  const response = await fetch(`/v1/adapters/${adapterId}/validate-policies`);
+  const response = await fetch(`/api/v1/adapters/${adapterId}/validate-policies`);
   const data = await response.json();
 
   // Transform to PolicyCheck format

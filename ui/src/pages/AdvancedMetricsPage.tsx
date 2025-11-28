@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { DateRangePicker, type DateRange } from '@/components/ui/date-range-picker';
 import { apiClient } from '@/api/client';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
@@ -26,7 +27,6 @@ import {
   BarChart3,
   Download,
 } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
 import {
   LineChart,
   Line,
@@ -60,6 +60,7 @@ const TIME_RANGE_OPTIONS = [
   { value: '24h', label: 'Last 24 Hours' },
   { value: '7d', label: 'Last 7 Days' },
   { value: '30d', label: 'Last 30 Days' },
+  { value: 'custom', label: 'Custom Range' },
 ];
 
 const AGGREGATION_OPTIONS = [
@@ -75,18 +76,28 @@ function AdvancedMetricsPageInner() {
 
   const [selectedMetric, setSelectedMetric] = useState('cpu_usage');
   const [timeRange, setTimeRange] = useState('1h');
+  const [customDateRange, setCustomDateRange] = useState<DateRange | undefined>();
   const [aggregation, setAggregation] = useState('avg');
 
   // Fetch metrics series
   const fetchMetricsSeries = useCallback(async () => {
-    const startTime = new Date(getStartTime(timeRange)).getTime();
-    const endTime = new Date().getTime();
+    let startTime: number;
+    let endTime: number;
+
+    if (timeRange === 'custom' && customDateRange) {
+      startTime = customDateRange.from.getTime();
+      endTime = customDateRange.to.getTime();
+    } else {
+      startTime = new Date(getStartTime(timeRange)).getTime();
+      endTime = new Date().getTime();
+    }
+
     return await apiClient.getMetricsSeries({
       series_name: selectedMetric,
       start_ms: startTime,
       end_ms: endTime,
     });
-  }, [selectedMetric, timeRange]);
+  }, [selectedMetric, timeRange, customDateRange]);
 
   const {
     data: metricsSeries = [],
@@ -161,14 +172,11 @@ function AdvancedMetricsPageInner() {
   } : null;
 
   return (
-    <FeatureLayout title="Advanced Metrics">
-      <PageHeader
-        title="Advanced Metrics"
-        description="Time-series metrics and performance analysis"
-      >
-        <DensityControls density={density} onDensityChange={setDensity} />
-      </PageHeader>
-
+    <FeatureLayout
+      title="Advanced Metrics"
+      description="Time-series metrics and performance analysis"
+      headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
+    >
       <div className="space-y-6">
         {/* Controls */}
         <Card>
@@ -246,6 +254,18 @@ function AdvancedMetricsPageInner() {
               </div>
             </div>
 
+            {/* Custom Date Range Picker */}
+            {timeRange === 'custom' && (
+              <div className="mt-4">
+                <DateRangePicker
+                  label="Custom Date Range"
+                  value={customDateRange}
+                  onChange={setCustomDateRange}
+                  maxDate={new Date()}
+                />
+              </div>
+            )}
+
             {lastUpdated && (
               <div className="mt-4 text-xs text-muted-foreground">
                 Last updated: {lastUpdated.toLocaleTimeString()}
@@ -316,7 +336,11 @@ function AdvancedMetricsPageInner() {
               )}
             </CardTitle>
             <CardDescription>
-              {aggregation.toUpperCase()} aggregation over {TIME_RANGE_OPTIONS.find((t) => t.value === timeRange)?.label.toLowerCase()}
+              {aggregation.toUpperCase()} aggregation over {
+                timeRange === 'custom' && customDateRange
+                  ? `${customDateRange.from.toLocaleDateString()} - ${customDateRange.to.toLocaleDateString()}`
+                  : TIME_RANGE_OPTIONS.find((t) => t.value === timeRange)?.label.toLowerCase()
+              }
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -20,6 +20,8 @@ import {
   Users,
   Layers,
   Shield,
+  DollarSign,
+  Clock,
 } from 'lucide-react';
 
 interface TenantDetailPageProps {
@@ -35,16 +37,17 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tenant Details: {tenant.name}</DialogTitle>
+          <DialogTitle>Organization Details: {tenant.name}</DialogTitle>
           <DialogDescription>
-            Tenant ID: <span className="font-mono">{tenant.id}</span>
+            Organization ID: <span className="font-mono">{tenant.id}</span>
           </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="usage">Usage Stats</TabsTrigger>
+            <TabsTrigger value="billing">Cost & Billing</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
           </TabsList>
 
@@ -68,11 +71,11 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
                     </Badge>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">UID</p>
+                    <p className="text-sm font-medium text-muted-foreground">User ID</p>
                     <p className="text-sm mt-1">{tenant.uid || 'N/A'}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">GID</p>
+                    <p className="text-sm font-medium text-muted-foreground">Group ID</p>
                     <p className="text-sm mt-1">{tenant.gid || 'N/A'}</p>
                   </div>
                   <div>
@@ -191,6 +194,107 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
             )}
           </TabsContent>
 
+          <TabsContent value="billing" className="space-y-4">
+            {isLoading && <LoadingState message="Loading billing data..." />}
+            {error && (
+              <ErrorRecovery
+                error={error instanceof Error ? error.message : String(error)}
+                onRetry={refetch}
+              />
+            )}
+            {usage && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5" />
+                      Cost Summary
+                    </CardTitle>
+                    <CardDescription>
+                      Estimated usage costs for current period (placeholder for future billing integration)
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-sm font-medium text-muted-foreground">Inference Requests</p>
+                        <p className="text-2xl font-bold mt-2">
+                          {usage.inference_count?.toLocaleString() || '0'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {usage.inference_count_24h?.toLocaleString() || '0'} in last 24h
+                        </p>
+                      </div>
+                      <div className="p-4 border rounded-lg">
+                        <p className="text-sm font-medium text-muted-foreground">Tokens Processed</p>
+                        <p className="text-2xl font-bold mt-2">
+                          {usage.tokens_processed?.toLocaleString() || '0'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Total across all requests
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border rounded-lg bg-muted/50">
+                      <div className="flex items-start gap-3">
+                        <Clock className="h-5 w-5 text-muted-foreground mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Training Time</p>
+                          <p className="text-2xl font-bold mt-1">
+                            {usage.training_jobs || 0} jobs
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Training hours calculation available in future release
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border rounded-lg bg-muted/50">
+                      <div className="flex items-start gap-3">
+                        <HardDrive className="h-5 w-5 text-muted-foreground mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Storage Usage</p>
+                          <p className="text-2xl font-bold mt-1">
+                            {(usage.storage_mb / 1024).toFixed(2)} GB
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Includes adapters, datasets, and artifacts
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Billing Notes</CardTitle>
+                    <CardDescription>Future cost calculation integration</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <p>
+                        Cost calculation and billing features will be added in a future release.
+                      </p>
+                      <p>
+                        Current usage metrics are tracked and available for review.
+                      </p>
+                      <ul className="list-disc list-inside space-y-1 mt-4">
+                        <li>Inference request counting</li>
+                        <li>Token usage tracking</li>
+                        <li>Training job monitoring</li>
+                        <li>Storage allocation tracking</li>
+                        <li>Resource utilization metrics</li>
+                      </ul>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </TabsContent>
+
           <TabsContent value="permissions" className="space-y-4">
             <Card>
               <CardHeader>
@@ -198,7 +302,7 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
                   <Shield className="h-5 w-5" />
                   Assigned Policies
                 </CardTitle>
-                <CardDescription>Policies applied to this tenant</CardDescription>
+                <CardDescription>Policies applied to this organization</CardDescription>
               </CardHeader>
               <CardContent>
                 {tenant.policies && tenant.policies.length > 0 ? (
@@ -221,7 +325,7 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
                   <Layers className="h-5 w-5" />
                   Assigned Adapters
                 </CardTitle>
-                <CardDescription>Adapters accessible to this tenant</CardDescription>
+                <CardDescription>Adapters accessible to this organization</CardDescription>
               </CardHeader>
               <CardContent>
                 {tenant.adapters && tenant.adapters.length > 0 ? (
@@ -244,7 +348,7 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
                   <Users className="h-5 w-5" />
                   Users
                 </CardTitle>
-                <CardDescription>Users with access to this tenant</CardDescription>
+                <CardDescription>Users with access to this organization</CardDescription>
               </CardHeader>
               <CardContent>
                 {tenant.users && tenant.users.length > 0 ? (

@@ -180,7 +180,30 @@ export type FileChangeStreamEvent = FileChangeEvent | FileChangeBatchEvent;
 // ============================================================================
 
 /**
+ * Backend SSE metrics snapshot event
+ * Matches MetricsSnapshotEvent from crates/adapteros-server-api/src/handlers/streaming.rs
+ */
+export interface MetricsSnapshotEvent {
+  timestamp_ms: number;
+  latency: {
+    p50_ms: number;
+    p95_ms: number;
+    p99_ms: number;
+  };
+  throughput: {
+    tokens_per_second: number;
+    inferences_per_second: number;
+  };
+  system: {
+    cpu_percent: number;
+    memory_percent: number;
+    disk_percent: number;
+  };
+}
+
+/**
  * System metrics snapshot (5-sec interval)
+ * Legacy/extended format - kept for compatibility
  */
 export interface SystemMetricsEvent {
   timestamp: string;
@@ -232,7 +255,7 @@ export interface PerformanceAlertEvent {
 /**
  * Union of all metrics stream events
  */
-export type MetricsStreamEvent = SystemMetricsEvent | PerformanceAlertEvent;
+export type MetricsStreamEvent = MetricsSnapshotEvent | SystemMetricsEvent | PerformanceAlertEvent;
 
 // ============================================================================
 // Telemetry Stream Events
@@ -278,15 +301,18 @@ export type TelemetryStreamEvent = StreamingTelemetryEvent | TelemetryBatchEvent
 
 /**
  * Adapter lifecycle state transition
+ * Matches AdapterStateEvent from crates/adapteros-server-api/src/handlers/streaming.rs
  */
 export interface AdapterStateTransitionEvent {
   adapter_id: string;
-  tenant_id: string;
-  previous_state: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-  new_state: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-  trigger: 'activation' | 'eviction' | 'manual' | 'timeout' | 'memory_pressure' | 'pinning';
-  memory_freed_mb?: number;
-  timestamp: string;
+  adapter_name: string;
+  previous_state: string | null;
+  current_state: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+  /** Alias for current_state - some API responses use this field name */
+  new_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+  timestamp: number; // Unix timestamp in ms
+  activation_percentage: number;
+  memory_usage_mb?: number;
 }
 
 /**
@@ -438,7 +464,7 @@ export function isTrainingProgressEvent(data: any): data is TrainingProgressEven
  * Helper to check if event is an adapter state transition
  */
 export function isAdapterStateTransitionEvent(data: any): data is AdapterStateTransitionEvent {
-  return data && 'previous_state' in data && 'new_state' in data;
+  return data && 'adapter_id' in data && 'current_state' in data;
 }
 
 /**
@@ -542,4 +568,123 @@ export interface StreamingDelta {
  */
 export function isStreamingChunk(data: any): data is StreamingChunk {
   return data && 'object' in data && data.object === 'chat.completion.chunk' && 'choices' in data;
+}
+
+// ============================================================================
+// Stack Policy Stream Events (PRD-GOV-01)
+// Endpoint: /v1/stream/stack-policies/{stack_id}
+// ============================================================================
+
+/**
+ * Event types emitted by the stack policy stream
+ */
+export type StackPolicyEventType =
+  | 'compliance_changed'
+  | 'violation_detected'
+  | 'violation_resolved'
+  | 'policy_assigned'
+  | 'policy_revoked';
+
+/**
+ * Compliance score changed event
+ */
+export interface ComplianceChangedEvent {
+  event_type: 'compliance_changed';
+  stack_id: string;
+  previous_score: number;
+  current_score: number;
+  previous_status: 'compliant' | 'warning' | 'non_compliant';
+  current_status: 'compliant' | 'warning' | 'non_compliant';
+  changed_categories: string[];
+  timestamp: string;
+}
+
+/**
+ * Policy violation detected event
+ */
+export interface ViolationDetectedEvent {
+  event_type: 'violation_detected';
+  stack_id: string;
+  violation_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  message: string;
+  resource_type: string;
+  resource_id: string;
+  timestamp: string;
+}
+
+/**
+ * Policy violation resolved event
+ */
+export interface ViolationResolvedEvent {
+  event_type: 'violation_resolved';
+  stack_id: string;
+  violation_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  resolved_by: string;
+  resolution_notes?: string;
+  timestamp: string;
+}
+
+/**
+ * Policy assigned to stack event
+ */
+export interface PolicyAssignedEvent {
+  event_type: 'policy_assigned';
+  stack_id: string;
+  assignment_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  assigned_by: string;
+  priority: number;
+  enforced: boolean;
+  timestamp: string;
+}
+
+/**
+ * Policy revoked from stack event
+ */
+export interface PolicyRevokedEvent {
+  event_type: 'policy_revoked';
+  stack_id: string;
+  assignment_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  revoked_by: string;
+  reason?: string;
+  timestamp: string;
+}
+
+/**
+ * Union of all stack policy stream events
+ */
+export type StackPolicyStreamEvent =
+  | ComplianceChangedEvent
+  | ViolationDetectedEvent
+  | ViolationResolvedEvent
+  | PolicyAssignedEvent
+  | PolicyRevokedEvent;
+
+/**
+ * Helper to check if event is a compliance change
+ */
+export function isComplianceChangedEvent(data: any): data is ComplianceChangedEvent {
+  return data && data.event_type === 'compliance_changed';
+}
+
+/**
+ * Helper to check if event is a violation detected
+ */
+export function isViolationDetectedEvent(data: any): data is ViolationDetectedEvent {
+  return data && data.event_type === 'violation_detected';
+}
+
+/**
+ * Helper to check if event is a violation resolved
+ */
+export function isViolationResolvedEvent(data: any): data is ViolationResolvedEvent {
+  return data && data.event_type === 'violation_resolved';
 }

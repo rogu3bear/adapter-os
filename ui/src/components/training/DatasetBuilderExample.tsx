@@ -113,7 +113,7 @@ export function DatasetBuilderWithDefaults() {
         onDatasetCreated={(datasetId, _config) => {
           navigate(`/training/configure?dataset=${datasetId}`);
         }}
-        onCancel={() => navigate('/datasets')}
+        onCancel={() => navigate('/training/datasets')}
       />
     </div>
   );

@@ -102,38 +102,32 @@ const UsageCard: React.FC<UsageCardProps> = ({ refreshKey }) => {
     navigate('/reports');
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>24h Usage</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <Skeleton className="h-10 w-10 rounded" />
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-3 w-16" />
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>24h Usage</span>
+          <BarChart3 className="h-5 w-5 text-slate-500" />
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <>
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Skeleton className="h-10 w-10 rounded" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
                 </div>
+                <Skeleton className="h-6 w-12" />
               </div>
-              <Skeleton className="h-6 w-12" />
-            </div>
-          ))}
-          <Skeleton className="h-10 w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>24h Usage</CardTitle>
-        </CardHeader>
-        <CardContent>
+            ))}
+            <Skeleton className="h-10 w-full" />
+          </>
+        ) : isError ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <BarChart3 className="h-12 w-12 text-slate-400 mb-3" />
             <p className="text-sm text-slate-600 mb-4">
@@ -147,20 +141,8 @@ const UsageCard: React.FC<UsageCardProps> = ({ refreshKey }) => {
               Retry
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>24h Usage</span>
-          <BarChart3 className="h-5 w-5 text-slate-500" />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        ) : (
+          <>
         {metrics.map((metric, index) => {
           const Icon = metric.icon;
           return (
@@ -224,6 +206,8 @@ const UsageCard: React.FC<UsageCardProps> = ({ refreshKey }) => {
           View Reports
           <ExternalLink className="ml-2 h-4 w-4" />
         </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   );

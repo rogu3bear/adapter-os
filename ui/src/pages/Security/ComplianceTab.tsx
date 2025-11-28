@@ -152,8 +152,7 @@ export function ComplianceTab() {
   return (
     <div className="space-y-6">
       {/* Action Bar */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Compliance Dashboard</h2>
+      <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh

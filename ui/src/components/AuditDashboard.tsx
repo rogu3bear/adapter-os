@@ -159,7 +159,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       const bundles = await apiClient.listTelemetryBundles();
       setTelemetryBundles(bundles);
 
-
       // Load compliance audit data from backend (includes violations)
       const complianceAudit = await apiClient.getComplianceAudit();
       const mappedControls = complianceAudit.controls.map(mapComplianceControlToStatus);
@@ -168,10 +167,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
       // Map violations from compliance audit response
       const mappedViolations = complianceAudit.violations.map(mapViolationRecordToViolation);
       setViolations(mappedViolations);
-
-      // Generate mock compliance data (in production, this would come from backend)
-      generateComplianceData(policiesList);
-      generateViolationData();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load audit data';
       logger.error('Failed to load audit data', {
@@ -190,102 +185,6 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
   useEffect(() => {
     loadAuditData();
   }, [loadAuditData]);
-
-  const generateComplianceData = (policies: Policy[]) => {
-    const controls: ComplianceStatus[] = [
-      {
-        controlId: 'EGRESS-001',
-        controlName: 'Network Egress Control',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Zero egress mode enforced', 'PF rules active'],
-        findings: []
-      },
-      {
-        controlId: 'DETERM-001',
-        controlName: 'Deterministic Execution',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Metal kernels precompiled', 'HKDF seeding enabled'],
-        findings: []
-      },
-      {
-        controlId: 'ROUTER-001',
-        controlName: 'Router Configuration',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['K-sparse within bounds', 'Entropy floor met'],
-        findings: []
-      },
-      {
-        controlId: 'EVIDENCE-001',
-        controlName: 'Evidence Requirements',
-        status: 'pending',
-        lastChecked: new Date().toISOString(),
-        evidence: ['ARR: 0.94', 'ECS@5: 0.72'],
-        findings: ['ECS@5 below threshold of 0.75']
-      },
-      {
-        controlId: 'ISOLATION-001',
-        controlName: 'Tenant Isolation',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Per-tenant processes', 'UID/GID separation'],
-        findings: []
-      },
-      {
-        controlId: 'TELEMETRY-001',
-        controlName: 'Telemetry Compliance',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['Sampling rules met', 'Bundle rotation active'],
-        findings: []
-      },
-      {
-        controlId: 'ARTIFACTS-001',
-        controlName: 'Artifact Security',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['All artifacts signed', 'SBOM present'],
-        findings: []
-      },
-      {
-        controlId: 'MEMORY-001',
-        controlName: 'Memory Management',
-        status: 'compliant',
-        lastChecked: new Date().toISOString(),
-        evidence: ['15% headroom maintained', 'Eviction order followed'],
-        findings: []
-      }
-    ];
-
-    setComplianceStatus(controls);
-  };
-
-  const generateViolationData = () => {
-    const mockViolations: PolicyViolation[] = [
-      {
-        id: 'V001',
-        policyName: 'Evidence Ruleset',
-        violationType: 'Insufficient Evidence Coverage',
-        severity: 'medium',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        details: 'ECS@5 score of 0.72 is below required threshold of 0.75',
-        resolved: false
-      },
-      {
-        id: 'V002',
-        policyName: 'Performance Ruleset',
-        violationType: 'Latency Threshold Exceeded',
-        severity: 'low',
-        timestamp: new Date(Date.now() - 7200000).toISOString(),
-        details: 'P95 latency of 26ms exceeded budget of 24ms',
-        resolved: true
-      }
-    ];
-
-    setViolations(mockViolations);
-  };
 
   const handleRunAudit = async () => {
     setIsLoading(true);
@@ -605,49 +504,57 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {complianceStatus.map((control) => (
-                  <div
-                    key={control.controlId}
-                    className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
-                    onClick={() => setSelectedControl(control)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className={getStatusColor(control.status)}>
-                          {getStatusIcon(control.status)}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{control.controlName}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {control.controlId}
-                            </Badge>
-                          </div>
-                          <div className="text-sm text-muted-foreground mt-1">
-                            Last checked: {new Date(control.lastChecked).toLocaleString()}
-                          </div>
-                        </div>
-                      </div>
-                      <Badge
-                        variant={control.status === 'compliant' ? 'default' : 'secondary'}
-                        className={control.status === 'compliant' ? 'bg-green-600' : ''}
-                      >
-                        {control.status}
-                      </Badge>
-                    </div>
-
-                    {control.findings.length > 0 && (
-                      <div className="mt-3 pl-8">
-                        <div className="text-sm font-medium text-amber-600 mb-1">Findings:</div>
-                        <ul className="text-sm text-muted-foreground space-y-1">
-                          {control.findings.map((finding, idx) => (
-                            <li key={idx}>• {finding}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                {complianceStatus.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Shield className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                    <p>No compliance controls available</p>
+                    <p className="text-sm mt-2">Run an audit to see compliance status</p>
                   </div>
-                ))}
+                ) : (
+                  complianceStatus.map((control) => (
+                    <div
+                      key={control.controlId}
+                      className="p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
+                      onClick={() => setSelectedControl(control)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1">
+                          <div className={getStatusColor(control.status)}>
+                            {getStatusIcon(control.status)}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{control.controlName}</span>
+                              <Badge variant="outline" className="text-xs">
+                                {control.controlId}
+                              </Badge>
+                            </div>
+                            <div className="text-sm text-muted-foreground mt-1">
+                              Last checked: {new Date(control.lastChecked).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <Badge
+                          variant={control.status === 'compliant' ? 'default' : 'secondary'}
+                          className={control.status === 'compliant' ? 'bg-green-600' : ''}
+                        >
+                          {control.status}
+                        </Badge>
+                      </div>
+
+                      {control.findings.length > 0 && (
+                        <div className="mt-3 pl-8">
+                          <div className="text-sm font-medium text-amber-600 mb-1">Findings:</div>
+                          <ul className="text-sm text-muted-foreground space-y-1">
+                            {control.findings.map((finding, idx) => (
+                              <li key={idx}>• {finding}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -752,38 +659,46 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-4">Control ID</th>
-                      <th className="text-left py-3 px-4">Control Name</th>
-                      <th className="text-left py-3 px-4">Policy Pack</th>
-                      <th className="text-center py-3 px-4">Status</th>
-                      <th className="text-center py-3 px-4">Last Check</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {complianceStatus.map((control) => (
-                      <tr key={control.controlId} className="border-b hover:bg-muted/50">
-                        <td className="py-3 px-4 font-mono text-xs">{control.controlId}</td>
-                        <td className="py-3 px-4">{control.controlName}</td>
-                        <td className="py-3 px-4 text-muted-foreground">
-                          {control.controlId.split('-')[0]} Ruleset
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className={`inline-flex ${getStatusColor(control.status)}`}>
-                            {getStatusIcon(control.status)}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center text-xs text-muted-foreground">
-                          {new Date(control.lastChecked).toLocaleDateString()}
-                        </td>
+              {complianceStatus.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                  <p>No compliance controls available</p>
+                  <p className="text-sm mt-2">Run an audit to view the control matrix</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4">Control ID</th>
+                        <th className="text-left py-3 px-4">Control Name</th>
+                        <th className="text-left py-3 px-4">Policy Pack</th>
+                        <th className="text-center py-3 px-4">Status</th>
+                        <th className="text-center py-3 px-4">Last Check</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {complianceStatus.map((control) => (
+                        <tr key={control.controlId} className="border-b hover:bg-muted/50">
+                          <td className="py-3 px-4 font-mono text-xs">{control.controlId}</td>
+                          <td className="py-3 px-4">{control.controlName}</td>
+                          <td className="py-3 px-4 text-muted-foreground">
+                            {control.controlId.split('-')[0]} Ruleset
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className={`inline-flex ${getStatusColor(control.status)}`}>
+                              {getStatusIcon(control.status)}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-center text-xs text-muted-foreground">
+                            {new Date(control.lastChecked).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -799,42 +714,50 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {telemetryBundles.map((bundle) => (
-                  <div
-                    key={bundle.id}
-                    className="p-4 border rounded-lg hover:bg-muted/50"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <FileText className="w-4 h-4 text-muted-foreground" />
-                          <span className="font-mono text-sm">{bundle.id}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">Events:</span>{' '}
-                            {bundle.event_count}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Size:</span>{' '}
-                            {(bundle.size_bytes / 1024).toFixed(1)} KB
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Created:</span>{' '}
-                            {new Date(bundle.created_at).toLocaleDateString()}
-                          </div>
-                        </div>
-                        <div className="mt-2 text-xs font-mono text-muted-foreground">
-                          Merkle Root: {bundle.merkle_root}
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => handleVerifyBundle(bundle.id)}>
-                        <Eye className="w-3 h-3 mr-1" />
-                        Verify
-                      </Button>
-                    </div>
+                {telemetryBundles.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Activity className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                    <p>No telemetry bundles available</p>
+                    <p className="text-sm mt-2">Telemetry bundles will appear as they are created</p>
                   </div>
-                ))}
+                ) : (
+                  telemetryBundles.map((bundle) => (
+                    <div
+                      key={bundle.id}
+                      className="p-4 border rounded-lg hover:bg-muted/50"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <FileText className="w-4 h-4 text-muted-foreground" />
+                            <span className="font-mono text-sm">{bundle.id}</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Events:</span>{' '}
+                              {bundle.event_count}
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Size:</span>{' '}
+                              {(bundle.size_bytes / 1024).toFixed(1)} KB
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Created:</span>{' '}
+                              {new Date(bundle.created_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-xs font-mono text-muted-foreground">
+                            Merkle Root: {bundle.merkle_root}
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => handleVerifyBundle(bundle.id)}>
+                          <Eye className="w-3 h-3 mr-1" />
+                          Verify
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

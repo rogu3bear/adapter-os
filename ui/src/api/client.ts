@@ -17,6 +17,7 @@ import * as chatTypes from './chat-types';
 import * as documentTypes from './document-types';
 import * as policyTypes from './policyTypes';
 import * as ownerTypes from './owner-types';
+import * as systemStateTypes from './system-state-types';
 import { logger, toError } from '../utils/logger';
 import { SystemMetrics } from './types';
 import { enhanceError, isTransientError } from '../utils/errorMessages';
@@ -31,6 +32,24 @@ export interface ApiError extends Error {
 }
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
+
+function parseAuditMetadata(metadata?: string | null): Record<string, unknown> | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(metadata);
+  } catch (error) {
+    logger.debug('Failed to parse audit log metadata', {
+      component: 'ApiClient',
+      operation: 'queryAuditLogs',
+      metadata,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -713,7 +732,7 @@ class ApiClient {
     }
 
   async compareGoldenRuns(runA: string, runB: string): Promise<types.GoldenCompareResult> {
-    return this.request<types.GoldenCompareResult>('/v1/golden/compare-runs', {
+    return this.request<types.GoldenCompareResult>('/v1/golden/compare', {
       method: 'POST',
       body: JSON.stringify({ run_a: runA, run_b: runB }),
     });
@@ -1253,6 +1272,29 @@ class ApiClient {
     return this.request('/v1/system/overview');
   }
 
+  /**
+   * Get ground truth system state
+   *
+   * Returns hierarchical view: Node -> Tenant -> Stack -> Adapter
+   * Includes memory pressure and top adapters by usage
+   */
+  async getSystemState(
+    params?: systemStateTypes.SystemStateQuery
+  ): Promise<systemStateTypes.SystemStateResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.include_adapters !== undefined) {
+      queryParams.set('include_adapters', String(params.include_adapters));
+    }
+    if (params?.top_adapters !== undefined) {
+      queryParams.set('top_adapters', String(params.top_adapters));
+    }
+    if (params?.tenant_id) {
+      queryParams.set('tenant_id', params.tenant_id);
+    }
+    const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    return this.request<systemStateTypes.SystemStateResponse>(`/v1/system/state${query}`);
+  }
+
   // Base Model Status
   async getBaseModelStatus(tenantId?: string): Promise<types.BaseModelStatus> {
     const query = tenantId ? `?tenant_id=${tenantId}` : '';
@@ -1265,10 +1307,10 @@ class ApiClient {
     return this.request<types.AllModelsStatusResponse>(`/v1/models/status/all${query}`);
   }
 
-  // OpenAI-compatible models list for ModelSelector
-  async listModels(): Promise<apiTypes.OpenAIModelInfo[]> {
-    const resp = await this.request<apiTypes.OpenAIModelsListResponse>(`/v1/models`);
-    return resp.data;
+  // List models with stats for ModelSelector
+  async listModels(): Promise<apiTypes.ModelWithStatsResponse[]> {
+    const resp = await this.request<apiTypes.ModelListResponse>(`/v1/models`);
+    return resp.models;
   }
 
   // Base Model Management API Methods - Citation: IMPLEMENTATION_PLAN.md Phase 2
@@ -1800,6 +1842,16 @@ class ApiClient {
     });
   }
 
+  /**
+   * Get policies assigned to a stack with compliance summary
+   * PRD-GOV-01: Stack-Policy API
+   */
+  async getStackPolicies(stackId: string): Promise<policyTypes.StackPoliciesResponse> {
+    return this.request<policyTypes.StackPoliciesResponse>(
+      `/v1/adapter-stacks/${encodeURIComponent(stackId)}/policies`
+    );
+  }
+
   async getDefaultAdapterStack(tenantId: string = 'default'): Promise<types.AdapterStack | null> {
     try {
       const response = await this.request<types.DefaultStackResponse>(`/v1/tenants/${tenantId}/default-stack`);
@@ -2152,7 +2204,25 @@ class ApiClient {
     if (filters?.offset) params.append('offset', filters.offset.toString());
     if (filters?.tenant_id) params.append('tenant_id', filters.tenant_id);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<types.AuditLog[]>(`/v1/audit/logs${query}`);
+
+    const response = await this.request<types.AuditLogsResponse>(`/v1/audit/logs${query}`);
+    return response.logs.map((log) => ({
+      id: log.id,
+      user_id: log.user_id,
+      action: log.action,
+      resource: log.resource_type,
+      resource_id: log.resource_id,
+      status: log.status,
+      timestamp: log.timestamp,
+      ip_address: log.ip_address,
+      user_agent: undefined,
+      details: parseAuditMetadata(log.metadata_json),
+      tenant_id: log.tenant_id,
+      session_id: undefined,
+      user_role: log.user_role,
+      error_message: log.error_message,
+      metadata_json: log.metadata_json,
+    }));
   }
 
   // Run tenant isolation test
@@ -2205,6 +2275,11 @@ class ApiClient {
     if (filters?.offset) params.append('offset', filters.offset.toString());
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request<federationTypes.FederationAuditResponse>(`/v1/audit/federation${query}`);
+  }
+
+  // Get list of federated peers with sync status
+  async getFederationPeers(): Promise<federationTypes.PeerListResponse> {
+    return this.request<federationTypes.PeerListResponse>('/v1/federation/peers');
   }
 
   // Process debugging methods
@@ -3674,6 +3749,54 @@ class ApiClient {
       {
         method: 'POST',
         body: JSON.stringify(options || {}),
+      }
+    );
+  }
+
+  /**
+   * Get plugin configuration
+   *
+   * Retrieves the configuration for a specific plugin from the database.
+   *
+   * @param pluginId - Unique plugin identifier (name)
+   * @returns Plugin configuration or null if not configured
+   */
+  async getPluginConfig(pluginId: string): Promise<pluginTypes.GetPluginConfigResponse> {
+    logger.info('Getting plugin configuration', {
+      component: 'ApiClient',
+      operation: 'getPluginConfig',
+      pluginId,
+    });
+    return this.request<pluginTypes.GetPluginConfigResponse>(
+      `/v1/plugins/${encodeURIComponent(pluginId)}/config`
+    );
+  }
+
+  /**
+   * Update plugin configuration
+   *
+   * Updates the configuration JSON and/or enabled status for a plugin.
+   *
+   * @param pluginId - Unique plugin identifier (name)
+   * @param config - Configuration update request
+   * @returns Updated plugin configuration
+   */
+  async updatePluginConfig(
+    pluginId: string,
+    config: pluginTypes.UpdatePluginConfigRequest
+  ): Promise<pluginTypes.UpdatePluginConfigResponse> {
+    logger.info('Updating plugin configuration', {
+      component: 'ApiClient',
+      operation: 'updatePluginConfig',
+      pluginId,
+      hasConfig: !!config.config_json,
+      enabled: config.enabled,
+    });
+    return this.request<pluginTypes.UpdatePluginConfigResponse>(
+      `/v1/plugins/${encodeURIComponent(pluginId)}/config`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(config),
       }
     );
   }

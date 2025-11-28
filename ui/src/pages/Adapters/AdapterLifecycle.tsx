@@ -198,7 +198,7 @@ export default function AdapterLifecycle({
                 <li><strong>Cold:</strong> In memory but not actively used, eligible for eviction</li>
                 <li><strong>Warm:</strong> Recently used, kept in memory for faster access</li>
                 <li><strong>Hot:</strong> Frequently used, high priority for retention</li>
-                <li><strong>Resident:</strong> Pinned in memory, protected from eviction</li>
+                <li><strong>Resident:</strong> Protected in memory, will not be removed</li>
               </ul>
             </AlertDescription>
           </Alert>

@@ -100,3 +100,235 @@ export interface ListSessionsQuery {
 export interface UpdateSessionCollectionRequest {
   collection_id: string | null;
 }
+
+// =============================================================================
+// Tags API Types (Migration 0112)
+// =============================================================================
+
+/**
+ * Chat session tag (tenant-scoped)
+ * Maps to: ChatTag struct in adapteros-db
+ */
+export interface ChatTag {
+  id: string;
+  tenant_id: string;
+  name: string;
+  color?: string;
+  description?: string;
+  created_at: string;
+  created_by?: string;
+}
+
+/**
+ * Request to create a new tag
+ * POST /v1/chat/tags
+ */
+export interface CreateTagRequest {
+  name: string;
+  color?: string;
+  description?: string;
+}
+
+/**
+ * Request to update a tag
+ * PUT /v1/chat/tags/:tag_id
+ */
+export interface UpdateTagRequest {
+  name?: string;
+  color?: string;
+  description?: string;
+}
+
+/**
+ * Request to assign tags to a session
+ * POST /v1/chat/sessions/:session_id/tags
+ */
+export interface AssignTagsRequest {
+  tag_ids: string[];
+}
+
+// =============================================================================
+// Categories API Types (Migration 0112)
+// =============================================================================
+
+/**
+ * Chat session category (hierarchical with materialized path)
+ * Maps to: ChatCategory struct in adapteros-db
+ */
+export interface ChatCategory {
+  id: string;
+  tenant_id: string;
+  parent_id?: string;
+  name: string;
+  path: string;
+  depth: number;
+  sort_order: number;
+  icon?: string;
+  color?: string;
+  created_at: string;
+}
+
+/**
+ * Request to create a new category
+ * POST /v1/chat/categories
+ */
+export interface CreateCategoryRequest {
+  name: string;
+  parent_id?: string;
+  icon?: string;
+  color?: string;
+}
+
+/**
+ * Request to update a category
+ * PUT /v1/chat/categories/:category_id
+ */
+export interface UpdateCategoryRequest {
+  name?: string;
+  icon?: string;
+  color?: string;
+}
+
+/**
+ * Request to set session category
+ * PUT /v1/chat/sessions/:session_id/category
+ */
+export interface SetCategoryRequest {
+  category_id: string | null;
+}
+
+// =============================================================================
+// Soft Delete / Archive Types (Migration 0113)
+// =============================================================================
+
+/**
+ * Session status enum
+ */
+export type SessionStatus = 'active' | 'archived' | 'deleted';
+
+/**
+ * Extended chat session with status fields
+ * Maps to: ChatSessionWithStatus struct in adapteros-db
+ */
+export interface ChatSessionWithStatus extends ChatSession {
+  category_id?: string;
+  status: SessionStatus;
+  deleted_at?: string;
+  deleted_by?: string;
+  archived_at?: string;
+  archived_by?: string;
+  archive_reason?: string;
+  description?: string;
+  is_shared: boolean;
+}
+
+/**
+ * Request to archive a session
+ * POST /v1/chat/sessions/:session_id/archive
+ */
+export interface ArchiveSessionRequest {
+  reason?: string;
+}
+
+/**
+ * Query parameters for listing archived/deleted sessions
+ */
+export interface ListArchivedQuery {
+  limit?: number;
+}
+
+// =============================================================================
+// Search Types (Migration 0114)
+// =============================================================================
+
+/**
+ * Search result for chat sessions/messages
+ * Maps to: ChatSearchResult struct in adapteros-db
+ */
+export interface ChatSearchResult {
+  session_id: string;
+  session_name: string;
+  match_type: 'session' | 'message';
+  snippet: string;
+  message_id?: string;
+  message_role?: string;
+  relevance_score: number;
+  last_activity_at: string;
+}
+
+/**
+ * Query parameters for session search
+ * GET /v1/chat/sessions/search
+ */
+export interface SearchSessionsQuery {
+  q: string;
+  scope?: 'sessions' | 'messages' | 'all';
+  category_id?: string;
+  tags?: string; // Comma-separated tag IDs
+  include_archived?: boolean;
+  limit?: number;
+}
+
+// =============================================================================
+// Sharing Types (Migration 0115)
+// =============================================================================
+
+/**
+ * Share permission level
+ */
+export type SharePermission = 'view' | 'comment' | 'collaborate';
+
+/**
+ * Session share record
+ * Maps to: SessionShare struct in adapteros-db
+ */
+export interface SessionShare {
+  id: string;
+  session_id: string;
+  workspace_id?: string;
+  shared_with_user_id?: string;
+  shared_with_tenant_id?: string;
+  permission: SharePermission;
+  shared_by: string;
+  shared_at: string;
+  expires_at?: string;
+  revoked_at?: string;
+}
+
+/**
+ * Request to share a session
+ * POST /v1/chat/sessions/:session_id/shares
+ */
+export interface ShareSessionRequest {
+  user_ids?: string[];
+  workspace_id?: string;
+  permission: SharePermission;
+  expires_at?: string;
+}
+
+/**
+ * Response from share creation
+ */
+export interface ShareSessionResponse {
+  shares: Array<{
+    type: 'workspace' | 'user';
+    id: string;
+    user_id?: string;
+  }>;
+}
+
+// =============================================================================
+// Extended List Query Types
+// =============================================================================
+
+/**
+ * Enhanced query parameters for listing sessions
+ * GET /v1/chat/sessions
+ */
+export interface EnhancedListSessionsQuery extends ListSessionsQuery {
+  category_id?: string;
+  tags?: string; // Comma-separated tag IDs
+  status?: 'active' | 'archived' | 'all';
+  sort_by?: 'last_activity' | 'created' | 'name';
+  order?: 'asc' | 'desc';
+}

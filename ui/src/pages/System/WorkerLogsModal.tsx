@@ -95,7 +95,7 @@ export default function WorkerLogsModal({ workerId, open, onClose }: WorkerLogsM
                       <div className="font-mono">{workerDetails.node_id}</div>
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-muted-foreground">Tenant ID</div>
+                      <div className="text-sm font-medium text-muted-foreground">Organization ID</div>
                       <div>{workerDetails.tenant_id ?? '--'}</div>
                     </div>
                     <div>
@@ -127,7 +127,7 @@ export default function WorkerLogsModal({ workerId, open, onClose }: WorkerLogsM
                       <div>{new Date(workerDetails.created_at).toLocaleString()}</div>
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-muted-foreground">Last Heartbeat</div>
+                      <div className="text-sm font-medium text-muted-foreground">Last Seen</div>
                       <div>
                         {workerDetails.last_heartbeat
                           ? new Date(workerDetails.last_heartbeat).toLocaleString()

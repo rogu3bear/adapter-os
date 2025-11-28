@@ -105,27 +105,6 @@ export function StacksAdaptersCard({ stacks, adapters, isLoading }: StacksAdapte
     return total > 0 ? (count / total) * 100 : 0;
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Layers className="h-5 w-5" />
-            Stacks & Adapters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <Skeleton className="h-20" />
-            <Skeleton className="h-20" />
-          </div>
-          <Skeleton className="h-32" />
-          <Skeleton className="h-10" />
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card>
       <CardHeader>
@@ -135,6 +114,17 @@ export function StacksAdaptersCard({ stacks, adapters, isLoading }: StacksAdapte
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {isLoading ? (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <Skeleton className="h-20" />
+              <Skeleton className="h-20" />
+            </div>
+            <Skeleton className="h-32" />
+            <Skeleton className="h-10" />
+          </>
+        ) : (
+          <>
         {/* Summary Grid */}
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1 p-4 bg-slate-50 rounded-lg">
@@ -332,6 +322,8 @@ export function StacksAdaptersCard({ stacks, adapters, isLoading }: StacksAdapte
             <ExternalLink className="h-3 w-3 ml-auto" />
           </Button>
         </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

@@ -48,7 +48,7 @@ export function TenantTable({ tenants }: TenantTableProps) {
   const columns: ColumnDef<Tenant>[] = [
     {
       id: 'tenant_id',
-      header: 'Tenant ID',
+      header: 'Organization ID',
       accessorKey: 'id',
       enableSorting: true,
       cell: (context) => (
@@ -154,7 +154,7 @@ export function TenantTable({ tenants }: TenantTableProps) {
         getRowId={(row) => row.id}
         enableSorting
         enablePagination
-        emptyStateMessage="No tenants found"
+        emptyStateMessage="No organizations found"
       />
 
       {editingTenant && (
@@ -176,9 +176,9 @@ export function TenantTable({ tenants }: TenantTableProps) {
       <Dialog open={!!confirmArchive} onOpenChange={() => setConfirmArchive(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Archive Tenant</DialogTitle>
+            <DialogTitle>Archive Organization</DialogTitle>
             <DialogDescription>
-              Are you sure you want to archive tenant "{confirmArchive?.name}"? This action can be
+              Are you sure you want to archive organization "{confirmArchive?.name}"? This action can be
               undone later.
             </DialogDescription>
           </DialogHeader>

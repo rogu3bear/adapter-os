@@ -60,7 +60,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
             <FileText className="h-8 w-8 mb-2 text-gray-400" />
             <div className="font-medium">Manual Entry</div>
             <div className="text-sm text-muted-foreground">
-              Enter tenant details manually
+              Enter organization details manually
             </div>
           </button>
           <button
@@ -87,7 +87,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
   const FileUploadStep = () => (
     <div className="space-y-4">
       <div>
-        <Label htmlFor="tenantFile">Tenant Configuration File (JSON)</Label>
+        <Label htmlFor="tenantFile">Organization Configuration File (JSON)</Label>
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
           <input
             type="file"
@@ -113,7 +113,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
                         },
                       });
                     } else {
-                      setValidationError('Invalid tenant configuration file');
+                      setValidationError('Invalid organization configuration file');
                     }
                   } catch (err) {
                     setValidationError('Failed to parse JSON file');
@@ -129,7 +129,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
               {state.file ? state.file.name : 'Click to select JSON file'}
             </div>
             <div className="text-xs text-gray-500">
-              JSON format with tenant configuration
+              JSON format with organization configuration
             </div>
           </label>
         </div>
@@ -142,7 +142,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
       </div>
       <Alert>
         <AlertDescription>
-          The JSON file should contain tenant configuration with at least a "name" field.
+          The JSON file should contain organization configuration with at least a "name" field.
         </AlertDescription>
       </Alert>
     </div>
@@ -152,7 +152,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
   const ManualEntryStep = () => (
     <div className="space-y-4">
       <div>
-        <Label htmlFor="tenantName">Tenant Name *</Label>
+        <Label htmlFor="tenantName">Organization Name *</Label>
         <Input
           id="tenantName"
           placeholder="e.g., Engineering Team"
@@ -169,7 +169,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         <Label htmlFor="tenantDescription">Description</Label>
         <Textarea
           id="tenantDescription"
-          placeholder="Describe the tenant's purpose..."
+          placeholder="Describe the organization's purpose..."
           value={state.tenantData.description}
           onChange={(e) =>
             setState({
@@ -205,7 +205,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         <div>
           <Label htmlFor="itarCompliant">ITAR Compliant</Label>
           <p className="text-sm text-muted-foreground">
-            This tenant handles ITAR-restricted data
+            This organization handles ITAR-restricted data
           </p>
         </div>
         <input
@@ -227,7 +227,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
   // Step 3: Review
   const ReviewStep = () => (
     <div className="space-y-4">
-      <h3 className="font-semibold">Review Tenant Configuration</h3>
+      <h3 className="font-semibold">Review Organization Configuration</h3>
       <div className="bg-gray-50 p-4 rounded-md space-y-2">
         <div><strong>Name:</strong> {state.tenantData.name}</div>
         {state.tenantData.description && (
@@ -239,7 +239,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
       <Alert>
         <CheckCircle className="h-4 w-4" />
         <AlertDescription>
-          Click "Create Tenant" to complete the import.
+          Click "Create Organization" to complete the import.
         </AlertDescription>
       </Alert>
     </div>
@@ -252,10 +252,10 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
     } else if (currentStep === 1) {
       // File upload or manual entry validation
       if (state.importMethod === 'file' && !state.file) {
-        setValidationError('Please select a tenant configuration file');
+        setValidationError('Please select an organization configuration file');
         return;
       } else if (state.importMethod === 'manual' && !state.tenantData.name.trim()) {
-        setValidationError('Tenant name is required');
+        setValidationError('Organization name is required');
         return;
       }
       setValidationError(null);
@@ -269,7 +269,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
 
   const handleComplete = async () => {
     if (!state.tenantData.name.trim()) {
-      setValidationError('Tenant name is required');
+      setValidationError('Organization name is required');
       return;
     }
 
@@ -282,12 +282,12 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         isolation_level: 'standard',
       });
 
-      toast.success(`Tenant "${tenant.name}" created successfully`);
+      toast.success(`Organization "${tenant.name}" created successfully`);
       onComplete(tenant);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Import failed');
       setWizardError(error);
-      toast.error(`Failed to create tenant: ${error.message}`);
+      toast.error(`Failed to create organization: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -297,7 +297,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
     { id: 'method', title: 'Import Method', component: <ImportMethodStep /> },
     {
       id: 'config',
-      title: state.importMethod === 'file' ? 'Upload File' : 'Tenant Details',
+      title: state.importMethod === 'file' ? 'Upload File' : 'Organization Details',
       component: state.importMethod === 'file' ? <FileUploadStep /> : <ManualEntryStep />,
     },
     { id: 'review', title: 'Review', component: <ReviewStep /> },
@@ -375,7 +375,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
           </Button>
         ) : (
           <Button onClick={handleComplete} disabled={isLoading || !state.tenantData.name.trim()}>
-            {isLoading ? 'Creating...' : 'Create Tenant'}
+            {isLoading ? 'Creating...' : 'Create Organization'}
           </Button>
         )}
       </div>

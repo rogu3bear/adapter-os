@@ -227,54 +227,6 @@ export default function MLEngineerTrainingMetrics() {
     };
   }, [metricsHistory]);
 
-  // Generate mock data for demonstration when no real data
-  const generateMockData = useCallback(() => {
-    const mockData: MetricsDataPoint[] = [];
-    const totalSteps = 100;
-    const epochs = 10;
-    const stepsPerEpoch = totalSteps / epochs;
-
-    for (let step = 0; step <= totalSteps; step++) {
-      const epoch = Math.floor(step / stepsPerEpoch);
-      const progress = step / totalSteps;
-
-      // Simulate decreasing loss with some noise
-      const baseLoss = 2.5 * Math.exp(-3 * progress) + 0.1;
-      const noise = (Math.random() - 0.5) * 0.1;
-      const trainingLoss = baseLoss + noise;
-
-      // Validation loss slightly higher
-      const valLoss = baseLoss + 0.05 + (Math.random() - 0.5) * 0.05;
-
-      // Learning rate with warmup and decay
-      let lr = 0.001;
-      if (step < 10) {
-        lr = 0.001 * (step / 10); // Warmup
-      } else {
-        lr = 0.001 * Math.cos((step - 10) / (totalSteps - 10) * Math.PI / 2); // Cosine decay
-      }
-
-      // Gradient norm
-      const gradNorm = 0.5 + Math.random() * 0.5 + (trainingLoss * 0.1);
-
-      // GPU memory (relatively stable)
-      const gpuMemory = 6 + Math.random() * 0.5;
-
-      mockData.push({
-        step,
-        epoch,
-        training_loss: trainingLoss,
-        validation_loss: step % 10 === 0 ? valLoss : undefined, // Val loss every 10 steps
-        learning_rate: lr,
-        gradient_norm: gradNorm,
-        gpu_memory_gb: gpuMemory,
-        tokens_per_second: 1000 + Math.random() * 200,
-      });
-    }
-
-    setMetricsHistory(mockData);
-    toast.info('Loaded mock training data for demonstration');
-  }, []);
 
   return (
     <div className="space-y-6 p-6">
@@ -301,7 +253,7 @@ export default function MLEngineerTrainingMetrics() {
       </div>
 
       {/* Job Selection and Controls */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Job Selector */}
         <Card>
           <CardHeader className="pb-3">
@@ -394,26 +346,6 @@ export default function MLEngineerTrainingMetrics() {
                 </Select>
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Demo Data */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Demo Mode</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={generateMockData}
-              className="w-full"
-            >
-              Load Mock Data
-            </Button>
-            <p className="text-xs text-muted-foreground mt-2">
-              Generate sample training curves for demonstration
-            </p>
           </CardContent>
         </Card>
       </div>

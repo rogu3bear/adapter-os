@@ -172,7 +172,7 @@ export function useContextualTutorial(pagePath: string) {
     const pageTutorials: Record<string, string[]> = {
       '/training': ['training-tutorial'],
       '/adapters': ['adapter-management-tutorial'],
-      '/policies': ['policy-management-tutorial'],
+      '/security/policies': ['policy-management-tutorial'],
       '/dashboard': ['dashboard-tutorial'],
     };
 

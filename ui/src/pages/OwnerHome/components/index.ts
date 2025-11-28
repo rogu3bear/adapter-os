@@ -1,5 +1,6 @@
 export { default as SystemHealthStrip } from './SystemHealthStrip';
 export { default as SystemOverviewCard } from './SystemOverviewCard';
+export { SystemStateCard } from './SystemStateCard';
 export { default as TenantsCard } from './TenantsCard';
 export { StacksAdaptersCard } from './StacksAdaptersCard';
 export { default as ActivityCard } from './ActivityCard';

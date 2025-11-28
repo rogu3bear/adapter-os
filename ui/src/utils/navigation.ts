@@ -21,7 +21,7 @@ export interface NavGroup {
  * Generate navigation groups from centralized route configuration
  * Filters routes by user role and organizes them into logical groups
  */
-export function generateNavigationGroups(userRole?: string): NavGroup[] {
+export function generateNavigationGroups(userRole?: string, userPermissions?: string[]): NavGroup[] {
   const groupsMap = new Map<string, NavGroup>();
 
   // Process each route from the central config
@@ -32,7 +32,7 @@ export function generateNavigationGroups(userRole?: string): NavGroup[] {
     }
 
     // Check if user can access this route
-    if (!canAccessRoute(route, userRole as UserRole | undefined)) {
+    if (!canAccessRoute(route, userRole as UserRole | undefined, userPermissions)) {
       continue;
     }
 
@@ -105,16 +105,17 @@ export function shouldShowNavGroup(group: NavGroup, userRole?: string): boolean 
     return false;
   }
 
-  // Check if user's role is in the allowed roles
-  return group.roles.includes(userRole);
+  // Check if user's role is in the allowed roles (case-insensitive)
+  const normalizedRole = userRole.toLowerCase();
+  return group.roles.some(role => role.toLowerCase() === normalizedRole);
 }
 
 /**
  * Get all accessible routes for a user role
  * Useful for command palette and search functionality
  */
-export function getAccessibleRoutes(userRole?: string): RouteConfig[] {
-  return routes.filter(route => canAccessRoute(route, userRole as UserRole | undefined));
+export function getAccessibleRoutes(userRole?: string, userPermissions?: string[]): RouteConfig[] {
+  return routes.filter(route => canAccessRoute(route, userRole as UserRole | undefined, userPermissions));
 }
 
 /**

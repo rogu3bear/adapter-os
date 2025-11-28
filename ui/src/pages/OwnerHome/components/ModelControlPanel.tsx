@@ -1,8 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -21,6 +30,10 @@ import {
   PinOff,
   RefreshCw,
   Loader2,
+  AlertCircle,
+  MemoryStick,
+  Cpu,
+  CheckCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/client';
@@ -105,21 +118,61 @@ export function ModelControlPanel({
   onRefresh,
 }: ModelControlPanelProps) {
   const [loadingOperations, setLoadingOperations] = useState<OperationState>({});
+  const [operationErrors, setOperationErrors] = useState<Record<string, string>>({});
+  const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined);
+
+  // Find the currently loaded model
+  const loadedModel = useMemo(() => {
+    return models.find((m) => m.status === 'loaded');
+  }, [models]);
+
+  // Available models for dropdown (not loaded)
+  const availableModels = useMemo(() => {
+    return models.filter((m) => m.status !== 'loaded');
+  }, [models]);
+
+  // Calculate memory usage estimate (rough estimate based on model size)
+  const modelMemoryUsage = useMemo(() => {
+    if (!loadedModel?.size_bytes) return null;
+    // Model in memory is roughly 1.2x the file size due to runtime overhead
+    const memoryMB = (loadedModel.size_bytes * 1.2) / (1024 * 1024);
+    return {
+      usedMB: memoryMB,
+      displayText: memoryMB >= 1024
+        ? `${(memoryMB / 1024).toFixed(1)} GB`
+        : `${memoryMB.toFixed(0)} MB`,
+    };
+  }, [loadedModel]);
 
   const setOperationLoading = (key: string, loading: boolean) => {
     setLoadingOperations((prev) => ({ ...prev, [key]: loading }));
   };
 
+  const setOperationError = (key: string, error: string | null) => {
+    if (error) {
+      setOperationErrors((prev) => ({ ...prev, [key]: error }));
+    } else {
+      setOperationErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
   const handleLoadModel = async (model: BaseModel) => {
     const operationKey = `load-${model.id}`;
     setOperationLoading(operationKey, true);
+    setOperationError(operationKey, null);
 
     try {
       await apiClient.loadBaseModel(model.id);
       toast.success(`Model "${model.name}" loaded successfully`);
       onRefresh();
     } catch (error) {
-      toast.error(`Failed to load model: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      setOperationError(operationKey, errorMsg);
+      toast.error(`Failed to load model: ${errorMsg}`);
     } finally {
       setOperationLoading(operationKey, false);
     }
@@ -128,13 +181,16 @@ export function ModelControlPanel({
   const handleUnloadModel = async (model: BaseModel) => {
     const operationKey = `unload-${model.id}`;
     setOperationLoading(operationKey, true);
+    setOperationError(operationKey, null);
 
     try {
       await apiClient.unloadBaseModel(model.id);
       toast.success(`Model "${model.name}" unloaded successfully`);
       onRefresh();
     } catch (error) {
-      toast.error(`Failed to unload model: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      setOperationError(operationKey, errorMsg);
+      toast.error(`Failed to unload model: ${errorMsg}`);
     } finally {
       setOperationLoading(operationKey, false);
     }
@@ -161,7 +217,7 @@ export function ModelControlPanel({
 
     try {
       await apiClient.pinAdapter(adapter.adapter_id || adapter.id, true);
-      toast.success(`Adapter "${adapter.name || adapter.adapter_id || adapter.id}" pinned`);
+      toast.success(`Adapter "${adapter.name || adapter.adapter_id || adapter.id}" is now protected`);
       onRefresh();
     } catch (error) {
       toast.error(`Failed to pin adapter: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -176,10 +232,10 @@ export function ModelControlPanel({
 
     try {
       await apiClient.unpinAdapter(adapter.adapter_id || adapter.id);
-      toast.success(`Adapter "${adapter.name || adapter.adapter_id || adapter.id}" unpinned`);
+      toast.success(`Adapter "${adapter.name || adapter.adapter_id || adapter.id}" can now be removed when needed`);
       onRefresh();
     } catch (error) {
-      toast.error(`Failed to unpin adapter: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error(`Failed to allow adapter removal: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setOperationLoading(operationKey, false);
     }
@@ -195,25 +251,148 @@ export function ModelControlPanel({
 
   const pinnedAdapters = adapters.filter((a) => a.pinned);
 
+  // Handle loading a selected model
+  const handleLoadSelectedModel = async () => {
+    if (!selectedModelId) return;
+    const model = models.find((m) => m.id === selectedModelId);
+    if (model) {
+      await handleLoadModel(model);
+      setSelectedModelId(undefined);
+    }
+  };
+
   return (
-    <div className="space-y-6" role="region" aria-label="Model and adapter controls">
-      {/* Base Models Section */}
+    <div className="space-y-4" role="region" aria-label="Model and adapter controls">
+      {/* Active Model Section - Prominent Display */}
+      <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Cpu className="h-5 w-5 text-primary" aria-hidden="true" />
+              <span>Active Model</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRefresh}
+              disabled={isLoading}
+              aria-label="Refresh model status"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ) : loadedModel ? (
+            <>
+              {/* Loaded Model Info */}
+              <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                  <div>
+                    <div className="font-semibold text-green-900">{loadedModel.name}</div>
+                    <div className="text-xs text-green-700">
+                      {loadedModel.format || 'MLX'} • {formatBytes(loadedModel.size_bytes)}
+                    </div>
+                  </div>
+                </div>
+                <Badge variant="default" className="bg-green-600">Loaded</Badge>
+              </div>
+
+              {/* Memory Usage */}
+              {modelMemoryUsage && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <MemoryStick className="h-4 w-4" />
+                      Memory Usage
+                    </span>
+                    <span className="font-medium">{modelMemoryUsage.displayText}</span>
+                  </div>
+                  <Progress value={Math.min((modelMemoryUsage.usedMB / 32768) * 100, 100)} className="h-2" />
+                  <div className="text-xs text-muted-foreground text-right">
+                    Est. ~{((modelMemoryUsage.usedMB / 32768) * 100).toFixed(1)}% of 32GB
+                  </div>
+                </div>
+              )}
+
+              {/* Unload Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => handleUnloadModel(loadedModel)}
+                disabled={loadingOperations[`unload-${loadedModel.id}`]}
+              >
+                {loadingOperations[`unload-${loadedModel.id}`] ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <PowerOff className="h-4 w-4 mr-2" />
+                )}
+                Deactivate Model
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* No Model Loaded - Show Selection */}
+              <div className="flex items-center justify-center p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <div className="text-center">
+                  <Database className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                  <div className="text-sm font-medium text-slate-600">No model active</div>
+                  <div className="text-xs text-slate-500">Select a model to activate</div>
+                </div>
+              </div>
+
+              {/* Model Selection Dropdown */}
+              {availableModels.length > 0 && (
+                <div className="flex gap-2">
+                  <Select value={selectedModelId} onValueChange={setSelectedModelId}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select a model to activate..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          <div className="flex items-center gap-2">
+                            <span>{model.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              ({formatBytes(model.size_bytes)})
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleLoadSelectedModel}
+                    disabled={!selectedModelId || loadingOperations[`load-${selectedModelId}`]}
+                  >
+                    {selectedModelId && loadingOperations[`load-${selectedModelId}`] ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Power className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Available Models Section */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <div className="flex items-center gap-2">
             <Database className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-            <CardTitle>Base Models</CardTitle>
+            <CardTitle className="text-base">Available Models</CardTitle>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={isLoading}
-            aria-label="Refresh models list"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-            Refresh
-          </Button>
+          <Badge variant="secondary">{models.length} total</Badge>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -242,6 +421,7 @@ export function ModelControlPanel({
                   const loadKey = `load-${model.id}`;
                   const unloadKey = `unload-${model.id}`;
                   const downloadKey = `download-${model.id}`;
+                  const modelError = operationErrors[loadKey] || operationErrors[unloadKey];
 
                   return (
                     <TableRow key={model.id}>
@@ -256,60 +436,68 @@ export function ModelControlPanel({
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          {model.status === 'loaded' ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleUnloadModel(model)}
-                              disabled={loadingOperations[unloadKey]}
-                            >
-                              {loadingOperations[unloadKey] ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <PowerOff className="h-4 w-4 mr-2" />
-                                  Unload
-                                </>
-                              )}
-                            </Button>
-                          ) : model.status === 'available' ? (
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => handleLoadModel(model)}
-                              disabled={loadingOperations[loadKey]}
-                            >
-                              {loadingOperations[loadKey] ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <Power className="h-4 w-4 mr-2" />
-                                  Load
-                                </>
-                              )}
-                            </Button>
-                          ) : model.status === 'loading' ? (
-                            <Button variant="outline" size="sm" disabled>
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              Loading...
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleDownloadModel(model)}
-                              disabled={loadingOperations[downloadKey]}
-                            >
-                              {loadingOperations[downloadKey] ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download
-                                </>
-                              )}
-                            </Button>
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="flex justify-end gap-2">
+                            {model.status === 'loaded' ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleUnloadModel(model)}
+                                disabled={loadingOperations[unloadKey]}
+                              >
+                                {loadingOperations[unloadKey] ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <PowerOff className="h-4 w-4 mr-2" />
+                                    Deactivate
+                                  </>
+                                )}
+                              </Button>
+                            ) : model.status === 'available' ? (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => handleLoadModel(model)}
+                                disabled={loadingOperations[loadKey]}
+                              >
+                                {loadingOperations[loadKey] ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <Power className="h-4 w-4 mr-2" />
+                                    Activate
+                                  </>
+                                )}
+                              </Button>
+                            ) : model.status === 'loading' ? (
+                              <Button variant="outline" size="sm" disabled>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Loading...
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => handleDownloadModel(model)}
+                                disabled={loadingOperations[downloadKey]}
+                              >
+                                {loadingOperations[downloadKey] ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Download
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                          {modelError && (
+                            <div className="text-xs text-red-600 flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3" />
+                              <span className="truncate max-w-[200px]">{modelError}</span>
+                            </div>
                           )}
                         </div>
                       </TableCell>
@@ -365,14 +553,14 @@ export function ModelControlPanel({
                 </div>
               </div>
 
-              {/* Pinned Adapters */}
+              {/* Protected Adapters */}
               <div>
                 <h3 className="text-sm font-medium mb-3">
-                  Pinned Adapters ({pinnedAdapters.length})
+                  Protected Adapters ({pinnedAdapters.length})
                 </h3>
                 {pinnedAdapters.length === 0 ? (
                   <div className="text-center py-6 text-muted-foreground bg-slate-50 rounded-lg">
-                    No pinned adapters
+                    No protected adapters
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -411,7 +599,7 @@ export function ModelControlPanel({
                             ) : (
                               <>
                                 <PinOff className="h-4 w-4 mr-2" />
-                                Unpin
+                                Allow Removal
                               </>
                             )}
                           </Button>

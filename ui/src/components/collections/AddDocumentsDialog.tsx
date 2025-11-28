@@ -30,7 +30,7 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
     setLoading(true);
     try {
       // Fetch documents not already in this collection
-      const response = await fetch(`/v1/collections/${collectionId}/available-documents`);
+      const response = await fetch(`/api/v1/collections/${collectionId}/available-documents`);
       if (response.ok) {
         const data = await response.json();
         setDocuments(data);
@@ -65,7 +65,7 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
 
     setLoading(true);
     try {
-      const response = await fetch(`/v1/collections/${collectionId}/documents`, {
+      const response = await fetch(`/api/v1/collections/${collectionId}/documents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

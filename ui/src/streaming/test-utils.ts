@@ -58,33 +58,32 @@ export function createMockTrainingProgressEvent(
 
 /**
  * Create a mock system metrics event
+ * Returns MetricsSnapshotEvent by default (matches backend SSE format)
  */
 export function createMockMetricsEvent(
   overrides: Partial<MetricsStreamEvent> = {}
 ): MetricsStreamEvent {
+  // Default to MetricsSnapshotEvent format (what backend sends)
+  const defaultSnapshot: import('../api/streaming-types').MetricsSnapshotEvent = {
+    timestamp_ms: Date.now(),
+    latency: {
+      p50_ms: 10.5,
+      p95_ms: 25.3,
+      p99_ms: 45.2,
+    },
+    throughput: {
+      tokens_per_second: 150.5,
+      inferences_per_second: 12.3,
+    },
+    system: {
+      cpu_percent: 45,
+      memory_percent: 53,
+      disk_percent: 49,
+    },
+  };
+
   return {
-    timestamp: new Date().toISOString(),
-    cpu: {
-      usage_percent: 45,
-      cores: 8,
-      temp_celsius: 65,
-    },
-    memory: {
-      used_gb: 8.5,
-      total_gb: 16,
-      usage_percent: 53,
-    },
-    disk: {
-      used_gb: 250,
-      total_gb: 512,
-      usage_percent: 49,
-      read_mbps: 100,
-      write_mbps: 50,
-    },
-    network: {
-      rx_bytes: 1024000,
-      tx_bytes: 512000,
-    },
+    ...defaultSnapshot,
     ...(overrides as any),
   };
 }
@@ -200,7 +199,7 @@ export function mockMetricsStream(
     error: options.error ?? null,
     connected: options.connected ?? true,
     reconnect: vi.fn(),
-    lastUpdated: mockData.timestamp,
+    lastUpdated: 'timestamp' in mockData ? mockData.timestamp : undefined,
   }));
 
   vi.mock('../hooks/useStreamingEndpoints', () => ({

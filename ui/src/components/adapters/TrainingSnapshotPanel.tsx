@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Folder, Calendar, Hash, ExternalLink } from 'lucide-react';
+import { FileText, Folder, Calendar, Hash, ExternalLink, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,7 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
   const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<TrainingSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<TrainingDocument | null>(null);
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
 
@@ -42,7 +43,7 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
 
   const fetchSnapshot = async () => {
     try {
-      const response = await fetch(`/v1/adapters/${adapterId}/training-snapshot`);
+      const response = await fetch(`/api/v1/adapters/${adapterId}/training-snapshot`);
       if (response.ok) {
         setSnapshot(await response.json());
       } else if (response.status === 404) {
@@ -67,6 +68,35 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
   const handleCollectionClick = () => {
     if (snapshot?.collection_id) {
       navigate(`/training/datasets/${snapshot.collection_id}`);
+    }
+  };
+
+  const handleExportProvenance = async () => {
+    setExporting(true);
+    try {
+      const response = await fetch(`/api/v1/adapters/${adapterId}/training-export`);
+      if (!response.ok) {
+        throw new Error('Failed to export training provenance');
+      }
+      const data = await response.json();
+
+      // Create download as JSON file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `training-provenance-${adapterId}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('Training provenance exported successfully');
+    } catch (error) {
+      console.error('Failed to export training provenance:', error);
+      toast.error('Failed to export training provenance');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -102,13 +132,26 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
     <>
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Hash className="h-5 w-5" />
-            Training Provenance
-          </CardTitle>
-          <CardDescription>
-            Documents and configuration used to train this adapter
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Hash className="h-5 w-5" />
+                Training Provenance
+              </CardTitle>
+              <CardDescription>
+                Documents and configuration used to train this adapter
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportProvenance}
+              disabled={exporting}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {exporting ? 'Exporting...' : 'Export'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Collection info */}
@@ -119,7 +162,7 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
               {snapshot.collection_id ? (
                 <button
                   onClick={handleCollectionClick}
-                  className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
+                  className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
                 >
                   {snapshot.collection_name}
                 </button>

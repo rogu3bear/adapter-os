@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -7,7 +7,10 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { Shield, Lock, Eye, AlertTriangle, CheckCircle, Settings, Save } from 'lucide-react';
+import { Shield, Lock, Eye, AlertTriangle, CheckCircle, Settings, Save, Loader2 } from 'lucide-react';
+import { usePolicies, usePolicyMutations } from '@/hooks/useSecurity';
+import { toast } from 'sonner';
+import type { Policy } from '@/api/adapter-types';
 
 interface PolicyRule {
   id: string;
@@ -16,69 +19,116 @@ interface PolicyRule {
   enabled: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
   category: 'access' | 'data' | 'network' | 'crypto';
+  cpid?: string;
 }
 
-const mockPolicies: PolicyRule[] = [
-  {
-    id: 'egress-control',
-    name: 'Network Egress Control',
-    description: 'Block all network egress during inference operations',
-    enabled: true,
-    severity: 'critical',
-    category: 'network'
-  },
-  {
-    id: 'determinism-validation',
-    name: 'Backend Determinism Validation',
-    description: 'Validate Metal/OpenCL backend deterministic execution',
-    enabled: true,
-    severity: 'high',
-    category: 'crypto'
-  },
-  {
-    id: 'tenant-isolation',
-    name: 'Tenant Data Isolation',
-    description: 'Enforce strict data separation between tenants',
-    enabled: true,
-    severity: 'critical',
-    category: 'access'
-  },
-  {
-    id: 'audit-logging',
-    name: 'Comprehensive Audit Logging',
-    description: 'Log all policy decisions and security events',
-    enabled: true,
-    severity: 'medium',
-    category: 'data'
-  },
-  {
-    id: 'jwt-eddsa-only',
-    name: 'EdDSA JWT Authentication',
-    description: 'Require Ed25519-based JWT tokens only',
-    enabled: true,
-    severity: 'high',
-    category: 'crypto'
-  },
-  {
-    id: 'entropy-monitoring',
-    name: 'Router Entropy Monitoring',
-    description: 'Monitor router gate distribution entropy',
-    enabled: false,
-    severity: 'medium',
-    category: 'crypto'
+// Helper function to map API Policy to PolicyRule
+function mapPolicyToRule(policy: Policy): PolicyRule {
+  // Derive category from policy type or name
+  let category: PolicyRule['category'] = 'access';
+  const typeLower = policy.type.toLowerCase();
+  const nameLower = policy.name.toLowerCase();
+
+  if (typeLower.includes('network') || nameLower.includes('egress') || nameLower.includes('network')) {
+    category = 'network';
+  } else if (typeLower.includes('crypto') || nameLower.includes('determinism') || nameLower.includes('entropy') || nameLower.includes('eddsa') || nameLower.includes('jwt')) {
+    category = 'crypto';
+  } else if (typeLower.includes('data') || nameLower.includes('audit') || nameLower.includes('logging')) {
+    category = 'data';
+  } else if (typeLower.includes('access') || nameLower.includes('isolation') || nameLower.includes('tenant')) {
+    category = 'access';
   }
-];
+
+  // Derive severity from policy priority or type
+  let severity: PolicyRule['severity'] = 'medium';
+  if (policy.priority !== undefined) {
+    if (policy.priority >= 90) severity = 'critical';
+    else if (policy.priority >= 70) severity = 'high';
+    else if (policy.priority >= 40) severity = 'medium';
+    else severity = 'low';
+  } else if (nameLower.includes('critical') || category === 'network' || nameLower.includes('isolation')) {
+    severity = 'critical';
+  } else if (nameLower.includes('high') || category === 'crypto') {
+    severity = 'high';
+  }
+
+  // Extract description from content or policy_json
+  let description = '';
+  try {
+    if (policy.policy_json) {
+      const parsed = JSON.parse(policy.policy_json);
+      description = parsed.description || policy.content?.substring(0, 100) || `${policy.type} policy`;
+    } else {
+      description = policy.content?.substring(0, 100) || `${policy.type} policy`;
+    }
+  } catch {
+    description = policy.content?.substring(0, 100) || `${policy.type} policy`;
+  }
+
+  return {
+    id: policy.id,
+    name: policy.name,
+    description,
+    enabled: policy.enabled ?? policy.status === 'active',
+    severity,
+    category,
+    cpid: policy.cpid,
+  };
+}
 
 export default function SecurityPolicyEditor() {
-  const [policies, setPolicies] = useState(mockPolicies);
+  const { policies: apiPolicies, isLoading, error, refetch } = usePolicies();
+  const { applyPolicy, isApplyingPolicy } = usePolicyMutations();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [localChanges, setLocalChanges] = useState<Record<string, Partial<PolicyRule>>>({});
+
+  // Map API policies to PolicyRule format
+  const policies = useMemo(() => {
+    if (!apiPolicies) return [];
+    return apiPolicies.map(mapPolicyToRule).map(policy => ({
+      ...policy,
+      ...localChanges[policy.id],
+    }));
+  }, [apiPolicies, localChanges]);
 
   const updatePolicy = (id: string, updates: Partial<PolicyRule>) => {
-    setPolicies(prev => prev.map(policy =>
-      policy.id === id ? { ...policy, ...updates } : policy
-    ));
+    setLocalChanges(prev => ({
+      ...prev,
+      [id]: { ...prev[id], ...updates },
+    }));
     setHasUnsavedChanges(true);
+  };
+
+  const handleSavePolicies = async () => {
+    try {
+      // Apply all changed policies
+      const changedPolicies = Object.entries(localChanges).filter(([_, changes]) => changes.enabled !== undefined);
+
+      for (const [policyId, changes] of changedPolicies) {
+        const policy = apiPolicies?.find(p => p.id === policyId);
+        if (policy && policy.cpid) {
+          // Update the policy content to reflect enabled state
+          const updatedContent = {
+            ...JSON.parse(policy.policy_json || policy.content || '{}'),
+            enabled: changes.enabled,
+          };
+
+          await applyPolicy({
+            cpid: policy.cpid,
+            content: JSON.stringify(updatedContent),
+          });
+        }
+      }
+
+      toast.success('Policies updated successfully');
+      setHasUnsavedChanges(false);
+      setLocalChanges({});
+      refetch();
+    } catch (err) {
+      toast.error('Failed to update policies');
+      console.error('Policy update error:', err);
+    }
   };
 
   const filteredPolicies = selectedCategory === 'all'
@@ -115,6 +165,63 @@ export default function SecurityPolicyEditor() {
     }
   };
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading security policies...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              <span>Error Loading Policies</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Unable to load security policies. Please try again.
+            </p>
+            <Button onClick={() => refetch()} variant="outline">
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Empty state
+  if (!policies || policies.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Shield className="h-5 w-5 text-blue-500" />
+              <span>No Policies Found</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              No security policies are currently configured in the system.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 h-full">
       {/* Header */}
@@ -132,9 +239,18 @@ export default function SecurityPolicyEditor() {
               Unsaved Changes
             </Badge>
           )}
-          <Button>
-            <Save className="h-4 w-4 mr-2" />
-            Save Policies
+          <Button onClick={handleSavePolicies} disabled={!hasUnsavedChanges || isApplyingPolicy}>
+            {isApplyingPolicy ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Policies
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -219,46 +335,58 @@ export default function SecurityPolicyEditor() {
         </div>
 
         <TabsContent value="policies" className="space-y-4 mt-4">
-          {filteredPolicies.map((policy) => (
-            <Card key={policy.id}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-3 flex-1">
-                    <div className="mt-1">
-                      {getCategoryIcon(policy.category)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h3 className="font-medium">{policy.name}</h3>
-                        <Badge className={getSeverityColor(policy.severity)}>
-                          {getSeverityIcon(policy.severity)}
-                          <span className="ml-1 capitalize">{policy.severity}</span>
-                        </Badge>
+          {filteredPolicies.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-sm text-muted-foreground">
+                  No policies found in the selected category.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            filteredPolicies.map((policy) => (
+              <Card key={policy.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start space-x-3 flex-1">
+                      <div className="mt-1">
+                        {getCategoryIcon(policy.category)}
                       </div>
-                      <p className="text-sm text-muted-foreground mb-3">
-                        {policy.description}
-                      </p>
-                      <div className="flex items-center space-x-4">
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            id={policy.id}
-                            checked={policy.enabled}
-                            onCheckedChange={(enabled) => updatePolicy(policy.id, { enabled })}
-                          />
-                          <Label htmlFor={policy.id} className="text-sm">
-                            {policy.enabled ? 'Enabled' : 'Disabled'}
-                          </Label>
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <h3 className="font-medium">{policy.name}</h3>
+                          <Badge className={getSeverityColor(policy.severity)}>
+                            {getSeverityIcon(policy.severity)}
+                            <span className="ml-1 capitalize">{policy.severity}</span>
+                          </Badge>
                         </div>
-                        <Badge variant="outline" className="capitalize">
-                          {policy.category}
-                        </Badge>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          {policy.description}
+                        </p>
+                        <div className="flex items-center space-x-4">
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id={policy.id}
+                              checked={policy.enabled}
+                              onCheckedChange={(enabled) => updatePolicy(policy.id, { enabled })}
+                              disabled={isApplyingPolicy}
+                            />
+                            <Label htmlFor={policy.id} className="text-sm">
+                              {policy.enabled ? 'Enabled' : 'Disabled'}
+                            </Label>
+                          </div>
+                          <Badge variant="outline" className="capitalize">
+                            {policy.category}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))
+          )}
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-4 mt-4">

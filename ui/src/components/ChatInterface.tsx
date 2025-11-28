@@ -19,6 +19,11 @@ import { useDebouncedCallback } from '@/hooks/useDebouncedValue';
 import type { AdapterStack, RoutingDecision, RouterCandidateInfo, ExtendedRouterDecision } from '@/api/types';
 import type { ChatSession } from '@/types/chat';
 import { RouterActivitySidebar } from './chat/RouterActivitySidebar';
+import { AdapterLoadingStatus, type AdapterState, type AdapterLifecycleState } from './chat/AdapterLoadingStatus';
+import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
+import { AdapterLoadingProgress, type AdapterLoadingItem } from './chat/AdapterLoadingProgress';
+import { useSSE } from '@/hooks/useSSE';
+import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
@@ -50,6 +55,12 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   const [showContext, setShowContext] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Adapter loading state
+  const [adapterStates, setAdapterStates] = useState<Map<string, AdapterState>>(new Map());
+  const [showAdapterPrompt, setShowAdapterPrompt] = useState(false);
+  const [isLoadingAdapters, setIsLoadingAdapters] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   const tenantId = selectedTenant || 'default';
   const { data: stacks = [] } = useAdapterStacks();
@@ -137,6 +148,127 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     }
   }, [messages]);
 
+  // Subscribe to adapter state transitions via SSE
+  useSSE<AdapterStreamEvent>('/v1/stream/adapters', {
+    enabled: !!selectedStackId,
+    onMessage: (event) => {
+      if (event && 'current_state' in event) {
+        const transition = event as AdapterStateTransitionEvent;
+        setAdapterStates((prev) => {
+          const updated = new Map(prev);
+          const existing = updated.get(transition.adapter_id);
+          if (existing) {
+            updated.set(transition.adapter_id, {
+              ...existing,
+              state: transition.current_state,
+              isLoading: false,
+            });
+          }
+          return updated;
+        });
+      }
+    },
+  });
+
+  // Memoize selected stack
+  const selectedStack = useMemo(
+    () => stacks.find(s => s.id === selectedStackId),
+    [stacks, selectedStackId]
+  );
+
+  // Build adapter states from stack when stack changes
+  useEffect(() => {
+    if (selectedStack?.adapters) {
+      const states = new Map<string, AdapterState>();
+      selectedStack.adapters.forEach((adapter) => {
+        states.set(adapter.id || adapter.adapter_id || '', {
+          id: adapter.id || adapter.adapter_id || '',
+          name: adapter.name || adapter.adapter_id || 'Unknown',
+          state: (adapter.lifecycle_state as AdapterLifecycleState) || 'unloaded',
+        });
+      });
+      setAdapterStates(states);
+    } else if (selectedStack?.adapter_ids) {
+      // Fallback: create basic states from IDs
+      const states = new Map<string, AdapterState>();
+      selectedStack.adapter_ids.forEach((id) => {
+        states.set(id, {
+          id,
+          name: id,
+          state: 'unloaded', // Unknown - will update via SSE
+        });
+      });
+      setAdapterStates(states);
+    }
+  }, [selectedStack]);
+
+  // Check if all adapters are ready for inference
+  const allAdaptersReady = useMemo(() => {
+    if (adapterStates.size === 0) return true; // No adapters = ok
+    const states = Array.from(adapterStates.values());
+    return states.every((a) =>
+      a.state === 'hot' || a.state === 'warm' || a.state === 'resident'
+    );
+  }, [adapterStates]);
+
+  // Handle loading all adapters
+  const handleLoadAllAdapters = useCallback(async () => {
+    setIsLoadingAdapters(true);
+    try {
+      const adapterIds = Array.from(adapterStates.keys());
+      // Load each adapter that isn't ready
+      for (const adapterId of adapterIds) {
+        const adapter = adapterStates.get(adapterId);
+        if (adapter && adapter.state !== 'hot' && adapter.state !== 'warm' && adapter.state !== 'resident') {
+          // Update state to loading
+          setAdapterStates((prev) => {
+            const updated = new Map(prev);
+            const existing = updated.get(adapterId);
+            if (existing) {
+              updated.set(adapterId, { ...existing, isLoading: true });
+            }
+            return updated;
+          });
+          // Trigger load via API
+          try {
+            await apiClient.loadAdapter(adapterId);
+          } catch (err) {
+            logger.error('Failed to load adapter', { adapterId }, toError(err));
+            setAdapterStates((prev) => {
+              const updated = new Map(prev);
+              const existing = updated.get(adapterId);
+              if (existing) {
+                updated.set(adapterId, { ...existing, isLoading: false, error: 'Failed to load' });
+              }
+              return updated;
+            });
+          }
+        }
+      }
+      // Close prompt and send pending message if any
+      setShowAdapterPrompt(false);
+      if (pendingMessage) {
+        setInput(pendingMessage);
+        setPendingMessage(null);
+        // Wait a moment for states to update, then send
+        setTimeout(() => {
+          // The handleSend will be triggered by the user or we can auto-send
+        }, 1000);
+      }
+    } finally {
+      setIsLoadingAdapters(false);
+    }
+  }, [adapterStates, pendingMessage]);
+
+  // Handle continuing without loading adapters
+  const handleContinueAnyway = useCallback(() => {
+    setShowAdapterPrompt(false);
+    if (pendingMessage) {
+      setInput(pendingMessage);
+      setPendingMessage(null);
+    }
+  }, [pendingMessage]);
+
   // Use React Query to cache stack fetches with retry
   const fetchStackWithRetry = useCallback(async (stackId: string): Promise<AdapterStack | null> => {
     // Use React Query for caching, with retry built-in
@@ -167,7 +299,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
   // Fetch evidence data for a message
   const fetchMessageEvidence = useCallback(async (messageId: string): Promise<EvidenceItem[]> => {
     try {
-      const response = await fetch(`/v1/chat/messages/${messageId}/evidence`);
+      const response = await fetch(`/api/v1/chat/messages/${messageId}/evidence`);
       if (response.ok) {
         return await response.json();
       }
@@ -275,6 +407,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return;
+
+    // Check if adapters are ready before sending
+    if (!allAdaptersReady && adapterStates.size > 0) {
+      setPendingMessage(input.trim());
+      setShowAdapterPrompt(true);
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -414,7 +553,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
       setIsLoading(false);
       setCurrentRequestId(null);
     }
-  }, [input, isLoading, selectedStackId, stacks, fetchRouterDecision]);
+  }, [input, isLoading, selectedStackId, stacks, fetchRouterDecision, allAdaptersReady, adapterStates]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -423,11 +562,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
     }
   };
 
-  // Memoize selected stack to avoid recalculation
-  const selectedStack = useMemo(
-    () => stacks.find(s => s.id === selectedStackId),
-    [stacks, selectedStackId]
-  );
+  // selectedStack is memoized earlier in the component
   const adapterCount = selectedStack?.adapter_ids?.length ?? selectedStack?.adapters?.length ?? 0;
   const stackLabel = selectedStack?.name || 'No stack selected';
   const isDefaultStack = Boolean(
@@ -558,6 +693,16 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
 
   return (
     <div className="flex flex-col h-full relative">
+      {/* Pre-Chat Adapter Loading Prompt */}
+      <PreChatAdapterPrompt
+        open={showAdapterPrompt}
+        onOpenChange={setShowAdapterPrompt}
+        adapters={Array.from(adapterStates.values())}
+        onLoadAll={handleLoadAllAdapters}
+        onContinueAnyway={handleContinueAnyway}
+        isLoading={isLoadingAdapters}
+      />
+
       {/* History Sidebar */}
       {isHistoryOpen && (
         <div className="absolute left-0 top-0 bottom-0 w-80 bg-background border-r z-10 flex flex-col">
@@ -792,6 +937,14 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId, docum
               {selectedStack.adapter_ids?.length || 0} adapter
               {(selectedStack.adapter_ids?.length || 0) !== 1 ? 's' : ''}
             </Badge>
+          )}
+          {/* Adapter loading status indicator */}
+          {adapterStates.size > 0 && (
+            <AdapterLoadingStatus
+              stackId={selectedStackId}
+              adapters={Array.from(adapterStates.values())}
+              compact
+            />
           )}
           <Database className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           <div className="flex items-center gap-2">

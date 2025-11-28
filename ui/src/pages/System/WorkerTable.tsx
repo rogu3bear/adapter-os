@@ -100,7 +100,7 @@ export default function WorkerTable({ workers, isLoading, onWorkerSelect, onRefr
       {
         id: 'tenant_id',
         accessorKey: 'tenant_id',
-        header: 'Tenant',
+        header: 'Organization',
         cell: ({ row }) => row.tenant_id ?? '--',
       },
       {

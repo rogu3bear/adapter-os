@@ -10,8 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import type { AdapterStack, LifecycleHistoryEvent, PolicyPreflightResponse } from '@/api/types';
-import { Layers, Calendar, History, ArrowRight, MessageSquare, Power, PowerOff, AlertTriangle, HardDrive } from 'lucide-react';
+import { Layers, Calendar, History, ArrowRight, MessageSquare, Power, PowerOff, AlertTriangle, HardDrive, Shield, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import apiClient from '@/api/client';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
@@ -23,6 +24,15 @@ import { logger } from '@/utils/logger';
 import { useChatSessions } from '@/hooks/useChatSessions';
 import { useTenant } from '@/layout/LayoutProvider';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
+import { useStackPolicyStream } from '@/hooks/useStreamingEndpoints';
+import {
+  getComplianceStatusColor,
+  getComplianceStatusLabel,
+  formatComplianceScore,
+  sortViolationsBySeverity,
+  type StackPoliciesResponse,
+  type PolicySeverity,
+} from '@/api/policyTypes';
 
 interface StackDetailModalProps {
   stack: AdapterStack;
@@ -64,6 +74,38 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
     queryKey: ['capacity'],
     queryFn: () => apiClient.getCapacity(),
     enabled: open,
+  });
+
+  // Fetch stack policies (PRD-GOV-01)
+  const {
+    data: stackPolicies,
+    isLoading: loadingPolicies,
+    refetch: refetchPolicies,
+  } = useQuery({
+    queryKey: ['stack-policies', stack.id],
+    queryFn: () => apiClient.getStackPolicies(stack.id),
+    enabled: open && !!stack.id,
+    staleTime: 30000, // 30 seconds
+  });
+
+  // Subscribe to real-time policy events
+  const { data: policyEvent } = useStackPolicyStream(stack.id, {
+    enabled: open && !!stack.id,
+    onMessage: (event) => {
+      // Show toast for important events
+      if (event.event_type === 'violation_detected') {
+        const violationEvent = event as { severity: PolicySeverity; message: string };
+        const severity = violationEvent.severity;
+        if (severity === 'critical' || severity === 'high') {
+          toast.error(`Policy Violation: ${violationEvent.message}`, {
+            duration: 10000,
+          });
+        }
+      } else if (event.event_type === 'compliance_changed') {
+        // Refetch policies when compliance changes
+        refetchPolicies();
+      }
+    },
   });
 
   // Calculate memory usage
@@ -331,7 +373,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
                   const totalMemoryMB = totalBytes / (1024 * 1024);
                   const totalRAMMB = (capacity.total_ram_bytes || 0) / (1024 * 1024);
                   const memoryUsagePercent = capacity.total_ram_bytes > 0 ? (totalBytes / capacity.total_ram_bytes) * 100 : 0;
-                  
+
                   return (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -356,6 +398,215 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
               </CardContent>
             </Card>
           )}
+
+          {/* Policy Compliance Section (PRD-GOV-01) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Policy Compliance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingPolicies ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : stackPolicies ? (
+                <div className="space-y-4">
+                  {/* Compliance Score Summary */}
+                  <div className="p-4 rounded-lg border bg-muted/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Overall Compliance</span>
+                      <div className="flex items-center gap-2">
+                        {stackPolicies.compliance.status === 'compliant' && (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        )}
+                        {stackPolicies.compliance.status === 'warning' && (
+                          <AlertCircle className="h-4 w-4 text-yellow-500" />
+                        )}
+                        {stackPolicies.compliance.status === 'non_compliant' && (
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        )}
+                        <Badge
+                          variant="outline"
+                          className={
+                            stackPolicies.compliance.status === 'compliant'
+                              ? 'border-green-500 text-green-700'
+                              : stackPolicies.compliance.status === 'warning'
+                              ? 'border-yellow-500 text-yellow-700'
+                              : 'border-red-500 text-red-700'
+                          }
+                        >
+                          {getComplianceStatusLabel(stackPolicies.compliance.status)}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Score</span>
+                        <span className="font-mono font-medium">
+                          {formatComplianceScore(stackPolicies.compliance.overall_score)}
+                        </span>
+                      </div>
+                      <Progress
+                        value={stackPolicies.compliance.overall_score}
+                        className={`h-2 ${
+                          stackPolicies.compliance.overall_score >= 90
+                            ? '[&>div]:bg-green-500'
+                            : stackPolicies.compliance.overall_score >= 70
+                            ? '[&>div]:bg-yellow-500'
+                            : '[&>div]:bg-red-500'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Category breakdown */}
+                    {Object.entries(stackPolicies.compliance.by_category).length > 0 && (
+                      <div className="mt-3 pt-3 border-t space-y-2">
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                          By Category
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          {Object.entries(stackPolicies.compliance.by_category).map(
+                            ([category, score]) => (
+                              <div
+                                key={category}
+                                className="flex items-center justify-between text-sm p-2 rounded bg-background"
+                              >
+                                <span className="capitalize">{category}</span>
+                                <span
+                                  className={`font-mono text-xs ${
+                                    score.score >= 90
+                                      ? 'text-green-600'
+                                      : score.score >= 70
+                                      ? 'text-yellow-600'
+                                      : 'text-red-600'
+                                  }`}
+                                >
+                                  {Math.round(score.score)}%
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Assigned Policies */}
+                  {stackPolicies.assignments.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">Assigned Policies</span>
+                        <Badge variant="outline">{stackPolicies.assignments.length}</Badge>
+                      </div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {stackPolicies.assignments.map((assignment) => (
+                          <div
+                            key={assignment.id}
+                            className="flex items-center justify-between p-2 border rounded text-sm"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Shield className="h-4 w-4 text-muted-foreground" />
+                              <span>{assignment.policy_name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {assignment.enforced && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Enforced
+                                </Badge>
+                              )}
+                              <Badge
+                                variant="outline"
+                                className={
+                                  assignment.status === 'active'
+                                    ? 'border-green-500 text-green-700'
+                                    : 'border-gray-500 text-gray-700'
+                                }
+                              >
+                                {assignment.status}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent Violations */}
+                  {stackPolicies.recent_violations.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-red-600">
+                          Recent Violations
+                        </span>
+                        <Badge variant="destructive">
+                          {stackPolicies.recent_violations.length}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {sortViolationsBySeverity(stackPolicies.recent_violations).map(
+                          (violation) => (
+                            <Alert
+                              key={violation.id}
+                              variant={
+                                violation.severity === 'critical' ||
+                                violation.severity === 'high'
+                                  ? 'destructive'
+                                  : 'default'
+                              }
+                              className="py-2"
+                            >
+                              <AlertTriangle className="h-4 w-4" />
+                              <AlertTitle className="text-sm flex items-center gap-2">
+                                {violation.policy_name}
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs ${
+                                    violation.severity === 'critical'
+                                      ? 'border-red-600 text-red-600'
+                                      : violation.severity === 'high'
+                                      ? 'border-orange-500 text-orange-600'
+                                      : violation.severity === 'medium'
+                                      ? 'border-yellow-500 text-yellow-600'
+                                      : 'border-gray-500 text-gray-600'
+                                  }`}
+                                >
+                                  {violation.severity}
+                                </Badge>
+                              </AlertTitle>
+                              <AlertDescription className="text-xs mt-1">
+                                {violation.message}
+                                <span className="block text-muted-foreground mt-1">
+                                  {formatDistanceToNow(parseISO(violation.detected_at), {
+                                    addSuffix: true,
+                                  })}
+                                </span>
+                              </AlertDescription>
+                            </Alert>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No policies assigned */}
+                  {stackPolicies.assignments.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No policies assigned to this stack
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Unable to load policy information
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Used In Section */}
           <Card>

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import FeatureLayout from '@/layout/FeatureLayout';
+import { DensityProvider } from '@/contexts/DensityContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -43,33 +45,48 @@ export default function MetricsTab() {
 
   if (error) {
     return (
-      <Card className="border-destructive bg-destructive/10">
-        <CardContent className="pt-6">
-          <p className="text-destructive">Failed to load metrics: {error.message}</p>
-        </CardContent>
-      </Card>
+      <DensityProvider pageKey="system-metrics">
+        <FeatureLayout
+          title="System Metrics"
+          description="Real-time system performance metrics and charts"
+          maxWidth="xl"
+        >
+          <Card className="border-destructive bg-destructive/10">
+            <CardContent className="pt-6">
+              <p className="text-destructive">Failed to load metrics: {error.message}</p>
+            </CardContent>
+          </Card>
+        </FeatureLayout>
+      </DensityProvider>
     );
   }
 
   if (isLoading && !computed) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-64 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
+      <DensityProvider pageKey="system-metrics">
+        <FeatureLayout
+          title="System Metrics"
+          description="Real-time system performance metrics and charts"
+          maxWidth="xl"
+        >
+          <div className="space-y-6">
+            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </FeatureLayout>
+      </DensityProvider>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {lastUpdated && (
-        <div className="flex justify-end">
-          <Badge variant="secondary">
-            Last updated: {lastUpdated.toLocaleTimeString()}
-          </Badge>
-        </div>
-      )}
-
+    <DensityProvider pageKey="system-metrics">
+      <FeatureLayout
+        title="System Metrics"
+        description="Real-time system performance metrics and charts"
+        maxWidth="xl"
+        badges={lastUpdated ? [{ label: `Updated ${lastUpdated.toLocaleTimeString()}`, variant: 'secondary' as const }] : undefined}
+      >
+        <div className="space-y-6">
       {/* System Resource Usage Chart */}
       <Card>
         <CardHeader>
@@ -332,6 +349,8 @@ export default function MetricsTab() {
           </CardContent>
         </Card>
       </div>
-    </div>
+        </div>
+      </FeatureLayout>
+    </DensityProvider>
   );
 }

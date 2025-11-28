@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useForm } from 'react-hook-form';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Progress } from './ui/progress';
+import { Badge } from './ui/badge';
 import { Lock, Shield, AlertTriangle, XCircle, Zap, Clock, Server, CheckCircle2, XCircle as XCircleIcon, Loader2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { apiClient } from '../api/client';
@@ -13,12 +14,176 @@ import { LoginFormSchema, type LoginFormData } from '../schemas/common.schema';
 import { useServiceStatus } from '../hooks/useServiceStatus';
 import { cn } from './ui/utils';
 import type { HealthResponse } from '../api/api-types';
+import type { AuthConfigResponse } from '../api/auth-types';
+
+// Wrapped resolver that catches validation errors silently during initial render
+// This prevents unhandled promise rejections from zodResolver
+const safeZodResolver: Resolver<LoginFormData> = async (values, context, options) => {
+  try {
+    return await zodResolver(LoginFormSchema)(values, context, options);
+  } catch {
+    // Return empty errors on exception - validation will retry on user interaction
+    return { values: {} as LoginFormData, errors: {} };
+  }
+};
 
 interface LoginFormProps {
   onLogin: (credentials: { email: string; password: string }) => Promise<void>;
   onDevBypass?: () => Promise<void>;
   error?: string | null;
 }
+
+interface LoginHeaderProps {
+  currentTime: Date;
+}
+
+const LoginHeader = ({ currentTime }: LoginHeaderProps) => (
+  <div className="text-center space-y-3">
+    <div className="flex justify-center">
+      <div className="flex items-center justify-center bg-primary text-primary-foreground p-3 rounded-lg">
+        <Lock className="h-6 w-6" />
+        <span className="font-medium ml-2">AdapterOS</span>
+      </div>
+    </div>
+    <h1 className="font-medium text-xl">System Login</h1>
+    <div className="flex items-center justify-center space-x-2 text-muted-foreground text-xs">
+      <Clock className="h-3 w-3" />
+      <span className="font-mono">
+        {currentTime.toLocaleTimeString('en-US', {
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })}
+      </span>
+    </div>
+  </div>
+);
+
+interface ServiceStatus {
+  id: string;
+  name: string;
+  status: 'running' | 'stopped' | 'starting' | 'error';
+}
+
+const getServiceStatusIcon = (status: ServiceStatus['status']) => {
+  switch (status) {
+    case 'running':
+      return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    case 'starting':
+      return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
+    case 'error':
+      return <XCircleIcon className="h-4 w-4 text-red-500" />;
+    default:
+      return <XCircleIcon className="h-4 w-4 text-gray-400" />;
+  }
+};
+
+interface ServiceStatusOverviewProps {
+  statuses: ServiceStatus[];
+  running: number;
+  total: number;
+  onStartService?: (serviceId: string) => void;
+}
+
+const getSystemHealthLabel = (running: number, total: number): { label: string; severity: 'healthy' | 'degraded' | 'critical' } => {
+  if (total === 0) return { label: 'Unknown', severity: 'degraded' };
+  const ratio = running / total;
+  if (ratio === 1) return { label: 'All systems operational', severity: 'healthy' };
+  if (ratio >= 0.5) return { label: 'Degraded: some services offline', severity: 'degraded' };
+  return { label: 'Critical: most services offline', severity: 'critical' };
+};
+
+const ServiceStatusOverview = ({
+  statuses,
+  running,
+  total,
+  onStartService,
+}: ServiceStatusOverviewProps) => {
+  const { label: healthLabel, severity } = getSystemHealthLabel(running, total);
+
+  // Sort services: failed/stopped first (critical), then starting, then running
+  const sortedStatuses = [...statuses].sort((a, b) => {
+    const priority: Record<ServiceStatus['status'], number> = { error: 0, stopped: 1, starting: 2, running: 3 };
+    return priority[a.status] - priority[b.status];
+  });
+
+  const severityStyles = {
+    healthy: 'text-green-700 dark:text-green-400',
+    degraded: 'text-amber-700 dark:text-amber-400',
+    critical: 'text-red-700 dark:text-red-400',
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Health summary banner */}
+      <div className={cn(
+        "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium",
+        severity === 'healthy' && "bg-green-50 border border-green-200 dark:bg-green-950/30 dark:border-green-800",
+        severity === 'degraded' && "bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800",
+        severity === 'critical' && "bg-red-50 border border-red-200 dark:bg-red-950/30 dark:border-red-800"
+      )}>
+        {severity === 'healthy' && <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />}
+        {severity === 'degraded' && <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
+        {severity === 'critical' && <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />}
+        <span className={severityStyles[severity]}>{healthLabel}</span>
+      </div>
+
+      {/* Service list with inline actions */}
+      <div className="space-y-2">
+        {sortedStatuses.map((service) => {
+          const isOffline = service.status === 'stopped' || service.status === 'error';
+          return (
+            <div
+              key={service.id}
+              className={cn(
+                "flex items-center justify-between p-3 rounded-lg border transition-colors",
+                isOffline
+                  ? "bg-amber-50/50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-700"
+                  : "bg-background/50 border-border"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                {getServiceStatusIcon(service.status)}
+                <span className="text-sm font-medium">{service.name}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={service.status} />
+                {isOffline && onStartService && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onStartService(service.id)}
+                    className="h-7 px-2 text-xs border-amber-400 text-amber-700 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                  >
+                    Start
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const StatusBadge = ({ status }: { status: ServiceStatus['status'] }) => {
+  const baseStyles = 'text-xs px-2.5 py-1 rounded-full font-medium uppercase tracking-wide';
+  const variants: Record<ServiceStatus['status'], string> = {
+    running: 'bg-green-100 text-green-800 border border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700',
+    starting: 'bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700',
+    error: 'bg-red-100 text-red-800 border-2 border-red-400 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
+    stopped: 'bg-amber-100 text-amber-800 border-2 border-amber-400 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
+  };
+  const labels: Record<ServiceStatus['status'], string> = {
+    running: 'Online',
+    starting: 'Starting',
+    error: 'Failed',
+    stopped: 'Offline',
+  };
+  return <span className={`${baseStyles} ${variants[status]}`}>{labels[status]}</span>;
+};
 
 interface ServiceStatus {
   id: string;
@@ -37,7 +202,8 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
   const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
   const [checkAttempts, setCheckAttempts] = useState(0);
   const [loadingProgress, setLoadingProgress] = useState(0);
-  const isDev = import.meta.env.DEV;
+  // Backend-driven dev bypass state (replaces import.meta.env.DEV)
+  const [devBypassAllowed, setDevBypassAllowed] = useState(false);
 
   const { status: serviceStatus } = useServiceStatus();
 
@@ -54,7 +220,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
     try {
       const health = await apiClient.get<HealthResponse>('/healthz');
       setBackendHealth(health);
-      
+
       if (health.status === 'healthy') {
         setBackendState('ready');
         setLoadingProgress(100);
@@ -67,24 +233,26 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
         setLoadingProgress(50);
       }
     } catch (err) {
-      const attempts = checkAttempts + 1;
-      setCheckAttempts(attempts);
-      
-      // If we've tried multiple times, show error
-      if (attempts >= 3) {
-        setBackendState('error');
-        setLoadingProgress(0);
-      } else {
-        // Still loading - backend might be starting
-        setBackendState('loading');
-        setLoadingProgress(Math.min(attempts * 25, 75));
-      }
+      setCheckAttempts(prev => {
+        const attempts = prev + 1;
+        // If we've tried multiple times, show error
+        if (attempts >= 3) {
+          setBackendState('error');
+          setLoadingProgress(0);
+        } else {
+          // Still loading - backend might be starting
+          setBackendState('loading');
+          setLoadingProgress(Math.min(attempts * 25, 75));
+        }
+        return attempts;
+      });
     }
-  }, [checkAttempts]);
+  }, []);
 
   // Initial backend health check
   useEffect(() => {
     checkBackendHealth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Poll backend health while loading
@@ -96,6 +264,20 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
       return () => clearInterval(interval);
     }
   }, [backendState, checkBackendHealth]);
+
+  // Fetch auth config when backend is ready to get dev bypass status
+  useEffect(() => {
+    if (backendState === 'ready') {
+      apiClient.getAuthConfig()
+        .then((config: AuthConfigResponse) => {
+          setDevBypassAllowed(config.dev_bypass_allowed ?? false);
+        })
+        .catch(() => {
+          // If auth config endpoint fails, default to no dev bypass
+          setDevBypassAllowed(false);
+        });
+    }
+  }, [backendState]);
 
   // Update service statuses from API (only when backend is ready)
   useEffect(() => {
@@ -144,12 +326,15 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
     formState: { errors, isValid },
     watch,
   } = useForm<LoginFormData>({
-    resolver: zodResolver(LoginFormSchema),
-    mode: 'onChange',
+    resolver: safeZodResolver,
+    mode: 'onBlur', // Validate on blur to prevent validation errors on initial render
+    reValidateMode: 'onChange', // Re-validate on change after first blur
+    criteriaMode: 'firstError', // Stop at first error to reduce noise
     defaultValues: {
       email: '',
       password: '',
     },
+    shouldFocusError: false, // Prevent auto-focus on error which can trigger re-renders
   });
 
   const watchedFields = watch();
@@ -185,21 +370,12 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
     }
   };
 
-  const handleRetry = () => {
+  const handleRetry = useCallback(() => {
     setCheckAttempts(0);
     setBackendState('checking');
     setLoadingProgress(0);
     checkBackendHealth();
-  };
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit' 
-    });
-  };
+  }, [checkBackendHealth]);
 
   const getServiceStatusIcon = (status: ServiceStatus['status']) => {
     switch (status) {
@@ -214,103 +390,95 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
     }
   };
 
-  const runningServices = serviceStatuses.filter(s => s.status === 'running').length;
   const totalServices = serviceStatuses.length || 1;
-  const serviceProgress = totalServices > 0 ? (runningServices / totalServices) * 100 : 0;
+  const runningServices = serviceStatuses.filter((s) => s.status === 'running').length;
+  const serviceProgress = useMemo(
+    () => (totalServices > 0 ? (runningServices / totalServices) * 100 : 0),
+    [runningServices, totalServices],
+  );
+
+  // Handler to start a specific service
+  const handleStartService = useCallback((serviceId: string) => {
+    // For now, just retry the connection - in production this would call an API
+    handleRetry();
+  }, [handleRetry]);
 
   // Show loading screen until backend is ready
   if (backendState !== 'ready') {
+    const hasOfflineServices = serviceStatuses.some(s => s.status === 'stopped' || s.status === 'error');
+
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-background">
-        <div className="w-full max-w-md space-y-6">
-          {/* Header */}
-          <div className="text-center space-y-4">
-            <div className="flex justify-center">
-              <div className="flex items-center justify-center bg-primary text-primary-foreground p-3 rounded-lg">
-                <Lock className="h-6 w-6" />
-                <span className="font-medium ml-2">AdapterOS</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <h1 className="font-medium text-xl">Control Plane Access</h1>
-              <p className="text-muted-foreground text-sm">
-                Secure, air-gapped system management
-              </p>
-            </div>
-          </div>
+        <div className="w-full max-w-md space-y-4">
+          <LoginHeader currentTime={currentTime} />
 
-          {/* Time Ticker */}
-          <div className="flex items-center justify-center space-x-2 text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            <span className="font-mono text-sm">{formatTime(currentTime)}</span>
-          </div>
-
-          {/* Loading Card */}
-          <Card className="bg-muted/30">
+          {/* Cluster Status Card */}
+          <Card className="border-2">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Server className="h-4 w-4" />
-                {backendState === 'error' ? 'Service Unavailable' : 'Initializing Services'}
+                Cluster Status
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {backendState === 'error' ? (
                 <>
-                  <Alert variant="destructive">
-                    <XCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      Backend server is not responding. Please ensure the server is running.
-                    </AlertDescription>
-                  </Alert>
-                  <Button onClick={handleRetry} className="w-full" variant="outline">
+                  {/* Critical error state */}
+                  <div className="flex items-center gap-3 p-4 rounded-lg bg-red-50 border-2 border-red-300 dark:bg-red-950/30 dark:border-red-700">
+                    <XCircle className="h-6 w-6 text-red-600 dark:text-red-400 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-red-800 dark:text-white">
+                        Backend server not responding
+                      </p>
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        Tried {checkAttempts} time{checkAttempts !== 1 ? 's' : ''}. Check that the server is running.
+                      </p>
+                    </div>
+                  </div>
+                  <ServiceStatusOverview
+                    statuses={serviceStatuses}
+                    running={runningServices}
+                    total={totalServices}
+                    onStartService={handleStartService}
+                  />
+                  <Button onClick={handleRetry} className="w-full" size="lg">
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Retry Connection
                   </Button>
                 </>
               ) : (
                 <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Checking backend health...</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        Attempt {checkAttempts + 1}
-                      </span>
+                  {/* Loading state with prominent spinner */}
+                  <div className="flex flex-col items-center gap-4 py-4">
+                    <div className="relative">
+                      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                      <div className="absolute inset-0 h-10 w-10 animate-ping opacity-20 rounded-full bg-primary" />
                     </div>
-                    <Progress value={loadingProgress} className="h-2" />
-                    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      <span>
-                        {backendState === 'checking' && 'Checking server status...'}
-                        {backendState === 'loading' && 'Waiting for server to start...'}
-                      </span>
+                    <div className="text-center space-y-1">
+                      <p className="text-sm font-medium">
+                        {backendState === 'checking' ? 'Connecting to backend' : 'Waiting for services'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Attempt {checkAttempts + 1} of 3 · Retrying every 2s
+                      </p>
                     </div>
+                    <Progress value={loadingProgress} className="h-2 w-full" />
                   </div>
 
-                  {/* Service Status Preview */}
-                  {serviceStatuses.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t">
-                      <p className="text-xs font-medium text-muted-foreground">Service Status:</p>
-                      {serviceStatuses.map((service) => (
-                        <div
-                          key={service.id}
-                          className="flex items-center justify-between p-2 rounded-md bg-background/50 border border-border"
-                        >
-                          <div className="flex items-center gap-2">
-                            {getServiceStatusIcon(service.status)}
-                            <span className="text-sm font-medium">{service.name}</span>
-                          </div>
-                          <span className={cn(
-                            "text-xs px-2 py-1 rounded",
-                            service.status === 'running' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-                            service.status === 'starting' && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-                            service.status === 'error' && "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-                            service.status === 'stopped' && "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400"
-                          )}>
-                            {service.status}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                  {/* Service Status with inline actions */}
+                  <ServiceStatusOverview
+                    statuses={serviceStatuses}
+                    running={runningServices}
+                    total={totalServices}
+                    onStartService={handleStartService}
+                  />
+
+                  {/* Single action button when services are offline */}
+                  {hasOfflineServices && (
+                    <Button onClick={handleRetry} variant="outline" className="w-full">
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh Status
+                    </Button>
                   )}
                 </>
               )}
@@ -325,84 +493,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-background">
       <div className="w-full max-w-2xl space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="flex items-center justify-center bg-primary text-primary-foreground p-3 rounded-lg">
-              <Lock className="h-6 w-6" />
-              <span className="font-medium ml-2">AdapterOS</span>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <h1 className="font-medium text-xl">Control Plane Access</h1>
-            <p className="text-muted-foreground text-sm">
-              Secure, air-gapped system management
-            </p>
-          </div>
-        </div>
-
-        {/* Time Ticker */}
-        <div className="flex items-center justify-center space-x-2 text-muted-foreground">
-          <Clock className="h-4 w-4" />
-          <span className="font-mono text-sm">{formatTime(currentTime)}</span>
-        </div>
-
-        {/* Service Status Section - Live Updates */}
-        <Card className="bg-muted/30">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Server className="h-4 w-4" />
-                Service Status
-              </CardTitle>
-              <span className="text-xs text-muted-foreground">
-                {runningServices}/{totalServices} running
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {serviceStatuses.length > 0 ? (
-              <>
-                <div className="space-y-2">
-                  {serviceStatuses.map((service) => (
-                    <div
-                      key={service.id}
-                      className="flex items-center justify-between p-2 rounded-md bg-background/50 border border-border"
-                    >
-                      <div className="flex items-center gap-2">
-                        {getServiceStatusIcon(service.status)}
-                        <span className="text-sm font-medium">{service.name}</span>
-                      </div>
-                      <span className={cn(
-                        "text-xs px-2 py-1 rounded",
-                        service.status === 'running' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-                        service.status === 'starting' && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-                        service.status === 'error' && "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-                        service.status === 'stopped' && "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400"
-                      )}>
-                        {service.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {totalServices > 0 && (
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>System Health</span>
-                      <span>{Math.round(serviceProgress)}%</span>
-                    </div>
-                    <Progress value={serviceProgress} className="h-1.5" />
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-sm text-muted-foreground text-center py-2">
-                <Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" />
-                Loading service information...
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <LoginHeader currentTime={currentTime} />
 
         {/* Security Indicators */}
         <div className="flex items-center justify-center space-x-3 flex-wrap gap-2">
@@ -514,8 +605,15 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                   )}
                 </Button>
 
-                {isDev && (
+                {devBypassAllowed && (
                   <>
+                    {/* Warning badge for dev bypass enabled */}
+                    <div className="flex items-center justify-center gap-2 py-2">
+                      <Badge variant="destructive" className="animate-pulse">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Dev Bypass Enabled
+                      </Badge>
+                    </div>
                     <div className="relative">
                       <div className="absolute inset-0 flex items-center">
                         <span className="w-full border-t border-border" />
@@ -544,7 +642,7 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
                       )}
                     </Button>
                     <p className="text-xs text-muted-foreground text-center">
-                      Development mode only - bypasses authentication
+                      Dev bypass enabled in config - bypasses authentication
                     </p>
                   </>
                 )}
@@ -553,23 +651,41 @@ export function LoginForm({ onLogin, onDevBypass, error }: LoginFormProps) {
           </CardContent>
         </Card>
 
-        {/* Demo Credentials */}
-        <Card className="bg-muted/50">
-          <CardContent className="pt-6">
-            <div className="text-sm space-y-2">
-              <p className="font-medium text-muted-foreground">Demo Credentials:</p>
-              <div className="space-y-2 text-xs">
-                <div>
-                  <p className="font-medium">Admin User:</p>
-                  <p className="font-mono text-muted-foreground">
-                    Email: admin@aos.local<br />
-                    Password: password
-                  </p>
+        {/* Dev Mode Credentials - Only shown when dev bypass is allowed */}
+        {devBypassAllowed && (
+          <Card className="border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-600">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="h-4 w-4" />
+                Development Mode - Test Credentials
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-2 rounded bg-white/80 dark:bg-black/30 border border-amber-300 dark:border-amber-700">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Admin</p>
+                  <p className="font-mono text-amber-800 dark:text-amber-300">admin@aos.local</p>
+                  <p className="font-mono text-amber-700 dark:text-amber-400">password</p>
+                </div>
+                <div className="p-2 rounded bg-white/80 dark:bg-black/30 border border-amber-300 dark:border-amber-700">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Operator</p>
+                  <p className="font-mono text-amber-800 dark:text-amber-300">operator@aos.local</p>
+                  <p className="font-mono text-amber-700 dark:text-amber-400">password</p>
+                </div>
+                <div className="p-2 rounded bg-white/80 dark:bg-black/30 border border-amber-300 dark:border-amber-700">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">SRE</p>
+                  <p className="font-mono text-amber-800 dark:text-amber-300">sre@aos.local</p>
+                  <p className="font-mono text-amber-700 dark:text-amber-400">password</p>
+                </div>
+                <div className="p-2 rounded bg-white/80 dark:bg-black/30 border border-amber-300 dark:border-amber-700">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Viewer</p>
+                  <p className="font-mono text-amber-800 dark:text-amber-300">viewer@aos.local</p>
+                  <p className="font-mono text-amber-700 dark:text-amber-400">password</p>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

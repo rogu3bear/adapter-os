@@ -47,7 +47,7 @@ export function AdapterLoadingExample() {
     },
     {
       policy_id: 'tenant-001',
-      policy_name: 'Tenant Isolation',
+      policy_name: 'Organization Isolation',
       passed: true,
       severity: 'error',
       message: 'Adapter restricted to authorized tenant',
@@ -64,7 +64,7 @@ export function AdapterLoadingExample() {
     setIsLoading(true);
     try {
       // API call to load adapter
-      await fetch('/v1/adapters/my-adapter/load', { method: 'POST' });
+      await fetch('/api/v1/adapters/my-adapter/load', { method: 'POST' });
       // Adapter loaded successfully
       setShowDialog(false);
     } catch (_error) {
@@ -83,8 +83,8 @@ export function AdapterLoadingExample() {
       <PolicyPreflightDialog
         open={showDialog}
         onOpenChange={setShowDialog}
-        title="Load Adapter - Policy Validation"
-        description="The following policies will be enforced when loading this adapter"
+        title="Activate Adapter - Policy Validation"
+        description="The following policies will be enforced when activating this adapter"
         checks={policyChecks}
         canProceed={canProceed}
         onProceed={handleLoadAdapter}
@@ -140,7 +140,7 @@ export function StackActivationExample() {
     setIsLoading(true);
     try {
       // API call to activate stack
-      await fetch('/v1/adapter-stacks/my-stack/activate', { method: 'POST' });
+      await fetch('/api/v1/adapter-stacks/my-stack/activate', { method: 'POST' });
       // Stack activated successfully
       setShowDialog(false);
     } catch (_error) {
@@ -183,7 +183,7 @@ export function ApiIntegrationExample() {
   const fetchPolicyChecks = async (adapterId: string) => {
     try {
       // Fetch policy validation results from API
-      const response = await fetch(`/v1/adapters/${adapterId}/validate-policies`);
+      const response = await fetch(`/api/v1/adapters/${adapterId}/validate-policies`);
       const data = await response.json();
 
       // Transform API response to PolicyCheck format
@@ -208,7 +208,7 @@ export function ApiIntegrationExample() {
     setIsLoading(true);
     try {
       // Proceed with operation
-      await fetch('/v1/adapters/my-adapter/load', { method: 'POST' });
+      await fetch('/api/v1/adapters/my-adapter/load', { method: 'POST' });
       setShowDialog(false);
     } finally {
       setIsLoading(false);
@@ -248,7 +248,7 @@ export function AdapterDetailPageIntegration() {
 
   // This would typically come from an API call
   const validateAdapterPolicies = async (adapterId: string): Promise<PolicyCheck[]> => {
-    const response = await fetch(`/v1/adapters/${adapterId}/validate-policies`);
+    const response = await fetch(`/api/v1/adapters/${adapterId}/validate-policies`);
     const data = await response.json();
     return data.policies.map((p: any) => ({
       policy_id: p.id,
@@ -273,7 +273,7 @@ export function AdapterDetailPageIntegration() {
   const handleLoad = async () => {
     setIsLoading(true);
     try {
-      await fetch('/v1/adapters/adapter-123/load', { method: 'POST' });
+      await fetch('/api/v1/adapters/adapter-123/load', { method: 'POST' });
       // Refresh adapter state
       setShowPreflight(false);
     } finally {
@@ -292,7 +292,7 @@ export function AdapterDetailPageIntegration() {
       <PolicyPreflightDialog
         open={showPreflight}
         onOpenChange={setShowPreflight}
-        title="Load Adapter - Policy Validation"
+        title="Activate Adapter - Policy Validation"
         description="23 canonical policies will be enforced"
         checks={checks}
         canProceed={canProceed}

@@ -129,7 +129,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           clearError('fetch-tenants');
           refetchTenants();
         });
-        toast.error('Failed to load tenants');
+        toast.error('Failed to load organizations');
       }
     }
   );
@@ -171,7 +171,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     if (!selectedTenantForAction) return;
     try {
       await apiClient.updateTenant(selectedTenantForAction.id, editName);
-      showStatus('Tenant updated.', 'success');
+      showStatus('Organization updated.', 'success');
       clearError('edit-tenant');
       closeModal();
       refetchTenants();
@@ -187,7 +187,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     try {
       const tenant = selectedTenantForAction;
       await apiClient.archiveTenant(tenant.id);
-      showStatus('Tenant archived.', 'success');
+      showStatus('Organization archived.', 'success');
       clearError('archive-tenant');
       closeModal();
       setSelectedTenantForAction(null);
@@ -254,7 +254,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     try {
       const previousStatus = tenant.status;
       await apiClient.pauseTenant(tenant.id);
-      showStatus(`Tenant "${tenant.name}" paused.`, 'success');
+      showStatus(`Organization "${tenant.name}" paused.`, 'success');
       clearError('pause-tenant');
       await refetchTenants();
 
@@ -300,7 +300,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       if (successCount > 0) {
-        showStatus(`Successfully paused ${successCount} tenant(s).`, 'success');
+        showStatus(`Successfully paused ${successCount} organization(s).`, 'success');
 
         // Record undo action
         addAction({
@@ -313,7 +313,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         });
       }
       if (errorCount > 0) {
-        addError('bulk-pause', `Failed to pause ${errorCount} tenant(s).`, performBulkPause);
+        addError('bulk-pause', `Failed to pause ${errorCount} organization(s).`, performBulkPause);
       }
 
       await refetchTenants();
@@ -321,9 +321,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     };
 
     setConfirmationOptions({
-      title: 'Pause Tenants',
-      description: `Pause ${tenantIds.length} tenant(s)? This will stop new sessions for these tenants.`,
-      confirmText: 'Pause Tenants',
+      title: 'Pause Organizations',
+      description: `Pause ${tenantIds.length} organization(s)? This will stop new sessions for these organizations.`,
+      confirmText: 'Pause Organizations',
       variant: 'default'
     });
     setPendingBulkAction(() => performBulkPause);
@@ -351,7 +351,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       if (successCount > 0) {
-        showStatus(`Successfully archived ${successCount} tenant(s).`, 'success');
+        showStatus(`Successfully archived ${successCount} organization(s).`, 'success');
 
         // Record undo action
         addAction({
@@ -364,7 +364,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         });
       }
       if (errorCount > 0) {
-        addError('bulk-archive', `Failed to archive ${errorCount} tenant(s).`, performBulkArchive);
+        addError('bulk-archive', `Failed to archive ${errorCount} organization(s).`, performBulkArchive);
       }
 
       await refetchTenants();
@@ -372,9 +372,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     };
 
     setConfirmationOptions({
-      title: 'Archive Tenants',
-      description: `Permanently archive ${tenantIds.length} tenant(s)? All associated resources will be suspended. This action can be reversed by an administrator.`,
-      confirmText: 'Archive Tenants',
+      title: 'Archive Organizations',
+      description: `Permanently archive ${tenantIds.length} organization(s)? All associated resources will be suspended. This action can be reversed by an administrator.`,
+      confirmText: 'Archive Organizations',
       variant: 'destructive'
     });
     setPendingBulkAction(() => performBulkArchive);
@@ -409,7 +409,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       if (tenantsToExport.length === 0) {
-        showStatus('No tenants to export.', 'warning');
+        showStatus('No organizations to export.', 'warning');
         closeModal();
         return;
       }
@@ -449,7 +449,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         URL.revokeObjectURL(url);
       }
 
-      showStatus(`Exported ${tenantsToExport.length} tenant(s).`, 'success');
+      showStatus(`Exported ${tenantsToExport.length} organization(s).`, 'success');
       closeModal();
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to export tenants');
@@ -506,7 +506,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     if (!newTenant.name.trim()) return;
     try {
       await apiClient.createTenant({ name: newTenant.name, isolation_level: 'standard' });
-      showStatus('Tenant created.', 'success');
+      showStatus('Organization created.', 'success');
       clearError('create-tenant');
       setNewTenant({ name: '', description: '', dataClassification: 'internal', itarCompliant: false });
       setIsCreateDialogOpen(false);
@@ -524,7 +524,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           <Shield className="h-12 w-12 text-muted-foreground mx-auto" />
           <h3>Access Restricted</h3>
           <p className="text-muted-foreground">
-            Tenant management requires Administrator privileges.
+            Organization management requires Administrator privileges.
           </p>
           <HelpTooltip helpId="requires-admin">
             <Button variant="ghost" size="sm" className="text-muted-foreground">
@@ -575,9 +575,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Tenant Management</h1>
+          <h1 className="text-2xl font-bold">Organization Management</h1>
           <p className="text-sm text-muted-foreground">
-            Manage tenant isolation, data classification, and access controls
+            Manage organization isolation, data classification, and access controls
           </p>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
@@ -585,25 +585,25 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             <HelpTooltip helpId="create-tenant-button">
               <Button disabled={!can('tenant:manage')}>
                 <Plus className="h-4 w-4 mr-2" />
-                Create Tenant
+                Create Organization
               </Button>
             </HelpTooltip>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Create New Tenant</DialogTitle>
+              <DialogTitle>Create New Organization</DialogTitle>
             </DialogHeader>
             <div className="mb-4">
               <div className="mb-4">
                 <div className="flex items-center gap-1 mb-1">
-                  <Label htmlFor="name" className="font-medium text-sm">Tenant Name</Label>
+                  <Label htmlFor="name" className="font-medium text-sm">Organization Name</Label>
                   <HelpTooltip helpId="tenant-name">
                     <span className="cursor-help text-muted-foreground">(?)</span>
                   </HelpTooltip>
                 </div>
                 <Input
                   id="name"
-                  placeholder="Enter tenant name"
+                  placeholder="Enter organization name"
                   value={newTenant.name}
                   onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
                 />
@@ -618,7 +618,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 </div>
                 <Textarea
                   id="description"
-                  placeholder="Describe the tenant's purpose"
+                  placeholder="Describe the organization's purpose"
                   value={newTenant.description}
                   onChange={(e) => setNewTenant({ ...newTenant, description: e.target.value })}
                 />
@@ -667,7 +667,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 </Button>
                 <HelpTooltip helpId="create-tenant-action">
                   <Button onClick={handleCreateTenant} disabled={!newTenant.name.trim() || !can('tenant:manage')}>
-                    Create Tenant
+                    Create Organization
                   </Button>
                 </HelpTooltip>
               </div>
@@ -684,7 +684,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <Users className="h-4 w-4 text-blue-600" />
               <div>
                 <p className="text-2xl font-bold">{tenants.length}</p>
-                <p className="text-xs text-muted-foreground">Total Tenants</p>
+                <p className="text-xs text-muted-foreground">Total Organizations</p>
               </div>
             </div>
           </CardContent>
@@ -732,7 +732,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              Active Tenants
+              Active Organizations
               <ConceptTooltip concept="tenant" />
               <HelpTooltip helpId="active-tenants">
                 <span className="cursor-help text-muted-foreground text-sm">(Help)</span>
@@ -963,12 +963,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       <Dialog open={isOpen(MODAL_IDS.EDIT)} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Tenant</DialogTitle>
+            <DialogTitle>Edit Organization</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <div className="flex items-center gap-1 mb-1">
-                <Label>Tenant Name</Label>
+                <Label>Organization Name</Label>
                 <HelpTooltip helpId="tenant-name">
                   <span className="cursor-help text-muted-foreground">(?)</span>
                 </HelpTooltip>
@@ -976,7 +976,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                placeholder="Enter tenant name"
+                placeholder="Enter organization name"
               />
             </div>
           </div>
@@ -1093,7 +1093,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       <Dialog open={isOpen(MODAL_IDS.USAGE)} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Tenant Usage - {selectedTenantForAction?.name}</DialogTitle>
+            <DialogTitle>Organization Usage - {selectedTenantForAction?.name}</DialogTitle>
           </DialogHeader>
           {usageData && (
             <div className="space-y-4">
@@ -1159,12 +1159,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       <Dialog open={isOpen(MODAL_IDS.ARCHIVE)} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Archive Tenant</DialogTitle>
+            <DialogTitle>Archive Organization</DialogTitle>
           </DialogHeader>
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              This will archive tenant <strong>{selectedTenantForAction?.name}</strong>.
+              This will archive organization <strong>{selectedTenantForAction?.name}</strong>.
               All associated resources will be suspended. This action can be reversed by an administrator.
             </AlertDescription>
           </Alert>
@@ -1177,7 +1177,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             </Button>
             <HelpTooltip helpId="archive-tenant-action">
               <Button variant="destructive" onClick={handleArchive} disabled={!can('tenant:manage')}>
-                Archive Tenant
+                Archive Organization
               </Button>
             </HelpTooltip>
           </DialogFooter>
@@ -1232,13 +1232,13 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       <Dialog open={isOpen(MODAL_IDS.IMPORT)} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Import Tenant</DialogTitle>
+            <DialogTitle>Import Organization</DialogTitle>
           </DialogHeader>
           <TenantImportWizard
             onComplete={(tenant) => {
               closeModal();
               refetchTenants();
-              showStatus(`Tenant "${tenant.name}" created successfully.`, 'success');
+              showStatus(`Organization "${tenant.name}" created successfully.`, 'success');
             }}
             onCancel={closeModal}
           />

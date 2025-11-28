@@ -218,7 +218,6 @@ function TrainingJobDetailContent() {
             Back
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">{job.adapter_name || job.id}</h1>
             <p className="text-sm text-muted-foreground">Job ID: {job.id}</p>
           </div>
         </div>

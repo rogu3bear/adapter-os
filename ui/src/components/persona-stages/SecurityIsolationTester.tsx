@@ -35,8 +35,8 @@ interface SecurityIsolationTesterProps {
 const testScenarios: IsolationTestScenario[] = [
   {
     id: 'tenant-boundary',
-    name: 'Tenant Boundary Test',
-    description: 'Verify that tenant data and resources are properly isolated',
+    name: 'Organization Boundary Test',
+    description: 'Verify that organization data and resources are properly isolated',
     category: 'tenant',
   },
   {
@@ -240,9 +240,9 @@ export default function SecurityIsolationTester({ tenantId = 'default' }: Securi
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Tenant Isolation Tester</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Organization Isolation Tester</h2>
           <p className="text-muted-foreground">
-            Test and verify tenant isolation boundaries
+            Test and verify organization isolation boundaries
           </p>
         </div>
         <Button onClick={runAllTests} disabled={isRunning} variant="outline">
@@ -296,7 +296,7 @@ export default function SecurityIsolationTester({ tenantId = 'default' }: Securi
                 <XCircle className="w-5 h-5 text-red-600" />
               )}
               <div>
-                <p className="font-medium">Tenant Isolation</p>
+                <p className="font-medium">Organization Isolation</p>
                 <p className="text-sm text-muted-foreground">
                   {policyCompliance.isolation ? 'Compliant' : 'Violation Detected'}
                 </p>

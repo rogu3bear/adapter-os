@@ -26,8 +26,26 @@ export interface OwnerChatMessage {
 
 export interface OwnerChatContext {
   route?: string;
-  metrics_snapshot?: Record<string, unknown>;
+  metrics_snapshot?: SystemOverview | Record<string, unknown>;
   user_role?: string;
+  // Enhanced context fields
+  tenant_id?: string;
+  active_stack?: {
+    id: string;
+    name: string;
+    adapter_count: number;
+  };
+  base_model?: {
+    model_id: string;
+    model_name: string;
+    status: string;
+  };
+  adapter_summary?: {
+    total: number;
+    hot: number;
+    warm: number;
+    cold: number;
+  };
 }
 
 export interface OwnerChatRequest {
@@ -39,6 +57,8 @@ export interface OwnerChatResponse {
   response: string;
   suggested_cli?: string;
   relevant_links: string[];
+  /** Response source: "adapter" (AI-powered docs) or "rule_based" */
+  source?: 'adapter' | 'rule_based';
 }
 
 // System Overview types (matching Rust backend: crates/adapteros-server-api/src/handlers/system_overview.rs)

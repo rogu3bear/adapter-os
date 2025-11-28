@@ -37,8 +37,8 @@ interface FormData {
 
 const ROLE_OPTIONS: { value: UserRole; label: string; description: string }[] = [
   { value: 'admin', label: 'Admin', description: 'Full system access' },
-  { value: 'operator', label: 'Operator', description: 'Runtime operations' },
-  { value: 'sre', label: 'SRE', description: 'Infrastructure debugging' },
+  { value: 'operator', label: 'Operator', description: 'Manage deployments and operations' },
+  { value: 'sre', label: 'SRE', description: 'System health and infrastructure' },
   { value: 'compliance', label: 'Compliance', description: 'Audit access' },
   { value: 'auditor', label: 'Auditor', description: 'Read-only audit logs' },
   { value: 'viewer', label: 'Viewer', description: 'Read-only access' },
@@ -233,17 +233,17 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
             {/* Tenant (only for create) */}
             {!isEdit && tenants && tenants.length > 0 && (
               <div className="grid gap-2">
-                <Label htmlFor="tenant_id">Tenant</Label>
+                <Label htmlFor="tenant_id">Organization</Label>
                 <Select
                   value={selectedTenantId || ''}
                   onValueChange={(value) => setValue('tenant_id', value || undefined)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a tenant (optional)" />
+                    <SelectValue placeholder="Select an organization (optional)" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">
-                      <span className="text-muted-foreground">Global (no tenant)</span>
+                      <span className="text-muted-foreground">Global (no organization)</span>
                     </SelectItem>
                     {tenants.map((tenant) => (
                       <SelectItem key={tenant.id} value={tenant.id}>
@@ -253,7 +253,7 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Optionally assign the user to a specific tenant for scoped access.
+                  Optionally assign the user to a specific organization for scoped access.
                 </p>
               </div>
             )}

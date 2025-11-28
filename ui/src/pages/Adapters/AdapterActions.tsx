@@ -107,19 +107,19 @@ export function AdapterActions({
             <DropdownMenuItem
               onClick={() => onLoad?.(adapter.adapter_id)}
               disabled={!canLoad || isLoading}
-              title="Activate in memory"
+              title="Activate - load into memory"
             >
               <Power className="mr-2 h-4 w-4" />
-              Load
+              Activate
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
               onClick={() => onUnload?.(adapter.adapter_id)}
               disabled={!canUnload || isLoading || isResident}
-              title="Remove from memory"
+              title="Deactivate - remove from memory"
             >
               <PowerOff className="mr-2 h-4 w-4" />
-              Unload
+              Deactivate
             </DropdownMenuItem>
           )}
 
@@ -138,17 +138,17 @@ export function AdapterActions({
           <DropdownMenuItem
             onClick={() => onPin?.(adapter.adapter_id, !adapter.pinned)}
             disabled={isLoading}
-            title={adapter.pinned ? "Allow this adapter to be evicted during memory pressure" : "Prevents this adapter from being evicted during memory pressure"}
+            title={adapter.pinned ? "Allow this adapter to be removed during memory pressure" : "Prevents this adapter from being removed during memory pressure"}
           >
             {adapter.pinned ? (
               <>
                 <PinOff className="mr-2 h-4 w-4" />
-                Unpin
+                Allow Removal
               </>
             ) : (
               <>
                 <Pin className="mr-2 h-4 w-4" />
-                Pin
+                Protect Adapter
               </>
             )}
           </DropdownMenuItem>
@@ -175,7 +175,7 @@ export function AdapterActions({
             title="Forces memory release due to pressure. Adapter remains stored and can be reloaded."
           >
             <Square className="mr-2 h-4 w-4" />
-            Evict
+            Remove
           </DropdownMenuItem>
 
           <DropdownMenuItem
@@ -212,20 +212,20 @@ export function AdapterActions({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Evict Confirmation Dialog */}
+      {/* Remove Confirmation Dialog */}
       <AlertDialog open={showEvictDialog} onOpenChange={setShowEvictDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Evict Adapter</AlertDialogTitle>
+            <AlertDialogTitle>Remove Adapter</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to evict <strong>{adapter.name}</strong> from memory?
+              Are you sure you want to remove <strong>{adapter.name}</strong> from memory?
               This will free up memory resources but the adapter can be loaded again later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleEvictConfirm}>
-              Evict
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -265,7 +265,7 @@ export function InlineAdapterActions({
         className="h-7"
       >
         <PowerOff className="mr-1 h-3 w-3" />
-        Unload
+        Deactivate
       </Button>
     );
   }
@@ -279,7 +279,7 @@ export function InlineAdapterActions({
       className="h-7"
     >
       <Power className="mr-1 h-3 w-3" />
-      Load
+      Activate
     </Button>
   );
 }

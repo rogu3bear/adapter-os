@@ -62,7 +62,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
         title: 'Configure Policies',
         description: 'Set up security policies and compliance rules',
         icon: Shield,
-        route: '/policies'
+        route: '/security/policies'
       },
       {
         id: 'monitoring',
@@ -97,7 +97,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
         title: 'Setup Tenant',
         description: 'Create or select a tenant for your work',
         icon: Shield,
-        route: '/tenants'
+        route: '/admin/tenants'
       },
       {
         id: 'dashboard',
@@ -195,14 +195,14 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
         title: 'Policy Review',
         description: 'Review and manage security policies',
         icon: Shield,
-        route: '/policies'
+        route: '/security/policies'
       },
       {
         id: 'audit',
         title: 'Audit Trails',
         description: 'Review system audit trails',
         icon: FileText,
-        route: '/audit'
+        route: '/security/audit'
       },
       {
         id: 'telemetry',
@@ -223,7 +223,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
         title: 'Audit Trails',
         description: 'Review comprehensive audit trails',
         icon: FileText,
-        route: '/audit'
+        route: '/security/audit'
       },
       {
         id: 'telemetry',
@@ -244,7 +244,7 @@ const workflowsByRole: Record<UserRole, RoleWorkflow> = {
         title: 'Policy Compliance',
         description: 'Review policy compliance status',
         icon: Shield,
-        route: '/policies'
+        route: '/security/policies'
       }
     ]
   },

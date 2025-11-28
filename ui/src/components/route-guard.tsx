@@ -42,7 +42,10 @@ interface RouteGuardProps {
  */
 export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: RouteGuardProps) {
   const { user, isLoading } = useAuth();
-  const requiresAuth = route.requiresAuth !== false || (route.requiredRoles?.length ?? 0) > 0;
+  const requiresAuth =
+    route.requiresAuth !== false ||
+    (route.requiredRoles?.length ?? 0) > 0 ||
+    (route.requiredPermissions?.length ?? 0) > 0;
 
   // Show loading state while auth is being verified
   if (requiresAuth && isLoading) {
@@ -59,7 +62,7 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
   }
 
   // Check if user has required role
-  if (route.requiredRoles && route.requiredRoles.length > 0 && user && !canAccessRoute(route, user.role)) {
+  if (user && !canAccessRoute(route, user.role, user.permissions ?? [])) {
     return <Navigate to={fallbackPath} replace />;
   }
 

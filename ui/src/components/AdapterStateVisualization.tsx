@@ -238,7 +238,7 @@ export function AdapterStateVisualization({ adapters, totalMemory }: AdapterStat
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pinned Adapters</CardTitle>
+            <CardTitle className="text-sm font-medium">Protected Adapters</CardTitle>
             <Anchor className="h-4 w-4 text-purple-500" />
           </CardHeader>
           <CardContent>
@@ -246,7 +246,7 @@ export function AdapterStateVisualization({ adapters, totalMemory }: AdapterStat
               {adapters.filter(a => a.pinned).length}
             </div>
             <p className="text-xs text-muted-foreground">
-              Protected from eviction
+              Will not be removed
             </p>
           </CardContent>
         </Card>

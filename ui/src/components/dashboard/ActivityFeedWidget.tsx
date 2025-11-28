@@ -157,10 +157,10 @@ export function ActivityFeedWidget() {
                   onClick={() => {
                     switch (event.type) {
                       case 'policy':
-                        navigate('/policies');
+                        navigate('/security/policies');
                         break;
                       case 'build':
-                        navigate('/plans');
+                        navigate('/workflow');
                         break;
                       case 'adapter':
                         navigate('/adapters');
@@ -170,11 +170,11 @@ export function ActivityFeedWidget() {
                         navigate('/monitoring');
                         break;
                       case 'collaboration':
-                        // Navigate to messages or workspace based on event metadata
+                        // Navigate to chat or dashboard based on event metadata
                         if (event.workspaceId) {
-                          navigate(`/workspaces/${event.workspaceId}`);
+                          navigate(`/dashboard?workspace=${event.workspaceId}`);
                         } else {
-                          navigate('/messages');
+                          navigate('/chat');
                         }
                         break;
                       case 'telemetry':

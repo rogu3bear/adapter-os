@@ -268,7 +268,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
         <CardContent className="space-y-4">
           <div>
             <Label className="flex items-center gap-1">
-              CPID
+              Policy ID
               <HelpTooltip helpId="promotion-cpid" />
             </Label>
             <Input value={cpid} onChange={(e) => setCpid(e.target.value)} />
@@ -361,7 +361,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>CPID</TableHead>
+                <TableHead>Policy ID</TableHead>
                 <TableHead>By</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Status</TableHead>

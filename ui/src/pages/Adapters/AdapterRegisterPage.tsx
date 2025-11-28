@@ -15,7 +15,6 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,7 +47,7 @@ import {
 
 // Form schema for adapter registration
 const formSchema = z.object({
-  tenant: z.string().min(1, 'Tenant is required').max(50),
+  tenant: z.string().min(1, 'Organization is required').max(50),
   domain: z.string().min(1, 'Domain is required').max(50).regex(/^[a-z0-9_-]+$/, 'Domain must contain only lowercase letters, numbers, underscores, and hyphens'),
   purpose: z.string().min(1, 'Purpose is required').max(50).regex(/^[a-z0-9_-]+$/, 'Purpose must contain only lowercase letters, numbers, underscores, and hyphens'),
   revision: z.string().regex(/^r\d{3,}$/, 'Revision must be in format rXXX (e.g., r001)'),
@@ -76,11 +75,10 @@ export function AdapterRegisterPage() {
   if (!can('AdapterRegister')) {
     return (
       <DensityProvider pageKey="adapter-register">
-        <FeatureLayout title="Register Adapter">
-          <PageHeader
-            title="Register New Adapter"
-            description="Register a new LoRA adapter"
-          />
+        <FeatureLayout
+          title="Register New Adapter"
+          description="Register a new LoRA adapter"
+        >
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Permission Denied</AlertTitle>
@@ -206,14 +204,12 @@ export function AdapterRegisterPage() {
   return (
     <DensityProvider pageKey="adapter-register">
       <FeatureLayout
-        title="Register Adapter"
+        title="Register New Adapter"
+        description="Register a new LoRA adapter with semantic naming"
         maxWidth="lg"
         contentPadding="default"
       >
-        <PageHeader
-          title="Register New Adapter"
-          description="Register a new LoRA adapter with semantic naming"
-        >
+        <div className="flex justify-end mb-6">
           <Button
             variant="outline"
             size="sm"
@@ -222,7 +218,7 @@ export function AdapterRegisterPage() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Adapters
           </Button>
-        </PageHeader>
+        </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {/* Semantic Name Card */}
@@ -240,7 +236,7 @@ export function AdapterRegisterPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="tenant">
-                    Tenant <span className="text-destructive">*</span>
+                    Organization <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="tenant"
@@ -470,7 +466,7 @@ export function AdapterRegisterPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="global">Global</SelectItem>
-                      <SelectItem value="tenant">Tenant</SelectItem>
+                      <SelectItem value="tenant">Organization</SelectItem>
                       <SelectItem value="repo">Repository</SelectItem>
                       <SelectItem value="commit">Commit</SelectItem>
                     </SelectContent>

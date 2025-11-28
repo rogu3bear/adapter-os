@@ -418,8 +418,8 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="global">Global - Available to all tenants</SelectItem>
-            <SelectItem value="tenant">Tenant - Isolated to this tenant</SelectItem>
+            <SelectItem value="global">Global - Available to all organizations</SelectItem>
+            <SelectItem value="tenant">Organization - Isolated to this organization</SelectItem>
             <SelectItem value="repo">Repository - Scoped to a specific repository</SelectItem>
             <SelectItem value="commit">Commit - Scoped to a specific commit</SelectItem>
           </SelectContent>

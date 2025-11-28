@@ -149,13 +149,16 @@ const ActivityCard: React.FC<ActivityCardProps> = ({ refreshKey }) => {
     navigate('/telemetry');
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Recent Activity</span>
+          <Activity className="h-5 w-5 text-slate-500" />
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
           <div className="space-y-4">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="flex items-start space-x-3">
@@ -168,18 +171,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({ refreshKey }) => {
             ))}
             <Skeleton className="h-10 w-full" />
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
+        ) : isError ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Activity className="h-12 w-12 text-slate-400 mb-3" />
             <p className="text-sm text-slate-600 mb-4">
@@ -193,22 +185,7 @@ const ActivityCard: React.FC<ActivityCardProps> = ({ refreshKey }) => {
               Retry
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Empty state
-  if (!activityItems || activityItems.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span>Recent Activity</span>
-            <Activity className="h-5 w-5 text-slate-500" />
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        ) : !activityItems || activityItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Activity className="h-12 w-12 text-slate-300 mb-3" />
             <p className="text-sm text-slate-600 mb-1">No recent activity</p>
@@ -216,20 +193,8 @@ const ActivityCard: React.FC<ActivityCardProps> = ({ refreshKey }) => {
               Activity events will appear here as they occur
             </p>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Recent Activity</span>
-          <Activity className="h-5 w-5 text-slate-500" />
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+        ) : (
+          <>
         <ScrollArea className="h-[320px] pr-4">
           <div className="space-y-4">
             {activityItems.map((item) => {
@@ -299,6 +264,8 @@ const ActivityCard: React.FC<ActivityCardProps> = ({ refreshKey }) => {
           View All Activity
           <ExternalLink className="ml-2 h-4 w-4" />
         </Button>
+          </>
+        )}
       </CardContent>
     </Card>
   );

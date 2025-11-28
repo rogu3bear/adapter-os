@@ -7,7 +7,7 @@
  * Citation: [2025-11-25†ui†policy-preflight-dialog]
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -174,18 +174,31 @@ export function PolicyPreflightDialog({
     onCancel();
   };
 
+  const summaryIdRef = useRef(`policy-summary-${Math.random().toString(36).slice(2)}`);
+  const descriptionIdRef = useRef(`policy-description-${Math.random().toString(36).slice(2)}`);
+  const summaryId = summaryIdRef.current;
+  const descriptionId = descriptionIdRef.current;
+  const ariaDescribedBy = [summaryId, description ? descriptionId : null].filter(Boolean).join(' ');
+  const summaryText = `${stats.total} checks, ${stats.errors} errors, ${stats.warnings} warnings, ${stats.info} info checks.`;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent
+        className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        aria-describedby={ariaDescribedBy}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
             {title}
           </DialogTitle>
-          {description && (
-            <DialogDescription>{description}</DialogDescription>
-          )}
         </DialogHeader>
+        {description && (
+          <DialogDescription id={descriptionId}>{description}</DialogDescription>
+        )}
+        <DialogDescription id={summaryId} className="sr-only">
+          {summaryText}
+        </DialogDescription>
 
         {/* Summary Stats */}
         <div className="grid grid-cols-4 gap-3 py-3 border-y">

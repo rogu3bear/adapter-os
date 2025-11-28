@@ -11,7 +11,6 @@ import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -186,11 +185,10 @@ export function SettingsPage() {
   if (userRole !== 'admin') {
     return (
       <DensityProvider pageKey="settings">
-        <FeatureLayout title="Settings">
-          <PageHeader
-            title="System Settings"
-            description="Configure system-wide settings"
-          />
+        <FeatureLayout
+          title="System Settings"
+          description="Configure system-wide settings"
+        >
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Permission Denied</AlertTitle>
@@ -279,7 +277,10 @@ export function SettingsPage() {
   if (isLoading) {
     return (
       <DensityProvider pageKey="settings">
-        <FeatureLayout title="Settings">
+        <FeatureLayout
+          title="System Settings"
+          description="Configure system-wide settings"
+        >
           <LoadingState message="Loading settings..." />
         </FeatureLayout>
       </DensityProvider>
@@ -290,11 +291,10 @@ export function SettingsPage() {
   if (error) {
     return (
       <DensityProvider pageKey="settings">
-        <FeatureLayout title="Settings">
-          <PageHeader
-            title="System Settings"
-            description="Configure system-wide settings"
-          />
+        <FeatureLayout
+          title="System Settings"
+          description="Configure system-wide settings"
+        >
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error Loading Settings</AlertTitle>
@@ -310,42 +310,25 @@ export function SettingsPage() {
   return (
     <DensityProvider pageKey="settings">
       <FeatureLayout
-        title="Settings"
+        title="System Settings"
+        description="Configure system-wide settings and preferences"
         maxWidth="xl"
         contentPadding="default"
+        primaryAction={{
+          label: hasChanges ? (updateSettings.isPending ? 'Saving...' : 'Save Changes') : 'Save Changes',
+          onClick: handleSave,
+          disabled: !hasChanges || updateSettings.isPending,
+          icon: updateSettings.isPending ? Loader2 : Save,
+        }}
+        secondaryActions={[
+          {
+            label: 'Export',
+            onClick: handleExportSettings,
+            variant: 'outline',
+            icon: Download,
+          },
+        ]}
       >
-        <PageHeader
-          title="System Settings"
-          description="Configure system-wide settings and preferences"
-        >
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportSettings}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!hasChanges || updateSettings.isPending}
-            >
-              {updateSettings.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          </div>
-        </PageHeader>
 
         {restartRequired && (
           <Alert className="mb-6">
@@ -618,7 +601,7 @@ export function SettingsPage() {
 
                       {/* Token TTL */}
                       <div className="space-y-2">
-                        <Label htmlFor="tokenTtl">Token TTL (minutes)</Label>
+                        <Label htmlFor="tokenTtl">Session Duration (minutes)</Label>
                         <Input
                           id="tokenTtl"
                           type="number"
@@ -787,7 +770,7 @@ export function SettingsPage() {
                     <div className="space-y-0.5">
                       <Label className="flex items-center gap-2">
                         <Server className="h-4 w-4" />
-                        Enable Egress
+                        Allow Outbound Connections
                       </Label>
                       <p className="text-sm text-muted-foreground">
                         Allow outbound network connections
@@ -801,7 +784,7 @@ export function SettingsPage() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Require PF Deny</Label>
+                      <Label>Require Firewall Rules</Label>
                       <p className="text-sm text-muted-foreground">
                         Require packet filter deny rules
                       </p>

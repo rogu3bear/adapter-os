@@ -191,25 +191,25 @@ export default function AdminDashboard() {
       onClick: () => navigate('/admin/tenants?action=create'),
     },
     {
-      label: 'Manage Users',
+      label: 'Manage Tenants',
       icon: Users,
       color: 'text-purple-600',
-      helpId: 'admin-manage-users',
-      onClick: () => navigate('/admin/users'),
+      helpId: 'admin-manage-tenants',
+      onClick: () => navigate('/admin/tenants'),
     },
     {
       label: 'System Settings',
       icon: Settings,
       color: 'text-gray-600',
       helpId: 'admin-system-settings',
-      onClick: () => navigate('/settings'),
+      onClick: () => navigate('/admin/settings'),
     },
     {
       label: 'Security Audit',
       icon: Shield,
       color: 'text-amber-600',
       helpId: 'admin-security-audit',
-      onClick: () => navigate('/audit'),
+      onClick: () => navigate('/security/audit'),
     },
   ];
 
@@ -237,14 +237,14 @@ export default function AdminDashboard() {
         </Button>
       </PageHeader>
 
-      {/* Tenant Summary */}
-      <SectionErrorBoundary sectionName="Tenant Summary">
+      {/* Organization Summary */}
+      <SectionErrorBoundary sectionName="Organization Summary">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5" />
-                <span>Tenant Summary</span>
+                <span>Organization Summary</span>
               </div>
               <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tenants')}>
                 View All
@@ -430,7 +430,7 @@ export default function AdminDashboard() {
                   <Button
                     variant="outline"
                     className="w-full"
-                    onClick={() => navigate('/audit')}
+                    onClick={() => navigate('/security/audit')}
                   >
                     <FileText className="h-4 w-4 mr-2" />
                     View Audit Logs

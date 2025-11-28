@@ -4,27 +4,47 @@ import { Input } from '@/components/ui/input';
 import { Terminal, ChevronRight, Loader2 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 
+/**
+ * CliConsole - Live CLI Execution Interface
+ *
+ * This component connects to the live backend API endpoint:
+ * POST /v1/cli/owner-run (see: crates/adapteros-server-api/src/handlers/owner_cli.rs)
+ *
+ * Features:
+ * - Executes real aosctl commands via backend
+ * - Admin role required for security
+ * - Command validation and injection prevention
+ * - Audit logging of all executions
+ * - Graceful fallback to cached responses if API unavailable
+ */
+
 interface CommandOutput {
   id: string;
   command: string;
   output: string;
   exitCode: number;
   timestamp: Date;
+  isFallback?: boolean; // Indicates if this is a cached response (API unavailable)
 }
 
+// Whitelist matching backend validation (owner_cli.rs lines 59-70)
 const ALLOWED_COMMANDS = [
   'aosctl status',
   'aosctl adapters list',
+  'aosctl adapters describe <id>',
   'aosctl models list',
+  'aosctl models status',
   'aosctl tenant list',
   'aosctl stack list',
-  'aosctl stack describe <name>',
-  'aosctl logs <component>',
+  'aosctl stack describe <id>',
+  'aosctl logs',
   'help',
   'clear',
 ];
 
-const MOCK_RESPONSES: Record<string, string> = {
+// Cached responses for fallback when API is unavailable
+// These are shown with a warning that the API connection failed
+const FALLBACK_RESPONSES: Record<string, string> = {
   'aosctl status': `AdapterOS Status
 =================
 Version: v0.3.0-alpha
@@ -69,18 +89,6 @@ dev-stack           no        3           training
 test-stack          no        1           evaluation
 
 Total: 3 stacks`,
-
-  'help': `Available Commands
-==================
-aosctl status                    - Show system status
-aosctl adapters list             - List all adapters
-aosctl models list               - List base models
-aosctl tenant list               - List all tenants
-aosctl stack list                - List adapter stacks
-aosctl stack describe <name>     - Show stack details
-aosctl logs <component>          - View component logs
-help                             - Show this help message
-clear                            - Clear console output`,
 };
 
 export const CliConsole: React.FC = () => {
@@ -88,7 +96,7 @@ export const CliConsole: React.FC = () => {
     {
       id: 'welcome',
       command: '',
-      output: 'AdapterOS CLI Console\nType "help" for available commands.\n',
+      output: 'AdapterOS CLI Console (Live Mode)\nType "help" for available commands.\nConnected to: /v1/cli/owner-run\n',
       exitCode: 0,
       timestamp: new Date(),
     },
@@ -127,7 +135,7 @@ export const CliConsole: React.FC = () => {
         {
           id: `clear-${Date.now()}`,
           command: '',
-          output: 'AdapterOS CLI Console\nType "help" for available commands.\n',
+          output: 'AdapterOS CLI Console (Live Mode)\nType "help" for available commands.\nConnected to: /v1/cli/owner-run\n',
           exitCode: 0,
           timestamp: new Date(),
         },
@@ -135,24 +143,11 @@ export const CliConsole: React.FC = () => {
       return;
     }
 
-    // Handle 'help' command locally
-    if (trimmedCmd === 'help') {
-      const newOutput: CommandOutput = {
-        id: `cmd-${Date.now()}`,
-        command: trimmedCmd,
-        output: MOCK_RESPONSES['help'],
-        exitCode: 0,
-        timestamp: new Date(),
-      };
-      setHistory(prev => [...prev, newOutput]);
-      return;
-    }
-
     // Set loading state
     setIsExecuting(true);
 
     try {
-      // Call the real API
+      // Call the live backend API endpoint: POST /v1/cli/owner-run
       const result = await apiClient.runOwnerCli(trimmedCmd);
 
       // Combine stdout and stderr
@@ -174,11 +169,12 @@ export const CliConsole: React.FC = () => {
         output,
         exitCode: result.exit_code,
         timestamp: new Date(),
+        isFallback: false,
       };
 
       setHistory(prev => [...prev, newOutput]);
     } catch (error) {
-      // Handle API errors gracefully
+      // Handle API errors gracefully with fallback
       const errorMessage = error instanceof Error
         ? error.message
         : 'Unknown error occurred';
@@ -194,13 +190,30 @@ export const CliConsole: React.FC = () => {
 
       let output: string;
       let exitCode: number;
+      let isFallback = false;
 
-      // Try to provide helpful mock response if API fails and command is recognized
-      if (isAllowed && MOCK_RESPONSES[trimmedCmd]) {
-        output = `API unavailable. Showing cached response:\n\n${MOCK_RESPONSES[trimmedCmd]}`;
+      // Try to provide helpful cached response if API fails and command is recognized
+      if (isAllowed && FALLBACK_RESPONSES[trimmedCmd]) {
+        output = `⚠️  API Connection Failed - Showing Cached Response\n\n${FALLBACK_RESPONSES[trimmedCmd]}\n\n---\nNote: This is cached data. Live data unavailable.`;
         exitCode = 0;
+        isFallback = true;
       } else {
-        output = `Error executing command: ${errorMessage}\n\nThe backend API may be unavailable. Please check your connection.`;
+        output = `❌ Error: ${errorMessage}\n\n`;
+
+        // Provide helpful context based on error type
+        if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+          output += 'This command requires Admin role privileges.\n';
+          output += 'Please ensure you are logged in with an Admin account.';
+        } else if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+          output += 'Authentication failed. Please log in again.';
+        } else if (errorMessage.includes('400') || errorMessage.includes('validation')) {
+          output += 'Invalid command or arguments.\n';
+          output += 'Type "help" to see available commands.';
+        } else {
+          output += 'Backend API connection failed.\n';
+          output += 'Please check that the AdapterOS server is running.';
+        }
+
         exitCode = 1;
       }
 
@@ -210,6 +223,7 @@ export const CliConsole: React.FC = () => {
         output,
         exitCode,
         timestamp: new Date(),
+        isFallback,
       };
 
       setHistory(prev => [...prev, newOutput]);
@@ -290,9 +304,19 @@ export const CliConsole: React.FC = () => {
               {item.output && (
                 <pre
                   className={`whitespace-pre-wrap ml-6 ${
-                    item.exitCode === 0 ? 'text-slate-300' : 'text-red-400'
+                    item.exitCode === 0
+                      ? item.isFallback
+                        ? 'text-yellow-300'
+                        : 'text-slate-300'
+                      : 'text-red-400'
                   }`}
-                  aria-label={item.exitCode === 0 ? 'Command succeeded' : 'Command failed'}
+                  aria-label={
+                    item.isFallback
+                      ? 'Cached response (API unavailable)'
+                      : item.exitCode === 0
+                      ? 'Command succeeded'
+                      : 'Command failed'
+                  }
                 >
                   {item.output}
                 </pre>

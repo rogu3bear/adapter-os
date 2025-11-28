@@ -16,7 +16,7 @@ export function useFirstRunRedirect() {
 
   useEffect(() => {
     // Only redirect if user is authenticated and is an admin
-    if (user?.role === 'admin') {
+    if (user?.role.toLowerCase() === 'admin') {
       try {
         const hasCompletedFirstRun = localStorage.getItem(FIRST_RUN_KEY);
 

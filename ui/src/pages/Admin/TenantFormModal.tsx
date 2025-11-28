@@ -97,11 +97,11 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
       <DialogContent className="sm:max-w-[500px]">
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit Tenant' : 'Create Tenant'}</DialogTitle>
+            <DialogTitle>{isEdit ? 'Edit Organization' : 'Create Organization'}</DialogTitle>
             <DialogDescription>
               {isEdit
-                ? 'Update tenant configuration'
-                : 'Create a new tenant with isolation settings'}
+                ? 'Update organization configuration'
+                : 'Create a new organization with isolation settings'}
             </DialogDescription>
           </DialogHeader>
 
@@ -112,7 +112,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
               </Label>
               <Input
                 id="name"
-                placeholder="tenant-name"
+                placeholder="acme-corp"
                 {...register('name', {
                   required: 'Name is required',
                   pattern: {

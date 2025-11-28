@@ -121,13 +121,13 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       id: 'search',
       label: 'Search',
       type: 'text',
-      placeholder: 'Search by bundle ID or CPID...',
+      placeholder: 'Search by bundle ID or Policy ID...',
     },
     {
       id: 'cpid',
-      label: 'CPID',
+      label: 'Policy ID',
       type: 'text',
-      placeholder: 'Filter by CPID...',
+      placeholder: 'Filter by Policy ID...',
     },
     {
       id: 'dateRange',
@@ -393,7 +393,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         URL.revokeObjectURL(url);
       } else {
         // CSV format - export bundle metadata
-        const csvHeaders = ['Bundle ID', 'CPID', 'Events', 'Size (MB)', 'Merkle Root', 'Created At'];
+        const csvHeaders = ['Bundle ID', 'Policy ID', 'Events', 'Size (MB)', 'Merkle Root', 'Created At'];
         const csvRows = bundles.map(bundle => [
           bundle.id,
           bundle.cpid,
@@ -634,7 +634,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                 </TableHead>
                 <TableHead role="columnheader" scope="col">
                   <HelpTooltip helpId="cpid">
-                    <span>CPID</span>
+                    <span>Policy ID</span>
                   </HelpTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">

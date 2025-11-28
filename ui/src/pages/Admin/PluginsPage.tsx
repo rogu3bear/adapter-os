@@ -11,7 +11,6 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,9 +38,11 @@ import {
 } from '@/components/ui/dialog';
 import { useRBAC } from '@/hooks/useRBAC';
 import apiClient from '@/api/client';
-import type { PluginInfo, EnablePluginRequest, DisablePluginRequest } from '@/api/plugin-types';
+import type { PluginInfo, EnablePluginRequest, DisablePluginRequest, PluginConfigRecord } from '@/api/plugin-types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import {
   Plug,
   RefreshCw,
@@ -54,6 +55,7 @@ import {
   Settings2,
   ShieldCheck,
   Package,
+  Save,
 } from 'lucide-react';
 
 export function PluginsPage() {
@@ -64,15 +66,21 @@ export function PluginsPage() {
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [actionType, setActionType] = useState<'enable' | 'disable'>('enable');
 
+  // Configuration dialog state
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [configPlugin, setConfigPlugin] = useState<PluginInfo | null>(null);
+  const [configJson, setConfigJson] = useState<string>('');
+  const [configJsonError, setConfigJsonError] = useState<string | null>(null);
+  const [loadingConfig, setLoadingConfig] = useState(false);
+
   // Check admin permissions
   if (userRole !== 'admin' && !can('TenantManage')) {
     return (
       <DensityProvider pageKey="plugins">
-        <FeatureLayout title="Plugins">
-          <PageHeader
-            title="Plugin Management"
-            description="Manage system plugins"
-          />
+        <FeatureLayout
+          title="Plugin Management"
+          description="Manage system plugins"
+        >
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Permission Denied</AlertTitle>
@@ -147,6 +155,33 @@ export function PluginsPage() {
     },
   });
 
+  // Update plugin config mutation
+  const updateConfigMutation = useMutation({
+    mutationFn: async ({ pluginId, configJson }: { pluginId: string; configJson: string | null }) => {
+      return apiClient.updatePluginConfig(pluginId, { config_json: configJson });
+    },
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['plugins'] });
+      toast.success('Plugin configuration updated successfully');
+      logger.info('Plugin config updated', {
+        component: 'PluginsPage',
+        operation: 'updatePluginConfig',
+        pluginId: response.config.plugin_name,
+      });
+      setConfigDialogOpen(false);
+      setConfigPlugin(null);
+      setConfigJson('');
+      setConfigJsonError(null);
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update plugin config: ${error.message}`);
+      logger.error('Failed to update plugin config', {
+        component: 'PluginsPage',
+        operation: 'updatePluginConfig',
+      }, error);
+    },
+  });
+
   const plugins = pluginsResponse?.plugins || [];
 
   // Filter plugins based on search
@@ -170,6 +205,53 @@ export function PluginsPage() {
     } else {
       disableMutation.mutate({ pluginId: selectedPlugin.name });
     }
+  };
+
+  const handleOpenConfig = async (plugin: PluginInfo) => {
+    setConfigPlugin(plugin);
+    setLoadingConfig(true);
+    setConfigJsonError(null);
+
+    try {
+      const response = await apiClient.getPluginConfig(plugin.name);
+      if (response.config && response.config.config_json) {
+        setConfigJson(response.config.config_json);
+      } else {
+        setConfigJson('{}');
+      }
+    } catch (error) {
+      logger.error('Failed to load plugin config', {
+        component: 'PluginsPage',
+        operation: 'getPluginConfig',
+        pluginName: plugin.name,
+      }, error instanceof Error ? error : new Error(String(error)));
+      toast.error('Failed to load plugin configuration');
+      setConfigJson('{}');
+    } finally {
+      setLoadingConfig(false);
+      setConfigDialogOpen(true);
+    }
+  };
+
+  const handleSaveConfig = () => {
+    if (!configPlugin) return;
+
+    setConfigJsonError(null);
+
+    if (configJson.trim()) {
+      try {
+        JSON.parse(configJson);
+      } catch (e) {
+        setConfigJsonError('Invalid JSON format');
+        return;
+      }
+    }
+
+    const configToSave = configJson.trim() ? configJson : null;
+    updateConfigMutation.mutate({
+      pluginId: configPlugin.name,
+      configJson: configToSave,
+    });
   };
 
   const getStatusBadge = (status: PluginInfo['status']) => {
@@ -196,7 +278,10 @@ export function PluginsPage() {
   if (isLoading) {
     return (
       <DensityProvider pageKey="plugins">
-        <FeatureLayout title="Plugins">
+        <FeatureLayout
+          title="Plugin Management"
+          description="Enable, disable, and configure system plugins"
+        >
           <LoadingState message="Loading plugins..." />
         </FeatureLayout>
       </DensityProvider>
@@ -206,7 +291,10 @@ export function PluginsPage() {
   if (error) {
     return (
       <DensityProvider pageKey="plugins">
-        <FeatureLayout title="Plugins">
+        <FeatureLayout
+          title="Plugin Management"
+          description="Enable, disable, and configure system plugins"
+        >
           <ErrorRecovery
             error={error instanceof Error ? error.message : String(error)}
             onRetry={refetch}
@@ -219,23 +307,19 @@ export function PluginsPage() {
   return (
     <DensityProvider pageKey="plugins">
       <FeatureLayout
-        title="Plugins"
+        title="Plugin Management"
+        description="Enable, disable, and configure system plugins"
         maxWidth="xl"
         contentPadding="default"
+        secondaryActions={[
+          {
+            label: 'Refresh',
+            onClick: () => refetch(),
+            variant: 'outline',
+            icon: RefreshCw,
+          },
+        ]}
       >
-        <PageHeader
-          title="Plugin Management"
-          description="Enable, disable, and configure system plugins"
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </PageHeader>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-3 gap-4 mb-6">
@@ -325,7 +409,7 @@ export function PluginsPage() {
                     <TableHead>Version</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Author</TableHead>
-                    <TableHead>Tenants</TableHead>
+                    <TableHead>Organizations</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -370,6 +454,14 @@ export function PluginsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenConfig(plugin)}
+                            title="Configure plugin"
+                          >
+                            <Settings2 className="h-4 w-4" />
+                          </Button>
                           <Switch
                             checked={plugin.status === 'enabled'}
                             onCheckedChange={() => handleTogglePlugin(plugin)}
@@ -394,8 +486,8 @@ export function PluginsPage() {
               </DialogTitle>
               <DialogDescription>
                 {actionType === 'enable'
-                  ? `Are you sure you want to enable "${selectedPlugin?.display_name}"? This will activate the plugin for all tenants.`
-                  : `Are you sure you want to disable "${selectedPlugin?.display_name}"? This may affect functionality for tenants using this plugin.`}
+                  ? `Are you sure you want to enable "${selectedPlugin?.display_name}"? This will activate the plugin for all organizations.`
+                  : `Are you sure you want to disable "${selectedPlugin?.display_name}"? This may affect functionality for organizations using this plugin.`}
               </DialogDescription>
             </DialogHeader>
 
@@ -417,7 +509,7 @@ export function PluginsPage() {
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>Warning</AlertTitle>
                     <AlertDescription>
-                      This plugin is currently enabled for {selectedPlugin.enabled_tenants.length} tenant(s).
+                      This plugin is currently enabled for {selectedPlugin.enabled_tenants.length} organization(s).
                       Disabling it may affect their workflows.
                     </AlertDescription>
                   </Alert>
@@ -453,6 +545,95 @@ export function PluginsPage() {
                       <XCircle className="h-4 w-4 mr-2" />
                     )}
                     {actionType === 'enable' ? 'Enable' : 'Disable'}
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Configuration Dialog */}
+        <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5" />
+                Plugin Configuration
+              </DialogTitle>
+              <DialogDescription>
+                Configure settings for {configPlugin?.display_name}
+              </DialogDescription>
+            </DialogHeader>
+
+            {configPlugin && (
+              <div className="space-y-4 py-4">
+                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                  <Plug className="h-8 w-8 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="font-medium">{configPlugin.display_name}</p>
+                    <p className="text-sm text-muted-foreground">{configPlugin.description}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="outline" className="text-xs">{configPlugin.version}</Badge>
+                      {getStatusBadge(configPlugin.status)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="config-json">Configuration JSON</Label>
+                  <Textarea
+                    id="config-json"
+                    value={configJson}
+                    onChange={(e) => {
+                      setConfigJson(e.target.value);
+                      setConfigJsonError(null);
+                    }}
+                    placeholder='{"key": "value"}'
+                    className="font-mono text-sm min-h-[300px]"
+                    disabled={loadingConfig || updateConfigMutation.isPending}
+                  />
+                  {configJsonError && (
+                    <p className="text-sm text-destructive">{configJsonError}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Enter plugin configuration as JSON. Leave empty or enter {} for default settings.
+                  </p>
+                </div>
+
+                {loadingConfig && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setConfigDialogOpen(false);
+                  setConfigPlugin(null);
+                  setConfigJson('');
+                  setConfigJsonError(null);
+                }}
+                disabled={updateConfigMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveConfig}
+                disabled={loadingConfig || updateConfigMutation.isPending || !!configJsonError}
+              >
+                {updateConfigMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Configuration
                   </>
                 )}
               </Button>

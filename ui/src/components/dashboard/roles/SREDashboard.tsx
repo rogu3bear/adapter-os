@@ -115,18 +115,18 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
   // Quick actions for SRE
   const quickActions = useMemo(() => [
     {
-      label: 'System Logs',
+      label: 'Audit Logs',
       icon: FileText,
       color: 'text-blue-600',
-      helpId: 'sre-action-logs',
-      onClick: () => navigate('/logs'),
+      helpId: 'sre-action-audit',
+      onClick: () => navigate('/security/audit'),
     },
     {
       label: 'Node Diagnostics',
       icon: Search,
       color: 'text-purple-600',
       helpId: 'sre-action-diagnostics',
-      onClick: () => navigate('/nodes'),
+      onClick: () => navigate('/system/nodes'),
     },
     {
       label: 'Spawn Worker',
@@ -355,7 +355,7 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
                   );
                 })}
                 {nodes.length > 5 && (
-                  <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/nodes')}>
+                  <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/system/nodes')}>
                     View all {nodes.length} nodes
                   </Button>
                 )}
@@ -517,7 +517,7 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
                     </div>
                   </div>
                 ))}
-                <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/alerts')}>
+                <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/monitoring')}>
                   View all alerts
                 </Button>
               </div>

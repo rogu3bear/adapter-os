@@ -32,7 +32,7 @@ export default function MinimalApp() {
 
   const fetchAdapters = async () => {
     try {
-      const response = await fetch('/v1/adapters');
+      const response = await fetch('/api/v1/adapters');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setAdapters(data.adapters || []);
@@ -45,7 +45,7 @@ export default function MinimalApp() {
 
   const fetchSystemInfo = async () => {
     try {
-      const response = await fetch('/v1/system/info');
+      const response = await fetch('/api/v1/system/info');
       if (!response.ok) return; // Don't show error for system info
       const data = await response.json();
       setSystemInfo(data);
@@ -58,7 +58,7 @@ export default function MinimalApp() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/v1/adapters/${adapterId}/load`, {
+      const response = await fetch(`/api/v1/adapters/${adapterId}/load`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -78,7 +78,7 @@ export default function MinimalApp() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/v1/adapters/${adapterId}/swap`, {
+      const response = await fetch(`/api/v1/adapters/${adapterId}/swap`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -104,7 +104,7 @@ export default function MinimalApp() {
     setOutput('');
 
     try {
-      const response = await fetch('/v1/generate', {
+      const response = await fetch('/api/v1/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

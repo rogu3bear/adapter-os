@@ -4,7 +4,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { PageErrorsProvider } from '@/components/ui/page-error-boundary';
-import { ConfigPageHeader } from '@/components/ui/page-headers/ConfigPageHeader';
 import { TrainingJobsTab } from './TrainingJobsTab';
 import { DatasetsTab } from './DatasetsTab';
 import { TemplatesTab } from './TemplatesTab';
@@ -28,11 +27,6 @@ function TrainingPageContent() {
 
   return (
     <div className="space-y-6">
-      <ConfigPageHeader
-        title="Training"
-        description="Manage LoRA adapter training jobs, datasets, and templates"
-      />
-
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full max-w-[600px] grid-cols-3">
           <TabsTrigger value="jobs" className="flex items-center gap-2">

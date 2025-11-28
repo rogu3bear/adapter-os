@@ -16,7 +16,6 @@ import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-rec
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { usePolling } from '@/hooks/usePolling';
 import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
 
 function AuditPageInner() {
   const { density, setDensity } = useDensity();
@@ -32,11 +31,7 @@ function AuditPageInner() {
   // RBAC: Check if user has audit:view permission
   if (!can('audit:view')) {
     return (
-      <FeatureLayout title="Audit Log">
-        <PageHeader
-          title="Audit Log"
-          description="Security and system audit events"
-        />
+      <FeatureLayout title="Audit Log" description="Security and system audit events">
         <ErrorRecovery
           error="You do not have permission to view audit logs. This page requires the audit:view permission (Admin, SRE, or Compliance role)."
           onRetry={() => window.location.reload()}
@@ -79,9 +74,9 @@ function AuditPageInner() {
     },
     {
       id: 'tenantId',
-      label: 'Tenant ID',
+      label: 'Organization ID',
       type: 'text',
-      placeholder: 'Filter by tenant ID...',
+      placeholder: 'Filter by organization ID...',
     },
     {
       id: 'component',
@@ -248,13 +243,11 @@ function AuditPageInner() {
   }, [filteredAuditLogs, allAuditLogs]);
 
   return (
-    <FeatureLayout title="Audit Log">
-      <PageHeader
-        title="Audit Log"
-        description="Security and system audit events"
-      >
-        <DensityControls density={density} onDensityChange={setDensity} />
-      </PageHeader>
+    <FeatureLayout
+      title="Audit Log"
+      description="Security and system audit events"
+      headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
+    >
       <div className="space-y-6">
         {/* Advanced Filters */}
         <AdvancedFilter

@@ -4,8 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Send, Bot, User, Terminal, ExternalLink, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Terminal, ExternalLink, Loader2, Database, Layers, Users, FileText, Sparkles, FileCode } from 'lucide-react';
 import { apiClient } from '@/api/client';
+import type { SystemOverview, Adapter } from '@/api/types';
+import type { BaseModelStatus } from '@/api/api-types';
+import type { AdapterStack } from '@/api/adapter-types';
+import type { OwnerChatContext } from '@/api/owner-types';
 
 interface ChatMessage {
   id: string;
@@ -14,11 +18,15 @@ interface ChatMessage {
   suggested_cli?: string;
   relevant_links?: string[];
   timestamp: Date;
+  /** Response source: "adapter" (AI-powered docs) or "rule_based" */
+  source?: 'adapter' | 'rule_based';
 }
 
 interface SystemChatWidgetProps {
-  systemOverview?: object;
-  adapters?: object[];
+  systemOverview?: SystemOverview;
+  adapters?: Adapter[];
+  baseModelStatus?: BaseModelStatus;
+  activeStack?: AdapterStack | null;
 }
 
 const WELCOME_MESSAGE: ChatMessage = {
@@ -36,7 +44,7 @@ Ask me anything about your AdapterOS instance!`,
   timestamp: new Date(),
 };
 
-export function SystemChatWidget({ systemOverview, adapters }: SystemChatWidgetProps) {
+export function SystemChatWidget({ systemOverview, adapters, baseModelStatus, activeStack }: SystemChatWidgetProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -78,11 +86,28 @@ export function SystemChatWidget({ systemOverview, adapters }: SystemChatWidgetP
         }))
         .concat([{ role: 'user', content: userMessage.content }]);
 
-      // Build context object
-      const context = {
+      // Build enhanced context object
+      const context: OwnerChatContext = {
         route: location.pathname,
         metrics_snapshot: systemOverview,
         user_role: 'owner', // This component is specifically for owner role
+        tenant_id: 'default',
+        active_stack: activeStack ? {
+          id: activeStack.id,
+          name: activeStack.name,
+          adapter_count: activeStack.adapter_ids?.length || activeStack.adapters?.length || 0,
+        } : undefined,
+        base_model: baseModelStatus ? {
+          model_id: baseModelStatus.model_id,
+          model_name: baseModelStatus.model_name,
+          status: baseModelStatus.status,
+        } : undefined,
+        adapter_summary: adapters ? {
+          total: adapters.length,
+          hot: adapters.filter(a => a.lifecycle_state === 'hot').length,
+          warm: adapters.filter(a => a.lifecycle_state === 'warm').length,
+          cold: adapters.filter(a => a.lifecycle_state === 'cold').length,
+        } : undefined,
       };
 
       // Call real API
@@ -95,36 +120,55 @@ export function SystemChatWidget({ systemOverview, adapters }: SystemChatWidgetP
         suggested_cli: response.suggested_cli,
         relevant_links: response.relevant_links,
         timestamp: new Date(),
+        source: response.source,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Chat API error:', error);
 
-      // Fallback to mock response for development/resilience
-      try {
-        const mockResponse = await mockChatAPI(userMessage.content, { systemOverview, adapters });
+      // Categorize error for better user feedback
+      const isNetworkError = error instanceof TypeError ||
+        (error instanceof Error && error.message.includes('network'));
+      const isAuthError = error instanceof Error &&
+        (error.message.includes('401') || error.message.includes('403'));
 
-        const assistantMessage: ChatMessage = {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: mockResponse.content + '\n\n_Note: Using fallback responses. API may be unavailable._',
-          suggested_cli: mockResponse.suggested_cli,
-          relevant_links: mockResponse.relevant_links,
-          timestamp: new Date(),
-        };
+      let errorContent: string;
 
-        setMessages(prev => [...prev, assistantMessage]);
-      } catch (fallbackError) {
-        // Both real and fallback failed
-        const errorMessage: ChatMessage = {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content: 'Sorry, I encountered an error processing your request. Please try again later.',
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, errorMessage]);
+      if (isAuthError) {
+        errorContent = 'Your session may have expired. Please refresh the page or log in again.';
+      } else if (isNetworkError) {
+        errorContent = 'Unable to connect to the server. Please check your network connection.';
+      } else {
+        // Fallback to mock response for development/resilience
+        try {
+          const mockResponse = await mockChatAPI(userMessage.content, { systemOverview, adapters });
+          errorContent = mockResponse.content + '\n\n_Note: Using offline mode. API may be unavailable._';
+
+          const assistantMessage: ChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: errorContent,
+            suggested_cli: mockResponse.suggested_cli,
+            relevant_links: mockResponse.relevant_links,
+            timestamp: new Date(),
+          };
+
+          setMessages(prev => [...prev, assistantMessage]);
+          setIsLoading(false);
+          return;
+        } catch {
+          errorContent = 'Sorry, I encountered an error. Please try again.';
+        }
       }
+
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: errorContent,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -154,6 +198,33 @@ export function SystemChatWidget({ systemOverview, adapters }: SystemChatWidgetP
         <Badge variant="secondary" className="ml-auto text-xs">
           AI Chat
         </Badge>
+      </div>
+
+      {/* Context Header */}
+      <div className="px-4 py-2 bg-slate-100 border-b border-slate-200">
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-slate-500 font-medium">Context:</span>
+
+          <Badge variant="outline" className="gap-1">
+            <Database className="h-3 w-3" />
+            {baseModelStatus?.model_name || 'No model'}
+          </Badge>
+
+          <Badge variant="outline" className="gap-1">
+            <Layers className="h-3 w-3" />
+            {activeStack?.name || 'No stack'}
+          </Badge>
+
+          <Badge variant="outline" className="gap-1">
+            <Users className="h-3 w-3" />
+            default
+          </Badge>
+
+          <Badge variant="secondary" className="gap-1">
+            <FileText className="h-3 w-3" />
+            0 docs
+          </Badge>
+        </div>
       </div>
 
       <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
@@ -224,9 +295,33 @@ export function SystemChatWidget({ systemOverview, adapters }: SystemChatWidgetP
                   </div>
                 )}
 
-                <span className="text-xs text-slate-400">
-                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">
+                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {message.role === 'assistant' && message.source && (
+                    <Badge
+                      variant={message.source === 'adapter' ? 'default' : 'secondary'}
+                      className={`text-[10px] h-4 px-1.5 ${
+                        message.source === 'adapter'
+                          ? 'bg-purple-100 text-purple-700 hover:bg-purple-100'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {message.source === 'adapter' ? (
+                        <>
+                          <Sparkles className="w-2.5 h-2.5 mr-0.5" />
+                          AI Docs
+                        </>
+                      ) : (
+                        <>
+                          <FileCode className="w-2.5 h-2.5 mr-0.5" />
+                          Rules
+                        </>
+                      )}
+                    </Badge>
+                  )}
+                </div>
               </div>
 
               {message.role === 'user' && (
@@ -289,7 +384,7 @@ function formatLinkText(link: string): string {
 
 async function mockChatAPI(
   userInput: string,
-  context: { systemOverview?: object; adapters?: object[] }
+  context: { systemOverview?: SystemOverview; adapters?: Adapter[] }
 ): Promise<{
   content: string;
   suggested_cli?: string;
