@@ -468,26 +468,38 @@ impl Db {
 
     /// Delete domain adapter (and associated data)
     pub async fn delete_domain_adapter(&self, id: &str) -> Result<()> {
+        // Begin transaction for atomic multi-step deletion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
         // Delete executions first (foreign key constraint)
         sqlx::query("DELETE FROM domain_adapter_executions WHERE adapter_id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete tests
         sqlx::query("DELETE FROM domain_adapter_tests WHERE adapter_id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete adapter
         sqlx::query("DELETE FROM domain_adapters WHERE id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(())
     }

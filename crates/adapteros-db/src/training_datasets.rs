@@ -150,7 +150,17 @@ impl Db {
         Ok(dataset)
     }
 
-    /// List all training datasets
+    /// List all training datasets (DEPRECATED - use list_training_datasets_for_tenant instead)
+    ///
+    /// WARNING: This method returns ALL datasets across ALL tenants without filtering.
+    /// This breaks multi-tenant isolation and should only be used in very specific cases
+    /// like system administration or migration scripts where cross-tenant access is required.
+    ///
+    /// For normal operations, use `list_training_datasets_for_tenant()` which enforces tenant isolation.
+    #[deprecated(
+        since = "0.3.0",
+        note = "Use list_training_datasets_for_tenant() for tenant isolation"
+    )]
     pub async fn list_training_datasets(&self, limit: i64) -> Result<Vec<TrainingDataset>> {
         let datasets = sqlx::query_as::<_, TrainingDataset>(
             "SELECT id, name, description, file_count, total_size_bytes, format, hash_b3,
@@ -204,6 +214,39 @@ impl Db {
                 e
             ))
         })?;
+        Ok(datasets)
+    }
+
+    /// List ALL training datasets across ALL tenants for system-level operations.
+    ///
+    /// This method is explicitly designed for system-level operations that require
+    /// cross-tenant visibility, such as:
+    /// - Storage cleanup and orphaned file detection
+    /// - System-wide storage quota monitoring
+    /// - Dataset archival jobs
+    /// - Administrative reporting
+    ///
+    /// For normal tenant-scoped operations, use `list_training_datasets_for_tenant()` instead.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of datasets to return
+    ///
+    /// # Returns
+    /// Vector of all training datasets ordered by creation date (newest first)
+    pub async fn list_all_training_datasets_system(&self, limit: i64) -> Result<Vec<TrainingDataset>> {
+        let datasets = sqlx::query_as::<_, TrainingDataset>(
+            "SELECT id, name, description, file_count, total_size_bytes, format, hash_b3,
+                    storage_path, validation_status, validation_errors, metadata_json,
+                    created_by, created_at, updated_at, dataset_type, purpose,
+                    source_location, collection_method, ownership, tenant_id
+             FROM training_datasets
+             ORDER BY created_at DESC
+             LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list all training datasets (system): {}", e)))?;
         Ok(datasets)
     }
 

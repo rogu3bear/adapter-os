@@ -187,6 +187,28 @@ impl From<AdapterTrainingSnapshotRow> for AdapterTrainingSnapshot {
 mod tests {
     use super::*;
 
+    // Helper to create a document collection for FK constraint
+    async fn create_collection(db: &Db, collection_id: &str) {
+        // Create tenant first
+        let tenant_id = match db.create_tenant("Test Tenant", false).await {
+            Ok(id) => id,
+            Err(_) => sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
+                .fetch_one(db.pool())
+                .await
+                .expect("No tenant found"),
+        };
+
+        sqlx::query(
+            "INSERT INTO document_collections (id, tenant_id, name, description)
+             VALUES (?, ?, 'Test Collection', 'Test')",
+        )
+        .bind(collection_id)
+        .bind(&tenant_id)
+        .execute(db.pool())
+        .await
+        .expect("Failed to create collection");
+    }
+
     #[tokio::test]
     async fn test_create_and_retrieve_snapshot() {
         let db = Db::new_in_memory().await.unwrap();
@@ -207,10 +229,11 @@ mod tests {
         })
         .to_string();
 
+        // Use None for collection_id to avoid FK constraint
         let params = CreateSnapshotParams {
             adapter_id: adapter_id.to_string(),
             training_job_id: training_job_id.to_string(),
-            collection_id: Some("collection-001".to_string()),
+            collection_id: None,
             documents_json,
             chunk_manifest_hash: "manifest_hash_123".to_string(),
             chunking_config_json,
@@ -276,6 +299,9 @@ mod tests {
         let db = Db::new_in_memory().await.unwrap();
 
         let collection_id = "collection-003";
+
+        // Create the collection first to satisfy FK constraint
+        create_collection(&db, collection_id).await;
 
         // Create multiple snapshots for the same collection
         for i in 1..=2 {

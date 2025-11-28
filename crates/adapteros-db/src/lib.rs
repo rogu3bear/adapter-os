@@ -46,6 +46,7 @@ impl Db {
     /// - 30-second connection timeout
     /// - Max 20 connections in pool
     /// - Statement cache size of 100
+    /// - **CRITICAL:** Foreign key enforcement enabled
     pub async fn connect(path: &str) -> Result<Self> {
         use std::time::Duration;
 
@@ -54,7 +55,8 @@ impl Db {
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(Duration::from_secs(30)) // 30s timeout for busy database
-            .statement_cache_capacity(100); // Cache up to 100 prepared statements
+            .statement_cache_capacity(100) // Cache up to 100 prepared statements
+            .foreign_keys(true); // CRITICAL: Enable foreign key constraints
 
         let pool = SqlitePool::connect_with(options)
             .await
@@ -235,6 +237,9 @@ impl Db {
     /// 3. Logs recovery actions for audit trail
     ///
     /// Should be called after migrations but before handling requests.
+    ///
+    /// **CRITICAL FIX:** Wraps all recovery operations in a single transaction
+    /// to ensure atomicity. This prevents partial recovery on crash during recovery.
     pub async fn recover_from_crash(&self) -> Result<()> {
         use chrono::Utc;
         use tracing::{info, warn};
@@ -242,6 +247,11 @@ impl Db {
         info!("Starting crash recovery scan...");
 
         let mut recovery_actions = Vec::new();
+
+        // CRITICAL: Begin transaction for atomic recovery
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            AosError::Database(format!("Failed to begin recovery transaction: {}", e))
+        })?;
 
         // 1. Find adapters stuck in "loading" state (orphaned from crash)
         let stale_adapters: Vec<(String, String, String)> = sqlx::query_as(
@@ -252,7 +262,7 @@ impl Db {
               AND last_loaded_at < datetime('now', '-5 minutes')
             "#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
 
@@ -268,12 +278,12 @@ impl Db {
                     name, adapter_id, load_state
                 ));
 
-                // Mark as unloaded in database
+                // Mark as unloaded in database (within transaction)
                 sqlx::query(
                     "UPDATE adapters SET load_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
                 )
                 .bind(&adapter_id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to update adapter state: {}", e)))?;
 
@@ -284,7 +294,7 @@ impl Db {
         // 2. Clean up invalid activation counts (negative values)
         let reset_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM adapters WHERE activation_count < 0")
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to query invalid activation_count: {}", e))
@@ -297,7 +307,7 @@ impl Db {
             );
 
             sqlx::query("UPDATE adapters SET activation_count = 0 WHERE activation_count < 0")
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to reset activation_count: {}", e))
@@ -309,7 +319,12 @@ impl Db {
             ));
         }
 
-        // 3. Log summary
+        // CRITICAL: Commit transaction atomically
+        tx.commit().await.map_err(|e| {
+            AosError::Database(format!("Failed to commit recovery transaction: {}", e))
+        })?;
+
+        // 3. Log summary (after successful commit)
         if recovery_actions.is_empty() {
             info!("✓ Crash recovery complete - no issues detected");
         } else {
@@ -341,11 +356,19 @@ impl Db {
     /// a background task in the server to detect crashed/frozen adapters.
     ///
     /// Per Agent G Stability Reinforcement Plan Phase 2: Heartbeat Mechanism
+    ///
+    /// **CRITICAL FIX:** Wraps all recovery operations in a single transaction
+    /// to ensure atomicity.
     pub async fn recover_stale_adapters(&self, threshold_seconds: i64) -> Result<Vec<String>> {
         use chrono::Utc;
         use tracing::{info, warn};
 
         let cutoff_timestamp = Utc::now().timestamp() - threshold_seconds;
+
+        // CRITICAL: Begin transaction for atomic recovery
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            AosError::Database(format!("Failed to begin recovery transaction: {}", e))
+        })?;
 
         // Find adapters with stale heartbeats
         let stale_adapters: Vec<(String, String, Option<i64>)> = sqlx::query_as(
@@ -358,7 +381,7 @@ impl Db {
             "#,
         )
         .bind(cutoff_timestamp)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(|e| AosError::Database(format!("Failed to query stale adapters: {}", e)))?;
 
@@ -381,7 +404,7 @@ impl Db {
                     name, adapter_id, seconds_since
                 );
 
-                // Reset state to unloaded and clear heartbeat
+                // Reset state to unloaded and clear heartbeat (within transaction)
                 sqlx::query(
                     r#"
                     UPDATE adapters
@@ -392,7 +415,7 @@ impl Db {
                     "#,
                 )
                 .bind(&adapter_id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to reset stale adapter: {}", e)))?;
 
@@ -404,6 +427,11 @@ impl Db {
                 recovered_ids.len()
             );
         }
+
+        // CRITICAL: Commit transaction atomically
+        tx.commit().await.map_err(|e| {
+            AosError::Database(format!("Failed to commit recovery transaction: {}", e))
+        })?;
 
         Ok(recovered_ids)
     }
@@ -445,10 +473,10 @@ impl Db {
             .to_string();
 
         let users = vec![
-            ("admin@aos.local", "Admin", "Admin", &password_hash),
-            ("operator@aos.local", "Operator", "Operator", &password_hash),
-            ("sre@aos.local", "SRE", "SRE", &password_hash),
-            ("viewer@aos.local", "Viewer", "Viewer", &password_hash),
+            ("admin@aos.local", "Admin", "admin", &password_hash),
+            ("operator@aos.local", "Operator", "operator", &password_hash),
+            ("sre@aos.local", "SRE", "sre", &password_hash),
+            ("viewer@aos.local", "Viewer", "viewer", &password_hash),
         ];
 
         for (email, display_name, role, pwd_hash) in users {
@@ -458,8 +486,8 @@ impl Db {
                 .ok_or_else(|| AosError::Database(format!("Invalid email format: {}", email)))?;
 
             sqlx::query(
-                "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, created_at)
-                 VALUES (?, ?, ?, ?, ?, 0, datetime('now'))",
+                "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, created_at, tenant_id)
+                 VALUES (?, ?, ?, ?, ?, 0, datetime('now'), 'default')",
             )
             .bind(format!("{}-user", username))
             .bind(email)
@@ -893,7 +921,8 @@ pub use audit::AuditLog;
 pub mod audits;
 pub mod chat_sessions;
 pub use chat_sessions::{
-    AddMessageParams, ChatMessage, ChatSession, ChatSessionTrace, CreateChatSessionParams,
+    AddMessageParams, ChatCategory, ChatMessage, ChatSearchResult, ChatSession, ChatSessionTrace,
+    ChatSessionWithStatus, ChatTag, CreateChatSessionParams, SessionShare,
 };
 pub mod lifecycle;
 pub use lifecycle::{LifecycleHistoryEvent, StackReference};
@@ -943,6 +972,11 @@ pub mod plugin_enables;
 pub mod policies;
 pub mod policy_hash;
 pub mod policy_management;
+pub mod promotions;
+pub use promotions::{
+    CreatePromotionRequestParams, GoldenRunStage, PromotionApproval, PromotionGate,
+    PromotionRequest, RecordApprovalParams, RecordGateParams,
+};
 pub mod tenants;
 pub use policy_hash::PolicyHashRecord;
 pub mod process_monitoring;
@@ -955,8 +989,14 @@ pub use routing_telemetry_bridge::{event_to_decision, persist_router_decisions};
 pub mod telemetry_bundles;
 pub mod users;
 pub use users::{Role, User};
+pub mod user_tenant_access;
+pub use user_tenant_access::{
+    cleanup_expired_tenant_access, get_user_tenant_access, get_user_tenant_access_details,
+    grant_user_tenant_access, revoke_user_tenant_access, UserTenantAccess,
+};
 pub mod workers;
 pub use models::Worker;
+pub use workers::TrainingTask;
 
 // Document management modules
 pub mod collections;
@@ -964,11 +1004,23 @@ pub mod documents;
 pub use collections::{CreateCollectionParams, DocumentCollection};
 pub use documents::{CreateChunkParams, CreateDocumentParams, Document, DocumentChunk};
 
-// Workspace, notifications, dashboard, and tutorial modules
+// Workspace, notifications, messages, dashboard, and tutorial modules
 pub mod dashboard_configs;
+pub mod messages;
 pub mod notifications;
 pub mod tutorials;
 pub mod workspaces;
+
+// System statistics module
+pub mod system_stats;
+
+// Federation module
+pub mod federation;
+pub use federation::{QuarantineDetails, QuarantineRecord};
+
+// Authentication sessions module
+pub mod auth_sessions;
+pub use auth_sessions::AuthSession;
 pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
 pub use tutorials::TutorialStatus;
@@ -1002,6 +1054,40 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
+        Ok(())
+    }
+
+    /// Get a system setting value by key
+    ///
+    /// Returns None if the key doesn't exist or the value is empty.
+    pub async fn get_system_setting(&self, key: &str) -> Result<Option<String>> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM system_settings WHERE key = ?")
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get system setting: {}", e)))?;
+
+        Ok(row.map(|(v,)| v).filter(|v| !v.is_empty()))
+    }
+
+    /// Set a system setting value
+    ///
+    /// Creates the setting if it doesn't exist, updates if it does.
+    pub async fn set_system_setting(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO system_settings (key, value, updated_at)
+             VALUES (?, ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET
+               value = excluded.value,
+               updated_at = excluded.updated_at",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to set system setting: {}", e)))?;
+
         Ok(())
     }
 }

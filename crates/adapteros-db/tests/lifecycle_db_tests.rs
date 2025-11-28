@@ -8,9 +8,17 @@ async fn test_adapter_lifecycle_transition() {
         .await
         .expect("Failed to create test database");
 
+    // Create tenant first (required for FK constraint)
+    let tenant_id = db
+        .create_tenant("Test Tenant", false)
+        .await
+        .expect("Failed to create tenant");
+
     // Register a test adapter
+    // NOTE: Adapters default to 'active' lifecycle_state per migration 0068
     let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
         .adapter_id("test-adapter-001")
+        .tenant_id(&tenant_id)
         .name("Test Adapter")
         .hash_b3("abc123")
         .rank(8)
@@ -22,27 +30,9 @@ async fn test_adapter_lifecycle_transition() {
         .await
         .expect("Failed to register adapter");
 
-    // Test Draft → Active transition
+    // Test Active → Deprecated transition (adapters start in 'active' state)
     let result = db
-        .transition_adapter_lifecycle(
-            "test-adapter-001",
-            "active",
-            "Initial activation",
-            "test-user",
-        )
-        .await;
-
-    assert!(
-        result.is_ok(),
-        "Failed to transition Draft → Active: {:?}",
-        result
-    );
-    let new_version = result.unwrap();
-    assert_eq!(new_version, "1.0.1");
-
-    // Test Active → Deprecated transition
-    let result = db
-        .transition_adapter_lifecycle("test-adapter-001", "deprecated", "End of life", "system")
+        .transition_adapter_lifecycle("test-adapter-001", "deprecated", "End of life", "test-user")
         .await;
 
     assert!(
@@ -51,11 +41,11 @@ async fn test_adapter_lifecycle_transition() {
         result
     );
     let new_version = result.unwrap();
-    assert_eq!(new_version, "1.0.2");
+    assert_eq!(new_version, "1.0.1");
 
     // Test Deprecated → Retired transition
     let result = db
-        .transition_adapter_lifecycle("test-adapter-001", "retired", "Cleanup", "admin")
+        .transition_adapter_lifecycle("test-adapter-001", "retired", "Cleanup", "system")
         .await;
 
     assert!(
@@ -64,7 +54,20 @@ async fn test_adapter_lifecycle_transition() {
         result
     );
     let new_version = result.unwrap();
-    assert_eq!(new_version, "1.0.3");
+    assert_eq!(new_version, "1.0.2");
+
+    // Test no-op transition (retired → retired should not bump version)
+    let result = db
+        .transition_adapter_lifecycle("test-adapter-001", "retired", "Same state", "admin")
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Failed no-op transition Retired → Retired: {:?}",
+        result
+    );
+    let new_version = result.unwrap();
+    assert_eq!(new_version, "1.0.2"); // Version unchanged for no-op
 }
 
 #[tokio::test]
@@ -73,9 +76,17 @@ async fn test_lifecycle_history_query() {
         .await
         .expect("Failed to create test database");
 
+    // Create tenant first (required for FK constraint)
+    let tenant_id = db
+        .create_tenant("Test Tenant", false)
+        .await
+        .expect("Failed to create tenant");
+
     // Register test adapter
+    // NOTE: Adapters default to 'active' lifecycle_state per migration 0068
     let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
         .adapter_id("test-adapter-002")
+        .tenant_id(&tenant_id)
         .name("Test Adapter 2")
         .hash_b3("def456")
         .rank(8)
@@ -87,10 +98,10 @@ async fn test_lifecycle_history_query() {
         .await
         .expect("Failed to register adapter");
 
-    // Perform multiple transitions
+    // Perform multiple transitions (starting from 'active')
     let transitions = vec![
-        ("active", "Initial activation"),
         ("deprecated", "End of life"),
+        ("retired", "Full retirement"),
     ];
 
     for (new_state, reason) in transitions {
@@ -105,10 +116,27 @@ async fn test_lifecycle_history_query() {
         .await
         .expect("Failed to query lifecycle history");
 
-    // Verify history
+    // Verify history contains both transitions
     assert_eq!(history.len(), 2);
-    assert_eq!(history[0].lifecycle_state, "deprecated");
-    assert_eq!(history[0].initiated_by, "test-user");
-    assert_eq!(history[1].lifecycle_state, "active");
-    assert_eq!(history[1].initiated_by, "test-user");
+
+    // Find each transition by lifecycle_state (order may vary due to timestamp precision)
+    let deprecated_entry = history
+        .iter()
+        .find(|e| e.lifecycle_state == "deprecated")
+        .expect("Should have deprecated transition");
+    let retired_entry = history
+        .iter()
+        .find(|e| e.lifecycle_state == "retired")
+        .expect("Should have retired transition");
+
+    assert_eq!(
+        deprecated_entry.previous_lifecycle_state,
+        Some("active".to_string())
+    );
+    assert_eq!(deprecated_entry.initiated_by, "test-user");
+    assert_eq!(
+        retired_entry.previous_lifecycle_state,
+        Some("deprecated".to_string())
+    );
+    assert_eq!(retired_entry.initiated_by, "test-user");
 }

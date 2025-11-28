@@ -131,7 +131,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires PostgreSQL server
+    #[ignore = "Requires PostgreSQL server - run with: cargo test --release -- --ignored"]
     async fn test_adapter_crud() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await

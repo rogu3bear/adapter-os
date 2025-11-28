@@ -271,7 +271,11 @@ mod tests {
 
     #[test]
     fn test_recommendations() {
-        let recommendations = generate_recommendations("slow_query", 1000, 100000, 50000, 10.0);
+        // High variance: variance = max - min = 200000 - 1000 = 199000
+        // threshold = avg * 10 = 5000 * 10 = 50000
+        // 199000 > 50000 triggers "High variance"
+        // index_usage_pct < 50.0 triggers "Consider adding indexes"
+        let recommendations = generate_recommendations("slow_query", 1000, 200000, 5000, 10.0);
         assert!(!recommendations.is_empty());
         assert!(recommendations.iter().any(|r| r.contains("High variance")));
         assert!(recommendations

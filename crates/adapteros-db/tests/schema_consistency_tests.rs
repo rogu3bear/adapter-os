@@ -187,8 +187,8 @@ async fn test_adapter_select_queries_valid() -> Result<()> {
 
     db.register_adapter(params).await?;
 
-    // Test list_adapters query (this will fail if SELECT references non-existent columns)
-    let adapters = db.list_adapters().await?;
+    // Test list_all_adapters_system query (this will fail if SELECT references non-existent columns)
+    let adapters = db.list_all_adapters_system().await?;
     assert!(!adapters.is_empty(), "Should have at least one adapter");
 
     // Verify all expected fields are populated

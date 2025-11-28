@@ -213,4 +213,177 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(worker)
     }
+
+    /// Check if a worker is currently running a training job
+    pub async fn is_worker_training(&self, worker_id: &str) -> Result<bool> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM training_jobs WHERE worker_id = ? AND status = 'running'",
+        )
+        .bind(worker_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to check worker training status: {}", e)))?;
+
+        Ok(count > 0)
+    }
+
+    /// Get count of requests processed by a worker
+    ///
+    /// Note: This assumes an inference_log or similar table exists.
+    /// Returns 0 if the table doesn't exist.
+    pub async fn get_worker_requests_count(&self, worker_id: &str) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM routing_decisions WHERE worker_id = ?",
+        )
+        .bind(worker_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count)
+    }
+
+    /// Get count of errors for a worker
+    pub async fn get_worker_errors_count(&self, worker_id: &str) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM audit_logs WHERE resource_id = ? AND status = 'error'",
+        )
+        .bind(worker_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count)
+    }
+
+    /// Get average latency for a worker in milliseconds
+    pub async fn get_worker_avg_latency(&self, worker_id: &str) -> Result<Option<f64>> {
+        let avg = sqlx::query_scalar::<_, Option<f64>>(
+            "SELECT AVG(latency_ms) FROM routing_decisions WHERE worker_id = ?",
+        )
+        .bind(worker_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(None);
+
+        Ok(avg)
+    }
+
+    /// Get training tasks for a worker
+    pub async fn get_worker_training_tasks(&self, worker_id: &str) -> Result<Vec<TrainingTask>> {
+        let tasks = sqlx::query_as::<_, TrainingTask>(
+            "SELECT id, worker_id, dataset_id, status, progress, created_at, updated_at
+             FROM training_jobs
+             WHERE worker_id = ?
+             ORDER BY created_at DESC",
+        )
+        .bind(worker_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get worker training tasks: {}", e)))?;
+
+        Ok(tasks)
+    }
+
+    /// Get detailed worker information by ID
+    pub async fn get_worker_detail(&self, worker_id: &str) -> Result<Option<WorkerDetail>> {
+        let worker = sqlx::query_as::<_, WorkerDetail>(
+            "SELECT id, tenant_id, node_id, plan_id, status, pid, uds_path,
+                    memory_headroom_pct, k_current, adapters_loaded_json,
+                    started_at, last_heartbeat_at
+             FROM workers WHERE id = ?",
+        )
+        .bind(worker_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get worker detail: {}", e)))?;
+
+        Ok(worker)
+    }
+
+    /// Get count of telemetry events for a worker by event type
+    pub async fn get_worker_telemetry_count(&self, worker_id: &str, event_type: &str) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM telemetry_events
+             WHERE worker_id = ? AND event_type = ?",
+        )
+        .bind(worker_id)
+        .bind(event_type)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count)
+    }
+
+    /// Get average latency for a worker from recent telemetry events
+    pub async fn get_worker_avg_latency_recent(&self, worker_id: &str, minutes: i32) -> Result<Option<f64>> {
+        let avg = sqlx::query_scalar::<_, Option<f64>>(
+            "SELECT AVG(CAST(json_extract(payload, '$.latency_ms') AS REAL))
+             FROM telemetry_events
+             WHERE worker_id = ? AND event_type = 'inference_complete'
+             AND timestamp > datetime('now', ? || ' minutes')",
+        )
+        .bind(worker_id)
+        .bind(format!("-{}", minutes))
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(None);
+
+        Ok(avg)
+    }
+
+    /// Get active training tasks for a worker (running or pending)
+    pub async fn get_worker_active_training_tasks(&self, worker_id: &str) -> Result<Vec<ActiveTrainingTask>> {
+        let tasks = sqlx::query_as::<_, ActiveTrainingTask>(
+            "SELECT id, 'training' as task_type, status, started_at, progress_pct
+             FROM training_jobs
+             WHERE worker_id = ? AND status IN ('running', 'pending')",
+        )
+        .bind(worker_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get active training tasks: {}", e)))?;
+
+        Ok(tasks)
+    }
+}
+
+/// Training task record for worker detail queries
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TrainingTask {
+    pub id: String,
+    pub worker_id: String,
+    pub dataset_id: String,
+    pub status: String,
+    pub progress: Option<f64>,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+}
+
+/// Detailed worker record
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct WorkerDetail {
+    pub id: String,
+    pub tenant_id: String,
+    pub node_id: String,
+    pub plan_id: String,
+    pub status: String,
+    pub pid: Option<i32>,
+    pub uds_path: String,
+    pub memory_headroom_pct: Option<f32>,
+    pub k_current: Option<i32>,
+    pub adapters_loaded_json: Option<String>,
+    pub started_at: String,
+    pub last_heartbeat_at: Option<String>,
+}
+
+/// Active training task record
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ActiveTrainingTask {
+    pub id: String,
+    pub task_type: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub progress_pct: Option<f32>,
 }

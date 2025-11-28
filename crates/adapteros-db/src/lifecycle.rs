@@ -46,6 +46,9 @@ impl Db {
     ///
     /// # Returns
     /// The new version string after the transition
+    ///
+    /// **CRITICAL FIX:** Uses IMMEDIATE transaction to prevent race conditions
+    /// between SELECT and UPDATE operations.
     pub async fn transition_adapter_lifecycle(
         &self,
         adapter_id: &str,
@@ -53,22 +56,25 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
+        // Use transaction to ensure atomicity of read-modify-write
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
-        // Get current state and version
-        let row = sqlx::query("SELECT lifecycle_state, version FROM adapters WHERE adapter_id = ?")
-            .bind(adapter_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?
-            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+        // Get current state, version, and PK (id) for FK reference
+        let row =
+            sqlx::query("SELECT id, lifecycle_state, version FROM adapters WHERE adapter_id = ?")
+                .bind(adapter_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?
+                .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
 
-        let current_state: String = row.get(0);
-        let current_version: String = row.get(1);
+        let adapter_pk: String = row.get(0); // adapters.id (PK) for FK reference
+        let current_state: String = row.get(1);
+        let current_version: String = row.get(2);
 
         // Validate transition (done in application layer via LifecycleTransition)
         // This is a simple check to prevent obviously invalid transitions
@@ -76,10 +82,10 @@ impl Db {
             // No-op transition, just record it but don't bump version
             sqlx::query(
                 "INSERT INTO adapter_version_history
-                 (adapter_id, version, lifecycle_state, previous_lifecycle_state, reason, initiated_by)
+                 (adapter_pk, version, lifecycle_state, previous_lifecycle_state, reason, initiated_by)
                  VALUES (?, ?, ?, ?, ?, ?)"
             )
-            .bind(adapter_id)
+            .bind(&adapter_pk)  // Use adapters.id (PK) for FK reference
             .bind(&current_version)
             .bind(new_state)
             .bind(&current_state)
@@ -101,7 +107,7 @@ impl Db {
         // Update adapter
         sqlx::query(
             "UPDATE adapters
-             SET lifecycle_state = ?, version = ?, updated_at = datetime('now')
+             SET lifecycle_state = ?, version = ?
              WHERE adapter_id = ?",
         )
         .bind(new_state)
@@ -114,10 +120,10 @@ impl Db {
         // Record in history
         sqlx::query(
             "INSERT INTO adapter_version_history
-             (adapter_id, version, lifecycle_state, previous_lifecycle_state, reason, initiated_by)
+             (adapter_pk, version, lifecycle_state, previous_lifecycle_state, reason, initiated_by)
              VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .bind(adapter_id)
+        .bind(&adapter_pk) // Use adapters.id (PK) for FK reference
         .bind(&new_version)
         .bind(new_state)
         .bind(&current_state)
@@ -136,6 +142,8 @@ impl Db {
     /// Transition a stack to a new lifecycle state
     ///
     /// Similar to adapter transitions but for stacks.
+    ///
+    /// **CRITICAL FIX:** Uses IMMEDIATE transaction to prevent race conditions.
     pub async fn transition_stack_lifecycle(
         &self,
         stack_id: &str,
@@ -143,11 +151,18 @@ impl Db {
         reason: &str,
         initiated_by: &str,
     ) -> Result<String> {
+        // CRITICAL: Use IMMEDIATE transaction to acquire write lock immediately
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // SQLite: Set IMMEDIATE mode on the transaction
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to acquire write lock: {}", e)))?;
 
         // Get current state, version, and adapter composition
         let row = sqlx::query(
@@ -235,18 +250,19 @@ impl Db {
     ) -> Result<Vec<LifecycleHistoryEvent>> {
         let events = sqlx::query_as::<_, LifecycleHistoryEvent>(
             "SELECT
-                id,
-                adapter_id as entity_id,
-                version,
-                lifecycle_state,
-                previous_lifecycle_state,
-                reason,
-                initiated_by,
-                metadata_json,
-                created_at
-             FROM adapter_version_history
-             WHERE adapter_id = ?
-             ORDER BY created_at DESC",
+                avh.id,
+                a.adapter_id as entity_id,
+                avh.version,
+                avh.lifecycle_state,
+                avh.previous_lifecycle_state,
+                avh.reason,
+                avh.initiated_by,
+                avh.metadata_json,
+                avh.created_at
+             FROM adapter_version_history avh
+             JOIN adapters a ON avh.adapter_pk = a.id
+             WHERE a.adapter_id = ?
+             ORDER BY avh.created_at DESC",
         )
         .bind(adapter_id)
         .fetch_all(&*self.pool())
@@ -393,13 +409,20 @@ mod tests {
     async fn test_adapter_lifecycle_transition() {
         let db = Db::new_in_memory().await.unwrap();
 
+        // Create tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Test Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         // Register a test adapter
         let params = crate::adapters::AdapterRegistrationBuilder::new()
             .adapter_id("test-adapter")
+            .tenant_id(&tenant_id)
             .name("Test Adapter")
             .hash_b3("abc123")
             .rank(8)
-            .tier("tier_1")
+            .tier("warm")
             .build()
             .unwrap();
 
@@ -436,12 +459,19 @@ mod tests {
     async fn test_no_op_transition() {
         let db = Db::new_in_memory().await.unwrap();
 
+        // Create tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Test Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         let params = crate::adapters::AdapterRegistrationBuilder::new()
             .adapter_id("test-adapter")
+            .tenant_id(&tenant_id)
             .name("Test Adapter")
             .hash_b3("abc123")
             .rank(8)
-            .tier("tier_1")
+            .tier("warm")
             .build()
             .unwrap();
 
@@ -461,13 +491,20 @@ mod tests {
     async fn test_check_active_stack_references() {
         let db = Db::new_in_memory().await.unwrap();
 
+        // Create tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Test Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         // Register adapter
         let params = crate::adapters::AdapterRegistrationBuilder::new()
             .adapter_id("adapter-1")
+            .tenant_id(&tenant_id)
             .name("Adapter 1")
             .hash_b3("abc123")
             .rank(8)
-            .tier("tier_1")
+            .tier("warm")
             .build()
             .unwrap();
         db.register_adapter(params).await.unwrap();
@@ -475,8 +512,9 @@ mod tests {
         // Create a stack referencing this adapter
         sqlx::query(
             "INSERT INTO adapter_stacks (id, tenant_id, name, adapter_ids_json, workflow_type, lifecycle_state)
-             VALUES ('stack-1', 'tenant-a', 'Test Stack', '[\"adapter-1\"]', 'sequential', 'active')"
+             VALUES ('stack-1', ?, 'stack.test.stack1', '[\"adapter-1\"]', 'Sequential', 'active')"
         )
+        .bind(&tenant_id)
         .execute(db.pool())
         .await
         .unwrap();

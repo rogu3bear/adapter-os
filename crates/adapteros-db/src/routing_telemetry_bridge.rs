@@ -179,6 +179,12 @@ mod tests {
             .await
             .expect("Failed to create in-memory database");
 
+        // Create required tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Test Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         let events = vec![RouterDecisionEvent {
             step: 1,
             input_token_id: Some(10),
@@ -195,7 +201,7 @@ mod tests {
             stack_version: None,
         }];
 
-        let persisted = persist_router_decisions(&db, &events, "test-tenant", Some("req-001"))
+        let persisted = persist_router_decisions(&db, &events, &tenant_id, Some("req-001"))
             .await
             .expect("Failed to persist decisions");
 
@@ -204,7 +210,7 @@ mod tests {
         // Verify it was actually inserted
         let decisions = db
             .query_routing_decisions(&crate::RoutingDecisionFilters {
-                tenant_id: Some("test-tenant".to_string()),
+                tenant_id: Some(tenant_id.clone()),
                 ..Default::default()
             })
             .await

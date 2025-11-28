@@ -34,7 +34,8 @@ impl std::str::FromStr for Role {
     type Err = adapteros_core::AosError;
 
     fn from_str(s: &str) -> Result<Self> {
-        match s {
+        // Case-insensitive parsing for defense-in-depth
+        match s.to_lowercase().as_str() {
             "admin" => Ok(Role::Admin),
             "operator" => Ok(Role::Operator),
             "sre" => Ok(Role::SRE),
@@ -108,5 +109,48 @@ impl Db {
         .fetch_optional(&*self.pool())
         .await?;
         Ok(user)
+    }
+
+    /// Ensure a user with a specific ID exists (used for dev bypass)
+    /// Creates the user if not exists - does NOT update existing users to avoid FK issues
+    pub async fn ensure_user(
+        &self,
+        id: &str,
+        email: &str,
+        display_name: &str,
+        pw_hash: &str,
+        role: Role,
+        tenant_id: &str,
+    ) -> Result<()> {
+        // First check if user already exists
+        let existing = self.get_user(id).await?;
+        if existing.is_some() {
+            // User already exists, nothing to do
+            return Ok(());
+        }
+
+        // User doesn't exist, insert new row
+        let role_str = role.to_string();
+        sqlx::query(
+            "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(email)
+        .bind(display_name)
+        .bind(pw_hash)
+        .bind(&role_str)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Count total number of users in the system
+    pub async fn count_users(&self) -> Result<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count users: {}", e)))?;
+        Ok(count)
     }
 }

@@ -118,36 +118,27 @@ impl PostgresDb {
         .await
         .map_err(|e| AosError::Database(format!("Failed to create tenant: {}", e)))?;
 
-        // Create development users
+        // Create development users with hashed passwords (password: "password")
         let argon2 = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
-        let dev_password_hash = argon2
-            .hash_password(b"aos123", &salt)
+        let password_hash = argon2
+            .hash_password(b"password", &salt)
             .map_err(|e| AosError::Database(format!("Password hashing failed: {}", e)))?
             .to_string();
 
         let users = vec![
-            (
-                "admin@adapteros.dev",
-                "Admin User",
-                "admin",
-                &dev_password_hash,
-            ),
-            (
-                "operator@adapteros.dev",
-                "Operator User",
-                "operator",
-                &dev_password_hash,
-            ),
-            ("sre@adapteros.dev", "SRE User", "sre", &dev_password_hash),
+            ("admin@aos.local", "Admin", "admin", &password_hash),
+            ("operator@aos.local", "Operator", "operator", &password_hash),
+            ("sre@aos.local", "SRE", "sre", &password_hash),
+            ("viewer@aos.local", "Viewer", "viewer", &password_hash),
         ];
 
         for (email, display_name, role, pwd_hash) in users {
             let username = email.split('@').next().unwrap_or("unknown");
 
             sqlx::query(
-                "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, created_at)
-                 VALUES ($1, $2, $3, $4, $5, false, NOW())
+                "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, created_at, tenant_id)
+                 VALUES ($1, $2, $3, $4, $5, false, NOW(), 'default')
                  ON CONFLICT (id) DO NOTHING",
             )
             .bind(format!("{}-user", username))
@@ -217,7 +208,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires PostgreSQL server
+    #[ignore = "Requires PostgreSQL server - run with: cargo test --release -- --ignored"]
     async fn test_postgres_connection() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await
@@ -233,7 +224,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires PostgreSQL server
+    #[ignore = "Requires PostgreSQL server - run with: cargo test --release -- --ignored"]
     async fn test_postgres_migration() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await

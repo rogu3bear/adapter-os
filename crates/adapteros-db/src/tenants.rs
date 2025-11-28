@@ -82,6 +82,30 @@ impl Db {
         Ok(tenants)
     }
 
+    /// List tenants with pagination
+    pub async fn list_tenants_paginated(&self, limit: i64, offset: i64) -> Result<(Vec<Tenant>, i64)> {
+        // Get total count
+        let total = sqlx::query("SELECT COUNT(*) as cnt FROM tenants")
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?
+            .get::<i64, _>(0);
+
+        // Get paginated results
+        let tenants = sqlx::query_as::<_, Tenant>(
+            "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+             FROM tenants ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok((tenants, total))
+    }
+
     /// Rename a tenant
     pub async fn rename_tenant(&self, id: &str, new_name: &str) -> Result<()> {
         sqlx::query("UPDATE tenants SET name = ?, updated_at = datetime('now') WHERE id = ?")
@@ -238,8 +262,8 @@ impl Db {
     }
 
     pub async fn build_tenant_snapshot(&self, tenant_id: &str) -> Result<TenantStateSnapshot> {
-        // Adapters
-        let all_adapters = self.list_adapters().await?;
+        // Adapters - use system-level API for snapshot building
+        let all_adapters = self.list_all_adapters_system().await?;
         let adapters: Vec<&Adapter> = all_adapters
             .iter()
             .filter(|a| a.tenant_id == tenant_id)

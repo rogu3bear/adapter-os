@@ -78,4 +78,93 @@ impl Db {
             .map_err(|e| AosError::Database(format!("Failed to delete node: {}", e)))?;
         Ok(())
     }
+
+    /// Get list of adapter IDs loaded on a specific node
+    pub async fn get_node_loaded_adapters(&self, node_id: &str) -> Result<Vec<String>> {
+        let adapter_ids = sqlx::query_scalar::<_, String>(
+            "SELECT adapter_id FROM adapters WHERE node_id = ? AND load_state = 'loaded'",
+        )
+        .bind(node_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get node loaded adapters: {}", e))
+        })?;
+
+        Ok(adapter_ids)
+    }
+
+    /// Check if a node is designated as primary
+    ///
+    /// Note: This assumes a 'is_primary' or similar column exists in the nodes table.
+    /// Returns false if the column doesn't exist.
+    pub async fn is_node_primary(&self, node_id: &str) -> Result<bool> {
+        let is_primary = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(is_primary, 0) FROM nodes WHERE id = ?",
+        )
+        .bind(node_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to check if node is primary: {}", e)))?
+        .unwrap_or(0);
+
+        Ok(is_primary > 0)
+    }
+
+    /// Get detailed node information by ID
+    pub async fn get_node_detail(&self, node_id: &str) -> Result<Option<NodeDetail>> {
+        let node = sqlx::query_as::<_, NodeDetail>(
+            "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at
+             FROM nodes WHERE id = ?",
+        )
+        .bind(node_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get node detail: {}", e)))?;
+
+        Ok(node)
+    }
+
+    /// Get adapters loaded on a node from workers
+    ///
+    /// This query retrieves unique adapter IDs from workers serving on a specific node.
+    pub async fn get_node_adapters_from_workers(&self, node_id: &str) -> Result<Vec<String>> {
+        let adapters = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT a.adapter_id
+             FROM workers w
+             JOIN adapters a ON a.id IN (SELECT json_extract(value, '$') FROM json_each(w.adapters_loaded_json))
+             WHERE w.node_id = ? AND w.status = 'serving'",
+        )
+        .bind(node_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get node adapters: {}", e)))?;
+
+        Ok(adapters)
+    }
+
+    /// Check if node is primary in federation
+    pub async fn is_federation_primary(&self, node_id: &str) -> Result<bool> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM federation_config WHERE primary_node_id = ?",
+        )
+        .bind(node_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count > 0)
+    }
+}
+
+/// Detailed node record
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct NodeDetail {
+    pub id: String,
+    pub hostname: String,
+    pub agent_endpoint: String,
+    pub status: String,
+    pub last_seen_at: Option<String>,
+    pub labels_json: Option<String>,
+    pub created_at: String,
 }

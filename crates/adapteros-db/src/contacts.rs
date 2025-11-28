@@ -429,19 +429,31 @@ impl Db {
 
     /// Delete contact (and associated interactions)
     pub async fn delete_contact(&self, id: &str) -> Result<()> {
+        // Begin transaction for atomic multi-step deletion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
         // Delete interactions first (foreign key constraint)
         sqlx::query("DELETE FROM contact_interactions WHERE contact_id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete contact
         sqlx::query("DELETE FROM contacts WHERE id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(())
     }

@@ -231,8 +231,8 @@ async fn test_list_adapters_with_new_schema_fields() {
         db.register_adapter(params).await.unwrap();
     }
 
-    // List all adapters
-    let adapters = db.list_adapters().await.unwrap();
+    // List all adapters (system-level for tests)
+    let adapters = db.list_all_adapters_system().await.unwrap();
     assert_eq!(adapters.len(), 3, "Should list all 3 adapters");
 
     // Verify each adapter has all fields including new schema fields

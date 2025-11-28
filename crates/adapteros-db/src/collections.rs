@@ -4,6 +4,7 @@ use crate::documents::Document;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -74,12 +75,46 @@ impl Db {
         Ok(collections)
     }
 
+    /// List collections for a tenant with pagination
+    pub async fn list_collections_paginated(&self, tenant_id: &str, limit: i64, offset: i64) -> Result<(Vec<DocumentCollection>, i64)> {
+        // Get total count for this tenant
+        let total = sqlx::query("SELECT COUNT(*) as cnt FROM document_collections WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count collections: {}", e)))?
+            .get::<i64, _>(0);
+
+        // Get paginated results
+        let collections = sqlx::query_as::<_, DocumentCollection>(
+            "SELECT id, tenant_id, name, description, created_at, updated_at, metadata_json
+             FROM document_collections
+             WHERE tenant_id = ?
+             ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list collections: {}", e)))?;
+
+        Ok((collections, total))
+    }
+
     /// Delete collection
     pub async fn delete_collection(&self, id: &str) -> Result<()> {
+        // Begin transaction for atomic multi-step deletion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
         // Delete collection-document links first (cascading)
         sqlx::query("DELETE FROM collection_documents WHERE collection_id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to delete collection-document links: {}", e))
@@ -88,9 +123,15 @@ impl Db {
         // Delete collection
         sqlx::query("DELETE FROM document_collections WHERE id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete collection: {}", e)))?;
+
+        // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+
         Ok(())
     }
 
@@ -163,6 +204,22 @@ impl Db {
                     AosError::Database(format!("Failed to count collection documents: {}", e))
                 })?;
         Ok(count.0)
+    }
+
+    /// Get just document IDs in a collection (efficient - no full document load)
+    ///
+    /// Returns only the document IDs without loading full document records.
+    /// Use this for filtering operations where you only need to check membership.
+    pub async fn list_collection_document_ids(&self, collection_id: &str) -> Result<Vec<String>> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT document_id FROM collection_documents WHERE collection_id = ?")
+                .bind(collection_id)
+                .fetch_all(&*self.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to list collection document IDs: {}", e))
+                })?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     /// Get collections containing a document

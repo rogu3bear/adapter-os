@@ -196,6 +196,18 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the .aos file path (optional)
+    pub fn aos_file_path(mut self, aos_file_path: Option<impl Into<String>>) -> Self {
+        self.aos_file_path = aos_file_path.map(|s| s.into());
+        self
+    }
+
+    /// Set the .aos file hash (optional, BLAKE3 hash of the file)
+    pub fn aos_file_hash(mut self, aos_file_hash: Option<impl Into<String>>) -> Self {
+        self.aos_file_hash = aos_file_hash.map(|s| s.into());
+        self
+    }
+
     /// Set the semantic adapter name (optional)
     /// Format: {tenant_namespace}/{domain}/{purpose}/{revision}
     pub fn adapter_name(mut self, adapter_name: Option<impl Into<String>>) -> Self {
@@ -484,7 +496,17 @@ impl Db {
         Ok(adapters)
     }
 
-    /// List all adapters
+    /// List all adapters (DEPRECATED - use list_adapters_for_tenant instead)
+    ///
+    /// WARNING: This method returns ALL adapters across ALL tenants without filtering.
+    /// This breaks multi-tenant isolation and should only be used in very specific cases
+    /// like system administration or migration scripts where cross-tenant access is required.
+    ///
+    /// For normal operations, use `list_adapters_for_tenant()` which enforces tenant isolation.
+    #[deprecated(
+        since = "0.3.0",
+        note = "Use list_adapters_for_tenant() for tenant isolation"
+    )]
     pub async fn list_adapters(&self) -> Result<Vec<Adapter>> {
         let adapters = sqlx::query_as::<_, Adapter>(
             "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
@@ -501,6 +523,82 @@ impl Db {
         .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(adapters)
+    }
+
+    /// List ALL adapters across ALL tenants for system-level operations.
+    ///
+    /// This method is explicitly designed for system-level operations that require
+    /// cross-tenant visibility, such as:
+    /// - Cleanup jobs and garbage collection
+    /// - System monitoring and health checks
+    /// - Lifecycle management and state recovery
+    /// - Administrative dashboards
+    /// - Migration scripts
+    ///
+    /// For normal tenant-scoped operations, use `list_adapters_for_tenant()` instead.
+    ///
+    /// # Returns
+    /// Vector of all active adapters ordered by tier (ascending) and creation date (descending)
+    pub async fn list_all_adapters_system(&self) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    version, lifecycle_state, created_at, updated_at, active
+             FROM adapters
+             WHERE active = 1
+             ORDER BY tier ASC, created_at DESC",
+        )
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list all adapters (system): {}", e)))?;
+        Ok(adapters)
+    }
+
+    /// List adapters for a specific tenant
+    ///
+    /// This is the RECOMMENDED method for listing adapters as it enforces tenant isolation.
+    /// Only returns adapters belonging to the specified tenant.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant ID to filter by
+    ///
+    /// # Returns
+    /// Vector of adapters belonging to the tenant, ordered by tier (ascending) and creation date (descending)
+    ///
+    /// # Example
+    /// ```no_run
+    /// use adapteros_db::Db;
+    ///
+    /// # async fn example(db: &Db) -> anyhow::Result<()> {
+    /// let adapters = db.list_adapters_for_tenant("tenant-123").await?;
+    /// for adapter in adapters {
+    ///     println!("Adapter: {} ({})", adapter.name, adapter.id);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
+        let adapters = sqlx::query_as::<_, Adapter>(
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    version, lifecycle_state, created_at, updated_at, active
+             FROM adapters
+             WHERE tenant_id = ? AND active = 1
+             ORDER BY tier ASC, created_at DESC",
+        )
+        .bind(tenant_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list adapters for tenant: {}", e)))?;
         Ok(adapters)
     }
 
@@ -609,11 +707,15 @@ impl Db {
             }
 
             // Delete from pinned_adapters (expired pins)
-            sqlx::query("DELETE FROM pinned_adapters WHERE adapter_id = ?")
-                .bind(&adapter_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+            // Use subquery to find adapter_pk from adapters.id where adapter_id matches
+            sqlx::query(
+                "DELETE FROM pinned_adapters WHERE adapter_pk IN
+                 (SELECT id FROM adapters WHERE adapter_id = ?)",
+            )
+            .bind(&adapter_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
 
             info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
 
@@ -651,6 +753,30 @@ impl Db {
         .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(adapter)
+    }
+
+    /// Find adapter by BLAKE3 hash for deduplication
+    ///
+    /// Returns an existing active adapter with the same hash_b3, enabling
+    /// content-addressed deduplication during import.
+    pub async fn find_adapter_by_hash(&self, hash_b3: &str) -> Result<Option<Adapter>> {
+        let adapter = sqlx::query_as::<_, Adapter>(
+            "SELECT id, tenant_id, adapter_id, name, hash_b3, rank, alpha, tier, targets_json, acl_json,
+                    languages_json, framework, category, scope, framework_id, framework_version,
+                    repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated,
+                    activation_count, expires_at, load_state, last_loaded_at,
+                    aos_file_path, aos_file_hash,
+                    adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason,
+                    version, lifecycle_state, created_at, updated_at, active
+             FROM adapters
+             WHERE hash_b3 = ? AND active = 1
+             LIMIT 1",
+        )
+        .bind(hash_b3)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to find adapter by hash: {}", e)))?;
         Ok(adapter)
     }
 

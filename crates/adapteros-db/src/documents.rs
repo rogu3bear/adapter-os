@@ -3,6 +3,7 @@
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -35,6 +36,7 @@ pub struct DocumentChunk {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateDocumentParams {
+    pub id: String,
     pub tenant_id: String,
     pub name: String,
     pub content_hash: String,
@@ -58,14 +60,13 @@ pub struct CreateChunkParams {
 impl Db {
     /// Create a new document
     pub async fn create_document(&self, params: CreateDocumentParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
         sqlx::query(
             "INSERT INTO documents (
                 id, tenant_id, name, content_hash, file_path, file_size,
                 mime_type, page_count, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
         )
-        .bind(&id)
+        .bind(&params.id)
         .bind(&params.tenant_id)
         .bind(&params.name)
         .bind(&params.content_hash)
@@ -76,7 +77,7 @@ impl Db {
         .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create document: {}", e)))?;
-        Ok(id)
+        Ok(params.id)
     }
 
     /// Get document by ID
@@ -108,6 +109,35 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list documents: {}", e)))?;
         Ok(documents)
+    }
+
+    /// List documents for a tenant with pagination
+    pub async fn list_documents_paginated(&self, tenant_id: &str, limit: i64, offset: i64) -> Result<(Vec<Document>, i64)> {
+        // Get total count for this tenant
+        let total = sqlx::query("SELECT COUNT(*) as cnt FROM documents WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count documents: {}", e)))?
+            .try_get::<i64, _>(0)
+            .unwrap_or(0);
+
+        // Get paginated results
+        let documents = sqlx::query_as::<_, Document>(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json
+             FROM documents
+             WHERE tenant_id = ?
+             ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list documents: {}", e)))?;
+
+        Ok((documents, total))
     }
 
     /// Find document by content hash within a tenant (for deduplication)
@@ -154,19 +184,32 @@ impl Db {
 
     /// Delete document
     pub async fn delete_document(&self, id: &str) -> Result<()> {
+        // Begin transaction for atomic multi-step deletion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
         // Delete chunks first (cascading)
         sqlx::query("DELETE FROM document_chunks WHERE document_id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete document chunks: {}", e)))?;
 
         // Delete document
         sqlx::query("DELETE FROM documents WHERE id = ?")
             .bind(id)
-            .execute(&*self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete document: {}", e)))?;
+
+        // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+
         Ok(())
     }
 
@@ -221,6 +264,31 @@ impl Db {
         .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get chunk by ID: {}", e)))?;
+        Ok(chunk)
+    }
+
+    /// Get chunk by document_id and chunk_index
+    ///
+    /// Used to look up chunk metadata (especially page_number) when processing
+    /// RAG results where we only have the doc_id in format `{document_id}__chunk_{index}`.
+    pub async fn get_chunk_by_document_and_index(
+        &self,
+        document_id: &str,
+        chunk_index: i32,
+    ) -> Result<Option<DocumentChunk>> {
+        let chunk = sqlx::query_as::<_, DocumentChunk>(
+            "SELECT id, document_id, chunk_index, page_number, start_offset,
+                    end_offset, chunk_hash, text_preview
+             FROM document_chunks
+             WHERE document_id = ? AND chunk_index = ?",
+        )
+        .bind(document_id)
+        .bind(chunk_index)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to get chunk by document and index: {}", e))
+        })?;
         Ok(chunk)
     }
 

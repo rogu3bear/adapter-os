@@ -448,15 +448,21 @@ mod tests {
             .await
             .expect("Failed to create in-memory database");
 
+        // Create required tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Default Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         let decision = RoutingDecision {
             id: "test-decision-1".to_string(),
-            tenant_id: "default".to_string(),
+            tenant_id: tenant_id.clone(),
             timestamp: "2025-11-17T23:00:00Z".to_string(),
             request_id: Some("req-123".to_string()),
             step: 5,
             input_token_id: Some(42),
-            stack_id: Some("stack-1".to_string()),
-            stack_hash: Some("abc123".to_string()),
+            stack_id: None,
+            stack_hash: None,
             entropy: 0.75,
             tau: 0.1,
             entropy_floor: 0.01,
@@ -487,7 +493,7 @@ mod tests {
 
         // Query with filters
         let filters = RoutingDecisionFilters {
-            tenant_id: Some("default".to_string()),
+            tenant_id: Some(tenant_id.clone()),
             limit: Some(10),
             ..Default::default()
         };
