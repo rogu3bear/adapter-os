@@ -1,5 +1,6 @@
 //! Hot-swap adapter loading and unloading
 
+use adapteros_aos::{AOS_MAGIC, HEADER_SIZE};
 use adapteros_core::{AosError, B3Hash, Result};
 use memmap2::Mmap;
 use safetensors::SafeTensors;
@@ -66,19 +67,45 @@ impl AdapterLoader {
             })
     }
 
+    /// Register expected hash for a new adapter (called during import)
+    pub fn register_hash(&mut self, adapter_name: String, hash: B3Hash) {
+        self.expected_hashes.insert(adapter_name, hash);
+    }
+
+    /// Get the base path for adapter files
+    pub fn adapters_base_path(&self) -> &PathBuf {
+        &self.base_path
+    }
+
     /// Load an adapter from disk (blocking call, use load_adapter_async for async contexts)
     pub fn load_adapter(&mut self, adapter_id: u16, adapter_name: &str) -> Result<AdapterHandle> {
-        let adapter_path = self.base_path.join(format!("{}.safetensors", adapter_name));
+        // Check for .aos file first, fall back to .safetensors
+        let aos_path = self.base_path.join(format!("{}.aos", adapter_name));
+        let safetensors_path = self.base_path.join(format!("{}.safetensors", adapter_name));
 
-        if !adapter_path.exists() {
+        let (adapter_path, weights_data, metadata) = if aos_path.exists() {
+            tracing::debug!(
+                adapter_name = adapter_name,
+                path = %aos_path.display(),
+                "Loading from .aos file"
+            );
+            let (data, meta) = self.load_from_aos(&aos_path)?;
+            (aos_path, data, meta)
+        } else if safetensors_path.exists() {
+            tracing::debug!(
+                adapter_name = adapter_name,
+                path = %safetensors_path.display(),
+                "Loading from .safetensors file"
+            );
+            let (data, meta) = self.load_and_parse_safetensors(&safetensors_path)?;
+            (safetensors_path, data, meta)
+        } else {
             return Err(AosError::Lifecycle(format!(
-                "Adapter file not found: {}",
-                adapter_path.display()
+                "Adapter file not found: {} (checked .aos and .safetensors)",
+                adapter_name
             )));
-        }
+        };
 
-        // Load and parse SafeTensors file
-        let (weights_data, metadata) = self.load_and_parse_safetensors(&adapter_path)?;
         let expected_hash = self.expected_hash(adapter_name)?;
         let actual_hash = B3Hash::hash(&weights_data.data);
 
@@ -129,33 +156,60 @@ impl AdapterLoader {
         let adapter_name_owned = adapter_name.to_string();
 
         let (handle, weights_data) = tokio::task::spawn_blocking(move || {
-            let adapter_path = base_path.join(format!("{}.safetensors", adapter_name_owned));
+            // Check for .aos file first, fall back to .safetensors
+            let aos_path = base_path.join(format!("{}.aos", &adapter_name_owned));
+            let safetensors_path = base_path.join(format!("{}.safetensors", &adapter_name_owned));
 
-            if !adapter_path.exists() {
+            let (adapter_path, weights_data, metadata) = if aos_path.exists() {
+                tracing::debug!(
+                    adapter_name = adapter_name_owned,
+                    path = %aos_path.display(),
+                    "Loading from .aos file (async)"
+                );
+                // Load from .aos file
+                let (data, meta) = AdapterLoader::load_from_aos_static(&aos_path)?;
+                (aos_path, data, meta)
+            } else if safetensors_path.exists() {
+                tracing::debug!(
+                    adapter_name = adapter_name_owned,
+                    path = %safetensors_path.display(),
+                    "Loading from .safetensors file (async)"
+                );
+                // Load from .safetensors file
+                let file = File::open(&safetensors_path).map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to open adapter file: {}", e))
+                })?;
+
+                let mmap = unsafe { Mmap::map(&file) }.map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to mmap adapter file: {}", e))
+                })?;
+
+                let mmap = Arc::new(mmap);
+
+                // Parse SafeTensors to extract metadata
+                let tensors = SafeTensors::deserialize(&mmap).map_err(|e| {
+                    AosError::Lifecycle(format!("Failed to parse SafeTensors: {}", e))
+                })?;
+
+                let metadata = AdapterLoader::extract_metadata(&tensors);
+
+                // Read data for hashing (mmap gives us zero-copy access)
+                let weights_data_vec = mmap.to_vec();
+
+                let loaded_weights = LoadedWeights {
+                    data: weights_data_vec,
+                    _mmap: Some(mmap),
+                };
+
+                (safetensors_path, loaded_weights, metadata)
+            } else {
                 return Err(AosError::Lifecycle(format!(
-                    "Adapter file not found: {}",
-                    adapter_path.display()
+                    "Adapter file not found: {} (checked .aos and .safetensors)",
+                    adapter_name_owned
                 )));
-            }
+            };
 
-            // Open and memory-map the file
-            let file = File::open(&adapter_path)
-                .map_err(|e| AosError::Lifecycle(format!("Failed to open adapter file: {}", e)))?;
-
-            let mmap = unsafe { Mmap::map(&file) }
-                .map_err(|e| AosError::Lifecycle(format!("Failed to mmap adapter file: {}", e)))?;
-
-            let mmap = Arc::new(mmap);
-
-            // Parse SafeTensors to extract metadata
-            let tensors = SafeTensors::deserialize(&mmap)
-                .map_err(|e| AosError::Lifecycle(format!("Failed to parse SafeTensors: {}", e)))?;
-
-            let metadata = AdapterLoader::extract_metadata(&tensors);
-
-            // Read data for hashing (mmap gives us zero-copy access)
-            let weights_data = mmap.to_vec();
-            let actual_hash = B3Hash::hash(&weights_data);
+            let actual_hash = B3Hash::hash(&weights_data.data);
 
             if actual_hash != expected_hash {
                 tracing::error!(
@@ -171,12 +225,8 @@ impl AdapterLoader {
                 });
             }
 
-            let memory_bytes = AdapterLoader::calculate_memory_bytes(&metadata, weights_data.len());
-
-            let loaded_weights = LoadedWeights {
-                data: weights_data,
-                _mmap: Some(mmap),
-            };
+            let memory_bytes =
+                AdapterLoader::calculate_memory_bytes(&metadata, weights_data.data.len());
 
             tracing::info!(
                 adapter_id = adapter_id,
@@ -195,7 +245,7 @@ impl AdapterLoader {
                     memory_bytes,
                     metadata,
                 },
-                loaded_weights,
+                weights_data,
             ))
         })
         .await
@@ -266,6 +316,82 @@ impl AdapterLoader {
             LoadedWeights {
                 data: weights_data,
                 _mmap: Some(mmap),
+            },
+            metadata,
+        ))
+    }
+
+    /// Load and parse .aos file, extracting SafeTensors weights section
+    fn load_from_aos(&self, aos_path: &PathBuf) -> Result<(LoadedWeights, AdapterMetadata)> {
+        Self::load_from_aos_static(aos_path)
+    }
+
+    /// Static helper for loading .aos files (used in both sync and async contexts)
+    fn load_from_aos_static(aos_path: &PathBuf) -> Result<(LoadedWeights, AdapterMetadata)> {
+        // Open and memory-map the .aos file
+        let file = File::open(aos_path)
+            .map_err(|e| AosError::Lifecycle(format!("Failed to open .aos file: {}", e)))?;
+
+        let mmap = unsafe { Mmap::map(&file) }
+            .map_err(|e| AosError::Lifecycle(format!("Failed to mmap .aos file: {}", e)))?;
+
+        // Validate minimum file size for header
+        if mmap.len() < HEADER_SIZE {
+            return Err(AosError::Validation(format!(
+                "AOS file too small: {} bytes (minimum {} bytes for header)",
+                mmap.len(),
+                HEADER_SIZE
+            )));
+        }
+
+        // Validate magic bytes (4 bytes at offset 0)
+        if &mmap[0..4] != &AOS_MAGIC {
+            return Err(AosError::Validation(format!(
+                "Invalid AOS magic bytes: expected {:?}, got {:?}",
+                AOS_MAGIC,
+                &mmap[0..4]
+            )));
+        }
+
+        // Read header fields to locate weights section
+        let weights_offset = u64::from_le_bytes(mmap[8..16].try_into().unwrap()) as usize;
+        let weights_size = u64::from_le_bytes(mmap[16..24].try_into().unwrap()) as usize;
+
+        // Validate weights section bounds
+        if weights_offset + weights_size > mmap.len() {
+            return Err(AosError::Validation(format!(
+                "Weights extend beyond file: offset {} + size {} > file size {}",
+                weights_offset,
+                weights_size,
+                mmap.len()
+            )));
+        }
+
+        // Extract the SafeTensors weights section
+        let weights_data = &mmap[weights_offset..weights_offset + weights_size];
+
+        // Parse SafeTensors to extract metadata
+        let tensors = SafeTensors::deserialize(weights_data).map_err(|e| {
+            AosError::Lifecycle(format!("Failed to parse SafeTensors from .aos: {}", e))
+        })?;
+
+        let metadata = Self::extract_metadata(&tensors);
+
+        // Copy weights data for hashing and potential GPU upload
+        let weights_vec = weights_data.to_vec();
+
+        tracing::debug!(
+            path = %aos_path.display(),
+            weights_offset = weights_offset,
+            weights_size = weights_size,
+            num_tensors = tensors.len(),
+            "Extracted SafeTensors from .aos file"
+        );
+
+        Ok((
+            LoadedWeights {
+                data: weights_vec,
+                _mmap: None, // We don't keep the mmap since we copied the data
             },
             metadata,
         ))

@@ -99,6 +99,8 @@ pub struct TrainingConfig {
     pub epochs: usize,
     /// Hidden dimension size
     pub hidden_dim: usize,
+    /// Vocabulary size (model-specific)
+    pub vocab_size: usize,
     /// Preferred GPU backend (None = auto-select, falls back to CPU if unavailable)
     #[serde(skip, default)]
     pub preferred_backend: Option<TrainingBackend>,
@@ -119,6 +121,7 @@ impl Default for TrainingConfig {
             batch_size: 8,
             epochs: 3,
             hidden_dim: 768,
+            vocab_size: 32000, // Default LLaMA/Mistral vocab size
             preferred_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,
@@ -748,7 +751,7 @@ impl MicroLoRATrainer {
 
         let batch_start = Instant::now();
         let mut batch_loss = 0.0;
-        let vocab_size = 32000; // Default vocab size (Qwen 2.5)
+        let vocab_size = self.config.vocab_size;
 
         let mut gpu_time_us = 0u64;
 

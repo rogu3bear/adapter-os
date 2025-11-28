@@ -33,20 +33,100 @@ impl UmaPressureMonitor {
         let min_headroom = self.min_headroom_pct;
         let pressure_cache = self.cached_pressure.clone();
         self.handle = Some(tokio::spawn(async move {
+            // Import backoff utilities from parent crate
+            use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
+
+            let backoff = BackoffConfig::new(
+                Duration::from_millis(1000),
+                Duration::from_secs(30),
+                2.0,
+                5,
+            );
+            let circuit_breaker = BackoffCircuitBreaker::new(10, Duration::from_secs(300));
+            let mut consecutive_failures = 0u32;
+
             let mut interval = interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
-                let stats = get_uma_stats().await;
-                let pressure = determine_pressure(&stats, min_headroom as f32);
 
-                // Update cached pressure level
-                *pressure_cache.write() = pressure;
-
-                if pressure != MemoryPressureLevel::Low {
-                    emit_telemetry(&telemetry_clone, &stats, pressure).await;
+                // Check circuit breaker state
+                if circuit_breaker.is_open() {
+                    warn!(
+                        failure_count = circuit_breaker.failure_count(),
+                        "Memory monitoring circuit breaker is open, pausing"
+                    );
+                    tokio::time::sleep(circuit_breaker.reset_timeout()).await;
+                    continue;
                 }
-                if pressure == MemoryPressureLevel::Critical {
-                    warn!("Critical UMA pressure: headroom {}%", stats.headroom_pct);
+
+                // Attempt to get memory stats
+                match tokio::task::spawn_blocking(|| {
+                    // Run potentially blocking system calls in a blocking thread
+                    std::panic::catch_unwind(|| {
+                        // This is synchronous but may call system APIs
+                        // We wrap it to prevent panics from killing the task
+                        tokio::runtime::Handle::current().block_on(get_uma_stats())
+                    })
+                })
+                .await
+                {
+                    Ok(Ok(stats)) => {
+                        // Success - reset backoff and circuit breaker
+                        circuit_breaker.record_success();
+                        consecutive_failures = 0;
+
+                        let pressure = determine_pressure(&stats, min_headroom as f32);
+
+                        // Update cached pressure level
+                        *pressure_cache.write() = pressure;
+
+                        if pressure != MemoryPressureLevel::Low {
+                            emit_telemetry(&telemetry_clone, &stats, pressure).await;
+                        }
+                        if pressure == MemoryPressureLevel::Critical {
+                            warn!("Critical UMA pressure: headroom {}%", stats.headroom_pct);
+                        }
+                    }
+                    Ok(Err(panic_err)) => {
+                        // Panic in stats collection
+                        circuit_breaker.record_failure();
+                        consecutive_failures += 1;
+
+                        warn!(
+                            error = ?panic_err,
+                            consecutive_failures = consecutive_failures,
+                            "Memory stats collection panicked"
+                        );
+
+                        // Apply backoff
+                        let delay = backoff.next_delay(consecutive_failures);
+                        tokio::time::sleep(delay).await;
+                    }
+                    Err(join_err) => {
+                        // Task join error
+                        circuit_breaker.record_failure();
+                        consecutive_failures += 1;
+
+                        warn!(
+                            error = %join_err,
+                            consecutive_failures = consecutive_failures,
+                            "Memory monitoring task failed"
+                        );
+
+                        // Apply backoff
+                        let delay = backoff.next_delay(consecutive_failures);
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+
+                // Extended backoff if we've exceeded max retries
+                if backoff.should_give_up(consecutive_failures) {
+                    warn!(
+                        "Memory monitoring has failed {} times, entering extended backoff",
+                        consecutive_failures
+                    );
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    consecutive_failures = 0;
                 }
             }
         }));

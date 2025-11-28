@@ -5,7 +5,40 @@
 //!            ↑______|______|_____|
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::time::Duration;
+
+/// Acquisition state for model download/cache tracking
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum AcquisitionState {
+    #[default]
+    NotCached,
+    Queued,
+    Downloading {
+        progress_pct: u8,
+    },
+    Verifying,
+    Available,
+    Failed,
+}
+
+impl AcquisitionState {
+    pub fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    pub fn is_downloading(&self) -> bool {
+        matches!(self, Self::Downloading { .. })
+    }
+
+    pub fn progress_pct(&self) -> Option<u8> {
+        if let Self::Downloading { progress_pct } = self {
+            Some(*progress_pct)
+        } else {
+            None
+        }
+    }
+}
 
 /// Eviction priority levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -90,6 +123,28 @@ impl AdapterState {
             Self::Hot => Some(Self::Warm),
             Self::Resident => Some(Self::Hot),
         }
+    }
+
+    /// FIX 4: Compare-and-swap (CAS) operation for state transitions
+    /// Verify expected state before transition to prevent concurrent load/unload races
+    ///
+    /// Returns Ok(new_state) if transition succeeded, Err(current_state) if CAS failed
+    pub fn cas_promote(&self, expected: AdapterState) -> std::result::Result<Self, AdapterState> {
+        if *self != expected {
+            return Err(*self);
+        }
+        self.promote().ok_or(*self)
+    }
+
+    /// FIX 4: Compare-and-swap (CAS) operation for demotion
+    /// Verify expected state before transition to prevent concurrent load/unload races
+    ///
+    /// Returns Ok(new_state) if transition succeeded, Err(current_state) if CAS failed
+    pub fn cas_demote(&self, expected: AdapterState) -> std::result::Result<Self, AdapterState> {
+        if *self != expected {
+            return Err(*self);
+        }
+        self.demote().ok_or(*self)
     }
 
     /// Check if adapter is loaded in memory
@@ -220,6 +275,18 @@ pub struct AdapterStateRecord {
     /// Domain tags for routing (e.g., "code", "vision", "finance")
     #[serde(default)]
     pub domains: Vec<String>,
+    /// Acquisition state for model download/cache tracking
+    #[serde(default)]
+    pub acquisition_state: AcquisitionState,
+    /// Download progress percentage (0-100)
+    #[serde(default)]
+    pub download_progress_pct: Option<u8>,
+    /// Local filesystem path to cached model
+    #[serde(default)]
+    pub local_path: Option<PathBuf>,
+    /// HuggingFace repo ID (e.g., "meta-llama/Llama-2-7b")
+    #[serde(default)]
+    pub repo_id: Option<String>,
 }
 
 impl AdapterStateRecord {
@@ -237,6 +304,10 @@ impl AdapterStateRecord {
             parent_adapter_id: None,
             is_safety_adapter: false,
             domains: Vec::new(),
+            acquisition_state: AcquisitionState::default(),
+            download_progress_pct: None,
+            local_path: None,
+            repo_id: None,
         }
     }
 
@@ -259,6 +330,10 @@ impl AdapterStateRecord {
             parent_adapter_id: None,
             is_safety_adapter: false,
             domains: Vec::new(),
+            acquisition_state: AcquisitionState::default(),
+            download_progress_pct: None,
+            local_path: None,
+            repo_id: None,
         }
     }
 
@@ -284,6 +359,10 @@ impl AdapterStateRecord {
             parent_adapter_id,
             is_safety_adapter,
             domains,
+            acquisition_state: AcquisitionState::default(),
+            download_progress_pct: None,
+            local_path: None,
+            repo_id: None,
         }
     }
 
@@ -298,6 +377,27 @@ impl AdapterStateRecord {
             }
         } else {
             false
+        }
+    }
+
+    /// FIX 4: CAS-based promote with expected state verification
+    /// Returns Ok(true) if promoted, Ok(false) if can't promote, Err if state changed
+    pub fn cas_promote(
+        &mut self,
+        expected: AdapterState,
+    ) -> std::result::Result<bool, AdapterState> {
+        if self.state != expected {
+            return Err(self.state);
+        }
+        if self.state.can_promote(&self.category) {
+            if let Some(new_state) = self.state.promote() {
+                self.state = new_state;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
         }
     }
 
@@ -323,6 +423,38 @@ impl AdapterStateRecord {
             true
         } else {
             false
+        }
+    }
+
+    /// FIX 4: CAS-based demote with expected state verification
+    /// Returns Ok(true) if demoted, Ok(false) if can't demote, Err if state changed
+    pub fn cas_demote(
+        &mut self,
+        expected: AdapterState,
+    ) -> std::result::Result<bool, AdapterState> {
+        if self.state != expected {
+            return Err(self.state);
+        }
+        if self.pinned {
+            return Ok(false); // Cannot demote pinned adapters
+        }
+
+        // Check if we should demote based on last activation time
+        if let Some(last_activated) = self.last_activated {
+            let time_since_activation = last_activated.elapsed().unwrap_or(Duration::from_secs(0));
+            if !self
+                .state
+                .should_demote(&self.category, time_since_activation)
+            {
+                return Ok(false);
+            }
+        }
+
+        if let Some(new_state) = self.state.demote() {
+            self.state = new_state;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 

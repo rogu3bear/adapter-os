@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore] // Requires model files
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
     fn test_tokenizer_round_trip() {
         let tokenizer = QwenTokenizer::from_file("models/qwen2.5-7b-mlx/tokenizer.json")
             .expect("Test tokenizer loading should succeed");

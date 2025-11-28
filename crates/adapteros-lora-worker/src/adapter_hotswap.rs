@@ -216,6 +216,8 @@ impl AdapterTable {
     }
 
     /// Swap adapters atomically with mutex-guarded pointer flip
+    ///
+    /// FIX 3: Hot-swap partial removal - Validate ALL add_ids exist in staged BEFORE removing any adapter
     pub async fn swap(&self, add_ids: &[String], remove_ids: &[String]) -> Result<(i64, usize)> {
         // Save current stack for potential rollback
         {
@@ -225,6 +227,20 @@ impl AdapterTable {
                 active: self.active.read().clone(),
             }));
         }
+
+        // FIX 3: VALIDATE all add_ids exist in staged BEFORE making any changes
+        // This prevents partial swap where some removes succeed but adds fail
+        {
+            let staged_read = self.staged.read();
+            for id in add_ids {
+                if !staged_read.contains_key(id) {
+                    return Err(AosError::Worker(format!(
+                        "Adapter {} not found in staged set - aborting swap before any changes",
+                        id
+                    )));
+                }
+            }
+        } // Drop staged_read lock
 
         let old_stack = self.current_stack.load(Ordering::Acquire);
         let mut new_active = self.active.read().clone();
@@ -239,7 +255,7 @@ impl AdapterTable {
             }
         }
 
-        // Add staged adapters
+        // Add staged adapters (all guaranteed to exist after validation above)
         let mut added_count = 0;
         {
             let mut staged_write = self.staged.write();
@@ -250,27 +266,28 @@ impl AdapterTable {
                     new_active.insert(id.clone(), adapter);
                     added_count += 1;
                 } else {
+                    // FIX 3: This should never happen due to validation above, but handle defensively
                     // Rollback on partial failure
                     let rollback_state = self.rollback_state.read();
                     if let Some(rollback_stack) = rollback_state.as_ref() {
                         let _old = self
                             .current_stack
                             .swap(rollback_stack.generation as usize, Ordering::AcqRel);
-                        tracing::warn!(
+                        tracing::error!(
                             adapter_id = %id,
-                            "Rolled back to previous state due to missing staged adapter"
+                            "UNEXPECTED: Adapter not in staged after validation - rolling back"
                         );
                         drop(staged_write); // Release lock before clear
                         self.staged.write().clear();
                         return Err(AosError::Worker(format!(
-                            "Adapter {} not found in staged set",
+                            "Adapter {} disappeared from staged set after validation (possible concurrent modification)",
                             id
                         )));
                     } else {
                         drop(staged_write); // Release lock before clear
                         self.staged.write().clear();
                         return Err(AosError::Worker(format!(
-                            "Adapter {} not found in staged set and no rollback state available",
+                            "Adapter {} disappeared from staged set and no rollback state available",
                             id
                         )));
                     }
@@ -837,8 +854,19 @@ where
         let table_clone = table_arc.clone();
         let kernels_clone = Some(kernels.clone());
 
-        // Spawn background retirement task with periodic processing
+        // Spawn background retirement task with periodic processing and backoff
         tokio::spawn(async move {
+            use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
+
+            let backoff = BackoffConfig::new(
+                Duration::from_millis(500),
+                Duration::from_secs(60),
+                2.0,
+                5,
+            );
+            let circuit_breaker = BackoffCircuitBreaker::new(5, Duration::from_secs(120));
+            let mut consecutive_failures = 0u32;
+
             loop {
                 tokio::select! {
                     _ = rx.recv() => {
@@ -848,11 +876,56 @@ where
                         tracing::debug!("Periodic retirement check");
                     }
                 }
-                if let Err(e) = table_clone
+
+                // Check circuit breaker state
+                if circuit_breaker.is_open() {
+                    tracing::warn!(
+                        failure_count = circuit_breaker.failure_count(),
+                        "Retirement task circuit breaker is open, pausing"
+                    );
+                    sleep(circuit_breaker.reset_timeout()).await;
+                    continue;
+                }
+
+                // Process retired stacks
+                match table_clone
                     .process_retired_stacks(kernels_clone.clone())
                     .await
                 {
-                    tracing::error!("Error in retirement task: {}", e);
+                    Ok(_) => {
+                        // Success - reset backoff and circuit breaker
+                        circuit_breaker.record_success();
+                        consecutive_failures = 0;
+                    }
+                    Err(e) => {
+                        // Failure - record and apply backoff
+                        circuit_breaker.record_failure();
+                        consecutive_failures += 1;
+
+                        tracing::error!(
+                            error = %e,
+                            consecutive_failures = consecutive_failures,
+                            "Error in retirement task"
+                        );
+
+                        // Apply exponential backoff
+                        let delay = backoff.next_delay(consecutive_failures);
+                        tracing::warn!(
+                            delay_ms = delay.as_millis(),
+                            "Applying backoff delay to retirement task"
+                        );
+                        sleep(delay).await;
+
+                        // If we've exceeded max retries, wait longer before trying again
+                        if backoff.should_give_up(consecutive_failures) {
+                            tracing::error!(
+                                "Retirement task has failed {} times, entering extended backoff",
+                                consecutive_failures
+                            );
+                            sleep(Duration::from_secs(300)).await; // 5 minute extended backoff
+                            consecutive_failures = 0; // Reset after extended backoff
+                        }
+                    }
                 }
             }
         });

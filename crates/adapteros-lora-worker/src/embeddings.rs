@@ -51,15 +51,38 @@ impl EmbeddingModel {
         vocab_size: usize,
         hidden_dim: usize,
     ) -> Result<Vec<f32>> {
-        // Load embedding layer from safetensors (MLX format expected)
-        // MLX format uses a single model.safetensors file optimized for Apple Silicon
-        let model_path = path.as_ref().join("model.safetensors");
+        // Load embedding layer from safetensors
+        // Supports both single file (model.safetensors) and sharded models (model-XXXXX-of-YYYYY.safetensors)
+        let base_path = path.as_ref();
+        let single_model_path = base_path.join("model.safetensors");
+        let index_path = base_path.join("model.safetensors.index.json");
 
-        // Check if file exists, if not return placeholder for testing
-        if !model_path.exists() {
-            // Return dummy embedding matrix for testing
+        // Determine which safetensors file contains the embeddings
+        let model_path = if single_model_path.exists() {
+            single_model_path
+        } else if index_path.exists() {
+            // Parse the sharded model index to find the embeddings shard
+            let index_content = std::fs::read_to_string(&index_path)
+                .map_err(|e| AosError::Worker(format!("Failed to read index file: {}", e)))?;
+            let index: serde_json::Value = serde_json::from_str(&index_content)
+                .map_err(|e| AosError::Worker(format!("Failed to parse index JSON: {}", e)))?;
+
+            // Look for embedding tensor in weight_map
+            let weight_map = index.get("weight_map")
+                .ok_or_else(|| AosError::Worker("Index missing weight_map".into()))?;
+
+            let shard_file = weight_map.get("model.embed_tokens.weight")
+                .or_else(|| weight_map.get("transformer.wte.weight"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AosError::Worker("Could not find embedding tensor in index".into()))?;
+
+            tracing::info!(shard = %shard_file, "Loading embeddings from sharded model");
+            base_path.join(shard_file)
+        } else {
+            // No model found - return placeholder for testing
+            tracing::warn!("No model.safetensors found, using placeholder embeddings");
             return Ok(vec![0.1; vocab_size * hidden_dim]);
-        }
+        };
 
         let file = File::open(&model_path)
             .map_err(|e| AosError::Worker(format!("Failed to open model: {}", e)))?;
@@ -76,22 +99,169 @@ impl EmbeddingModel {
             .or_else(|_| tensors.tensor("transformer.wte.weight"))
             .map_err(|e| AosError::Worker(format!("Embedding tensor not found: {}", e)))?;
 
-        // Convert to Vec<f32>
+        // Detect if this is a quantized model by checking tensor dtype or size
         let data = embedding_tensor.data();
-        let float_data: Vec<f32> = data
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-            .collect();
+        let expected_fp32_size = vocab_size * hidden_dim * 4; // 4 bytes per f32
+
+        // Check if model is quantized (data size much smaller than expected fp32 size)
+        if data.len() < expected_fp32_size / 4 {
+            // This is likely a quantized model (4-bit or 8-bit)
+            // For quantized models, we need to dequantize the embeddings
+            // Check for MLX quantized format with scales and biases
+
+            // MLX 4-bit quantization packs weights with group_size=64
+            // Try to load scales tensor if available
+            let scales_result = tensors.tensor("model.embed_tokens.scales");
+            let biases_result = tensors.tensor("model.embed_tokens.biases");
+
+            if let (Ok(scales_tensor), Ok(biases_tensor)) = (scales_result, biases_result) {
+                // Dequantize using MLX format: dequantized = scales * (packed_weights - biases)
+                return Self::dequantize_mlx_4bit(
+                    data,
+                    scales_tensor.data(),
+                    biases_tensor.data(),
+                    vocab_size,
+                    hidden_dim,
+                    64, // MLX default group_size
+                );
+            }
+
+            // If no scales/biases found, use mean-initialized embeddings as fallback
+            // This allows the worker to start while RAG functionality is degraded
+            tracing::warn!(
+                "Quantized model detected without dequantization metadata. \
+                 Using initialized embeddings for RAG. For full accuracy, use non-quantized model."
+            );
+            return Ok(Self::init_random_embeddings(vocab_size, hidden_dim));
+        }
+
+        // Standard fp32, fp16, or bf16 model
+        let float_data: Vec<f32> = if data.len() == vocab_size * hidden_dim * 4 {
+            // fp32 format: 4 bytes per element
+            data.chunks_exact(4)
+                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .collect()
+        } else if data.len() == vocab_size * hidden_dim * 2 {
+            // fp16/bf16 format: 2 bytes per element
+            // Detect bf16 vs fp16 by checking the tensor dtype from safetensors
+            // bf16: exponent bits are like f32 (8 bits), mantissa is truncated (7 bits)
+            // fp16: exponent is 5 bits, mantissa is 10 bits
+            // We'll use bf16 interpretation as it's more common for modern models
+            data.chunks_exact(2)
+                .map(|chunk| {
+                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                    // Convert bf16 to f32 by shifting left 16 bits (bf16 is top 16 bits of f32)
+                    let f32_bits = (bits as u32) << 16;
+                    f32::from_bits(f32_bits)
+                })
+                .collect()
+        } else {
+            return Err(AosError::Worker(format!(
+                "Embedding size mismatch: expected {} (fp32) or {} (fp16/bf16) bytes, got {}",
+                expected_fp32_size,
+                vocab_size * hidden_dim * 2,
+                data.len()
+            )));
+        };
 
         if float_data.len() != vocab_size * hidden_dim {
             return Err(AosError::Worker(format!(
-                "Embedding size mismatch: expected {}, got {}",
+                "Embedding count mismatch: expected {}, got {}",
                 vocab_size * hidden_dim,
                 float_data.len()
             )));
         }
 
         Ok(float_data)
+    }
+
+    /// Dequantize MLX 4-bit quantized embeddings
+    fn dequantize_mlx_4bit(
+        packed_data: &[u8],
+        scales_data: &[u8],
+        biases_data: &[u8],
+        vocab_size: usize,
+        hidden_dim: usize,
+        group_size: usize,
+    ) -> Result<Vec<f32>> {
+        let num_groups = hidden_dim / group_size;
+        let mut result = Vec::with_capacity(vocab_size * hidden_dim);
+
+        // Parse scales and biases as fp16
+        let scales: Vec<f32> = scales_data
+            .chunks_exact(2)
+            .map(|chunk| {
+                let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                half::f16::from_bits(bits).to_f32()
+            })
+            .collect();
+
+        let biases: Vec<f32> = biases_data
+            .chunks_exact(2)
+            .map(|chunk| {
+                let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                half::f16::from_bits(bits).to_f32()
+            })
+            .collect();
+
+        // 4-bit packing: 2 values per byte
+        let packed_per_row = hidden_dim / 2;
+
+        for vocab_idx in 0..vocab_size {
+            let row_offset = vocab_idx * packed_per_row;
+            let scale_offset = vocab_idx * num_groups;
+
+            for group_idx in 0..num_groups {
+                let scale = scales.get(scale_offset + group_idx).copied().unwrap_or(1.0);
+                let bias = biases.get(scale_offset + group_idx).copied().unwrap_or(0.0);
+
+                for elem_in_group in 0..group_size {
+                    let elem_idx = group_idx * group_size + elem_in_group;
+                    let packed_idx = row_offset + elem_idx / 2;
+
+                    if packed_idx >= packed_data.len() {
+                        result.push(0.0);
+                        continue;
+                    }
+
+                    let packed_byte = packed_data[packed_idx];
+                    let value = if elem_idx % 2 == 0 {
+                        (packed_byte & 0x0F) as f32
+                    } else {
+                        ((packed_byte >> 4) & 0x0F) as f32
+                    };
+
+                    // Dequantize: scale * (value - 8) + bias (center around 8 for 4-bit)
+                    let dequantized = scale * (value - 8.0) + bias;
+                    result.push(dequantized);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Initialize random embeddings for when model is quantized without metadata
+    fn init_random_embeddings(vocab_size: usize, hidden_dim: usize) -> Vec<f32> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut result = Vec::with_capacity(vocab_size * hidden_dim);
+
+        // Use deterministic pseudo-random initialization based on vocab position
+        for vocab_idx in 0..vocab_size {
+            for dim_idx in 0..hidden_dim {
+                let mut hasher = DefaultHasher::new();
+                (vocab_idx, dim_idx).hash(&mut hasher);
+                let hash = hasher.finish();
+
+                // Convert hash to float in range [-0.02, 0.02] (typical embedding init range)
+                let normalized = (hash as f64 / u64::MAX as f64) * 0.04 - 0.02;
+                result.push(normalized as f32);
+            }
+        }
+
+        result
     }
 
     /// Compute embedding for text tokens

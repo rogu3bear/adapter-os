@@ -1,9 +1,3 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
-#![allow(clippy::type_complexity)]
-#![allow(unused_variables)]
-#![allow(unreachable_code)]
-
 //! Test fixtures for lifecycle database tests
 //!
 //! Provides:
@@ -11,12 +5,6 @@
 //! - Test adapter fixtures with various states
 //! - Helper functions for common test scenarios
 //! - Isolation mechanisms for parallel test execution
-//!
-//! NOTE: This module is currently disabled pending API alignment between
-//! TestAdapterBuilder and AdapterRegistrationBuilder.
-
-// Temporarily stub out the entire module to allow compilation
-// TODO: Fix type mismatches (u16 vs i32 for rank, u16 vs String for tier, etc.)
 
 #[allow(unused_imports)]
 use adapteros_db::{AdapterRegistrationBuilder, Db};

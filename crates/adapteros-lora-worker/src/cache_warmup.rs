@@ -7,10 +7,53 @@
 //! existing inference loop with cache warmup capabilities.
 
 use adapteros_core::{AosError, Result};
-use std::time::Duration;
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
 use crate::{InferenceRequest, RequestType, Worker};
+
+/// Configuration for health check inference tests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckConfig {
+    /// Test prompt for warmup inference
+    pub test_prompt: String,
+    /// Maximum tokens to generate
+    pub max_tokens: usize,
+    /// Timeout for the test
+    pub timeout: Duration,
+    /// Number of warmup iterations
+    pub iterations: usize,
+    /// Temperature (0.0 for deterministic)
+    pub temperature: f32,
+}
+
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            test_prompt: "Hello".to_string(),
+            max_tokens: 5,
+            timeout: Duration::from_secs(30),
+            iterations: 1,
+            temperature: 0.0,
+        }
+    }
+}
+
+/// Result of a health check inference test
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResult {
+    /// Whether the health check passed
+    pub passed: bool,
+    /// Latency in milliseconds
+    pub latency_ms: u64,
+    /// Number of tokens generated
+    pub tokens_generated: usize,
+    /// Tokens per second throughput
+    pub tokens_per_second: f64,
+    /// Failure reason if test failed
+    pub failure_reason: Option<String>,
+}
 
 /// Cache warmup manager
 pub struct CacheWarmupManager {
@@ -274,6 +317,145 @@ pub struct ReloadStats {
     pub reload_delay_ms: u64,
 }
 
+/// Perform a health check inference test on a model
+///
+/// This function runs a test inference with the given configuration to verify
+/// that the model is ready and capable of generating responses. It measures
+/// latency, throughput, and validates the output.
+///
+/// # Arguments
+///
+/// * `worker` - The worker instance to run inference on
+/// * `config` - Health check configuration
+/// * `adapter_id` - Optional adapter ID to test (None for base model)
+///
+/// # Returns
+///
+/// Returns a `HealthCheckResult` containing metrics and pass/fail status
+pub async fn check_model_health<K>(
+    worker: &mut Worker<K>,
+    config: &HealthCheckConfig,
+    adapter_id: Option<String>,
+) -> Result<HealthCheckResult>
+where
+    K: adapteros_lora_kernel_api::FusedKernels,
+{
+    info!(
+        adapter_id = ?adapter_id,
+        prompt = %config.test_prompt,
+        max_tokens = config.max_tokens,
+        "Starting model health check"
+    );
+
+    let start_time = Instant::now();
+    let mut total_tokens_generated = 0;
+    let mut last_error: Option<String> = None;
+
+    // Run health check iterations
+    for iteration in 0..config.iterations {
+        let iteration_start = Instant::now();
+
+        // Create inference request
+        let request = InferenceRequest {
+            cpid: adapter_id
+                .as_ref()
+                .map(|id| format!("health-check-{}", id))
+                .unwrap_or_else(|| "health-check-base".to_string()),
+            prompt: config.test_prompt.clone(),
+            max_tokens: config.max_tokens,
+            require_evidence: false,
+            request_type: RequestType::Normal,
+            stack_id: None,
+            stack_version: None,
+        };
+
+        // Run inference with timeout
+        let result = tokio::time::timeout(config.timeout, worker.infer(request)).await;
+
+        match result {
+            Ok(Ok(response)) => {
+                let iteration_latency = iteration_start.elapsed();
+                let tokens = response.text.split_whitespace().count();
+                total_tokens_generated += tokens;
+
+                info!(
+                    iteration = iteration + 1,
+                    latency_ms = iteration_latency.as_millis(),
+                    tokens = tokens,
+                    "Health check iteration completed successfully"
+                );
+
+                // Verify output is non-empty
+                if response.text.trim().is_empty() {
+                    last_error = Some("Generated text is empty".to_string());
+                    warn!("Health check iteration {} produced empty output", iteration + 1);
+                } else {
+                    // Success - clear any previous errors
+                    last_error = None;
+                }
+            }
+            Ok(Err(e)) => {
+                last_error = Some(format!("Inference failed: {}", e));
+                warn!(
+                    iteration = iteration + 1,
+                    error = %e,
+                    "Health check iteration failed"
+                );
+            }
+            Err(_) => {
+                last_error = Some(format!("Timeout after {:?}", config.timeout));
+                warn!(
+                    iteration = iteration + 1,
+                    timeout = ?config.timeout,
+                    "Health check iteration timed out"
+                );
+            }
+        }
+
+        // Small delay between iterations
+        if iteration + 1 < config.iterations {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    let total_latency = start_time.elapsed();
+    let latency_ms = total_latency.as_millis() as u64;
+
+    // Calculate tokens per second
+    let tokens_per_second = if total_latency.as_secs_f64() > 0.0 {
+        total_tokens_generated as f64 / total_latency.as_secs_f64()
+    } else {
+        0.0
+    };
+
+    // Determine if health check passed
+    let passed = last_error.is_none() && total_tokens_generated > 0;
+
+    let result = HealthCheckResult {
+        passed,
+        latency_ms,
+        tokens_generated: total_tokens_generated,
+        tokens_per_second,
+        failure_reason: last_error,
+    };
+
+    if result.passed {
+        info!(
+            latency_ms = result.latency_ms,
+            tokens_generated = result.tokens_generated,
+            tokens_per_second = result.tokens_per_second,
+            "Model health check PASSED"
+        );
+    } else {
+        warn!(
+            failure_reason = ?result.failure_reason,
+            "Model health check FAILED"
+        );
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,5 +498,62 @@ mod tests {
         assert!(stats.total_queries > 0);
         assert_eq!(stats.warmup_delay_ms, 100);
         assert_eq!(stats.max_duration_ms, 30000);
+    }
+
+    #[test]
+    fn test_health_check_config_default() {
+        let config = HealthCheckConfig::default();
+        assert_eq!(config.test_prompt, "Hello");
+        assert_eq!(config.max_tokens, 5);
+        assert_eq!(config.timeout, Duration::from_secs(30));
+        assert_eq!(config.iterations, 1);
+        assert_eq!(config.temperature, 0.0);
+    }
+
+    #[test]
+    fn test_health_check_config_custom() {
+        let config = HealthCheckConfig {
+            test_prompt: "Test prompt".to_string(),
+            max_tokens: 10,
+            timeout: Duration::from_secs(60),
+            iterations: 3,
+            temperature: 0.7,
+        };
+        assert_eq!(config.test_prompt, "Test prompt");
+        assert_eq!(config.max_tokens, 10);
+        assert_eq!(config.timeout, Duration::from_secs(60));
+        assert_eq!(config.iterations, 3);
+        assert_eq!(config.temperature, 0.7);
+    }
+
+    #[test]
+    fn test_health_check_result_passed() {
+        let result = HealthCheckResult {
+            passed: true,
+            latency_ms: 100,
+            tokens_generated: 5,
+            tokens_per_second: 50.0,
+            failure_reason: None,
+        };
+        assert!(result.passed);
+        assert_eq!(result.latency_ms, 100);
+        assert_eq!(result.tokens_generated, 5);
+        assert_eq!(result.tokens_per_second, 50.0);
+        assert!(result.failure_reason.is_none());
+    }
+
+    #[test]
+    fn test_health_check_result_failed() {
+        let result = HealthCheckResult {
+            passed: false,
+            latency_ms: 0,
+            tokens_generated: 0,
+            tokens_per_second: 0.0,
+            failure_reason: Some("Inference failed".to_string()),
+        };
+        assert!(!result.passed);
+        assert_eq!(result.tokens_generated, 0);
+        assert!(result.failure_reason.is_some());
+        assert_eq!(result.failure_reason.unwrap(), "Inference failed");
     }
 }

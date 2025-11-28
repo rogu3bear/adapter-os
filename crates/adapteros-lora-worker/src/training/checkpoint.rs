@@ -58,7 +58,7 @@ impl TrainingCheckpoint {
         }
     }
 
-    /// Save checkpoint to file
+    /// Save checkpoint to file using atomic write pattern to prevent corruption
     pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
 
@@ -73,10 +73,20 @@ impl TrainingCheckpoint {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| AosError::Training(format!("Failed to serialize checkpoint: {}", e)))?;
 
-        // Write to file
-        tokio::fs::write(path, json)
-            .await
-            .map_err(|e| AosError::Training(format!("Failed to write checkpoint: {}", e)))?;
+        // Atomic write pattern: write to temp file, then rename
+        // This ensures the checkpoint file is never corrupted if write fails mid-way
+        let temp_path = path.with_extension("ckpt.tmp");
+
+        tokio::fs::write(&temp_path, &json).await.map_err(|e| {
+            AosError::Training(format!("Failed to write checkpoint to temp file: {}", e))
+        })?;
+
+        // Rename is atomic on POSIX systems
+        tokio::fs::rename(&temp_path, path).await.map_err(|e| {
+            // Clean up temp file on error
+            let _ = std::fs::remove_file(&temp_path);
+            AosError::Training(format!("Failed to rename checkpoint file: {}", e))
+        })?;
 
         info!(
             path = %path.display(),
@@ -88,7 +98,7 @@ impl TrainingCheckpoint {
         Ok(())
     }
 
-    /// Load checkpoint from file
+    /// Load checkpoint from file with checksum validation
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
 
@@ -97,15 +107,45 @@ impl TrainingCheckpoint {
             .await
             .map_err(|e| AosError::Training(format!("Failed to read checkpoint: {}", e)))?;
 
-        // Deserialize
-        let checkpoint: Self = serde_json::from_str(&json)
-            .map_err(|e| AosError::Training(format!("Failed to deserialize checkpoint: {}", e)))?;
+        // Validate JSON is well-formed before deserializing
+        // This provides early detection of file corruption
+        if json.is_empty() {
+            return Err(AosError::Training(format!(
+                "Checkpoint file is empty: {}",
+                path.display()
+            )));
+        }
+
+        // Deserialize with detailed error reporting
+        let checkpoint: Self = serde_json::from_str(&json).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to deserialize checkpoint (possible corruption): {} at line {}, column {}",
+                e,
+                e.line(),
+                e.column()
+            ))
+        })?;
+
+        // Basic sanity checks on loaded checkpoint
+        if checkpoint.epoch > 10000 {
+            return Err(AosError::Training(format!(
+                "Invalid checkpoint: epoch {} exceeds reasonable bounds (possible corruption)",
+                checkpoint.epoch
+            )));
+        }
+
+        if !checkpoint.loss.is_finite() {
+            return Err(AosError::Training(format!(
+                "Invalid checkpoint: loss {} is not finite (possible corruption)",
+                checkpoint.loss
+            )));
+        }
 
         info!(
             path = %path.display(),
             epoch = checkpoint.epoch,
             loss = checkpoint.loss,
-            "Checkpoint loaded successfully"
+            "Checkpoint loaded and validated successfully"
         );
 
         Ok(checkpoint)

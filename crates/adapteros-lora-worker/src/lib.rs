@@ -48,6 +48,7 @@ use tracing::info;
 
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
+pub mod backoff;
 pub mod backend_coordinator;
 pub mod backend_factory;
 pub mod base_model_state;
@@ -85,6 +86,7 @@ pub mod test_executor;
 pub mod timeout;
 pub mod tokenizer;
 pub mod training;
+pub mod uds_server;
 pub mod vision_adapter;
 pub mod vision_lora;
 
@@ -99,6 +101,7 @@ pub use adapteros_lora_rag::TestIndexImpl;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };
+pub use backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 pub use backend_factory::{
     create_backend, create_backend_from_config, create_backend_with_model, BackendChoice,
 };
@@ -352,10 +355,11 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             .with_temperature(0.7)
             .with_top_p(0.9);
 
-        // Load embedding model
+        // Load embedding model - use dimensions from manifest
         let embedding_model = Arc::new(EmbeddingModel::from_model_path(
-            model_path, 152064, // Qwen2.5 vocab size
-            3584,   // Qwen2.5-7B hidden size
+            model_path,
+            manifest.base.vocab_size as usize,
+            manifest.base.hidden_dim as usize,
         )?);
 
         // Initialize evidence retriever with real implementation if RAG is available
@@ -470,11 +474,32 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
         // Background monitoring task - acceptable as tokio::spawn per CLAUDE.md
         // Using tokio::spawn for background monitoring tasks
         tokio::spawn(async move {
+            use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
+
+            let backoff = BackoffConfig::new(
+                tokio::time::Duration::from_secs(5),
+                tokio::time::Duration::from_secs(300),
+                2.0,
+                5,
+            );
+            let circuit_breaker = BackoffCircuitBreaker::new(10, tokio::time::Duration::from_secs(600));
+            let mut consecutive_failures = 0u32;
+
             let mut interval =
                 tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
 
             loop {
                 interval.tick().await;
+
+                // Check circuit breaker state
+                if circuit_breaker.is_open() {
+                    tracing::warn!(
+                        failure_count = circuit_breaker.failure_count(),
+                        "GPU verification circuit breaker is open, pausing"
+                    );
+                    tokio::time::sleep(circuit_breaker.reset_timeout()).await;
+                    continue;
+                }
 
                 // Get loaded adapters from lifecycle
                 let loaded_adapters = {
@@ -485,6 +510,8 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                 if loaded_adapters.is_empty() {
                     continue; // Skip if no adapters loaded
                 }
+
+                let mut had_errors = false;
 
                 // Verify each loaded adapter
                 for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
@@ -517,6 +544,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                                         );
                                     }
                                     Ok(false) => {
+                                        had_errors = true;
                                         tracing::error!(
                                             adapter_id = %adapter_id,
                                             "GPU buffer fingerprint mismatch detected - taking corrective action"
@@ -558,6 +586,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                                         );
                                     }
                                     Err(e) => {
+                                        had_errors = true;
                                         tracing::error!(
                                             adapter_id = %adapter_id,
                                             error = %e,
@@ -575,6 +604,34 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
                             );
                         }
                     }
+                }
+
+                // Track success/failure for circuit breaker and backoff
+                if had_errors {
+                    circuit_breaker.record_failure();
+                    consecutive_failures += 1;
+
+                    // Apply backoff on errors
+                    let delay = backoff.next_delay(consecutive_failures);
+                    tracing::warn!(
+                        delay_ms = delay.as_millis(),
+                        consecutive_failures = consecutive_failures,
+                        "Applying backoff to GPU verification after errors"
+                    );
+                    tokio::time::sleep(delay).await;
+
+                    // Extended backoff if we've exceeded max retries
+                    if backoff.should_give_up(consecutive_failures) {
+                        tracing::error!(
+                            "GPU verification has failed {} times, entering extended backoff",
+                            consecutive_failures
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(600)).await;
+                        consecutive_failures = 0;
+                    }
+                } else {
+                    circuit_breaker.record_success();
+                    consecutive_failures = 0;
                 }
             }
         })
@@ -750,7 +807,7 @@ impl<K: FusedKernels + Send + Sync + 'static> Worker<K> {
             // Execute kernels through Metal and measure latency per adapter
             let mut io_buffers = IoBuffers {
                 input_ids: input_ids_slice.to_vec(),
-                output_logits: vec![0.0; 152064], // Qwen2.5 vocab size
+                output_logits: vec![0.0; self.manifest.base.vocab_size as usize],
                 position: step,
             };
 
