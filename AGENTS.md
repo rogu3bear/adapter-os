@@ -9,7 +9,8 @@ This file provides guidance to AGENTS Code (AGENTS.ai/code) when working with co
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 **Purpose:** Quick reference for developers. For detailed architecture, see [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md)
-**Last Updated:** 2025-11-24 (System information accuracy updates: migration count, crate count, endpoint count, feature status)
+**Last Updated:** 2025-11-25 (System information accuracy updates: migration count, crate count, endpoint count, feature status)
+**Version:** v0.3-alpha
 **Maintained by:** James KC Auchterlonie
 
 **AI Assistant Integration:** This file (AGENTS.md) serves as the single source of truth for both human developers and AI assistants. No separate rule files exist - all standards and protocols are documented here.
@@ -51,7 +52,7 @@ This file provides guidance to AGENTS Code (AGENTS.ai/code) when working with co
 
 **Documentation Updates:**
 - New crates require AGENTS.md architecture pattern entries
-- Policy changes must update the 23 canonical policies section
+- Policy changes must update the 24 canonical policies section
 - RBAC modifications need permission matrix updates
 - New endpoints require API reference updates
 
@@ -110,11 +111,11 @@ All code extractions require citations: `【YYYY-MM-DD†category†identifier�
 
 ## Current Implementation Status (v0.3-alpha)
 
-### ✅ **Implemented Features**
+-### ✅ **Implemented Features**
 - Multi-backend architecture (CoreML, MLX, Metal)
 - K-sparse LoRA routing with Q15 quantization
 - Deterministic execution with HKDF seeding
-- 23 canonical policy packs enforcement
+- 24 canonical policy packs enforcement
 - REST API with streaming inference support
 - SQLite database with comprehensive migrations
 - CLI tools (`aosctl`) with full feature set
@@ -128,11 +129,14 @@ All code extractions require citations: `【YYYY-MM-DD†category†identifier�
 **Completion Plan:** See [docs/PRD-COMPLETION-V03-ALPHA.md](docs/PRD-COMPLETION-V03-ALPHA.md) for the comprehensive 12-week plan to complete all features (70 tasks, 6-7 teams, 15-19 engineers)
 
 ### 📊 **Architecture Scale**
-- 51 crates in workspace (plus xtask, fuzz)
-- 386,890+ lines of Rust code
-- 200+ documentation files
-- 11 active CI/CD workflows
-- 225 REST API endpoints
+- 70 crates in workspace (plus xtask, fuzz)
+- 422,000+ lines of Rust code
+- 340+ documentation files
+- 97 migrations (0001-0097)
+- 24 canonical policy packs
+- 55 permissions (5 roles)
+- ~190 REST API endpoints
+- 16 active CI/CD workflows
 
 ---
 
@@ -226,7 +230,7 @@ println!("Debug: adapter {}", id); // ❌ Remove or convert to tracing::debug!
 
 ## Policy Packs
 
-23 canonical policies enforced. Core policies:
+24 canonical policies enforced. Core policies:
 
 | Policy | Purpose | Implementation |
 |--------|---------|----------------|
@@ -236,6 +240,7 @@ println!("Debug: adapter {}", id); // ❌ Remove or convert to tracing::debug!
 | **Evidence** | Audit trail with quality thresholds | Min relevance/confidence scores, source validation |
 | **Telemetry** | Structured event logging | Canonical JSON events with signatures |
 | **Naming** | Semantic adapter names | `{tenant}/{domain}/{purpose}/{revision}` format |
+| **DependencySecurity** | Supply chain & dependency validation | Canonical CVE/signature checks and policy bundles |
 
 **Naming conventions:**
 - Adapters: `tenant-a/engineering/code-review/r001`
@@ -248,9 +253,11 @@ println!("Debug: adapter {}", id); // ❌ Remove or convert to tracing::debug!
 
 See `crates/adapteros-policy/src/packs/` for implementations.
 
+**All 24 canonical packs:** Egress, Determinism, Router, Evidence, Refusal, Numeric, Rag, Isolation, Telemetry, Retention, Performance, Memory, Artifacts, Secrets, BuildRelease, Compliance, Incident, Output, Adapters, DeterministicIo, Drift, Mplora, Naming, DependencySecurity
+
 ---
 
-## RBAC (5 Roles, 40 Permissions)
+## RBAC (5 Roles, 55 Permissions)
 
 **Roles:** Admin (full), Operator (runtime ops), SRE (infra debug), Compliance (audit-only), Viewer (read-only)
 
@@ -260,6 +267,7 @@ See `crates/adapteros-policy/src/packs/` for implementations.
 - **Operator+Admin:** AdapterRegister, AdapterLoad/Unload, TrainingStart/Cancel, InferenceExecute
 - **SRE+Compliance+Admin:** AuditView
 - **Compliance+Admin:** PolicyValidate
+- **New (2025-11):** Activity*, Dashboard*, Notification*, Workspace* (reflect expansion of observability/workspace admin surfaces)
 
 **Usage:**
 ```rust
@@ -508,7 +516,7 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 ### Migration Management
 
 **Canonical Migration Directory:** `/migrations/` (root)
-**Migration Count:** 83 migrations (0001-0083, complete sequence)
+**Migration Count:** 97 migrations (0001-0097, complete sequence)
 **Signing:** All migrations signed with Ed25519 (`migrations/signatures.json`)
 **Status:** PRD-01 conflict resolution completed (2025-11-19)
 
@@ -540,6 +548,8 @@ let allowed = registry.check_acl("id", "tenant_a")?;
 - **0081** - Query performance indexes
 - **0082** - Adapter activations table
 - **0083** - AOS file columns
+
+**Recent migrations (0084-0097)** continue the modernization effort with default adapter stacks, chat session capture, evidence/document collection stores, policy pack expansion, base model scaffolding, telemetry hardening, and crypto audit traces.
 
 **Creating New Migrations:**
 ```bash
@@ -821,7 +831,7 @@ See [docs/MLX_QUICK_REFERENCE.md](docs/MLX_QUICK_REFERENCE.md) for quick start a
 | CoreML Backend | `adapteros-lora-kernel-coreml` | ANE acceleration (primary/production) |
 | MLX Backend | `adapteros-lora-mlx-ffi` | Production inference, training (active) |
 | Metal Kernels | `adapteros-lora-kernel-mtl` | Deterministic GPU kernels (fallback) |
-| Policy Engine | `adapteros-policy` | 23-pack policy enforcement |
+| Policy Engine | `adapteros-policy` | 24-pack policy enforcement |
 | Memory Mgmt | `adapteros-memory` | Auto-eviction, headroom maintenance |
 | Lifecycle | `adapteros-lora-lifecycle` | State machine (Unloaded→Resident) |
 | Hot-Swap | `adapteros-lora-worker/adapter_hotswap.rs` | Live adapter replacement |

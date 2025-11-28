@@ -240,18 +240,22 @@ ci, deploy, integration-tests, metal-build, migration-testing, multi-backend, in
 ## Quick Commands
 
 ```bash
+# Build CLI (creates ./aosctl symlink)
+make cli
+./aosctl --help
+
 # Build & test
 cargo build --release && cargo test --workspace
 cargo fmt --all && cargo clippy --workspace -- -D warnings
 make dup  # Check duplication
 
 # Database
-./target/release/aosctl db migrate
-./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
+./aosctl db migrate
+./aosctl init-tenant --id default --uid 1000 --gid 1000
 
 # Server
-export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
-cargo run --release -p adapteros-server-api
+make dev          # Start dev server (port 8080)
+make dev-no-auth  # Start without auth (debug only)
 
 # Inference
 curl -X POST http://localhost:8080/v1/infer -H "Content-Type: application/json" \
