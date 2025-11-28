@@ -300,3 +300,7 @@ launch.sh
 libdeterminism_guardrail_suite.rlib
 libreplay_path_verification.rlib
 aosctl
+
+# Generated/temporary directories
+training_data/
+ui-test-screenshots/
