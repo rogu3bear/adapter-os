@@ -14,7 +14,7 @@ export function TenantsTab() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
   if (isLoading) {
-    return <LoadingState message="Loading tenants..." />;
+    return <LoadingState message="Loading organizations..." />;
   }
 
   if (error) {
@@ -32,8 +32,8 @@ export function TenantsTab() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Tenants</CardTitle>
-              <CardDescription>Manage tenant configurations and settings</CardDescription>
+              <CardTitle>Organizations</CardTitle>
+              <CardDescription>Manage organization configurations and settings</CardDescription>
             </div>
             <div className="flex gap-2">
               <Button
@@ -49,7 +49,7 @@ export function TenantsTab() {
                 onClick={() => setCreateModalOpen(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Create Tenant
+                Create Organization
               </Button>
             </div>
           </div>

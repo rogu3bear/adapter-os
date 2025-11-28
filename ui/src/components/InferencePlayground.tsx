@@ -979,20 +979,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
 
       {/* Header */}
       <ToolPageHeader
-        title={
-          <div className="flex items-center gap-2">
-            <span>Inference Playground</span>
-            {selectedStackId && (() => {
-              const selectedStack = stacks.find(s => s.id === selectedStackId);
-              return selectedStack ? (
-                <Badge variant="secondary" className="text-xs">
-                  <Layers className="h-3 w-3 mr-1" />
-                  {selectedStack.name}
-                </Badge>
-              ) : null;
-            })()}
-          </div>
-        }
+        title="Inference Playground"
         description={
           selectedStackId
             ? `Using stack: ${stacks.find(s => s.id === selectedStackId)?.name || selectedStackId}`
@@ -1152,7 +1139,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                               return;
                             }
                             try {
-                              await setDefaultStack({ tenantId: selectedTenant, stackId: selectedStackId });
+                              await setDefaultStack(selectedStackId);
                             } catch (error) {
                               logger.error('Failed to set default stack', {
                                 component: 'InferencePlayground',

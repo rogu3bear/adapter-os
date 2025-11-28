@@ -661,9 +661,9 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
     };
 
     setConfirmationOptions({
-      title: 'Load Adapters',
-      description: `Load ${adapterIds.length} adapter(s) into memory? This may take some time.`,
-      confirmText: 'Load Adapters',
+      title: 'Activate Adapters',
+      description: `Activate ${adapterIds.length} adapter(s) into memory? This may take some time.`,
+      confirmText: 'Activate Adapters',
       variant: 'default'
     });
     setPendingBulkAction(() => performBulkLoad);
@@ -1073,14 +1073,14 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
       type: 'multiSelect',
       options: [
         { value: 'global', label: 'Global' },
-        { value: 'tenant', label: 'Tenant' },
+        { value: 'tenant', label: 'Organization' },
         { value: 'repo', label: 'Repo' },
         { value: 'commit', label: 'Commit' },
       ],
     },
     {
       id: 'pinned',
-      label: 'Pinned Only',
+      label: 'Protected Only',
       type: 'toggle',
     },
   ], [adapters]);
@@ -1623,7 +1623,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
             <TabsContent value="path" className="space-y-4">
               <div className="space-y-3">
                 <div>
-                  <Label>Tenant</Label>
+                  <Label>Organization</Label>
                   <Input value={selectedTenant} readOnly />
                 </div>
                 <div>
@@ -1693,7 +1693,7 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="font-medium text-sm mb-1">Tenant</label>
+              <label className="font-medium text-sm mb-1">Organization</label>
               <Input value={selectedTenant} readOnly />
             </div>
             <div>

@@ -1,7 +1,6 @@
 //! Error types for the service supervisor
 
 use adapteros_core::AosError;
-use std::fmt;
 
 /// Result type alias for supervisor operations
 pub type Result<T> = std::result::Result<T, SupervisorError>;
@@ -57,11 +56,11 @@ impl SupervisorError {
     pub fn should_retry(&self) -> bool {
         matches!(
             self,
-            SupervisorError::Timeout(_) |
-            SupervisorError::CircuitBreaker(_) |
-            SupervisorError::Http(_) |
-            SupervisorError::Io(_) |
-            SupervisorError::Process(_)
+            SupervisorError::Timeout(_)
+                | SupervisorError::CircuitBreaker(_)
+                | SupervisorError::Http(_)
+                | SupervisorError::Io(_)
+                | SupervisorError::Process(_)
         )
     }
 
@@ -81,20 +80,38 @@ impl SupervisorError {
 impl From<SupervisorError> for AosError {
     fn from(err: SupervisorError) -> Self {
         match err {
-            SupervisorError::Authentication(msg) => AosError::Auth(format!("Supervisor authentication failed: {}", msg)),
-            SupervisorError::Authorization(msg) => AosError::Authz(format!("Supervisor authorization failed: {}", msg)),
-            SupervisorError::ServiceNotFound(msg) => AosError::NotFound(format!("Service not found: {}", msg)),
-            SupervisorError::ServiceOperation(msg) => AosError::Internal(format!("Service operation failed: {}", msg)),
-            SupervisorError::Process(msg) => AosError::System(format!("Process management error: {}", msg)),
-            SupervisorError::HealthCheck(msg) => AosError::Internal(format!("Health check failed: {}", msg)),
-            SupervisorError::Configuration(msg) => AosError::Config(format!("Supervisor configuration error: {}", msg)),
+            SupervisorError::Authentication(msg) => {
+                AosError::Auth(format!("Supervisor authentication failed: {}", msg))
+            }
+            SupervisorError::Authorization(msg) => {
+                AosError::Authz(format!("Supervisor authorization failed: {}", msg))
+            }
+            SupervisorError::ServiceNotFound(msg) => {
+                AosError::NotFound(format!("Service not found: {}", msg))
+            }
+            SupervisorError::ServiceOperation(msg) => {
+                AosError::Internal(format!("Service operation failed: {}", msg))
+            }
+            SupervisorError::Process(msg) => {
+                AosError::System(format!("Process management error: {}", msg))
+            }
+            SupervisorError::HealthCheck(msg) => {
+                AosError::Internal(format!("Health check failed: {}", msg))
+            }
+            SupervisorError::Configuration(msg) => {
+                AosError::Config(format!("Supervisor configuration error: {}", msg))
+            }
             SupervisorError::Io(e) => AosError::Io(format!("Supervisor IO error: {}", e)),
             SupervisorError::Json(e) => AosError::Serialization(e),
             SupervisorError::Jwt(e) => AosError::Auth(format!("JWT error: {}", e)),
             SupervisorError::Http(msg) => AosError::Http(format!("Supervisor HTTP error: {}", msg)),
             SupervisorError::CircuitBreaker(msg) => AosError::CircuitBreakerOpen { service: msg },
-            SupervisorError::Timeout(msg) => AosError::Timeout { duration: std::time::Duration::from_secs(0) },
-            SupervisorError::Internal(msg) => AosError::Internal(format!("Supervisor internal error: {}", msg)),
+            SupervisorError::Timeout(_msg) => AosError::Timeout {
+                duration: std::time::Duration::from_secs(0),
+            },
+            SupervisorError::Internal(msg) => {
+                AosError::Internal(format!("Supervisor internal error: {}", msg))
+            }
         }
     }
 }

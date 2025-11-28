@@ -1,5 +1,5 @@
 #[cfg(feature = "mmap")]
-use adapteros_aos::MmapAdapterLoader;
+use adapteros_aos::AosLoader;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::path::PathBuf;
 
@@ -31,8 +31,8 @@ fn benchmark_load(c: &mut Criterion) {
 
     c.bench_function("load", |b| {
         b.to_async(&runtime).iter(|| async {
-            let loader = MmapAdapterLoader::new();
-            let result = loader.load(black_box(&adapter_path)).await;
+            let loader = AosLoader::new().expect("Failed to create AosLoader");
+            let result = loader.load_from_path(black_box(&adapter_path)).await;
             black_box(result)
         });
     });

@@ -54,7 +54,7 @@ impl Db {
         .bind(artifact_hash)
         .bind(result)
         .bind(error_message)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to log enclave operation: {}", e)))?;
 
@@ -70,7 +70,7 @@ impl Db {
              LIMIT ?"
         )
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list enclave operations: {}", e)))?;
 
@@ -92,7 +92,7 @@ impl Db {
         )
         .bind(operation)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list enclave operations by type: {}", e)))?;
 
@@ -111,7 +111,7 @@ impl Db {
              GROUP BY operation
              ORDER BY count DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get operation stats: {}", e)))?;
 
@@ -131,7 +131,7 @@ impl Db {
     /// Get total count of enclave operations
     pub async fn count_enclave_operations(&self) -> Result<i64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM enclave_operations")
-            .fetch_one(self.pool())
+            .fetch_one(&*self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to count enclave operations: {}", e))

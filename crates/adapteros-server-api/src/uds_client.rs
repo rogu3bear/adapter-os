@@ -388,6 +388,45 @@ impl UdsClient {
         serde_json::from_str(json_str)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
+
+    /// Send an adapter command to worker via UDS
+    pub async fn adapter_command(
+        &self,
+        uds_path: &Path,
+        adapter_id: &str,
+        command: &str,
+    ) -> Result<(), UdsClientError> {
+        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let http_request = format!(
+            "POST /adapter/{}/{} HTTP/1.1\r\nHost: worker\r\n\r\n",
+            adapter_id, command
+        );
+
+        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let mut response_buffer = Vec::new();
+        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        if !response_str.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Adapter command failed: {}",
+                response_str.lines().next().unwrap_or("Unknown error")
+            )));
+        }
+
+        Ok(())
+    }
 }
 
 /// Signal type for client consumption

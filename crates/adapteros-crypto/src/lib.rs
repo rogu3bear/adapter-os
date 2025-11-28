@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod bundle_sign;
 pub mod envelope;
+pub mod key_manager;
 pub mod key_provider;
 pub mod policy_enforcement;
 pub mod providers;
@@ -17,11 +18,13 @@ pub use bundle_sign::{
     verify_bundle_from_file, BundleSignature,
 };
 pub use envelope::{decrypt_envelope, encrypt_envelope};
+pub use key_manager::{KeyManager, KeyManagerConfig};
 pub use key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, KeyProviderMode, ProviderAttestation,
     RotationReceipt,
 };
 pub use policy_enforcement::{CryptoPolicy, CryptoPolicyEnforcer, PolicyViolation, ViolationType};
+pub use providers::file::FileProvider;
 pub use providers::keychain::KeychainProvider;
 pub use rotation_daemon::{RotationDaemon, RotationHistoryEntry, RotationPolicy, RotationReason};
 pub use secret::{KeyMaterial, SecretKey, SensitiveData};

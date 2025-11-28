@@ -123,6 +123,23 @@ pub struct RouterPolicy {
     config: RouterConfig,
 }
 
+/// Adapter metadata for policy validation
+#[derive(Debug, Clone)]
+pub struct AdapterMetadata {
+    pub id: String,
+    pub tier: String,
+    pub tags: Vec<String>,
+    pub forbidden_peers: Vec<String>,
+}
+
+/// Stack configuration for policy validation
+#[derive(Debug, Clone)]
+pub struct StackConfiguration {
+    pub id: String,
+    pub adapter_ids: Vec<String>,
+    pub adapters: Vec<AdapterMetadata>,
+}
+
 impl RouterPolicy {
     /// Create a new router policy
     pub fn new(config: RouterConfig) -> Self {
@@ -139,6 +156,127 @@ impl RouterPolicy {
         } else {
             Ok(())
         }
+    }
+
+    /// Validate stack configuration (cp-router-003)
+    ///
+    /// Checks:
+    /// 1. K ≤ N adapters in stack
+    /// 2. T1 adapters do not combine with forbidden peers
+    /// 3. Adapters with conflicting tags cannot co-activate
+    pub fn validate_stack_configuration(&self, stack: &StackConfiguration) -> Result<()> {
+        // Rule 1: K ≤ N adapters
+        if stack.adapters.len() < self.config.k_sparse {
+            return Err(AosError::PolicyViolation(format!(
+                "Stack has {} adapters but K-sparse requires at least {}",
+                stack.adapters.len(),
+                self.config.k_sparse
+            )));
+        }
+
+        // Rule 2: T1 adapters must not combine with forbidden peers
+        for adapter in &stack.adapters {
+            if adapter.tier == "tier_1" && !adapter.forbidden_peers.is_empty() {
+                // Check if any forbidden peer is in the stack
+                for peer_id in &adapter.forbidden_peers {
+                    if stack.adapter_ids.contains(peer_id) {
+                        return Err(AosError::PolicyViolation(format!(
+                            "Tier-1 adapter '{}' cannot be in same stack as forbidden peer '{}'",
+                            adapter.id, peer_id
+                        )));
+                    }
+                }
+            }
+        }
+
+        // Rule 3: Adapters with conflicting tags cannot co-activate
+        let conflicting_tag_pairs = [
+            ("security", "performance"),
+            ("strict", "permissive"),
+            ("production", "experimental"),
+        ];
+
+        for adapter in &stack.adapters {
+            for (tag_a, tag_b) in &conflicting_tag_pairs {
+                if adapter.tags.contains(&tag_a.to_string()) {
+                    // Check if any other adapter has the conflicting tag
+                    for other in &stack.adapters {
+                        if other.id != adapter.id && other.tags.contains(&tag_b.to_string()) {
+                            return Err(AosError::PolicyViolation(format!(
+                                "Adapters '{}' (tag: '{}') and '{}' (tag: '{}') have conflicting tags and cannot co-activate",
+                                adapter.id, tag_a, other.id, tag_b
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate router decision at runtime (cp-router-003)
+    ///
+    /// Checks made at decision time if configuration changed:
+    /// 1. Selected adapters do not exceed K
+    /// 2. Entropy floor is enforced
+    /// 3. No forbidden peer combinations in selection
+    pub fn validate_decision(
+        &self,
+        selected_indices: &[u16],
+        gates: &[f32],
+        stack: Option<&StackConfiguration>,
+    ) -> Result<()> {
+        // Rule 1: Selected adapters ≤ K
+        if selected_indices.len() > self.config.k_sparse {
+            return Err(AosError::PolicyViolation(format!(
+                "Decision selected {} adapters but K-sparse limit is {}",
+                selected_indices.len(),
+                self.config.k_sparse
+            )));
+        }
+
+        // Rule 2: Enforce entropy floor
+        if gates.len() != selected_indices.len() {
+            return Err(AosError::PolicyViolation(format!(
+                "Gate count ({}) does not match selected adapter count ({})",
+                gates.len(),
+                selected_indices.len()
+            )));
+        }
+
+        let entropy = self.calculate_entropy(gates);
+        if entropy < self.config.entropy_floor {
+            return Err(AosError::PolicyViolation(format!(
+                "Decision entropy {} below floor {}",
+                entropy, self.config.entropy_floor
+            )));
+        }
+
+        // Rule 3: Check forbidden peer combinations in selection (if stack provided)
+        if let Some(stack) = stack {
+            let selected_adapter_ids: Vec<&String> = selected_indices
+                .iter()
+                .filter_map(|&idx| stack.adapters.get(idx as usize).map(|a| &a.id))
+                .collect();
+
+            for &adapter_id in &selected_adapter_ids {
+                if let Some(adapter) = stack.adapters.iter().find(|a| &a.id == adapter_id) {
+                    if adapter.tier == "tier_1" {
+                        for forbidden_peer in &adapter.forbidden_peers {
+                            if selected_adapter_ids.contains(&forbidden_peer) {
+                                return Err(AosError::PolicyViolation(format!(
+                                    "Decision selected tier-1 adapter '{}' with forbidden peer '{}'",
+                                    adapter_id, forbidden_peer
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Validate gate quantization
@@ -380,5 +518,225 @@ mod tests {
 
         // Default weights should sum to 1.0
         assert!(policy.validate_feature_weights().is_ok());
+    }
+
+    #[test]
+    fn test_stack_configuration_validation_success() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Valid stack with 5 adapters (K=3)
+        let stack = StackConfiguration {
+            id: "test-stack".to_string(),
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapters: vec![
+                AdapterMetadata {
+                    id: "a1".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec!["security".to_string()],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a2".to_string(),
+                    tier: "tier_1".to_string(),
+                    tags: vec!["reliability".to_string()],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a3".to_string(),
+                    tier: "tier_2".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+            ],
+        };
+
+        assert!(policy.validate_stack_configuration(&stack).is_ok());
+    }
+
+    #[test]
+    fn test_stack_configuration_insufficient_adapters() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Stack with only 2 adapters (K=3)
+        let stack = StackConfiguration {
+            id: "test-stack".to_string(),
+            adapter_ids: vec!["a1".to_string(), "a2".to_string()],
+            adapters: vec![
+                AdapterMetadata {
+                    id: "a1".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a2".to_string(),
+                    tier: "tier_1".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+            ],
+        };
+
+        let result = policy.validate_stack_configuration(&stack);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("K-sparse requires at least"));
+    }
+
+    #[test]
+    fn test_stack_configuration_forbidden_peer_violation() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Stack with forbidden peer combination
+        let stack = StackConfiguration {
+            id: "test-stack".to_string(),
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapters: vec![
+                AdapterMetadata {
+                    id: "a1".to_string(),
+                    tier: "tier_1".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec!["a2".to_string()],
+                },
+                AdapterMetadata {
+                    id: "a2".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a3".to_string(),
+                    tier: "tier_2".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+            ],
+        };
+
+        let result = policy.validate_stack_configuration(&stack);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("forbidden peer"));
+    }
+
+    #[test]
+    fn test_stack_configuration_conflicting_tags() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Stack with conflicting tags
+        let stack = StackConfiguration {
+            id: "test-stack".to_string(),
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapters: vec![
+                AdapterMetadata {
+                    id: "a1".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec!["security".to_string()],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a2".to_string(),
+                    tier: "tier_1".to_string(),
+                    tags: vec!["performance".to_string()],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a3".to_string(),
+                    tier: "tier_2".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+            ],
+        };
+
+        let result = policy.validate_stack_configuration(&stack);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("conflicting tags"));
+    }
+
+    #[test]
+    fn test_decision_validation_success() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Valid decision with 3 adapters and proper entropy
+        let selected_indices = vec![0, 1, 2];
+        let gates = vec![0.4, 0.35, 0.25]; // Reasonable entropy
+
+        assert!(policy
+            .validate_decision(&selected_indices, &gates, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_decision_validation_exceeds_k() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Decision selects 4 adapters but K=3
+        let selected_indices = vec![0, 1, 2, 3];
+        let gates = vec![0.3, 0.3, 0.2, 0.2];
+
+        let result = policy.validate_decision(&selected_indices, &gates, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("K-sparse limit"));
+    }
+
+    #[test]
+    fn test_decision_validation_low_entropy() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        // Decision with low entropy (single adapter dominates)
+        let selected_indices = vec![0, 1, 2];
+        let gates = vec![0.95, 0.03, 0.02]; // Very low entropy
+
+        let result = policy.validate_decision(&selected_indices, &gates, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("entropy"));
+    }
+
+    #[test]
+    fn test_decision_validation_forbidden_peer_in_selection() {
+        let config = RouterConfig::default();
+        let policy = RouterPolicy::new(config);
+
+        let stack = StackConfiguration {
+            id: "test-stack".to_string(),
+            adapter_ids: vec!["a1".to_string(), "a2".to_string(), "a3".to_string()],
+            adapters: vec![
+                AdapterMetadata {
+                    id: "a1".to_string(),
+                    tier: "tier_1".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec!["a2".to_string()],
+                },
+                AdapterMetadata {
+                    id: "a2".to_string(),
+                    tier: "tier_0".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+                AdapterMetadata {
+                    id: "a3".to_string(),
+                    tier: "tier_2".to_string(),
+                    tags: vec![],
+                    forbidden_peers: vec![],
+                },
+            ],
+        };
+
+        // Selection includes both a1 (tier-1) and a2 (forbidden peer)
+        let selected_indices = vec![0, 1, 2];
+        let gates = vec![0.4, 0.35, 0.25];
+
+        let result = policy.validate_decision(&selected_indices, &gates, Some(&stack));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("forbidden peer"));
     }
 }

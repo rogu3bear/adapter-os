@@ -88,7 +88,7 @@ pub async fn run(email: &str, display_name: Option<&str>, output: &OutputWriter)
         .to_string();
 
     let user_id = db
-        .create_user(email, &display_name, &password_hash, Role::Admin)
+        .create_user(email, &display_name, &password_hash, Role::Admin, "system")
         .await
         .context("failed to insert admin user")?;
 

@@ -669,9 +669,9 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let service = DashboardService::new(db);
-        // Service created successfully
-        assert!(true);
+        let service = DashboardService::new(db.clone());
+        // Verify service is properly initialized
+        assert_eq!(Arc::strong_count(&service.db), 2); // service + db variables
     }
 
     #[tokio::test]

@@ -39,8 +39,11 @@ RUST_LOG=info,adapteros=debug
 ### 2. Build the Project
 
 ```bash
-# Build all components with recent features
-cargo build --release --features telemetry,rag-pgvector
+# Build CLI (creates ./aosctl symlink in project root)
+make cli
+
+# Or build all components
+cargo build --release
 
 # Or build specific packages
 cargo build --release --package adapteros-lora-worker
@@ -62,10 +65,10 @@ The following sections show basic operations with the database.
 
 ```bash
 # Initialize tenant
-./target/release/aosctl init-tenant --id default --uid 1000 --gid 1000
+./aosctl init-tenant --id default --uid 1000 --gid 1000
 
 # Import model (using included Qwen 2.5 7B)
-./target/release/aosctl import-model \
+./aosctl import-model \
   --name qwen2.5-7b \
   --weights models/qwen2.5-7b-mlx/weights.safetensors \
   --config models/qwen2.5-7b-mlx/config.json \
@@ -76,7 +79,7 @@ The following sections show basic operations with the database.
 
 ```bash
 # Register your LoRA adapters
-./target/release/aosctl register-adapter \
+./aosctl register-adapter \
   --id my-lora \
   --hash <adapter-hash> \
   --tier 1 \
@@ -86,12 +89,12 @@ The following sections show basic operations with the database.
 ### 5. Start Server with Service Supervisor
 
 ```bash
-# Build and serve a plan
-./target/release/aosctl build-plan --tenant-id default --manifest configs/cp.toml
-./target/release/aosctl serve --plan <plan-id>
+# Start dev server
+make dev
 
-# Or use the integrated server
-./target/release/adapteros-server --config configs/cp.toml
+# Or build and serve a plan
+./aosctl build-plan --tenant-id default --manifest configs/cp.toml
+./aosctl serve --plan <plan-id>
 ```
 
 ## Quick Start: Web UI

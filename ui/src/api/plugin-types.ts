@@ -144,3 +144,60 @@ export interface ListPluginsResponse {
   /** Number of disabled plugins */
   disabled_count: number;
 }
+
+/**
+ * Plugin configuration from database
+ */
+export interface PluginConfigRecord {
+  /** Unique configuration ID */
+  id: string;
+
+  /** Plugin name */
+  plugin_name: string;
+
+  /** Whether plugin is globally enabled */
+  enabled: boolean;
+
+  /** JSON configuration string */
+  config_json: string | null;
+
+  /** Creation timestamp */
+  created_at: string;
+
+  /** Last update timestamp */
+  updated_at: string;
+}
+
+/**
+ * Request body for updating plugin configuration
+ * PUT/PATCH /v1/plugins/:name/config
+ */
+export interface UpdatePluginConfigRequest {
+  /** JSON configuration (will be stored as string) */
+  config_json: string | null;
+
+  /** Optionally update enabled status */
+  enabled?: boolean;
+}
+
+/**
+ * Response from GET /v1/plugins/:name/config
+ */
+export interface GetPluginConfigResponse {
+  /** Plugin configuration */
+  config: PluginConfigRecord | null;
+}
+
+/**
+ * Response from PUT/PATCH /v1/plugins/:name/config
+ */
+export interface UpdatePluginConfigResponse {
+  /** Updated plugin configuration */
+  config: PluginConfigRecord;
+
+  /** Success message */
+  message: string;
+
+  /** Timestamp when operation completed */
+  timestamp: string;
+}

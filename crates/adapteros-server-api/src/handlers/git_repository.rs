@@ -525,6 +525,16 @@ pub async fn train_repository_adapter(
             Some(repo_id.clone()),
             None,                           // dataset_id
             Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
+            Some(claims.sub.clone()),       // initiated_by (7th parameter)
+            Some(claims.role.clone()),      // initiated_by_role (8th parameter)
+            None,                           // base_model_id
+            None,                           // collection_id
+            Some("codebase".to_string()),   // category
+            None,                           // description
+            None,                           // language
+            None,                           // framework_id
+            None,                           // framework_version
+            None,                           // post_actions_json
         )
         .await
         .map_err(|e| {

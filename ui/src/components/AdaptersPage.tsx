@@ -338,18 +338,18 @@ function AdaptersPageContent() {
                           <DropdownMenuItem
                             onClick={() => pinAdapter(adapter.id, !adapter.pinned)}
                             disabled={!canLoad}
-                            title={!canLoad ? 'Requires adapter:load permission' : adapter.pinned ? 'Unpin adapter' : 'Pin adapter'}
+                            title={!canLoad ? 'Requires adapter:load permission' : adapter.pinned ? 'Allow adapter removal' : 'Protect adapter'}
                           >
                             <Pin className="mr-2 h-4 w-4" />
-                            {adapter.pinned ? 'Unpin' : 'Pin'}
-                            <HelpTooltip content={adapter.pinned ? 'Allow adapter to be evicted under memory pressure' : 'Prevent adapter from being evicted under memory pressure'} />
+                            {adapter.pinned ? 'Allow Removal' : 'Protect Adapter'}
+                            <HelpTooltip content={adapter.pinned ? 'Allow adapter to be removed when memory is needed' : 'Prevent adapter from being removed during memory pressure'} />
                           </DropdownMenuItem>
 
                           {/* Evict action */}
                           <DropdownMenuItem
                             onClick={() => evictAdapter(adapter.id)}
                             disabled={!canUnload || adapter.pinned}
-                            title={!canUnload ? 'Requires adapter:unload permission' : adapter.pinned ? 'Cannot evict pinned adapter' : 'Evict adapter'}
+                            title={!canUnload ? 'Requires adapter:unload permission' : adapter.pinned ? 'Cannot remove protected adapter' : 'Remove adapter'}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Evict

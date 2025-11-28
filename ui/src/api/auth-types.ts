@@ -37,6 +37,7 @@ export interface User {
   id?: string;  // Alias for user_id for compatibility
   email: string;
   display_name?: string;
+  name?: string;  // Alias for display_name (UI compatibility)
   role: UserRole;
   tenant_id?: string;
   created_at?: string;
@@ -156,6 +157,8 @@ export interface AuthConfigResponse {
   allowed_domains?: string[];
   production_mode?: boolean;
   dev_token_enabled?: boolean;
+  /** Whether dev bypass is actually allowed (computed from config) */
+  dev_bypass_allowed?: boolean;
   jwt_mode?: string;
   token_expiry_hours?: number;
 }

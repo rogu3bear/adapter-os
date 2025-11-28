@@ -15,6 +15,28 @@ module.exports = {
         'no-console': ['error', { allow: ['error'] }],
         // allow repository annotations that reference this rule
         'react-hooks/exhaustive-deps': 'warn',
+        // Enforce @/ alias instead of deep relative imports
+        // Using 'warn' to avoid blocking development during migration
+        'no-restricted-imports': ['warn', {
+          patterns: [
+            {
+              group: ['../../**/components/*', '../../../**/components/*'],
+              message: 'Use @/components instead of deep relative imports. Example: import { Button } from "@/components/ui/button"',
+            },
+            {
+              group: ['../../**/hooks/*', '../../../**/hooks/*'],
+              message: 'Use @/hooks instead of deep relative imports. Example: import { useAuth } from "@/hooks"',
+            },
+            {
+              group: ['../../**/utils/*', '../../../**/utils/*'],
+              message: 'Use @/utils instead of deep relative imports. Example: import { logger } from "@/utils"',
+            },
+            {
+              group: ['../../**/contexts/*', '../../../**/contexts/*'],
+              message: 'Use @/contexts instead of deep relative imports. Example: import { useDensity } from "@/contexts"',
+            },
+          ],
+        }],
       },
     },
     {

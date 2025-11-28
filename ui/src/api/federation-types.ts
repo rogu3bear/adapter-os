@@ -104,3 +104,88 @@ export interface FederationAuditFilters {
   limit?: number;
   offset?: number;
 }
+
+/**
+ * Peer health status
+ * Source: PeerHealthStatus in adapteros-federation/src/peer.rs
+ */
+export type PeerHealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'isolated';
+
+/**
+ * Peer discovery status
+ * Source: DiscoveryStatus in adapteros-federation/src/peer.rs
+ */
+export type PeerDiscoveryStatus = 'registered' | 'discovering' | 'failed';
+
+/**
+ * Peer sync status (derived from health and heartbeat data)
+ */
+export type PeerSyncStatus = 'synced' | 'syncing' | 'error' | 'disconnected';
+
+/**
+ * Hardware attestation metadata
+ * Source: AttestationMetadata in adapteros-federation/src/peer.rs
+ */
+export interface AttestationMetadata {
+  platform: string;
+  secure_enclave_available: boolean;
+  tpm_available: boolean;
+  attestation_timestamp: number;
+  hardware_id?: string;
+}
+
+/**
+ * Peer information for a federated host
+ * Source: PeerInfo in adapteros-federation/src/peer.rs
+ */
+export interface PeerInfo {
+  host_id: string;
+  pubkey: string;
+  hostname?: string;
+  registered_at: string;
+  last_seen_at?: string;
+  last_heartbeat_at?: string;
+  attestation_metadata?: AttestationMetadata;
+  active: boolean;
+  health_status: PeerHealthStatus;
+  discovery_status: PeerDiscoveryStatus;
+  failed_heartbeats: number;
+}
+
+/**
+ * Peer health check record
+ * Source: PeerHealthCheck in adapteros-federation/src/peer.rs
+ */
+export interface PeerHealthCheck {
+  host_id: string;
+  timestamp: string;
+  status: PeerHealthStatus;
+  response_time_ms: number;
+  error_message?: string;
+}
+
+/**
+ * Peer sync information (UI-derived from PeerInfo)
+ */
+export interface PeerSyncInfo {
+  host_id: string;
+  hostname?: string;
+  sync_status: PeerSyncStatus;
+  last_sync_at?: string;
+  sync_lag_ms?: number;
+  health_status: PeerHealthStatus;
+  response_time_ms?: number;
+  error_message?: string;
+  failed_heartbeats: number;
+  active: boolean;
+}
+
+/**
+ * Peer list response
+ * GET /v1/federation/peers
+ */
+export interface PeerListResponse {
+  peers: PeerInfo[];
+  total_count: number;
+  timestamp: string;
+}

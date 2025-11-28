@@ -88,7 +88,7 @@ export function Toast({
             type="button"
             onClick={() => onDismiss(id)}
             className={cn(
-              "rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2",
+              "rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-offset-2",
               variant === "error" && "focus:ring-destructive",
               variant === "success" && "focus:ring-green-500",
               variant === "warning" && "focus:ring-yellow-500",

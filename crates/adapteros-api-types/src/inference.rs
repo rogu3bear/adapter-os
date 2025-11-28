@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use crate::schema_version;
 
 /// Inference request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InferRequest {
     pub prompt: String,
@@ -32,6 +32,12 @@ pub struct InferRequest {
     /// Specific adapters to use (alternative to adapter_stack)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<Vec<String>>,
+    /// Chat session ID for trace linkage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Tenant ID (usually extracted from JWT claims, but can be explicit)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 /// Inference response

@@ -96,7 +96,7 @@ impl Db {
         .bind(decision.router_latency_us)
         .bind(decision.total_inference_latency_us)
         .bind(decision.overhead_pct)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to insert routing decision: {}", e))
@@ -177,7 +177,7 @@ impl Db {
         sql_query = sql_query.bind(limit);
         sql_query = sql_query.bind(offset);
 
-        let decisions = sql_query.fetch_all(self.pool()).await.map_err(|e| {
+        let decisions = sql_query.fetch_all(&*self.pool()).await.map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to query routing decisions: {}", e))
         })?;
 
@@ -197,7 +197,7 @@ impl Db {
              FROM routing_decisions WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to get routing decision: {}", e))
@@ -266,7 +266,7 @@ impl Db {
             )
             .bind(tid)
             .bind(limit)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
         } else {
             sqlx::query_as::<_, RoutingDecision>(
@@ -277,7 +277,7 @@ impl Db {
                  FROM routing_decisions_high_overhead LIMIT ?",
             )
             .bind(limit)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
         };
 
@@ -311,7 +311,7 @@ impl Db {
             )
             .bind(tid)
             .bind(limit)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
         } else {
             sqlx::query_as::<_, RoutingDecision>(
@@ -322,7 +322,7 @@ impl Db {
                  FROM routing_decisions_low_entropy LIMIT ?",
             )
             .bind(limit)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
         };
 
@@ -341,7 +341,7 @@ impl Db {
     pub async fn delete_old_routing_decisions(&self, older_than: &str) -> Result<u64> {
         let result = sqlx::query("DELETE FROM routing_decisions WHERE timestamp < ?")
             .bind(older_than)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!(
@@ -385,7 +385,7 @@ impl Db {
         .bind(format!("{},{}", adapter_id, "%")) // Start of list
         .bind(format!("%,{},%", adapter_id)) // Middle of list
         .bind(format!("%,{}", adapter_id)) // End of list
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!(
@@ -448,15 +448,21 @@ mod tests {
             .await
             .expect("Failed to create in-memory database");
 
+        // Create required tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Default Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         let decision = RoutingDecision {
             id: "test-decision-1".to_string(),
-            tenant_id: "default".to_string(),
+            tenant_id: tenant_id.clone(),
             timestamp: "2025-11-17T23:00:00Z".to_string(),
             request_id: Some("req-123".to_string()),
             step: 5,
             input_token_id: Some(42),
-            stack_id: Some("stack-1".to_string()),
-            stack_hash: Some("abc123".to_string()),
+            stack_id: None,
+            stack_hash: None,
             entropy: 0.75,
             tau: 0.1,
             entropy_floor: 0.01,
@@ -487,7 +493,7 @@ mod tests {
 
         // Query with filters
         let filters = RoutingDecisionFilters {
-            tenant_id: Some("default".to_string()),
+            tenant_id: Some(tenant_id.clone()),
             limit: Some(10),
             ..Default::default()
         };

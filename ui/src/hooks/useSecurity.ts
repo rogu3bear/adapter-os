@@ -8,6 +8,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { toast } from 'sonner';
 import { apiClient } from '@/api/client';
 import type {
   Policy,
@@ -19,6 +21,7 @@ import type {
   ComplianceAuditResponse,
   PolicyPackResponse,
 } from '@/api/types';
+import { logger, toError } from '@/utils/logger';
 
 // Query Keys
 export const securityKeys = {
@@ -130,6 +133,19 @@ export function useAuditLogs(filters?: AuditLogFilters) {
     queryKey: securityKeys.auditLogs(filters),
     queryFn: () => apiClient.queryAuditLogs(filters),
   });
+
+  // Log errors once when they occur, not on every render
+  useEffect(() => {
+    if (query.error) {
+      const err = toError(query.error);
+      logger.error('Failed to load audit logs', {
+        component: 'useAuditLogs',
+        operation: 'queryAuditLogs',
+        filters,
+      }, err);
+      toast.error('Unable to load audit logs right now.');
+    }
+  }, [query.error, filters]);
 
   return {
     auditLogs: query.data,

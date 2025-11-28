@@ -3,7 +3,7 @@
 //! Mandatory open-book grounding with evidence retrieval before generation for regulated domains.
 //! Enforces trace, signatures, and audit artifacts.
 
-use crate::{Audit, Policy, PolicyContext, PolicyId, Severity};
+use crate::{Audit, Policy, PolicyContext, PolicyId, Severity, Violation};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -314,11 +314,78 @@ impl Policy for EvidencePolicy {
         Severity::High
     }
 
-    fn enforce(&self, _ctx: &dyn PolicyContext) -> Result<Audit> {
-        let violations = Vec::new();
+    fn enforce(&self, ctx: &dyn PolicyContext) -> Result<Audit> {
+        let mut violations = Vec::new();
 
-        // Basic validation - in a real implementation, this would check
-        // evidence spans, retrieval requirements, etc.
+        // PRD-DATA-01: Check T1 adapter evidence requirements
+        // T1 adapters must have:
+        // 1. Primary dataset specified
+        // 2. At least one evidence entry
+        // 3. Eval dataset for production adapters (warning if missing)
+
+        // Get adapter metadata from context
+        let metadata = ctx.metadata();
+
+        // Check if this is a T1 (persistent/production) adapter
+        if let Some(tier) = metadata.get("tier") {
+            if tier == "persistent" || tier == "tier_1" {
+                // Check for primary dataset
+                if metadata.get("primary_dataset_id").is_none() {
+                    violations.push(Violation {
+                        severity: Severity::High,
+                        message: "T1 adapter missing primary dataset (cp-evidence-004)".to_string(),
+                        details: None,
+                    });
+                }
+
+                // Check for evidence entries
+                if let Some(evidence_count) = metadata.get("evidence_count") {
+                    if let Ok(count) = evidence_count.parse::<i64>() {
+                        if count == 0 {
+                            violations.push(Violation {
+                                severity: Severity::High,
+                                message: "T1 adapter has no evidence entries (cp-evidence-004)"
+                                    .to_string(),
+                                details: None,
+                            });
+                        }
+                    }
+                } else {
+                    violations.push(Violation {
+                        severity: Severity::Medium,
+                        message: "T1 adapter evidence count unknown (cp-evidence-004)".to_string(),
+                        details: None,
+                    });
+                }
+
+                // Check for eval dataset (warning for production)
+                if metadata.get("eval_dataset_id").is_none() {
+                    if metadata.get("environment") == Some(&"production".to_string()) {
+                        violations.push(Violation {
+                            severity: Severity::Low,
+                            message: "T1 production adapter missing eval dataset (cp-evidence-004)"
+                                .to_string(),
+                            details: Some(
+                                "Warning: eval dataset recommended for production".to_string(),
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Validate evidence retrieval requirements if evidence is present
+        if let Some(has_evidence) = metadata.get("has_evidence") {
+            if has_evidence == "true" {
+                self.validate_retrieval_requirements(true)?;
+            } else if self.config.require_open_book {
+                violations.push(Violation {
+                    severity: Severity::High,
+                    message: "Open-book grounding required but no evidence provided".to_string(),
+                    details: None,
+                });
+            }
+        }
 
         if violations.is_empty() {
             Ok(Audit::passed(self.id()))
@@ -458,5 +525,141 @@ mod tests {
         let score = policy.calculate_quality_score(&spans);
         assert!(score > 0.0);
         assert!(score <= 1.0);
+    }
+
+    // PRD-DATA-01: T1 adapter evidence requirement tests
+    #[test]
+    fn test_t1_adapter_without_primary_dataset_violation() {
+        use std::collections::HashMap;
+
+        struct TestContext {
+            metadata: HashMap<String, String>,
+        }
+
+        impl PolicyContext for TestContext {
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+        }
+
+        let config = EvidenceConfig::default();
+        let policy = EvidencePolicy::new(config);
+
+        // T1 adapter without primary dataset
+        let mut metadata = HashMap::new();
+        metadata.insert("tier".to_string(), "persistent".to_string());
+        metadata.insert("evidence_count".to_string(), "1".to_string());
+        // Note: primary_dataset_id is missing
+
+        let ctx = TestContext { metadata };
+        let result = policy.enforce(&ctx);
+
+        assert!(result.is_ok());
+        let audit = result.unwrap();
+        assert!(!audit.violations.is_empty());
+        assert!(audit
+            .violations
+            .iter()
+            .any(|v| v.message.contains("primary dataset")));
+    }
+
+    #[test]
+    fn test_t1_adapter_without_evidence_entries_violation() {
+        use std::collections::HashMap;
+
+        struct TestContext {
+            metadata: HashMap<String, String>,
+        }
+
+        impl PolicyContext for TestContext {
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+        }
+
+        let config = EvidenceConfig::default();
+        let policy = EvidencePolicy::new(config);
+
+        // T1 adapter with dataset but no evidence
+        let mut metadata = HashMap::new();
+        metadata.insert("tier".to_string(), "persistent".to_string());
+        metadata.insert("primary_dataset_id".to_string(), "dataset-123".to_string());
+        metadata.insert("evidence_count".to_string(), "0".to_string());
+
+        let ctx = TestContext { metadata };
+        let result = policy.enforce(&ctx);
+
+        assert!(result.is_ok());
+        let audit = result.unwrap();
+        assert!(!audit.violations.is_empty());
+        assert!(audit
+            .violations
+            .iter()
+            .any(|v| v.message.contains("evidence entries")));
+    }
+
+    #[test]
+    fn test_t1_adapter_compliant() {
+        use std::collections::HashMap;
+
+        struct TestContext {
+            metadata: HashMap<String, String>,
+        }
+
+        impl PolicyContext for TestContext {
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+        }
+
+        let config = EvidenceConfig::default();
+        let policy = EvidencePolicy::new(config);
+
+        // Compliant T1 adapter
+        let mut metadata = HashMap::new();
+        metadata.insert("tier".to_string(), "persistent".to_string());
+        metadata.insert("primary_dataset_id".to_string(), "dataset-123".to_string());
+        metadata.insert("evidence_count".to_string(), "3".to_string());
+        metadata.insert(
+            "eval_dataset_id".to_string(),
+            "eval-dataset-456".to_string(),
+        );
+
+        let ctx = TestContext { metadata };
+        let result = policy.enforce(&ctx);
+
+        assert!(result.is_ok());
+        let audit = result.unwrap();
+        assert!(audit.violations.is_empty());
+    }
+
+    #[test]
+    fn test_non_t1_adapter_no_evidence_requirements() {
+        use std::collections::HashMap;
+
+        struct TestContext {
+            metadata: HashMap<String, String>,
+        }
+
+        impl PolicyContext for TestContext {
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+        }
+
+        let config = EvidenceConfig::default();
+        let policy = EvidencePolicy::new(config);
+
+        // Non-T1 adapter (ephemeral tier)
+        let mut metadata = HashMap::new();
+        metadata.insert("tier".to_string(), "ephemeral".to_string());
+        // No dataset or evidence required
+
+        let ctx = TestContext { metadata };
+        let result = policy.enforce(&ctx);
+
+        assert!(result.is_ok());
+        let audit = result.unwrap();
+        assert!(audit.violations.is_empty());
     }
 }

@@ -26,6 +26,8 @@ artifacts_root = "var/artifacts"
 bundles_root = "var/bundles"
 adapters_root = "var/adapters"
 plan_dir = "plan"
+datasets_root = "var/datasets"
+documents_root = "var/documents"
 
 [worker.safety]
 # Timeout configuration

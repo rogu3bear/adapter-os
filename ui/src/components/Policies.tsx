@@ -200,7 +200,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         URL.revokeObjectURL(url);
       } else {
         // CSV format - convert policies array to CSV
-        const csvHeaders = ['CPID', 'Schema Hash', 'Status'];
+        const csvHeaders = ['Policy ID', 'Schema Hash', 'Status'];
         const csvRows = policiesToExport.map(policy => [
           policy.cpid,
           policy.schema_hash,
@@ -398,7 +398,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                 </TableHead>
                 <TableHead>
                   <HelpTooltip helpId="policy-cpid">
-                    <span>CPID</span>
+                    <span>Policy ID</span>
                   </HelpTooltip>
                 </TableHead>
                 <TableHead>
@@ -515,7 +515,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             <div className="space-y-3">
               <div className="mb-4">
                 <HelpTooltip helpId="policy-cpid">
-                  <p className="font-medium text-sm mb-1 cursor-help">CPID</p>
+                  <p className="font-medium text-sm mb-1 cursor-help">Policy ID</p>
                 </HelpTooltip>
                 <p className="text-sm text-muted-foreground font-mono">{signResult.cpid}</p>
               </div>
@@ -596,7 +596,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
             </div>
             <div className="mb-4">
               <HelpTooltip helpId="policy-cpid">
-                <label className="font-medium text-sm mb-1 cursor-help">Second Policy CPID</label>
+                <label className="font-medium text-sm mb-1 cursor-help">Second Policy ID</label>
               </HelpTooltip>
               <select
                 className="w-full p-2 border rounded"

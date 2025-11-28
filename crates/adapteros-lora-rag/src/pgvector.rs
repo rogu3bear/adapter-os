@@ -573,7 +573,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires PostgreSQL with pgvector extension
+    #[ignore = "Requires PostgreSQL with pgvector extension - run with: cargo test --release -- --ignored"]
     async fn test_pgvector_add_and_retrieve() {
         let pool = PgPool::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await
@@ -618,7 +618,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "Requires PostgreSQL with pgvector extension - run with: cargo test --release -- --ignored"]
     async fn test_deterministic_retrieval() {
         let pool = PgPool::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await

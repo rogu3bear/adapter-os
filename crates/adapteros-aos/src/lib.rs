@@ -29,8 +29,6 @@ pub mod implementation;
 #[cfg(feature = "mmap")]
 pub mod manager;
 pub mod metrics;
-#[cfg(feature = "mmap")]
-pub mod mmap_loader;
 pub mod writer;
 
 #[cfg(feature = "mmap")]
@@ -40,6 +38,4 @@ pub use implementation::{
 };
 #[cfg(feature = "mmap")]
 pub use manager::{AosManager, AosManagerBuilder};
-#[cfg(feature = "mmap")]
-pub use mmap_loader::{MmapAdapter, MmapAdapterLoader};
 pub use writer::{AosHeader, AosWriter, WriteOptions, AOS_MAGIC, HEADER_SIZE};

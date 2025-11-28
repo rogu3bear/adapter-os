@@ -113,15 +113,15 @@ impl RecoveryEngine {
     async fn restore_file(&self, backup_path: &Path, target_path: &Path) -> Result<()> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| {
-                AosError::Recovery(format!("Failed to create parent directory: {}", e))
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to create parent directory: {}", e)))?;
         }
 
         // Copy backup to target location
         fs::copy(backup_path, target_path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to restore file: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to restore file: {}", e)))?;
 
         debug!(
             "Restored file {} from backup {}",
@@ -139,9 +139,8 @@ impl BackupManager {
 
         // Create backup directory if it doesn't exist
         if !backup_dir.exists() {
-            std::fs::create_dir_all(&backup_dir).map_err(|e| {
-                AosError::Recovery(format!("Failed to create backup directory: {}", e))
-            })?;
+            std::fs::create_dir_all(&backup_dir)
+                .map_err(|e| AosError::Io(format!("Failed to create backup directory: {}", e)))?;
         }
 
         Ok(Self {
@@ -153,7 +152,7 @@ impl BackupManager {
     /// Create a backup of a file
     pub async fn create_backup(&self, path: &Path) -> Result<PathBuf> {
         if !path.exists() {
-            return Err(AosError::Recovery("File does not exist".to_string()));
+            return Err(AosError::Io("File does not exist".to_string()));
         }
 
         let timestamp = SystemTime::now()
@@ -173,7 +172,7 @@ impl BackupManager {
         // Copy file to backup location
         fs::copy(path, &backup_path)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to create backup: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to create backup: {}", e)))?;
 
         // Clean up old backups
         self.cleanup_old_backups(path).await?;
@@ -186,19 +185,19 @@ impl BackupManager {
     pub async fn find_latest_backup(&self, path: &Path) -> Result<Option<PathBuf>> {
         let file_name = path
             .file_name()
-            .ok_or_else(|| AosError::Recovery("Invalid file path".to_string()))?
+            .ok_or_else(|| AosError::Io("Invalid file path".to_string()))?
             .to_string_lossy();
 
         let mut entries = fs::read_dir(&self.backup_dir)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read backup directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read backup directory: {}", e)))?;
 
         let mut latest_backup: Option<(PathBuf, SystemTime)> = None;
 
         while let Some(entry) = entries
             .next_entry()
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read backup entry: {}", e)))?
+            .map_err(|e| AosError::Io(format!("Failed to read backup entry: {}", e)))?
         {
             let entry_path = entry.path();
 
@@ -224,19 +223,19 @@ impl BackupManager {
     async fn cleanup_old_backups(&self, path: &Path) -> Result<()> {
         let file_name = path
             .file_name()
-            .ok_or_else(|| AosError::Recovery("Invalid file path".to_string()))?
+            .ok_or_else(|| AosError::Io("Invalid file path".to_string()))?
             .to_string_lossy();
 
         let mut entries = fs::read_dir(&self.backup_dir)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read backup directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read backup directory: {}", e)))?;
 
         let mut backups: Vec<(PathBuf, SystemTime)> = Vec::new();
 
         while let Some(entry) = entries
             .next_entry()
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read backup entry: {}", e)))?
+            .map_err(|e| AosError::Io(format!("Failed to read backup entry: {}", e)))?
         {
             let entry_path = entry.path();
 
@@ -274,19 +273,19 @@ impl BackupManager {
     pub async fn list_backups(&self, path: &Path) -> Result<Vec<PathBuf>> {
         let file_name = path
             .file_name()
-            .ok_or_else(|| AosError::Recovery("Invalid file path".to_string()))?
+            .ok_or_else(|| AosError::Io("Invalid file path".to_string()))?
             .to_string_lossy();
 
         let mut entries = fs::read_dir(&self.backup_dir)
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read backup directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read backup directory: {}", e)))?;
 
         let mut backups = Vec::new();
 
         while let Some(entry) = entries
             .next_entry()
             .await
-            .map_err(|e| AosError::Recovery(format!("Failed to read backup entry: {}", e)))?
+            .map_err(|e| AosError::Io(format!("Failed to read backup entry: {}", e)))?
         {
             let entry_path = entry.path();
 

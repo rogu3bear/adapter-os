@@ -17,11 +17,11 @@
 
 mod common;
 
-use common::test_harness::ApiTestHarness;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use common::test_harness::ApiTestHarness;
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -33,7 +33,10 @@ async fn test_complete_training_workflow() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     // Step 1: Create dataset in database
     println!("Step 1: Creating test dataset...");
@@ -105,8 +108,8 @@ async fn test_complete_training_workflow() {
     // Training might fail without actual data files, but endpoint should exist
     assert!(
         response.status() == StatusCode::OK
-        || response.status() == StatusCode::CREATED
-        || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
+            || response.status() == StatusCode::CREATED
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
         "Training start endpoint should be accessible"
     );
 
@@ -174,7 +177,10 @@ async fn test_dataset_validation() {
     .execute(harness.db().pool())
     .await;
 
-    assert!(invalid_result.is_ok(), "Should be able to insert invalid dataset");
+    assert!(
+        invalid_result.is_ok(),
+        "Should be able to insert invalid dataset"
+    );
 
     // Create valid dataset
     harness
@@ -344,12 +350,7 @@ async fn test_training_progress_tracking() {
     .unwrap();
 
     // Simulate progress updates
-    let progress_steps = vec![
-        (25, 0.75),
-        (50, 0.50),
-        (75, 0.25),
-        (100, 0.05),
-    ];
+    let progress_steps = vec![(25, 0.75), (50, 0.50), (75, 0.25), (100, 0.05)];
 
     for (progress, loss) in progress_steps {
         sqlx::query!(
@@ -383,7 +384,10 @@ async fn test_training_job_cancellation() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     // Create prerequisite dataset and adapter
     harness
@@ -423,8 +427,8 @@ async fn test_training_job_cancellation() {
     // Endpoint should exist (may not have full implementation)
     assert!(
         response.status() == StatusCode::OK
-        || response.status() == StatusCode::NOT_FOUND
-        || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR,
         "Cancel endpoint should be accessible"
     );
 

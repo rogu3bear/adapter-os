@@ -505,8 +505,8 @@ fn validate_variable(name: &str, value: &str, source: ConfigSource) -> Validatio
     let schema_var = schema.get_variable(name);
 
     // Determine display value (redact if sensitive)
-    let is_sensitive = schema_var.map(|v| v.sensitive).unwrap_or(false)
-        || SENSITIVE_VARS.contains(&name);
+    let is_sensitive =
+        schema_var.map(|v| v.sensitive).unwrap_or(false) || SENSITIVE_VARS.contains(&name);
     let display_value = if is_sensitive {
         "***REDACTED***".to_string()
     } else {
@@ -547,8 +547,7 @@ fn validate_variable(name: &str, value: &str, source: ConfigSource) -> Validatio
 
     // Use schema validation if variable is known
     let validation_result = if let Some(var) = schema_var {
-        validate_value(var, value)
-            .map_err(|e| e.message)
+        validate_value(var, value).map_err(|e| e.message)
     } else {
         // Fallback to heuristic validation for unknown variables
         validate_unknown_variable(name, value)

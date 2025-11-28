@@ -111,17 +111,21 @@ export function useSSE<T = unknown>(
       });
 
       eventSource.addEventListener('error', (event) => {
-        try {
-          const errorData = JSON.parse((event as MessageEvent).data);
-          setError(errorData.error || 'SSE error');
-        } catch (parseErr) {
-          logger.warn('Failed to parse SSE error event data', {
-            component: 'useSSE',
-            endpoint,
-            operation: 'parse_error_event',
-          });
-          setError('Connection error');
+        const messageData = (event as MessageEvent).data;
+        if (typeof messageData === 'string' && messageData.trim()) {
+          try {
+            const errorData = JSON.parse(messageData);
+            setError(errorData.error || 'SSE error');
+            return;
+          } catch (parseErr) {
+            logger.debug('Failed to parse SSE error event data', {
+              component: 'useSSE',
+              endpoint,
+              operation: 'parse_error_event',
+            });
+          }
         }
+        setError('Connection error');
       });
 
       eventSource.onerror = (event) => {
@@ -147,6 +151,10 @@ export function useSSE<T = unknown>(
           reconnectAttemptsRef.current += 1;
           setError(`SSE connection error. Reconnecting in ${backoffMs / 1000}s (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
 
+          // Clear existing timeout before creating new one to prevent accumulation
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+          }
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, backoffMs);

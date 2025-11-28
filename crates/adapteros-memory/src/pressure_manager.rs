@@ -17,6 +17,8 @@ use crate::unified_tracker::{
     BackendType, EvictionStrategy, MemoryLimits, PressureLevel, UnifiedMemoryTracker,
 };
 use adapteros_core::{AosError, Result};
+// TODO: Re-enable when adapteros-deterministic-exec is available
+// use adapteros_deterministic_exec::spawn_deterministic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -151,39 +153,56 @@ impl MemoryPressureManager {
 
         // Try channel sender first (preferred, async)
         if let Some(sender) = &self.k_reduction_sender {
-            // Spawn async task to send request to avoid blocking
-            let sender_clone = sender.clone();
-            let request_clone = request.clone();
-
-            tokio::spawn(async move {
-                match sender_clone.send(request_clone.clone()).await {
+            // Spawn async task to send request with backpressure (blocking send).
+            // Use send_with_timeout instead of try_send to provide backpressure and avoid dropping.
+            let send_once = |sender: KReductionRequestSender, request: KReductionRequest| async move {
+                // Use blocking send with timeout instead of try_send to avoid silent drops
+                match sender.send_with_timeout(request.clone(), 5000).await {
                     Ok(()) => {
                         info!(
-                            request_id = %request_clone.request_id,
-                            target_k = request_clone.target_k,
-                            "K reduction request sent through channel"
+                            request_id = %request.request_id,
+                            target_k = request.target_k,
+                            "K reduction request sent through channel with backpressure"
                         );
                     }
-                    Err(SendError::ChannelFull) => {
-                        warn!(
-                            request_id = %request_clone.request_id,
-                            "K reduction channel buffer full, request dropped"
+                    Err(SendError::SendTimeout) => {
+                        // After timeout, log error but continue - this is a backpressure signal
+                        error!(
+                            request_id = %request.request_id,
+                            "K reduction channel send timed out after 5s (backpressure)"
                         );
                     }
                     Err(SendError::ChannelClosed) => {
                         error!(
-                            request_id = %request_clone.request_id,
+                            request_id = %request.request_id,
                             "K reduction channel closed, lifecycle manager not available"
                         );
                     }
-                    Err(SendError::SendTimeout) => {
-                        warn!(
-                            request_id = %request_clone.request_id,
-                            "K reduction channel send timed out"
+                    Err(SendError::ChannelFull) => {
+                        // This shouldn't happen with send_with_timeout, but handle it
+                        error!(
+                            request_id = %request.request_id,
+                            "K reduction channel unexpectedly full after timeout"
                         );
                     }
                 }
-            });
+            };
+
+            let sender_clone = sender.clone();
+            let request_clone = request.clone();
+
+            // TODO: Re-enable deterministic execution when available
+            // if let Err(e) = spawn_deterministic(
+            //     format!("k-reduction-send:{}", request_clone.request_id),
+            //     send_once(sender_clone, request_clone.clone()),
+            // ) {
+            //     debug!(
+            //         error = %e,
+            //         request_id = %request_clone.request_id,
+            //         "Deterministic executor unavailable for K reduction; falling back to Tokio"
+            //     );
+            tokio::spawn(send_once(sender.clone(), request.clone()));
+            // }
 
             return Ok(MemoryPressureReport {
                 pressure_level: pressure.level,

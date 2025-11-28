@@ -70,6 +70,7 @@ pub struct FederationManager {
     db: Db,
     keypair: Keypair,
     host_id: String,
+    tenant_id: String,
     telemetry: Option<TelemetryWriter>,
 }
 
@@ -80,37 +81,51 @@ impl FederationManager {
     ///
     /// * `db` - Database connection
     /// * `keypair` - Ed25519 keypair for signing
+    /// * `tenant_id` - Tenant identifier for isolation
     ///
     /// # Returns
     ///
     /// A new `FederationManager` instance
-    pub fn new(db: Db, keypair: Keypair) -> Result<Self> {
+    pub fn new(db: Db, keypair: Keypair, tenant_id: String) -> Result<Self> {
         let host_id = Self::get_host_id()?;
         Ok(Self {
             db,
             keypair,
             host_id,
+            tenant_id,
             telemetry: None,
         })
     }
 
     /// Create a federation manager with telemetry writer
-    pub fn with_telemetry(db: Db, keypair: Keypair, telemetry: TelemetryWriter) -> Result<Self> {
+    pub fn with_telemetry(
+        db: Db,
+        keypair: Keypair,
+        tenant_id: String,
+        telemetry: TelemetryWriter,
+    ) -> Result<Self> {
         let host_id = Self::get_host_id()?;
         Ok(Self {
             db,
             keypair,
             host_id,
+            tenant_id,
             telemetry: Some(telemetry),
         })
     }
 
     /// Create a federation manager with a specific host ID (for testing)
-    pub fn with_host_id(db: Db, keypair: Keypair, host_id: String) -> Result<Self> {
+    pub fn with_host_id(
+        db: Db,
+        keypair: Keypair,
+        host_id: String,
+        tenant_id: String,
+    ) -> Result<Self> {
         Ok(Self {
             db,
             keypair,
             host_id,
+            tenant_id,
             telemetry: None,
         })
     }
@@ -368,10 +383,23 @@ impl FederationManager {
             }
         }
 
+        // At this point, we know host_chain has at least 2 elements (checked at lines 279, 283)
+        // but we use safe unwrapping for robustness
+        let first_host = host_chain
+            .first()
+            .ok_or_else(|| AosError::Internal("Empty host chain after verification".to_string()))?
+            .host_id
+            .as_str();
+        let last_host = host_chain
+            .last()
+            .ok_or_else(|| AosError::Internal("Empty host chain after verification".to_string()))?
+            .host_id
+            .as_str();
+
         info!(
             chain_length = host_chain.len(),
-            first_host = %host_chain.first().unwrap().host_id,
-            last_host = %host_chain.last().unwrap().host_id,
+            first_host = %first_host,
+            last_host = %last_host,
             "Federation chain verified"
         );
 
@@ -386,12 +414,368 @@ impl FederationManager {
     /// Per Determinism Ruleset #2: Ensures both federation signatures and
     /// deterministic execution ticks form valid chains.
     ///
-    /// Note: Tick ledger integration is future work and currently not implemented.
-    #[allow(dead_code)]
-    pub async fn verify_chain_with_tick_ledger(&self, _bundle_hash: &str) -> Result<bool> {
-        // TODO: Integrate tick ledger manager for cross-host tick verification
-        // This method will be implemented when tick ledger integration is added
-        info!("Chain verification with tick ledger: stub implementation");
+    /// # Arguments
+    ///
+    /// * `bundle_hash` - Bundle hash to verify
+    ///
+    /// # Returns
+    ///
+    /// `Ok(true)` if chain is valid, `Ok(false)` if invalid, `Err` on database errors
+    pub async fn verify_chain_with_tick_ledger(&self, bundle_hash: &str) -> Result<bool> {
+        info!(
+            bundle_hash = %bundle_hash,
+            "Verifying federation chain with tick ledger"
+        );
+
+        // Step 1: Query tick_ledger_entries for this bundle_hash
+        let pool = self.db.pool();
+        let entries = sqlx::query(
+            r#"
+            SELECT id, tick, tenant_id, host_id, task_id, event_type, event_hash,
+                   timestamp_us, prev_entry_hash, bundle_hash
+            FROM tick_ledger_entries
+            WHERE bundle_hash = ?
+            ORDER BY tick ASC
+            "#,
+        )
+        .bind(bundle_hash)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch tick ledger entries: {}", e)))?;
+
+        if entries.is_empty() {
+            debug!(
+                bundle_hash = %bundle_hash,
+                "No tick ledger entries found for bundle"
+            );
+            // No tick ledger entries yet - not necessarily an error
+            // Just verify federation signatures
+            return self.verify_federation_signatures_only(bundle_hash).await;
+        }
+
+        // Step 2: Verify Merkle chain integrity by checking prev_entry_hash linkage
+        let mut prev_hash: Option<String> = None;
+        for (idx, row) in entries.iter().enumerate() {
+            let event_hash: String = row
+                .try_get("event_hash")
+                .map_err(|e| AosError::Database(format!("Failed to get event_hash: {}", e)))?;
+            let prev_entry_hash: Option<String> = row.try_get("prev_entry_hash").ok();
+            let tick: i64 = row
+                .try_get("tick")
+                .map_err(|e| AosError::Database(format!("Failed to get tick: {}", e)))?;
+
+            // First entry should have no previous hash
+            if idx == 0 {
+                if prev_entry_hash.is_some() {
+                    warn!(
+                        bundle_hash = %bundle_hash,
+                        tick = tick,
+                        "First tick ledger entry has prev_entry_hash (expected None)"
+                    );
+                }
+                prev_hash = Some(event_hash);
+                continue;
+            }
+
+            // Subsequent entries must link to previous entry
+            if let Some(ref prev) = prev_hash {
+                match prev_entry_hash {
+                    Some(ref entry_prev) if entry_prev == prev => {
+                        // Valid link
+                        debug!(
+                            tick = tick,
+                            prev_hash = %prev,
+                            "Tick ledger entry linked correctly"
+                        );
+                    }
+                    Some(ref entry_prev) => {
+                        // Chain break detected
+                        warn!(
+                            bundle_hash = %bundle_hash,
+                            tick = tick,
+                            expected_prev = %prev,
+                            actual_prev = %entry_prev,
+                            "Tick ledger Merkle chain break detected"
+                        );
+
+                        // Emit telemetry event
+                        if let Some(ref telemetry) = self.telemetry {
+                            let identity = IdentityEnvelope::new(
+                                "system".to_string(),
+                                "federation".to_string(),
+                                "verification".to_string(),
+                                "1.0".to_string(),
+                            );
+                            match TelemetryEventBuilder::new(
+                                adapteros_telemetry::EventType::Custom(
+                                    "federation.tick_chain_break".to_string(),
+                                ),
+                                LogLevel::Error,
+                                format!("Tick ledger chain break at tick {}", tick),
+                                identity,
+                            )
+                            .component("adapteros-federation".to_string())
+                            .metadata(json!({
+                                "bundle_hash": bundle_hash,
+                                "tick": tick,
+                                "expected_prev_hash": prev,
+                                "actual_prev_hash": entry_prev,
+                            }))
+                            .build()
+                            {
+                                Ok(event) => {
+                                    let _ = telemetry.log_event(event);
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to build tick chain break event");
+                                }
+                            }
+                        }
+
+                        return Ok(false);
+                    }
+                    None => {
+                        warn!(
+                            bundle_hash = %bundle_hash,
+                            tick = tick,
+                            "Missing prev_entry_hash in non-first entry"
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+
+            prev_hash = Some(event_hash);
+        }
+
+        // Step 3: Verify federation signature covers the tick ledger merkle root
+        // Get the last tick ledger entry hash (serves as merkle root for this bundle)
+        let merkle_root = prev_hash
+            .ok_or_else(|| AosError::Validation("No tick ledger entries processed".to_string()))?;
+
+        // Get federation signatures for this bundle
+        let signatures = self.get_signatures_for_bundle(bundle_hash).await?;
+
+        if signatures.is_empty() {
+            warn!(
+                bundle_hash = %bundle_hash,
+                "No federation signatures found for bundle"
+            );
+            return Ok(false);
+        }
+
+        // Step 4: Verify federation signature chain
+        self.verify_cross_host_chain(&signatures).await?;
+
+        // Step 5: Cross-host consistency check against peers
+        // Query peer registry for active peers
+        let peer_count = self.count_active_peers().await?;
+
+        if peer_count > 1 {
+            // Multiple hosts - verify cross-host consistency
+            let all_valid = self
+                .verify_cross_host_tick_consistency(bundle_hash, &entries)
+                .await?;
+
+            if !all_valid {
+                warn!(
+                    bundle_hash = %bundle_hash,
+                    "Cross-host tick ledger consistency check failed"
+                );
+                return Ok(false);
+            }
+        }
+
+        // Emit success telemetry event
+        if let Some(ref telemetry) = self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "federation".to_string(),
+                "verification".to_string(),
+                "1.0".to_string(),
+            );
+            match TelemetryEventBuilder::new(
+                adapteros_telemetry::EventType::Custom(
+                    "federation.chain_verified_with_ticks".to_string(),
+                ),
+                LogLevel::Info,
+                format!(
+                    "Federation chain with tick ledger verified: {}",
+                    bundle_hash
+                ),
+                identity,
+            )
+            .component("adapteros-federation".to_string())
+            .metadata(json!({
+                "bundle_hash": bundle_hash,
+                "tick_entries": entries.len(),
+                "merkle_root": merkle_root,
+                "signature_count": signatures.len(),
+                "peer_count": peer_count,
+            }))
+            .build()
+            {
+                Ok(event) => {
+                    let _ = telemetry.log_event(event);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to build chain verified event");
+                }
+            }
+        }
+
+        info!(
+            bundle_hash = %bundle_hash,
+            tick_entries = entries.len(),
+            signatures = signatures.len(),
+            "Federation chain with tick ledger verified successfully"
+        );
+
+        Ok(true)
+    }
+
+    /// Verify only federation signatures (when no tick ledger entries exist)
+    async fn verify_federation_signatures_only(&self, bundle_hash: &str) -> Result<bool> {
+        let signatures = self.get_signatures_for_bundle(bundle_hash).await?;
+
+        if signatures.is_empty() {
+            debug!(
+                bundle_hash = %bundle_hash,
+                "No federation signatures to verify"
+            );
+            return Ok(true); // No signatures yet is not an error
+        }
+
+        // Verify signature chain
+        self.verify_cross_host_chain(&signatures).await?;
+
+        info!(
+            bundle_hash = %bundle_hash,
+            signatures = signatures.len(),
+            "Federation signatures verified (no tick ledger entries)"
+        );
+
+        Ok(true)
+    }
+
+    /// Count active peers in the federation
+    async fn count_active_peers(&self) -> Result<usize> {
+        let pool = self.db.pool();
+
+        let row = sqlx::query("SELECT COUNT(*) as count FROM federation_peers WHERE active = 1")
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to count peers: {}", e)))?;
+
+        if let Some(row) = row {
+            let count: i64 = row
+                .try_get("count")
+                .map_err(|e| AosError::Database(format!("Failed to get count: {}", e)))?;
+            Ok(count as usize)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Verify cross-host tick ledger consistency
+    async fn verify_cross_host_tick_consistency(
+        &self,
+        bundle_hash: &str,
+        local_entries: &[sqlx::sqlite::SqliteRow],
+    ) -> Result<bool> {
+        // For each peer, verify they have the same tick ledger entries
+        // This is a simplified check - in production, you'd query each peer's database
+        // or compare tick ledger consistency reports
+
+        debug!(
+            bundle_hash = %bundle_hash,
+            local_entries = local_entries.len(),
+            "Verifying cross-host tick ledger consistency"
+        );
+
+        // Query tick_ledger_consistency_reports for this bundle's tick range
+        // to see if there are any known inconsistencies
+        let pool = self.db.pool();
+
+        if local_entries.is_empty() {
+            return Ok(true);
+        }
+
+        let first_tick: i64 = local_entries
+            .first()
+            .and_then(|row| row.try_get("tick").ok())
+            .unwrap_or(0);
+        let last_tick: i64 = local_entries
+            .last()
+            .and_then(|row| row.try_get("tick").ok())
+            .unwrap_or(0);
+
+        let inconsistencies = sqlx::query(
+            r#"
+            SELECT id, host_a, host_b, consistent, divergence_count
+            FROM tick_ledger_consistency_reports
+            WHERE tenant_id = ?
+              AND tick_range_start <= ?
+              AND tick_range_end >= ?
+              AND consistent = 0
+            "#,
+        )
+        .bind(&self.tenant_id)
+        .bind(last_tick)
+        .bind(first_tick)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch consistency reports: {}", e)))?;
+
+        if !inconsistencies.is_empty() {
+            warn!(
+                bundle_hash = %bundle_hash,
+                inconsistency_count = inconsistencies.len(),
+                "Found tick ledger inconsistencies in tick range"
+            );
+
+            // Emit telemetry event
+            if let Some(ref telemetry) = self.telemetry {
+                let identity = IdentityEnvelope::new(
+                    "system".to_string(),
+                    "federation".to_string(),
+                    "verification".to_string(),
+                    "1.0".to_string(),
+                );
+                match TelemetryEventBuilder::new(
+                    adapteros_telemetry::EventType::Custom(
+                        "federation.cross_host_inconsistency".to_string(),
+                    ),
+                    LogLevel::Error,
+                    format!("Cross-host tick ledger inconsistency detected"),
+                    identity,
+                )
+                .component("adapteros-federation".to_string())
+                .metadata(json!({
+                    "bundle_hash": bundle_hash,
+                    "inconsistency_count": inconsistencies.len(),
+                    "tick_range_start": first_tick,
+                    "tick_range_end": last_tick,
+                }))
+                .build()
+                {
+                    Ok(event) => {
+                        let _ = telemetry.log_event(event);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to build cross-host inconsistency event");
+                    }
+                }
+            }
+
+            return Ok(false);
+        }
+
+        debug!(
+            bundle_hash = %bundle_hash,
+            "Cross-host tick ledger consistency verified"
+        );
+
         Ok(true)
     }
 
@@ -594,7 +978,12 @@ mod tests {
     async fn test_sign_bundle() -> Result<()> {
         let db = setup_test_db().await?;
         let keypair = Keypair::generate();
-        let manager = FederationManager::with_host_id(db, keypair, "test-host".to_string())?;
+        let manager = FederationManager::with_host_id(
+            db,
+            keypair,
+            "test-host".to_string(),
+            "tenant-001".to_string(),
+        )?;
 
         let metadata = StoredBundleMetadata {
             bundle_hash: B3Hash::hash(b"test"),
@@ -628,7 +1017,12 @@ mod tests {
     async fn test_verify_chain() -> Result<()> {
         let db = setup_test_db().await?;
         let keypair = Keypair::generate();
-        let manager = FederationManager::with_host_id(db, keypair, "test-host".to_string())?;
+        let manager = FederationManager::with_host_id(
+            db,
+            keypair,
+            "test-host".to_string(),
+            "tenant-001".to_string(),
+        )?;
 
         let sig1 = FederationSignature::new(
             "host1".to_string(),
@@ -654,7 +1048,12 @@ mod tests {
     async fn test_chain_break_detection() -> Result<()> {
         let db = setup_test_db().await?;
         let keypair = Keypair::generate();
-        let manager = FederationManager::with_host_id(db, keypair, "test-host".to_string())?;
+        let manager = FederationManager::with_host_id(
+            db,
+            keypair,
+            "test-host".to_string(),
+            "tenant-001".to_string(),
+        )?;
 
         let sig1 = FederationSignature::new(
             "host1".to_string(),

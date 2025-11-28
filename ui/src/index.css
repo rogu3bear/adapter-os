@@ -1,8 +1,6 @@
 @import './styles/design-system.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 @layer base {
   *, :after, :before, ::backdrop {
@@ -1420,7 +1418,7 @@
     transition-duration: .2s;
   }
 
-  .outline-none {
+  .outline-hidden {
     --tw-outline-style: none;
     outline-style: none;
   }

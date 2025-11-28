@@ -687,7 +687,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
       {/* Adapter Registration Pending Warning */}
       {shouldPollAdapters && (
-        <Alert variant="warning">
+        <Alert variant="default" className="border-warning-border bg-warning-surface text-warning">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             Training completed, but adapter registration is pending. Checking adapter registry...

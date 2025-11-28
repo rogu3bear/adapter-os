@@ -637,6 +637,13 @@ pub enum ExitCode {
     Anomaly = 113,
     System = 114,
     DeterministicExecutor = 115,
+
+    // Model Hub errors (120-129)
+    DownloadFailed = 120,
+    CacheCorruption = 121,
+    HealthCheckFailed = 122,
+    ModelNotFound = 123,
+    ModelAcquisitionInProgress = 124,
 }
 
 impl From<&adapteros_core::AosError> for ExitCode {
@@ -674,6 +681,7 @@ impl From<&adapteros_core::AosError> for ExitCode {
                 ExitCode::CircuitBreakerOpen
             }
             AosError::InvalidResponse { .. } => ExitCode::InvalidResponse,
+            AosError::Federation(_) => ExitCode::Network, // Federation errors treated as network errors
 
             // Crypto errors (40-49)
             AosError::Crypto(_) => ExitCode::Crypto,
@@ -737,6 +745,13 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::System(_) => ExitCode::System,
             AosError::DeterministicExecutor(_) => ExitCode::DeterministicExecutor,
             AosError::Routing(_) => ExitCode::Routing,
+
+            // Model Hub errors (120-129)
+            AosError::DownloadFailed { .. } => ExitCode::DownloadFailed,
+            AosError::CacheCorruption { .. } => ExitCode::CacheCorruption,
+            AosError::HealthCheckFailed { .. } => ExitCode::HealthCheckFailed,
+            AosError::ModelNotFound { .. } => ExitCode::ModelNotFound,
+            AosError::ModelAcquisitionInProgress { .. } => ExitCode::ModelAcquisitionInProgress,
         }
     }
 }

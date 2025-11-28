@@ -109,6 +109,12 @@ pub struct CryptoAuditEntry {
     pub metadata: serde_json::Value,
     /// Ed25519 signature of entry (for tamper detection)
     pub signature: Vec<u8>,
+    /// BLAKE3 hash of this entry (for chain integrity)
+    pub entry_hash: Option<Vec<u8>>,
+    /// Hash of previous entry in chain
+    pub previous_hash: Option<Vec<u8>>,
+    /// Sequential number in chain (starts at 1)
+    pub chain_sequence: Option<u64>,
 }
 
 impl CryptoAuditEntry {
@@ -141,7 +147,10 @@ impl CryptoAuditEntry {
             result,
             error_message,
             metadata,
-            signature: vec![], // Will be set by audit logger
+            signature: vec![],    // Will be set by audit logger
+            entry_hash: None,     // Will be computed by audit logger
+            previous_hash: None,  // Will be set by audit logger
+            chain_sequence: None, // Will be set by audit logger
         }
     }
 
@@ -164,6 +173,37 @@ impl CryptoAuditEntry {
         bytes.extend_from_slice(self.metadata.to_string().as_bytes());
         bytes
     }
+
+    /// Compute BLAKE3 hash of this entry for chain integrity
+    pub fn compute_hash(&self) -> Vec<u8> {
+        use blake3::Hasher;
+
+        let mut hasher = Hasher::new();
+
+        // Hash all entry fields (including signature but excluding entry_hash, previous_hash, chain_sequence)
+        hasher.update(self.id.as_bytes());
+        hasher.update(&self.timestamp.to_le_bytes());
+        hasher.update(self.operation.to_string().as_bytes());
+
+        if let Some(ref key_id) = self.key_id {
+            hasher.update(key_id.as_bytes());
+        }
+
+        if let Some(ref user_id) = self.user_id {
+            hasher.update(user_id.as_bytes());
+        }
+
+        hasher.update(self.result.to_string().as_bytes());
+
+        if let Some(ref error) = self.error_message {
+            hasher.update(error.as_bytes());
+        }
+
+        hasher.update(self.metadata.to_string().as_bytes());
+        hasher.update(&self.signature);
+
+        hasher.finalize().as_bytes().to_vec()
+    }
 }
 
 /// Audit logger for cryptographic operations
@@ -172,6 +212,21 @@ pub struct CryptoAuditLogger {
     signing_key: Arc<RwLock<SigningKey>>,
     /// In-memory audit log (also persisted to database)
     log: Arc<RwLock<Vec<CryptoAuditEntry>>>,
+    /// Optional database for persistence
+    db: Option<Arc<dyn CryptoAuditDb>>,
+}
+
+/// Trait for database persistence of crypto audit logs
+#[async_trait::async_trait]
+pub trait CryptoAuditDb: Send + Sync {
+    /// Store audit entry with hash chain
+    async fn store_audit_entry(&self, entry: &CryptoAuditEntry) -> Result<()>;
+
+    /// Get latest audit entry for chaining
+    async fn get_latest_audit_entry(&self) -> Result<Option<CryptoAuditEntry>>;
+
+    /// Verify audit chain integrity
+    async fn verify_audit_chain(&self, start_sequence: u64, end_sequence: u64) -> Result<bool>;
 }
 
 impl CryptoAuditLogger {
@@ -182,6 +237,18 @@ impl CryptoAuditLogger {
         Self {
             signing_key: Arc::new(RwLock::new(signing_key)),
             log: Arc::new(RwLock::new(Vec::new())),
+            db: None,
+        }
+    }
+
+    /// Create a new audit logger with database persistence
+    pub fn new_with_db(db: Arc<dyn CryptoAuditDb>) -> Self {
+        let signing_key = SigningKey::generate(&mut OsRng);
+
+        Self {
+            signing_key: Arc::new(RwLock::new(signing_key)),
+            log: Arc::new(RwLock::new(Vec::new())),
+            db: Some(db),
         }
     }
 
@@ -210,9 +277,36 @@ impl CryptoAuditLogger {
         let signature = signing_key.sign(&canonical);
         entry.signature = signature.to_bytes().to_vec();
 
+        // Get previous entry for hash chaining (from DB if available, else in-memory)
+        let previous_entry = if let Some(ref db) = self.db {
+            db.get_latest_audit_entry().await?
+        } else {
+            let log = self.log.read().await;
+            log.last().cloned()
+        };
+
+        // Set hash chain fields
+        if let Some(prev) = previous_entry {
+            entry.previous_hash = prev.entry_hash.clone();
+            entry.chain_sequence = Some(prev.chain_sequence.unwrap_or(0) + 1);
+        } else {
+            // First entry in chain
+            entry.previous_hash = None;
+            entry.chain_sequence = Some(1);
+        }
+
+        // Compute hash of current entry (after signature and chain fields are set)
+        entry.entry_hash = Some(entry.compute_hash());
+
         // Add to in-memory log
         let mut log = self.log.write().await;
         log.push(entry.clone());
+        drop(log); // Release lock before async DB operation
+
+        // Persist to database if available
+        if let Some(ref db) = self.db {
+            db.store_audit_entry(&entry).await?;
+        }
 
         // Log to tracing
         match result {
@@ -221,6 +315,7 @@ impl CryptoAuditLogger {
                     operation = %operation,
                     key_id = ?key_id,
                     user_id = ?user_id,
+                    chain_sequence = ?entry.chain_sequence,
                     "Crypto operation succeeded"
                 );
             }
@@ -230,13 +325,11 @@ impl CryptoAuditLogger {
                     key_id = ?key_id,
                     user_id = ?user_id,
                     error = ?error_message,
+                    chain_sequence = ?entry.chain_sequence,
                     "Crypto operation failed"
                 );
             }
         }
-
-        // TODO: Persist to database
-        // db.insert_crypto_audit_entry(&entry).await?;
 
         Ok(())
     }

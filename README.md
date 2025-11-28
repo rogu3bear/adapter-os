@@ -124,10 +124,10 @@ For complete setup instructions, see **[QUICKSTART.md](QUICKSTART.md)** which pr
 # Clone and build
 git clone https://github.com/rogu3bear/adapter-os.git
 cd adapter-os
-cargo build --release
+make cli  # Build CLI and create ./aosctl symlink
 
 # Initialize database
-cargo run -p adapteros-server-api -- db migrate
+./aosctl db migrate
 
 # Download a model (optional)
 huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
@@ -135,7 +135,7 @@ huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
     --local-dir models/qwen2.5-7b-mlx
 
 # Start the server
-AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx cargo run -p adapteros-server-api
+make dev
 ```
 
 ### Prerequisites
@@ -204,7 +204,7 @@ export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
 ```bash
 # Register your LoRA adapters with semantic names
 # Format: {tenant}/{domain}/{purpose}/{revision}
-./target/release/aosctl register-adapter tenant-a/engineering/code-review/r001 b3:abc123... --tier persistent --rank 16
+./aosctl register-adapter tenant-a/engineering/code-review/r001 b3:abc123... --tier persistent --rank 16
 
 # See docs/ADAPTER_TAXONOMY.md for naming conventions
 ```
@@ -212,13 +212,12 @@ export AOS_MLX_FFI_MODEL=./models/qwen2.5-7b-mlx
 ### Start Serving
 
 ```bash
-# Option 1: Start the REST API server directly
-cargo run --release -p adapteros-server-api
+# Start dev server (port 8080)
+make dev
 
-# Option 2: Use aosctl to serve with a specific tenant and plan
-./target/release/aosctl serve --tenant default --plan <plan-id>
+# Or use aosctl to serve with a specific tenant and plan
+./aosctl serve --tenant default --plan <plan-id>
 
-# The server listens on port 8080 by default
 # See QUICKSTART.md for complete setup and configuration
 ```
 ---

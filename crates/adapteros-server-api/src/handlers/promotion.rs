@@ -19,12 +19,10 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 use utoipa::ToSchema;
 
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
-use crate::handlers::aos_error_to_response;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -182,19 +180,16 @@ pub async fn request_promotion(
             let request_id = format!("promo-{}-{}", run_id, uuid::Uuid::new_v4());
 
             // Create promotion request
-            let result = sqlx::query(
-                "INSERT INTO golden_run_promotion_requests
-                 (request_id, golden_run_id, target_stage, requester_id, requester_email, notes, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))"
-            )
-            .bind(&request_id)
-            .bind(&run_id)
-            .bind(&req.target_stage)
-            .bind(&claims.sub)
-            .bind(&claims.email)
-            .bind(&req.notes)
-            .execute(state.db.pool())
-            .await;
+            let params = adapteros_db::CreatePromotionRequestParams {
+                request_id: request_id.clone(),
+                golden_run_id: run_id.clone(),
+                target_stage: req.target_stage.clone(),
+                requester_id: claims.sub.clone(),
+                requester_email: claims.email.clone(),
+                notes: req.notes.clone(),
+            };
+
+            let result = state.db.create_promotion_request(params).await;
 
             match result {
                 Ok(_) => {
@@ -280,48 +275,22 @@ pub async fn get_promotion_status(
     require_permission(&claims, Permission::PromotionManage)?;
 
     // Get latest promotion request for this golden run
-    let request_row = sqlx::query(
-        "SELECT request_id, golden_run_id, target_stage, status, requester_email, created_at, updated_at, notes
-         FROM golden_run_promotion_requests
-         WHERE golden_run_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1"
-    )
-    .bind(&run_id)
-    .fetch_optional(state.db.pool())
-    .await
-    .map_err(|e| {
-        error!("Database error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR")),
-        )
-    })?;
-
-    match request_row {
-        Some(row) => {
-            let request_id: String = row.try_get("request_id").map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-
-            // Fetch gates
-            let gate_rows = sqlx::query(
-                "SELECT gate_name, status, passed, details, error_message, checked_at
-                 FROM golden_run_promotion_gates
-                 WHERE request_id = ?
-                 ORDER BY checked_at ASC",
+    let request = state
+        .db
+        .get_latest_promotion_request(&run_id)
+        .await
+        .map_err(|e| {
+            error!("Database error: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("database error").with_code("INTERNAL_ERROR")),
             )
-            .bind(&request_id)
-            .fetch_all(state.db.pool())
-            .await
-            .map_err(|e| {
+        })?;
+
+    match request {
+        Some(req) => {
+            // Fetch gates
+            let db_gates = state.db.get_promotion_gates(&req.request_id).await.map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
@@ -332,96 +301,61 @@ pub async fn get_promotion_status(
                 )
             })?;
 
-            let gates: Vec<GateStatus> = gate_rows
+            let gates: Vec<GateStatus> = db_gates
                 .iter()
-                .filter_map(|row| {
-                    let details_str: Option<String> = row.try_get("details").ok()?;
-                    let details = details_str.and_then(|s| serde_json::from_str(&s).ok());
+                .filter_map(|gate| {
+                    let details = gate
+                        .details
+                        .as_ref()
+                        .and_then(|s| serde_json::from_str(s).ok());
 
                     Some(GateStatus {
-                        gate_name: row.try_get("gate_name").ok()?,
-                        status: row.try_get("status").ok()?,
-                        passed: row.try_get("passed").ok()?,
+                        gate_name: gate.gate_name.clone(),
+                        status: gate.status.clone(),
+                        passed: gate.passed,
                         details,
-                        error_message: row.try_get("error_message").ok()?,
-                        checked_at: row.try_get("checked_at").ok()?,
+                        error_message: gate.error_message.clone(),
+                        checked_at: gate.checked_at.clone(),
                     })
                 })
                 .collect();
 
             // Fetch approvals
-            let approval_rows = sqlx::query(
-                "SELECT approver_email, action, approval_message, signature, approved_at
-                 FROM golden_run_promotion_approvals
-                 WHERE request_id = ?
-                 ORDER BY approved_at DESC",
-            )
-            .bind(&request_id)
-            .fetch_all(state.db.pool())
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            let db_approvals = state
+                .db
+                .get_promotion_approvals(&req.request_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("database error")
+                                .with_code("INTERNAL_ERROR")
+                                .with_string_details(e.to_string()),
+                        ),
+                    )
+                })?;
 
-            let approvals: Vec<ApprovalRecord> = approval_rows
+            let approvals: Vec<ApprovalRecord> = db_approvals
                 .iter()
-                .filter_map(|row| {
-                    Some(ApprovalRecord {
-                        approver_email: row.try_get("approver_email").ok()?,
-                        action: row.try_get("action").ok()?,
-                        message: row.try_get("approval_message").ok()?,
-                        signature: row.try_get("signature").ok()?,
-                        approved_at: row.try_get("approved_at").ok()?,
-                    })
+                .map(|approval| ApprovalRecord {
+                    approver_email: approval.approver_email.clone(),
+                    action: approval.action.clone(),
+                    message: approval.approval_message.clone(),
+                    signature: approval.signature.clone(),
+                    approved_at: approval.approved_at.clone(),
                 })
                 .collect();
 
             Ok(Json(PromotionStatusResponse {
-                request_id,
-                golden_run_id: row.try_get("golden_run_id").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!(
-                        "Failed to get golden_run_id: {}",
-                        e
-                    )))
-                })?,
-                target_stage: row.try_get("target_stage").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!(
-                        "Failed to get target_stage: {}",
-                        e
-                    )))
-                })?,
-                status: row.try_get("status").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!(
-                        "Failed to get status: {}",
-                        e
-                    )))
-                })?,
-                requester_email: row.try_get("requester_email").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!(
-                        "Failed to get requester_email: {}",
-                        e
-                    )))
-                })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!(
-                        "Failed to get created_at: {}",
-                        e
-                    )))
-                })?,
-                updated_at: row.try_get("updated_at").map_err(|e| {
-                    aos_error_to_response(AosError::Database(format!(
-                        "Failed to get updated_at: {}",
-                        e
-                    )))
-                })?,
-                notes: row.try_get("notes").ok(),
+                request_id: req.request_id,
+                golden_run_id: req.golden_run_id,
+                target_stage: req.target_stage,
+                status: req.status,
+                requester_email: req.requester_email,
+                created_at: req.created_at,
+                updated_at: req.updated_at,
+                notes: req.notes,
                 gates,
                 approvals,
             }))
@@ -472,27 +406,22 @@ pub async fn approve_or_reject_promotion(
     }
 
     // Get latest promotion request
-    let request_row = sqlx::query(
-        "SELECT request_id, status FROM golden_run_promotion_requests
-         WHERE golden_run_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1",
-    )
-    .bind(&run_id)
-    .fetch_optional(state.db.pool())
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let request = state
+        .db
+        .get_latest_promotion_request(&run_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
-    let request_row = request_row.ok_or_else(|| {
+    let request = request.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(
@@ -503,27 +432,8 @@ pub async fn approve_or_reject_promotion(
         )
     })?;
 
-    let request_id: String = request_row.try_get("request_id").map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let current_status: String = request_row.try_get("status").map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let request_id = request.request_id;
+    let current_status = request.status;
 
     // Check if already processed
     if current_status != "pending" {
@@ -551,20 +461,17 @@ pub async fn approve_or_reject_promotion(
     let public_key_hex = hex::encode(state.crypto.signing_keypair.public_key().to_bytes());
 
     // Record approval
-    let insert_result = sqlx::query(
-        "INSERT INTO golden_run_promotion_approvals
-         (request_id, approver_id, approver_email, action, approval_message, signature, public_key, approved_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
-    )
-    .bind(&request_id)
-    .bind(&claims.sub)
-    .bind(&claims.email)
-    .bind(&req.action)
-    .bind(&req.message)
-    .bind(&signature)
-    .bind(&public_key_hex)
-    .execute(state.db.pool())
-    .await;
+    let approval_params = adapteros_db::RecordApprovalParams {
+        request_id: request_id.clone(),
+        approver_id: claims.sub.clone(),
+        approver_email: claims.email.clone(),
+        action: req.action.clone(),
+        approval_message: req.message.clone(),
+        signature: signature.clone(),
+        public_key: public_key_hex,
+    };
+
+    let insert_result = state.db.record_promotion_approval(approval_params).await;
 
     match insert_result {
         Ok(_) => {
@@ -575,15 +482,10 @@ pub async fn approve_or_reject_promotion(
                 "rejected"
             };
 
-            let _ = sqlx::query(
-                "UPDATE golden_run_promotion_requests
-                 SET status = ?, updated_at = datetime('now')
-                 WHERE request_id = ?",
-            )
-            .bind(new_status)
-            .bind(&request_id)
-            .execute(state.db.pool())
-            .await;
+            let _ = state
+                .db
+                .update_promotion_request_status(&request_id, new_status)
+                .await;
 
             // If approved, execute promotion
             if req.action == "approve" {
@@ -661,15 +563,7 @@ pub async fn rollback_promotion(
     }
 
     // Get current and previous golden run for stage
-    let stage_row = sqlx::query(
-        "SELECT active_golden_run_id, previous_golden_run_id
-         FROM golden_run_stages
-         WHERE stage_name = ?",
-    )
-    .bind(&stage)
-    .fetch_optional(state.db.pool())
-    .await
-    .map_err(|e| {
+    let stage_info = state.db.get_golden_run_stage(&stage).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -680,7 +574,7 @@ pub async fn rollback_promotion(
         )
     })?;
 
-    let stage_row = stage_row.ok_or_else(|| {
+    let stage_info = stage_info.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(
@@ -691,20 +585,8 @@ pub async fn rollback_promotion(
         )
     })?;
 
-    let current_run_id: String = stage_row.try_get("active_golden_run_id").map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let previous_run_id: Option<String> = stage_row.try_get("previous_golden_run_id").ok();
-
-    let previous_run_id = previous_run_id.ok_or_else(|| {
+    let current_run_id = stage_info.active_golden_run_id;
+    let previous_run_id = stage_info.previous_golden_run_id.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
             Json(
@@ -721,35 +603,23 @@ pub async fn rollback_promotion(
     );
 
     // Update stage
-    let _ = sqlx::query(
-        "UPDATE golden_run_stages
-         SET active_golden_run_id = previous_golden_run_id,
-             previous_golden_run_id = NULL,
-             promoted_at = datetime('now'),
-             promoted_by = ?
-         WHERE stage_name = ?",
-    )
-    .bind(&claims.email)
-    .bind(&stage)
-    .execute(state.db.pool())
-    .await;
+    let _ = state.db.rollback_golden_run_stage(&stage, &claims.email).await;
 
     // Log rollback in history
     let request_id = format!("rollback-{}-{}", stage, uuid::Uuid::new_v4());
-    let _ = sqlx::query(
-        "INSERT INTO golden_run_promotion_history
-         (request_id, golden_run_id, action, target_stage, previous_golden_run_id, promoted_by, approval_signature, metadata, promoted_at)
-         VALUES (?, ?, 'rolled_back', ?, ?, ?, ?, ?, datetime('now'))"
-    )
-    .bind(&request_id)
-    .bind(&previous_run_id)
-    .bind(&stage)
-    .bind(&current_run_id)
-    .bind(&claims.email)
-    .bind(&req.reason)
-    .bind(&serde_json::json!({"reason": req.reason}).to_string())
-    .execute(state.db.pool())
-    .await;
+    let metadata = serde_json::json!({"reason": &req.reason}).to_string();
+    let _ = state
+        .db
+        .record_rollback_history(
+            &request_id,
+            &previous_run_id,
+            &stage,
+            &current_run_id,
+            &claims.email,
+            &req.reason,
+            &metadata,
+        )
+        .await;
 
     let _ = log_success(
         &state.db,
@@ -787,27 +657,22 @@ pub async fn get_gate_status(
     require_permission(&claims, Permission::PromotionManage)?;
 
     // Get latest promotion request
-    let request_row = sqlx::query(
-        "SELECT request_id FROM golden_run_promotion_requests
-         WHERE golden_run_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1",
-    )
-    .bind(&run_id)
-    .fetch_optional(state.db.pool())
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let request = state
+        .db
+        .get_latest_promotion_request(&run_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
-    let request_row = request_row.ok_or_else(|| {
+    let request = request.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(
@@ -818,28 +683,10 @@ pub async fn get_gate_status(
         )
     })?;
 
-    let request_id: String = request_row.try_get("request_id").map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let request_id = request.request_id;
 
     // Fetch gates
-    let gate_rows = sqlx::query(
-        "SELECT gate_name, status, passed, details, error_message, checked_at
-         FROM golden_run_promotion_gates
-         WHERE request_id = ?
-         ORDER BY checked_at ASC",
-    )
-    .bind(&request_id)
-    .fetch_all(state.db.pool())
-    .await
-    .map_err(|e| {
+    let db_gates = state.db.get_promotion_gates(&request_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -850,19 +697,21 @@ pub async fn get_gate_status(
         )
     })?;
 
-    let gates: Vec<GateStatus> = gate_rows
+    let gates: Vec<GateStatus> = db_gates
         .iter()
-        .filter_map(|row| {
-            let details_str: Option<String> = row.try_get("details").ok()?;
-            let details = details_str.and_then(|s| serde_json::from_str(&s).ok());
+        .filter_map(|gate| {
+            let details = gate
+                .details
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
 
             Some(GateStatus {
-                gate_name: row.try_get("gate_name").ok()?,
-                status: row.try_get("status").ok()?,
-                passed: row.try_get("passed").ok()?,
+                gate_name: gate.gate_name.clone(),
+                status: gate.status.clone(),
+                passed: gate.passed,
                 details,
-                error_message: row.try_get("error_message").ok()?,
-                checked_at: row.try_get("checked_at").ok()?,
+                error_message: gate.error_message.clone(),
+                checked_at: gate.checked_at.clone(),
             })
         })
         .collect();
@@ -931,23 +780,15 @@ async fn record_gate_result(
     details: Option<&serde_json::Value>,
     error_message: Option<String>,
 ) -> AosResult<()> {
-    let status = if passed { "passed" } else { "failed" };
-    let details_json = details.map(|d| d.to_string());
+    let params = adapteros_db::RecordGateParams {
+        request_id: request_id.to_string(),
+        gate_name: gate_name.to_string(),
+        passed,
+        details: details.cloned(),
+        error_message,
+    };
 
-    sqlx::query(
-        "INSERT OR REPLACE INTO golden_run_promotion_gates
-         (request_id, gate_name, status, passed, details, error_message, checked_at)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-    )
-    .bind(request_id)
-    .bind(gate_name)
-    .bind(status)
-    .bind(passed)
-    .bind(details_json)
-    .bind(error_message)
-    .execute(state.db.pool())
-    .await?;
-
+    state.db.record_promotion_gate(params).await?;
     Ok(())
 }
 
@@ -1070,60 +911,36 @@ async fn execute_promotion(state: &AppState, request_id: &str, run_id: &str) -> 
     info!("Executing promotion for request_id={}", request_id);
 
     // Get target stage
-    let request_row =
-        sqlx::query("SELECT target_stage FROM golden_run_promotion_requests WHERE request_id = ?")
-            .bind(request_id)
-            .fetch_one(state.db.pool())
-            .await?;
-
-    let target_stage: String = request_row.try_get("target_stage")?;
+    let target_stage = state.db.get_promotion_target_stage(request_id).await?;
 
     // Get current active run for stage
-    let stage_row =
-        sqlx::query("SELECT active_golden_run_id FROM golden_run_stages WHERE stage_name = ?")
-            .bind(&target_stage)
-            .fetch_one(state.db.pool())
-            .await?;
-
-    let previous_run_id: String = stage_row.try_get("active_golden_run_id")?;
+    let previous_run_id = state.db.get_stage_active_golden_run(&target_stage).await?;
 
     // Update stage
-    sqlx::query(
-        "UPDATE golden_run_stages
-         SET active_golden_run_id = ?,
-             previous_golden_run_id = ?,
-             promoted_at = datetime('now'),
-             promoted_by = 'system'
-         WHERE stage_name = ?",
-    )
-    .bind(run_id)
-    .bind(&previous_run_id)
-    .bind(&target_stage)
-    .execute(state.db.pool())
-    .await?;
+    state
+        .db
+        .update_golden_run_stage(&target_stage, run_id, &previous_run_id, "system")
+        .await?;
 
     // Update promotion status
-    sqlx::query(
-        "UPDATE golden_run_promotion_requests
-         SET status = 'promoted', updated_at = datetime('now')
-         WHERE request_id = ?",
-    )
-    .bind(request_id)
-    .execute(state.db.pool())
-    .await?;
+    state
+        .db
+        .update_promotion_request_status(request_id, "promoted")
+        .await?;
 
     // Record in history
-    sqlx::query(
-        "INSERT INTO golden_run_promotion_history
-         (request_id, golden_run_id, action, target_stage, previous_golden_run_id, promoted_by, approval_signature, promoted_at)
-         VALUES (?, ?, 'promoted', ?, ?, 'system', 'auto', datetime('now'))"
-    )
-    .bind(request_id)
-    .bind(run_id)
-    .bind(&target_stage)
-    .bind(&previous_run_id)
-    .execute(state.db.pool())
-    .await?;
+    state
+        .db
+        .record_promotion_history(
+            request_id,
+            run_id,
+            "promoted",
+            &target_stage,
+            &previous_run_id,
+            "system",
+            "auto",
+        )
+        .await?;
 
     info!(
         "Promotion executed: {} promoted to {}",

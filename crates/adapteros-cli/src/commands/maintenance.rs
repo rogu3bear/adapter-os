@@ -81,7 +81,9 @@ async fn gc_bundles(args: GcBundlesArgs, output: &OutputWriter) -> Result<()> {
     }
 
     // Connect to database explicitly (do not rely on DATABASE_URL)
-    let db = Db::connect(db_path.to_str().unwrap())
+    let db_path_str = db_path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8: {}", db_path.display()))?;
+    let db = Db::connect(db_path_str)
         .await
         .with_context(|| format!("connecting to database {}", db_path.display()))?;
     let pool = db.pool();

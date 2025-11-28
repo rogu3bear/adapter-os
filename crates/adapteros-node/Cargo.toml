@@ -17,6 +17,7 @@ adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
 
 # Workspace dependencies
 anyhow.workspace = true

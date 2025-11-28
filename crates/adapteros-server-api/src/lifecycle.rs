@@ -781,19 +781,20 @@ mod tests {
     async fn test_shutdown_timeout() {
         init_test_executor();
         let config = ShutdownConfig {
-            telemetry_timeout: Duration::from_millis(50), // Very short timeout
+            federation_timeout: Duration::from_millis(50), // Very short timeout
             ..Default::default()
         };
         let mut coordinator = ShutdownCoordinator::with_config(config);
 
-        // Mock telemetry handle that takes longer than the timeout
+        // Mock federation handle that takes longer than the timeout
+        // Federation is non-critical, so timeout results in PartialFailure
         let mock_handle = tokio::spawn(async {
             // This will definitely take longer than 50ms timeout
             tokio::time::sleep(Duration::from_secs(1)).await;
         });
-        coordinator.set_telemetry_handle(mock_handle);
+        coordinator.set_federation_handle(mock_handle);
 
-        // Should report partial failure due to timeout
+        // Should report partial failure due to timeout (non-critical component)
         let result = coordinator.shutdown().await;
         println!("Shutdown result: {:?}", result);
         assert!(result.is_err());

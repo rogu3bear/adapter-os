@@ -39,7 +39,7 @@ impl BundleSignature {
         let key_id = compute_key_id(&public_key);
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_micros() as u64;
 
         Self {

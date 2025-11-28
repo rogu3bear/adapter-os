@@ -6,27 +6,29 @@
 //! - Error handling per item
 //! - Timeout management
 
-use adapteros_server_api::types::{BatchInferItem, BatchInferRequest, InferRequest};
+use adapteros_server_api::types::{BatchInferItemRequest, BatchInferRequest, InferRequest};
 
 #[tokio::test]
 async fn test_batch_infer_request_structure() {
     // Test batch request structure
     let request = BatchInferRequest {
         requests: vec![
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "req1".to_string(),
                 request: InferRequest {
                     prompt: "Hello".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "req2".to_string(),
                 request: InferRequest {
                     prompt: "World".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
         ],
@@ -45,12 +47,13 @@ async fn test_batch_size_limits() {
     // Valid batch size
     let valid_request = BatchInferRequest {
         requests: (0..MAX_BATCH_SIZE)
-            .map(|i| BatchInferItem {
+            .map(|i| BatchInferItemRequest {
                 id: format!("req{}", i),
                 request: InferRequest {
                     prompt: format!("Prompt {}", i),
                     max_tokens: Some(50),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             })
             .collect(),
@@ -61,12 +64,13 @@ async fn test_batch_size_limits() {
     // Oversized batch
     let oversized_request = BatchInferRequest {
         requests: (0..MAX_BATCH_SIZE + 1)
-            .map(|i| BatchInferItem {
+            .map(|i| BatchInferItemRequest {
                 id: format!("req{}", i),
                 request: InferRequest {
                     prompt: format!("Prompt {}", i),
                     max_tokens: Some(50),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             })
             .collect(),
@@ -90,28 +94,31 @@ async fn test_batch_error_handling_per_item() {
     // Test that errors in individual items don't fail entire batch
     let request = BatchInferRequest {
         requests: vec![
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "valid".to_string(),
                 request: InferRequest {
                     prompt: "Valid prompt".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "empty_prompt".to_string(),
                 request: InferRequest {
                     prompt: "".to_string(), // Invalid: empty prompt
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "valid2".to_string(),
                 request: InferRequest {
                     prompt: "Another valid prompt".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
         ],
@@ -208,12 +215,13 @@ async fn test_batch_id_correlation() {
     let request = BatchInferRequest {
         requests: request_ids
             .iter()
-            .map(|id| BatchInferItem {
+            .map(|id| BatchInferItemRequest {
                 id: id.to_string(),
                 request: InferRequest {
                     prompt: format!("Prompt for {}", id),
                     max_tokens: Some(50),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             })
             .collect(),
@@ -235,28 +243,31 @@ async fn test_batch_id_correlation() {
 async fn test_batch_partial_completion() {
     let request = BatchInferRequest {
         requests: vec![
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "success1".to_string(),
                 request: InferRequest {
                     prompt: "Valid prompt 1".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "fail_empty".to_string(),
                 request: InferRequest {
                     prompt: "".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
-            BatchInferItem {
+            BatchInferItemRequest {
                 id: "success2".to_string(),
                 request: InferRequest {
                     prompt: "Valid prompt 2".to_string(),
                     max_tokens: Some(100),
                     require_evidence: Some(false),
+                    ..Default::default()
                 },
             },
         ],

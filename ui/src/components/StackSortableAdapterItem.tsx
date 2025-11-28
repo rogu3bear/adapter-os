@@ -100,7 +100,7 @@ export function StackSortableAdapterItem<T extends FieldValues = FieldValues>({
         <Input
           type="number"
           placeholder="Gate (Q15)"
-          {...register(`adapters.${index}.gate`, {
+          {...register(`adapters.${index}.gate` as any, {
             valueAsNumber: true,
             min: { value: 0, message: 'Gate must be >= 0' },
             max: { value: 32767, message: 'Gate must be <= 32767' },

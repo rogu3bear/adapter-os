@@ -814,7 +814,24 @@ impl EgressValidator {
 impl PolicyPackValidator for EgressValidator {
     fn validate(&self, request: &PolicyRequest) -> Result<PolicyValidationResult> {
         let mut violations = Vec::new();
-        let warnings = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Extract runtime mode from request metadata
+        let runtime_mode = request
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("runtime_mode"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| match s {
+                "dev" | "development" => Some("dev"),
+                "staging" | "stage" => Some("staging"),
+                "prod" | "production" => Some("prod"),
+                _ => None,
+            });
+
+        // Determine if we should block based on runtime mode
+        // In Auto mode (default): block in prod, warn in dev/staging
+        let should_block = runtime_mode == Some("prod");
 
         // Check for network operations and protocol violations
         if matches!(request.request_type, RequestType::NetworkOperation)
@@ -822,29 +839,74 @@ impl PolicyPackValidator for EgressValidator {
         {
             // Check for DNS resolution attempts
             if request.context.operation == "dns_resolution" {
-                violations.push(PolicyViolation {
-                    violation_id: Uuid::new_v4().to_string(),
-                    policy_pack: "Egress Ruleset".to_string(),
-                    severity: ViolationSeverity::Error,
-                    message: "DNS resolution requests are not allowed".to_string(),
-                    details: Some(serde_json::json!({"operation": "dns_resolution"})),
-                    remediation: Some("DNS resolution is blocked for security".to_string()),
-                    timestamp: Utc::now(),
-                });
+                let msg = "DNS resolution requests are not allowed";
+                if should_block {
+                    violations.push(PolicyViolation {
+                        violation_id: Uuid::new_v4().to_string(),
+                        policy_pack: "Egress Ruleset".to_string(),
+                        severity: ViolationSeverity::Blocker,
+                        message: msg.to_string(),
+                        details: Some(serde_json::json!({
+                            "operation": "dns_resolution",
+                            "runtime_mode": runtime_mode.unwrap_or("unknown")
+                        })),
+                        remediation: Some("DNS resolution is blocked for security".to_string()),
+                        timestamp: Utc::now(),
+                    });
+                } else {
+                    warnings.push(PolicyWarning {
+                        warning_id: Uuid::new_v4().to_string(),
+                        policy_pack: "Egress Ruleset".to_string(),
+                        message: format!(
+                            "{} (runtime_mode: {})",
+                            msg,
+                            runtime_mode.unwrap_or("unknown")
+                        ),
+                        details: Some(serde_json::json!({
+                            "operation": "dns_resolution",
+                            "runtime_mode": runtime_mode.unwrap_or("unknown")
+                        })),
+                        timestamp: Utc::now(),
+                    });
+                }
             }
 
             if let Some(data) = &request.context.data {
                 if let Some(protocol) = data.get("protocol") {
                     if protocol == "tcp" || protocol == "udp" {
-                        violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
-                            policy_pack: "Egress Ruleset".to_string(),
-                            severity: ViolationSeverity::Blocker,
-                            message: "TCP/UDP connections are not allowed".to_string(),
-                            details: Some(serde_json::json!({"protocol": protocol})),
-                            remediation: Some("Use Unix domain sockets only".to_string()),
-                            timestamp: Utc::now(),
-                        });
+                        let msg = format!(
+                            "{} connections are not allowed",
+                            protocol.as_str().unwrap_or("unknown")
+                        );
+                        if should_block {
+                            violations.push(PolicyViolation {
+                                violation_id: Uuid::new_v4().to_string(),
+                                policy_pack: "Egress Ruleset".to_string(),
+                                severity: ViolationSeverity::Blocker,
+                                message: msg.clone(),
+                                details: Some(serde_json::json!({
+                                    "protocol": protocol,
+                                    "runtime_mode": runtime_mode.unwrap_or("unknown")
+                                })),
+                                remediation: Some("Use Unix domain sockets only".to_string()),
+                                timestamp: Utc::now(),
+                            });
+                        } else {
+                            warnings.push(PolicyWarning {
+                                warning_id: Uuid::new_v4().to_string(),
+                                policy_pack: "Egress Ruleset".to_string(),
+                                message: format!(
+                                    "{} (runtime_mode: {})",
+                                    msg,
+                                    runtime_mode.unwrap_or("unknown")
+                                ),
+                                details: Some(serde_json::json!({
+                                    "protocol": protocol,
+                                    "runtime_mode": runtime_mode.unwrap_or("unknown")
+                                })),
+                                timestamp: Utc::now(),
+                            });
+                        }
                     }
                 }
             }

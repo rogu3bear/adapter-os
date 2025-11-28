@@ -153,7 +153,7 @@ impl ErrorRecoveryManager {
             "recovery_{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos()
         );
 
@@ -193,8 +193,8 @@ impl ErrorRecoveryManager {
             }
             RecoveryResult::ManualRequired => {
                 error!("Manual intervention required for {}", path.display());
-                Err(AosError::Recovery(
-                    "Manual intervention required".to_string(),
+                Err(AosError::Io(
+                    "Recovery: Manual intervention required".to_string(),
                 ))
             }
         }
@@ -204,11 +204,10 @@ impl ErrorRecoveryManager {
     fn classify_error(&self, error: &AosError) -> ErrorType {
         match error {
             AosError::Io(_) => ErrorType::FileCorruption,
-            AosError::Storage(_) => ErrorType::DiskSpaceError,
-            AosError::Concurrency(_) => ErrorType::LockError,
-            AosError::Security(_) => ErrorType::PermissionError,
             AosError::Timeout { duration: _ } => ErrorType::TimeoutError,
             AosError::Network(_) => ErrorType::NetworkError,
+            AosError::Authz(_) => ErrorType::PermissionError,
+            AosError::ResourceExhaustion(_) => ErrorType::DiskSpaceError,
             _ => ErrorType::Unknown,
         }
     }

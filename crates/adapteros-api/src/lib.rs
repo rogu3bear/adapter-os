@@ -26,9 +26,11 @@ use adapteros_api_types::ErrorResponse;
 use adapteros_core::AosError;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::{InferenceRequest, InferenceResponse};
+use adapteros_telemetry::middleware::api_error_only_middleware;
 use axum::{
     extract::State,
     http::StatusCode,
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -124,6 +126,7 @@ pub async fn serve_uds_with_worker<K: FusedKernels + Send + Sync + 'static, P: A
         .route("/health", get(health_handler))
         .layer(
             ServiceBuilder::new()
+                .layer(middleware::from_fn(api_error_only_middleware))
                 .layer(TraceLayer::new_for_http())
                 .layer(CorsLayer::permissive()),
         )

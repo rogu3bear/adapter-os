@@ -11,7 +11,7 @@ impl Db {
             .bind(tenant_id)
             .bind(index_type)
             .bind(hash.to_hex())
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?;
         Ok(())
     }
@@ -20,7 +20,7 @@ impl Db {
         let hash_str = sqlx::query("SELECT hash FROM index_hashes WHERE tenant_id = ? AND index_type = ? ORDER BY updated_at DESC LIMIT 1")
             .bind(tenant_id)
             .bind(index_type)
-            .fetch_optional(self.pool())
+            .fetch_optional(&*self.pool())
             .await?
             .map(|row| row.get::<String, _>(0));
         Ok(hash_str.and_then(|s| B3Hash::from_hex(&s).ok()))
@@ -211,7 +211,7 @@ impl Db {
             "SELECT adapter_id FROM adapters WHERE tenant_id = ? ORDER BY adapter_id"
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to query adapters: {}", e)))?;
 
@@ -230,7 +230,7 @@ impl Db {
             "SELECT name, adapter_ids_json FROM adapter_stacks WHERE tenant_id = ? ORDER BY name"
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to query adapter stacks: {}", e)))?;
 

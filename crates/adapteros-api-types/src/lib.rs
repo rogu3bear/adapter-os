@@ -21,6 +21,8 @@ pub mod metrics;
 pub mod nodes;
 pub mod plans;
 pub mod repositories;
+pub mod settings;
+pub mod system_state;
 pub mod telemetry;
 pub mod tenants;
 pub mod training;
@@ -37,7 +39,9 @@ pub use metrics::*;
 pub use nodes::*;
 pub use plans::*;
 pub use repositories::*;
+pub use settings::*;
 // Note: telemetry types are not re-exported to avoid conflicts with metrics types
+pub use system_state::*;
 pub use tenants::*;
 pub use training::*;
 pub use workers::*;

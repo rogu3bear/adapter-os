@@ -17,6 +17,11 @@ default = []
 # Enables MLX FFI backend through adapteros-lora-worker
 # For research/training workloads with MLX support
 multi-backend = ["adapteros-lora-worker/multi-backend"]
+dev-bypass = ["adapteros-server-api/dev-bypass"]
+
+# Embedding model support for RAG
+# Loads sentence-transformer models at startup for real embeddings
+embeddings = ["adapteros-server-api/embeddings", "dep:adapteros-ingest-docs"]
 
 [dependencies]
 # Internal crates
@@ -35,6 +40,8 @@ adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-federation = { path = "../adapteros-federation" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-model-hub = { path = "../adapteros-model-hub" }
+adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
 
 # Workspace dependencies
 anyhow.workspace = true

@@ -276,7 +276,20 @@ pub fn create_backend_with_model(
             {
                 use adapteros_lora_kernel_mtl::MetalKernels;
                 info!(model_path = %model_path.display(), "Creating Metal kernel backend");
-                Ok(Box::new(MetalKernels::new()?))
+
+                // Find and load model weights
+                let model_bytes = load_model_bytes(model_path)?;
+                info!(
+                    model_size_mb = model_bytes.len() / (1024 * 1024),
+                    "Loaded model weights for Metal backend"
+                );
+
+                // Create and initialize Metal backend
+                let mut kernels = MetalKernels::new()?;
+                kernels.load(&model_bytes)?;
+                info!("Metal kernel backend initialized successfully");
+
+                Ok(Box::new(kernels))
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -719,4 +732,60 @@ pub mod capabilities {
             "Backend status report complete"
         );
     }
+}
+
+/// Load model bytes from a model directory
+///
+/// Supports both single model files (model.safetensors) and sharded models
+/// (model-00001-of-00003.safetensors, etc.). For sharded models, loads the
+/// first shard which typically contains the embedding weights needed for
+/// the Metal backend initialization.
+fn load_model_bytes(model_path: &Path) -> Result<Vec<u8>> {
+    // Try single model file first
+    let single_model_path = model_path.join("model.safetensors");
+    if single_model_path.exists() {
+        info!(path = %single_model_path.display(), "Loading single model file");
+        return std::fs::read(&single_model_path).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to read model file '{}': {}",
+                single_model_path.display(),
+                e
+            ))
+        });
+    }
+
+    // Try sharded model (first shard contains embeddings)
+    let first_shard_path = model_path.join("model-00001-of-00003.safetensors");
+    if first_shard_path.exists() {
+        info!(path = %first_shard_path.display(), "Loading first shard of sharded model");
+        return std::fs::read(&first_shard_path).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to read model shard '{}': {}",
+                first_shard_path.display(),
+                e
+            ))
+        });
+    }
+
+    // Try to find any sharded model pattern
+    if let Ok(entries) = std::fs::read_dir(model_path) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with("model-00001-of-") && file_name.ends_with(".safetensors") {
+                info!(path = %entry.path().display(), "Loading first shard (auto-detected)");
+                return std::fs::read(entry.path()).map_err(|e| {
+                    AosError::Config(format!(
+                        "Failed to read model shard '{}': {}",
+                        entry.path().display(),
+                        e
+                    ))
+                });
+            }
+        }
+    }
+
+    Err(AosError::Config(format!(
+        "No model file found in '{}'. Expected 'model.safetensors' or sharded model files.",
+        model_path.display()
+    )))
 }

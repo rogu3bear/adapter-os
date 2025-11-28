@@ -159,7 +159,7 @@ impl Db {
         .bind(&params.tenant_id)
         .bind(&params.name)
         .bind(&params.category)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -181,7 +181,7 @@ impl Db {
             .bind(&params.role)
             .bind(&params.metadata_json)
             .bind(&id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -201,7 +201,7 @@ impl Db {
             .bind(&params.role)
             .bind(&params.metadata_json)
             .bind(&params.discovered_by)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -224,7 +224,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(name)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -241,7 +241,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -267,7 +267,7 @@ impl Db {
         .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -317,7 +317,7 @@ impl Db {
         .bind(cpid)
         .bind(interaction_type)
         .bind(context_json)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -339,7 +339,7 @@ impl Db {
         )
         .bind(contact_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -367,7 +367,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -429,19 +429,31 @@ impl Db {
 
     /// Delete contact (and associated interactions)
     pub async fn delete_contact(&self, id: &str) -> Result<()> {
+        // Begin transaction for atomic multi-step deletion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
         // Delete interactions first (foreign key constraint)
         sqlx::query("DELETE FROM contact_interactions WHERE contact_id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Delete contact
         sqlx::query("DELETE FROM contacts WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+
+        // Commit transaction
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
         Ok(())
     }
@@ -460,7 +472,7 @@ impl Db {
              WHERE contact_id = ?",
         )
         .bind(contact_id)
-        .fetch_one(self.pool())
+        .fetch_one(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 

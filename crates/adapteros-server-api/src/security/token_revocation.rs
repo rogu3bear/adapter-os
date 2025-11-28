@@ -5,8 +5,7 @@ use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
-use uuid::Uuid;
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RevokedToken {
@@ -150,11 +149,45 @@ mod tests {
     use super::*;
     use chrono::Duration;
 
+    async fn init_test_schema(db: &Db) {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS revoked_tokens (
+                jti TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                revoked_at TEXT NOT NULL DEFAULT (datetime('now')),
+                revoked_by TEXT,
+                reason TEXT,
+                expires_at TEXT NOT NULL
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create revoked_tokens table");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS user_sessions (
+                jti TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                last_activity TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create user_sessions table");
+    }
+
     #[tokio::test]
     async fn test_token_revocation() {
         let db = Db::connect("sqlite::memory:")
             .await
             .expect("Failed to create test database");
+        init_test_schema(&db).await;
 
         let jti = "test-jti-123";
         let user_id = "user-1";
@@ -190,6 +223,7 @@ mod tests {
         let db = Db::connect("sqlite::memory:")
             .await
             .expect("Failed to create test database");
+        init_test_schema(&db).await;
 
         let past_expiry = (Utc::now() - Duration::hours(1)).to_rfc3339();
 

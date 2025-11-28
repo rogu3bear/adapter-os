@@ -167,6 +167,28 @@ pub struct LoadedAdapter {
     pub buffers: HashMap<String, metal::Buffer>,
 }
 
+impl LoadedAdapter {
+    /// Get the adapter ID from the manifest
+    pub fn adapter_id(&self) -> &str {
+        &self.manifest.adapter_id
+    }
+
+    /// Get the adapter version from the manifest
+    pub fn version(&self) -> &str {
+        &self.manifest.version
+    }
+
+    /// Get the approximate size in bytes by summing Metal buffer sizes
+    pub fn size_bytes(&self) -> u64 {
+        self.buffers.values().map(|buffer| buffer.length()).sum()
+    }
+
+    /// Get the number of tensors/buffers loaded
+    pub fn tensor_count(&self) -> usize {
+        self.buffers.len()
+    }
+}
+
 /// AOS Manifest Structure
 ///
 /// Matches the JSON schema defined in docs/AOS_FORMAT.md
@@ -250,6 +272,9 @@ mod tests {
 
         let result = loader.load_from_path(temp_file.path()).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid AOS magic"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid AOS magic"));
     }
 }

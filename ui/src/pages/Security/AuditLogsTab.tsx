@@ -151,7 +151,7 @@ export function AuditLogsTab() {
       header: 'Timestamp',
       accessorKey: 'timestamp',
       cell: (context) => {
-        const timestamp = context.row.timestamp;
+        const timestamp = context.row.original.timestamp;
         return (
           <div className="text-sm">
             {new Date(timestamp).toLocaleString()}
@@ -177,7 +177,7 @@ export function AuditLogsTab() {
       header: 'Resource',
       accessorKey: 'resource',
       cell: (context) => {
-        const log = context.row;
+        const log = context.row.original;
         return (
           <div className="space-y-1">
             <div className="text-sm font-medium">{log.resource}</div>
@@ -195,7 +195,7 @@ export function AuditLogsTab() {
       id: 'status',
       header: 'Status',
       accessorKey: 'status',
-      cell: (context) => getStatusBadge(context.row.status),
+      cell: (context) => getStatusBadge(context.row.original.status),
       enableSorting: true,
     },
   ];
@@ -331,10 +331,10 @@ export function AuditLogsTab() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="tenant_id">Tenant ID</Label>
+                <Label htmlFor="tenant_id">Organization ID</Label>
                 <Input
                   id="tenant_id"
-                  placeholder="e.g., tenant-a"
+                  placeholder="e.g., acme-corp"
                   value={filters.tenant_id || ''}
                   onChange={(e) => handleFilterChange('tenant_id', e.target.value)}
                 />
@@ -398,7 +398,7 @@ export function AuditLogsTab() {
                     )}
                     {log.tenant_id && (
                       <div>
-                        <span className="font-medium">Tenant:</span> {log.tenant_id}
+                        <span className="font-medium">Organization:</span> {log.tenant_id}
                       </div>
                     )}
                   </div>

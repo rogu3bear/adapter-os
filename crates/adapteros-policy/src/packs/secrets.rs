@@ -184,7 +184,7 @@ impl SecretsPolicy {
     pub fn check_key_rotation(&self, secret: &SecretMetadata) -> KeyRotationStatus {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let days_since_rotation = (now - secret.last_rotated) / 86400;
@@ -355,7 +355,7 @@ impl Policy for SecretsPolicy {
             if let Some(expires_at) = secret.expires_at {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_secs();
 
                 if now >= expires_at {
@@ -370,7 +370,7 @@ impl Policy for SecretsPolicy {
             // Check key age
             let key_age = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs()
                 - secret.created_at;
 

@@ -562,7 +562,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => navigate('/tenants')}
+                          onClick={() => navigate('/admin/tenants')}
                         >
                           View
                         </Button>
@@ -590,7 +590,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                     <Users className="h-5 w-5" />
                     Tenants
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/tenants')}>
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tenants')}>
                     Manage
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -722,7 +722,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                     <Shield className="h-5 w-5" />
                     Policies
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/policies')}>
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/security/policies')}>
                     Configure
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -835,7 +835,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
             </Card>
 
             {/* Compliance Actions */}
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/policies')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/security/policies')}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-5 w-5" />
@@ -845,7 +845,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/audit')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/security/audit')}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <FileText className="h-5 w-5" />

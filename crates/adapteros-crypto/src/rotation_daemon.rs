@@ -177,7 +177,7 @@ impl RotationDaemon {
         if let Some(last_rotation) = history.iter().filter(|e| e.key_id == kek_id).next_back() {
             let elapsed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs()
                 - last_rotation.timestamp;
 
@@ -228,7 +228,7 @@ impl RotationDaemon {
         // Create history entry
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let rotation_id = format!("rotation-{}-{}", key_id, timestamp);

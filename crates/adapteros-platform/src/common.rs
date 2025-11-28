@@ -76,6 +76,115 @@ impl PlatformUtils {
             .ok_or_else(|| AosError::Platform("Failed to get home directory".to_string()))
     }
 
+    /// Expand a path, resolving `~` to the home directory
+    ///
+    /// This function handles tilde expansion for paths:
+    /// - `~` or `~/...` expands to the user's home directory
+    /// - Paths without tilde are returned as-is
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use adapteros_platform::common::PlatformUtils;
+    ///
+    /// // Expands ~ to home directory
+    /// let path = PlatformUtils::expand_path("~/.cache/adapteros").unwrap();
+    /// // Returns something like /Users/username/.cache/adapteros
+    ///
+    /// // Non-tilde paths pass through unchanged
+    /// let path = PlatformUtils::expand_path("var/cache").unwrap();
+    /// // Returns var/cache
+    /// ```
+    pub fn expand_path<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
+        let path = path.as_ref();
+        let path_str = path.to_string_lossy();
+
+        if path_str.starts_with("~/") {
+            let home = Self::home_dir()?;
+            Ok(home.join(&path_str[2..]))
+        } else if path_str == "~" {
+            Self::home_dir()
+        } else {
+            Ok(path.to_path_buf())
+        }
+    }
+
+    // =========================================================================
+    // AdapterOS Directory Functions
+    // =========================================================================
+    //
+    // API Design Note:
+    // - Functions returning `PathBuf`: Cannot fail (env vars with defaults)
+    // - Functions returning `Result<PathBuf>`: Can fail (require home dir expansion)
+    //
+    // This asymmetry is intentional - relative paths always work, but `~`
+    // expansion requires a home directory which may not exist on all systems.
+    // =========================================================================
+
+    /// Get the AdapterOS var directory (runtime data)
+    ///
+    /// This is the canonical location for all runtime data including:
+    /// - `var/model-cache/` - Downloaded models from HuggingFace
+    /// - `var/adapters/` - LoRA adapter weights
+    /// - `var/artifacts/` - Training artifacts
+    /// - `var/bundles/` - Telemetry bundles
+    /// - `var/alerts/` - Alert logs
+    /// - `var/aos-cp.sqlite3` - Database
+    ///
+    /// Respects `AOS_VAR_DIR` env var, defaults to `var/` relative to cwd.
+    pub fn aos_var_dir() -> PathBuf {
+        std::env::var("AOS_VAR_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var"))
+    }
+
+    /// Get the model cache directory
+    ///
+    /// Returns the directory where downloaded models are cached.
+    /// Respects `AOS_MODEL_CACHE_DIR` env var, defaults to `var/model-cache`.
+    pub fn aos_model_cache_dir() -> PathBuf {
+        std::env::var("AOS_MODEL_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| Self::aos_var_dir().join("model-cache"))
+    }
+
+    /// Get the adapters directory
+    ///
+    /// Returns the directory where LoRA adapter weights are stored.
+    /// Respects `AOS_ADAPTERS_DIR` env var, defaults to `var/adapters`.
+    pub fn aos_adapters_dir() -> PathBuf {
+        std::env::var("AOS_ADAPTERS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| Self::aos_var_dir().join("adapters"))
+    }
+
+    /// Get the artifacts directory
+    ///
+    /// Returns the directory where training artifacts are stored.
+    /// Respects `AOS_ARTIFACTS_DIR` env var, defaults to `var/artifacts`.
+    pub fn aos_artifacts_dir() -> PathBuf {
+        std::env::var("AOS_ARTIFACTS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| Self::aos_var_dir().join("artifacts"))
+    }
+
+    /// Get the user-specific AdapterOS cache directory (optional)
+    ///
+    /// Returns `~/.cache/adapteros` on Unix systems (expanded to absolute path).
+    /// Use this for user-specific cached data that should persist across projects.
+    /// For project-local runtime data, use `aos_var_dir()` instead.
+    pub fn aos_user_cache_dir() -> Result<PathBuf> {
+        Self::expand_path("~/.cache/adapteros")
+    }
+
+    /// Get the user-specific AdapterOS config directory
+    ///
+    /// Returns `~/.config/adapteros` on Unix systems (expanded to absolute path).
+    /// This is the location for user-specific configuration files.
+    pub fn aos_user_config_dir() -> Result<PathBuf> {
+        Self::expand_path("~/.config/adapteros")
+    }
+
     /// Get the cache directory for the current user
     pub fn cache_dir() -> Result<PathBuf> {
         dirs::cache_dir()
@@ -351,5 +460,59 @@ mod tests {
             PlatformUtils::get_parent_dir(&path),
             Some(PathBuf::from("test"))
         );
+    }
+
+    #[test]
+    fn test_expand_path_tilde() -> Result<()> {
+        // Test tilde expansion
+        let expanded = PlatformUtils::expand_path("~/.cache/adapteros")?;
+        assert!(expanded.is_absolute());
+        assert!(expanded.to_string_lossy().ends_with(".cache/adapteros"));
+        assert!(!expanded.to_string_lossy().contains('~'));
+
+        // Test standalone tilde
+        let home = PlatformUtils::expand_path("~")?;
+        assert!(home.is_absolute());
+        assert_eq!(home, PlatformUtils::home_dir()?);
+
+        // Test non-tilde paths pass through
+        let regular = PlatformUtils::expand_path("var/cache")?;
+        assert_eq!(regular, PathBuf::from("var/cache"));
+
+        // Test absolute paths pass through
+        let absolute = PlatformUtils::expand_path("/tmp/test")?;
+        assert_eq!(absolute, PathBuf::from("/tmp/test"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_aos_var_directories() {
+        // Test var directory defaults (relative paths)
+        let var_dir = PlatformUtils::aos_var_dir();
+        assert_eq!(var_dir, PathBuf::from("var"));
+
+        let model_cache_dir = PlatformUtils::aos_model_cache_dir();
+        assert_eq!(model_cache_dir, PathBuf::from("var/model-cache"));
+
+        let adapters_dir = PlatformUtils::aos_adapters_dir();
+        assert_eq!(adapters_dir, PathBuf::from("var/adapters"));
+
+        let artifacts_dir = PlatformUtils::aos_artifacts_dir();
+        assert_eq!(artifacts_dir, PathBuf::from("var/artifacts"));
+    }
+
+    #[test]
+    fn test_aos_user_directories() -> Result<()> {
+        // Test user-specific directories (absolute paths with tilde expansion)
+        let user_cache_dir = PlatformUtils::aos_user_cache_dir()?;
+        assert!(user_cache_dir.is_absolute());
+        assert!(user_cache_dir.to_string_lossy().ends_with(".cache/adapteros"));
+
+        let user_config_dir = PlatformUtils::aos_user_config_dir()?;
+        assert!(user_config_dir.is_absolute());
+        assert!(user_config_dir.to_string_lossy().ends_with(".config/adapteros"));
+
+        Ok(())
     }
 }

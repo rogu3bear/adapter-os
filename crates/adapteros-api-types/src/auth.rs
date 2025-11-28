@@ -37,6 +37,16 @@ pub struct UserInfoResponse {
     pub email: String,
     pub role: String,
     pub created_at: String,
+    pub tenant_id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_login_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mfa_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_last_rotated_at: Option<String>,
 }
 
 /// Logout request (empty for now, but extensible)

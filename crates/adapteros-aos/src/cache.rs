@@ -1,7 +1,7 @@
 //! LRU cache for memory-mapped adapters
 
+use crate::implementation::LoadedAdapter;
 use crate::metrics::CacheMetrics;
-use crate::mmap_loader::MmapAdapter;
 use adapteros_core::{AosError, Result};
 use lru::LruCache;
 use parking_lot::RwLock;
@@ -26,7 +26,7 @@ impl Default for CacheConfig {
 }
 
 pub struct AdapterCache {
-    cache: RwLock<LruCache<PathBuf, Arc<MmapAdapter>>>,
+    cache: RwLock<LruCache<PathBuf, Arc<LoadedAdapter>>>,
     config: CacheConfig,
     metrics: Arc<CacheMetrics>,
 }
@@ -50,7 +50,7 @@ impl AdapterCache {
         Self::new(CacheConfig::default())
     }
 
-    pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<Arc<MmapAdapter>> {
+    pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<Arc<LoadedAdapter>> {
         let path = path.as_ref();
         let mut cache = self.cache.write();
 
@@ -65,9 +65,10 @@ impl AdapterCache {
         }
     }
 
-    pub fn insert<P: AsRef<Path>>(&self, path: P, adapter: Arc<MmapAdapter>) -> Result<()> {
+    pub fn insert<P: AsRef<Path>>(&self, path: P, adapter: Arc<LoadedAdapter>) -> Result<()> {
         let path = path.as_ref().to_path_buf();
-        let size = adapter.size_bytes();
+        // Calculate approximate size from Metal buffers
+        let size = Self::calculate_adapter_size(&adapter);
 
         if self.config.max_size_bytes > 0 {
             self.evict_for_size(size)?;
@@ -77,7 +78,8 @@ impl AdapterCache {
 
         if let Some((evicted_path, evicted_adapter)) = cache.push(path.clone(), adapter) {
             debug!(path = %evicted_path.display(), "Evicted adapter");
-            self.metrics.record_eviction(evicted_adapter.size_bytes());
+            let evicted_size = Self::calculate_adapter_size(&evicted_adapter);
+            self.metrics.record_eviction(evicted_size);
         }
 
         self.metrics.update_size(size as i64);
@@ -86,15 +88,21 @@ impl AdapterCache {
         Ok(())
     }
 
-    pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<Arc<MmapAdapter>> {
+    pub fn remove<P: AsRef<Path>>(&self, path: P) -> Option<Arc<LoadedAdapter>> {
         let mut cache = self.cache.write();
 
         if let Some(adapter) = cache.pop(&path.as_ref().to_path_buf()) {
-            self.metrics.update_size(-(adapter.size_bytes() as i64));
+            let size = Self::calculate_adapter_size(&adapter);
+            self.metrics.update_size(-(size as i64));
             Some(adapter)
         } else {
             None
         }
+    }
+
+    /// Calculate approximate size of a LoadedAdapter from its Metal buffers
+    fn calculate_adapter_size(adapter: &LoadedAdapter) -> u64 {
+        adapter.buffers.values().map(|buffer| buffer.length()).sum()
     }
 
     pub fn clear(&self) {

@@ -588,7 +588,12 @@ fn parse_duration(value: &str) -> std::result::Result<u64, String> {
         "m" => num * 60 * 1000,
         "h" => num * 60 * 60 * 1000,
         "d" => num * 24 * 60 * 60 * 1000,
-        _ => unreachable!(),
+        other => {
+            return Err(format!(
+                "Internal error: unexpected duration unit '{}'",
+                other
+            ))
+        }
     };
 
     Ok(millis)
@@ -1129,6 +1134,156 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // ========================================================================
+    // EMBEDDINGS Configuration
+    // ========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_EMBEDDING_MODEL_PATH")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("./models/bge-small-en-v1.5")
+            .description("Path to sentence-transformer embedding model for RAG")
+            .category("EMBEDDINGS")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_EMBEDDING_DIMENSION")
+            .config_type(ConfigType::Integer {
+                min: Some(64),
+                max: Some(4096),
+            })
+            .default_value("384")
+            .description("Embedding vector dimension (must match model)")
+            .category("EMBEDDINGS")
+            .build(),
+    );
+
+    // ========================================================================
+    // MODEL_HUB Configuration
+    // ========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_HF_HUB_ENABLED")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Enable Hugging Face Hub model downloads")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_HF_HUB_TOKEN")
+            .config_type(ConfigType::String)
+            .description("API token for private model access (sensitive)")
+            .sensitive()
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_CACHE_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/model-cache")
+            .description("Directory for downloaded models from HuggingFace Hub")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_LAZY_LOAD")
+            .config_type(ConfigType::Bool)
+            .default_value("true")
+            .description("Enable lazy model loading on first request")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_HEALTH_CHECK_ENABLED")
+            .config_type(ConfigType::Bool)
+            .default_value("true")
+            .description("Require warmup inference test for readiness")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_HEALTH_CHECK_TIMEOUT_MS")
+            .config_type(ConfigType::Integer {
+                min: Some(1000),
+                max: Some(300000),
+            })
+            .default_value("30000")
+            .description("Timeout for health inference test")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MAX_CONCURRENT_DOWNLOADS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(10),
+            })
+            .default_value("4")
+            .description("Maximum concurrent model downloads")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_DOWNLOAD_TIMEOUT_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(30),
+                max: Some(3600),
+            })
+            .default_value("300")
+            .description("Download timeout in seconds")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_HF_REGISTRY_URL")
+            .config_type(ConfigType::String)
+            .default_value("https://huggingface.co")
+            .description("HuggingFace Hub registry URL")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    // =========================================================================
+    // PATHS - Runtime directory configuration
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_VAR_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var")
+            .description("Base directory for all runtime data")
+            .category("PATHS")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ADAPTERS_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/adapters")
+            .description("Directory for LoRA adapter weights")
+            .category("PATHS")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ARTIFACTS_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/artifacts")
+            .description("Directory for training artifacts and temp files")
+            .category("PATHS")
+            .build(),
+    );
+
     schema
 }
 
@@ -1152,6 +1307,8 @@ mod tests {
         assert!(categories.contains(&"TELEMETRY"));
         assert!(categories.contains(&"TRAINING"));
         assert!(categories.contains(&"FEDERATION"));
+        assert!(categories.contains(&"MODEL_HUB"));
+        assert!(categories.contains(&"EMBEDDINGS"));
     }
 
     #[test]

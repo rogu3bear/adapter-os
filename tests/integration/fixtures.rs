@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 #![cfg(all(test, feature = "extended-tests"))]
 
-=======
->>>>>>> integration-branch
 //! Test fixtures and data for AdapterOS integration tests
 //!
 //! Provides pre-defined test data, configurations, and setup utilities
@@ -17,9 +14,10 @@ pub struct TestRepositories;
 impl TestRepositories {
     /// Get repository configuration for tenant A
     pub fn tenant_a() -> serde_json::Value {
+        let temp_dir = std::env::temp_dir();
         json!({
             "repo_id": "tenant-a/test-repo",
-            "path": "/tmp/tenant-a-repo",
+            "path": temp_dir.join("tenant-a-repo").to_string_lossy(),
             "languages": ["rust", "python"],
             "default_branch": "main"
         })
@@ -27,9 +25,10 @@ impl TestRepositories {
 
     /// Get repository configuration for tenant B
     pub fn tenant_b() -> serde_json::Value {
+        let temp_dir = std::env::temp_dir();
         json!({
             "repo_id": "tenant-b/test-repo",
-            "path": "/tmp/tenant-b-repo",
+            "path": temp_dir.join("tenant-b-repo").to_string_lossy(),
             "languages": ["go", "typescript"],
             "default_branch": "main"
         })
@@ -37,9 +36,10 @@ impl TestRepositories {
 
     /// Get repository configuration for tenant C
     pub fn tenant_c() -> serde_json::Value {
+        let temp_dir = std::env::temp_dir();
         json!({
             "repo_id": "tenant-c/test-repo",
-            "path": "/tmp/tenant-c-repo",
+            "path": temp_dir.join("tenant-c-repo").to_string_lossy(),
             "languages": ["java", "kotlin"],
             "default_branch": "main"
         })

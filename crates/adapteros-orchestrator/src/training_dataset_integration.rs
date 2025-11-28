@@ -377,10 +377,10 @@ impl TrainingDatasetManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use adapteros_core::AosError;
     use adapteros_db::sqlx;
     use adapteros_db::Db;
+    use tempfile::TempDir;
 
     /// Minimal in-memory DB for dataset validation gates (no global migrations)
     async fn minimal_dataset_db() -> Db {
@@ -509,9 +509,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
-        tokio::fs::write(&dataset_path, "{\"input\":[1],\"target\":[2],\"metadata\":{},\"weight\":1.0}\n")
-            .await
-            .unwrap();
+        tokio::fs::write(
+            &dataset_path,
+            "{\"input\":[1],\"target\":[2],\"metadata\":{},\"weight\":1.0}\n",
+        )
+        .await
+        .unwrap();
 
         let db = minimal_dataset_db().await;
         let manager = TrainingDatasetManager::new(db.clone(), temp_dir.path().to_path_buf(), None);

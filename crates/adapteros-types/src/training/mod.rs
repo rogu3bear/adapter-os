@@ -101,6 +101,29 @@ pub struct TrainingJob {
     #[serde(rename = "dataset_id")]
     pub dataset_id: Option<String>,
 
+    /// Optional reference to base model used for training
+    #[serde(rename = "base_model_id", skip_serializing_if = "Option::is_none")]
+    pub base_model_id: Option<String>,
+
+    /// Optional reference to document collection used
+    #[serde(rename = "collection_id", skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
+
+    /// Build ID for CI/CD traceability (git commit, version, etc.)
+    #[serde(rename = "build_id", skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
+
+    /// Immutable snapshot of source documents used for training (JSON)
+    #[serde(
+        rename = "source_documents_json",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_documents_json: Option<String>,
+
+    /// BLAKE3 hash of training config for reproducibility
+    #[serde(rename = "config_hash_b3", skip_serializing_if = "Option::is_none")]
+    pub config_hash_b3: Option<String>,
+
     /// Current job status in lifecycle
     #[serde(rename = "status")]
     pub status: TrainingJobStatus,
@@ -168,6 +191,59 @@ pub struct TrainingJob {
     /// Stack ID created for this adapter (populated on completion)
     #[serde(rename = "stack_id", skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
+
+    /// User who initiated this training job (for audit logging)
+    #[serde(rename = "initiated_by", skip_serializing_if = "Option::is_none")]
+    pub initiated_by: Option<String>,
+
+    /// Role of user who initiated this training job (for audit logging)
+    #[serde(rename = "initiated_by_role", skip_serializing_if = "Option::is_none")]
+    pub initiated_by_role: Option<String>,
+
+    // Category metadata for adapter training
+    /// Adapter category: code, framework, codebase, docs, domain
+    #[serde(rename = "category", skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+
+    /// Human-readable description of the adapter
+    #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Programming language (for code adapters)
+    #[serde(rename = "language", skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+
+    /// Symbol targets (for code adapters) - JSON array
+    #[serde(rename = "symbol_targets_json", skip_serializing_if = "Option::is_none")]
+    pub symbol_targets_json: Option<String>,
+
+    /// Framework ID (for framework adapters)
+    #[serde(rename = "framework_id", skip_serializing_if = "Option::is_none")]
+    pub framework_id: Option<String>,
+
+    /// Framework version (for framework adapters)
+    #[serde(rename = "framework_version", skip_serializing_if = "Option::is_none")]
+    pub framework_version: Option<String>,
+
+    /// API patterns to focus on (for framework adapters) - JSON array
+    #[serde(rename = "api_patterns_json", skip_serializing_if = "Option::is_none")]
+    pub api_patterns_json: Option<String>,
+
+    /// Repository scope (for codebase adapters)
+    #[serde(rename = "repo_scope", skip_serializing_if = "Option::is_none")]
+    pub repo_scope: Option<String>,
+
+    /// File patterns to include (for codebase adapters) - JSON array
+    #[serde(rename = "file_patterns_json", skip_serializing_if = "Option::is_none")]
+    pub file_patterns_json: Option<String>,
+
+    /// File patterns to exclude (for codebase adapters) - JSON array
+    #[serde(rename = "exclude_patterns_json", skip_serializing_if = "Option::is_none")]
+    pub exclude_patterns_json: Option<String>,
+
+    /// Post-training actions configuration - JSON
+    #[serde(rename = "post_actions_json", skip_serializing_if = "Option::is_none")]
+    pub post_actions_json: Option<String>,
 }
 
 impl TrainingJob {
@@ -180,6 +256,11 @@ impl TrainingJob {
             template_id: None,
             repo_id: None,
             dataset_id: None,
+            base_model_id: None,
+            collection_id: None,
+            build_id: None,
+            source_documents_json: None,
+            config_hash_b3: None,
             status: TrainingJobStatus::Pending,
             progress_pct: 0.0,
             current_epoch: 0,
@@ -197,6 +278,20 @@ impl TrainingJob {
             weights_hash_b3: None,
             tenant_id: None,
             stack_id: None,
+            initiated_by: None,
+            initiated_by_role: None,
+            // Category metadata
+            category: None,
+            description: None,
+            language: None,
+            symbol_targets_json: None,
+            framework_id: None,
+            framework_version: None,
+            api_patterns_json: None,
+            repo_scope: None,
+            file_patterns_json: None,
+            exclude_patterns_json: None,
+            post_actions_json: None,
         }
     }
 
@@ -239,6 +334,72 @@ impl TrainingJob {
     /// Builder method to set weights hash
     pub fn with_weights_hash(mut self, hash: String) -> Self {
         self.weights_hash_b3 = Some(hash);
+        self
+    }
+
+    /// Builder method to set base model ID
+    pub fn with_base_model_id(mut self, base_model_id: String) -> Self {
+        self.base_model_id = Some(base_model_id);
+        self
+    }
+
+    /// Builder method to set collection ID
+    pub fn with_collection_id(mut self, collection_id: String) -> Self {
+        self.collection_id = Some(collection_id);
+        self
+    }
+
+    /// Builder method to set build ID
+    pub fn with_build_id(mut self, build_id: String) -> Self {
+        self.build_id = Some(build_id);
+        self
+    }
+
+    /// Builder method to set source documents JSON
+    pub fn with_source_documents(mut self, source_documents_json: String) -> Self {
+        self.source_documents_json = Some(source_documents_json);
+        self
+    }
+
+    /// Builder method to set config hash
+    pub fn with_config_hash(mut self, config_hash: String) -> Self {
+        self.config_hash_b3 = Some(config_hash);
+        self
+    }
+
+    /// Builder method to set category
+    pub fn with_category(mut self, category: String) -> Self {
+        self.category = Some(category);
+        self
+    }
+
+    /// Builder method to set description
+    pub fn with_description(mut self, description: String) -> Self {
+        self.description = Some(description);
+        self
+    }
+
+    /// Builder method to set language
+    pub fn with_language(mut self, language: String) -> Self {
+        self.language = Some(language);
+        self
+    }
+
+    /// Builder method to set framework ID
+    pub fn with_framework_id(mut self, framework_id: String) -> Self {
+        self.framework_id = Some(framework_id);
+        self
+    }
+
+    /// Builder method to set framework version
+    pub fn with_framework_version(mut self, framework_version: String) -> Self {
+        self.framework_version = Some(framework_version);
+        self
+    }
+
+    /// Builder method to set post actions JSON
+    pub fn with_post_actions_json(mut self, post_actions_json: String) -> Self {
+        self.post_actions_json = Some(post_actions_json);
         self
     }
 
@@ -399,10 +560,7 @@ pub struct TrainingConfig {
     pub checkpoint_frequency: Option<u32>,
 
     /// Maximum number of checkpoints to keep
-    #[serde(
-        rename = "max_checkpoints",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "max_checkpoints", skip_serializing_if = "Option::is_none")]
     pub max_checkpoints: Option<u32>,
 }
 

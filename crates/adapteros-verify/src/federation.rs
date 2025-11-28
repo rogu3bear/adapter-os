@@ -50,7 +50,7 @@ pub async fn verify_cross_host(bundle_dir: &Path, db: &Db) -> VerifyResult<()> {
     #[allow(unused_imports)]
     use adapteros_federation::FederationManager;
 
-    let manager = FederationManager::new(db.clone(), keypair)
+    let manager = FederationManager::new(db.clone(), keypair, "default".to_string())
         .map_err(|e| VerifyError::Crypto(format!("Failed to create federation manager: {}", e)))?;
 
     // Get all signatures and build host chains

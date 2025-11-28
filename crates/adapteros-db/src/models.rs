@@ -146,6 +146,40 @@ pub struct Model {
     pub tokenizer_cfg_hash_b3: String,
     pub metadata_json: Option<String>,
     pub created_at: String,
+    #[sqlx(default)]
+    pub model_type: Option<String>,
+    #[sqlx(default)]
+    pub model_path: Option<String>,
+    #[sqlx(default)]
+    pub config: Option<String>,
+    #[sqlx(default)]
+    pub status: Option<String>,
+    #[sqlx(default)]
+    pub tenant_id: Option<String>,
+    #[sqlx(default)]
+    pub updated_at: Option<String>,
+    #[sqlx(default)]
+    pub adapter_path: Option<String>,
+    #[sqlx(default)]
+    pub backend: Option<String>,
+    #[sqlx(default)]
+    pub quantization: Option<String>,
+    #[sqlx(default)]
+    pub last_error: Option<String>,
+    #[sqlx(default)]
+    pub size_bytes: Option<i64>,
+    #[sqlx(default)]
+    pub format: Option<String>,
+    #[sqlx(default)]
+    pub capabilities: Option<String>,
+    #[sqlx(default)]
+    pub import_status: Option<String>,
+    #[sqlx(default)]
+    pub import_error: Option<String>,
+    #[sqlx(default)]
+    pub imported_at: Option<String>,
+    #[sqlx(default)]
+    pub imported_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -204,6 +238,14 @@ pub struct BaseModelStatus {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelWithStats {
+    #[serde(flatten)]
+    pub model: Model,
+    pub adapter_count: i64,
+    pub training_job_count: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Worker {
     pub id: String,
@@ -252,28 +294,304 @@ impl Db {
         .bind(&params.tokenizer_hash_b3)
         .bind(&params.tokenizer_cfg_hash_b3)
         .bind(&params.metadata_json)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
 
     pub async fn get_model(&self, id: &str) -> Result<Option<Model>> {
         let model = sqlx::query_as::<_, Model>(
-            "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json, created_at FROM models WHERE id = ?"
+            "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
+             tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
+             status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
+             FROM models WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(model)
     }
 
     pub async fn list_models(&self) -> Result<Vec<Model>> {
         let models = sqlx::query_as::<_, Model>(
-            "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json, created_at FROM models ORDER BY created_at DESC"
+            "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
+             tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
+             status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
+             FROM models ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(models)
+    }
+
+    /// Import a model from a path on disk
+    pub async fn import_model_from_path(
+        &self,
+        name: &str,
+        model_path: &str,
+        format: &str,
+        backend: &str,
+        tenant_id: &str,
+        imported_by: &str,
+    ) -> Result<String> {
+        use std::path::Path;
+
+        let id = Uuid::now_v7().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let path = Path::new(model_path);
+
+        // Compute size based on whether path is a file or directory
+        let size_bytes = if path.exists() {
+            if path.is_dir() {
+                // Sum all file sizes in directory
+                walkdir::WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_file())
+                    .filter_map(|e| e.metadata().ok())
+                    .map(|m| m.len() as i64)
+                    .sum::<i64>()
+                    .into()
+            } else {
+                // Single file
+                std::fs::metadata(path).ok().map(|m| m.len() as i64)
+            }
+        } else {
+            None
+        };
+
+        // Compute BLAKE3 hashes from key files
+        use adapteros_core::B3Hash;
+
+        let (hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3) = if path.exists() {
+            if path.is_dir() {
+                // Hash key model files
+                let config_path = path.join("config.json");
+                let tokenizer_path = path.join("tokenizer.json");
+                let tokenizer_cfg_path = path.join("tokenizer_config.json");
+
+                // For main hash, combine config + first .safetensors file
+                let mut main_hasher = blake3::Hasher::new();
+                if let Ok(config_bytes) = std::fs::read(&config_path) {
+                    main_hasher.update(&config_bytes);
+                }
+
+                // Find first .safetensors or .bin file for weights
+                if let Some(weights_file) = walkdir::WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                    .find(|e| {
+                        e.path()
+                            .extension()
+                            .and_then(|s| s.to_str())
+                            .map(|s| s == "safetensors" || s == "bin")
+                            .unwrap_or(false)
+                    })
+                {
+                    if let Ok(weights_bytes) = std::fs::read(weights_file.path()) {
+                        main_hasher.update(&weights_bytes);
+                    }
+                }
+
+                let main_hash = B3Hash::from_bytes(*main_hasher.finalize().as_bytes());
+
+                // Hash individual component files
+                let config_hash = if config_path.exists() {
+                    B3Hash::hash_file(&config_path)
+                        .unwrap_or_else(|_| B3Hash::hash(config_path.to_string_lossy().as_bytes()))
+                } else {
+                    B3Hash::hash(b"missing-config")
+                };
+
+                let tokenizer_hash = if tokenizer_path.exists() {
+                    B3Hash::hash_file(&tokenizer_path).unwrap_or_else(|_| {
+                        B3Hash::hash(tokenizer_path.to_string_lossy().as_bytes())
+                    })
+                } else {
+                    B3Hash::hash(b"missing-tokenizer")
+                };
+
+                let tokenizer_cfg_hash = if tokenizer_cfg_path.exists() {
+                    B3Hash::hash_file(&tokenizer_cfg_path).unwrap_or_else(|_| {
+                        B3Hash::hash(tokenizer_cfg_path.to_string_lossy().as_bytes())
+                    })
+                } else {
+                    B3Hash::hash(b"missing-tokenizer-config")
+                };
+
+                (
+                    main_hash.to_hex(),
+                    config_hash.to_hex(),
+                    tokenizer_hash.to_hex(),
+                    tokenizer_cfg_hash.to_hex(),
+                )
+            } else {
+                // Single file - hash it directly
+                let file_hash = B3Hash::hash_file(path)
+                    .unwrap_or_else(|_| B3Hash::hash(path.to_string_lossy().as_bytes()));
+
+                // Use same hash for all components since it's a single file
+                (
+                    file_hash.to_hex(),
+                    file_hash.to_hex(),
+                    file_hash.to_hex(),
+                    file_hash.to_hex(),
+                )
+            }
+        } else {
+            // Path doesn't exist - use placeholder hashes
+            (
+                format!("missing_hash_{}", id),
+                format!("missing_config_{}", id),
+                format!("missing_tokenizer_{}", id),
+                format!("missing_tokenizer_cfg_{}", id),
+            )
+        };
+
+        sqlx::query(
+            "INSERT INTO models
+             (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3,
+              model_path, format, backend, tenant_id, import_status, imported_at, imported_by,
+              size_bytes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(name)
+        .bind(&hash_b3)
+        .bind(&config_hash_b3)
+        .bind(&tokenizer_hash_b3)
+        .bind(&tokenizer_cfg_hash_b3)
+        .bind(model_path)
+        .bind(format)
+        .bind(backend)
+        .bind(tenant_id)
+        .bind("importing")
+        .bind(&now)
+        .bind(imported_by)
+        .bind(size_bytes)
+        .bind(&now)
+        .bind(&now)
+        .execute(&*self.pool())
+        .await?;
+
+        Ok(id)
+    }
+
+    /// Update model import status
+    pub async fn update_model_import_status(
+        &self,
+        model_id: &str,
+        status: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+
+        sqlx::query(
+            "UPDATE models
+             SET import_status = ?, import_error = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(status)
+        .bind(error_message)
+        .bind(&now)
+        .bind(model_id)
+        .execute(&*self.pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get count of adapters using a model
+    ///
+    /// Note: Current schema doesn't have a direct base_model_id foreign key in adapters table.
+    /// This method searches by model path/name in adapter metadata fields.
+    /// For accurate tracking, consider adding a base_model_id column to adapters table.
+    pub async fn count_adapters_for_model(&self, model_id: &str) -> Result<i64> {
+        // First, get the model to find its path/name
+        let model = self.get_model(model_id).await?;
+
+        if let Some(model) = model {
+            // Search for adapters that might reference this model
+            // Check in metadata_json, adapter_path, or other fields that might contain model reference
+            let count = if let Some(model_path) = &model.model_path {
+                // Try to find adapters with matching path patterns
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM adapters
+                     WHERE (aos_file_path LIKE ? OR aos_file_path LIKE ?)
+                        OR (metadata_json LIKE ? OR metadata_json LIKE ?)",
+                )
+                .bind(format!("%{}%", model_path))
+                .bind(format!("%{}%", model.name))
+                .bind(format!("%{}%", model_path))
+                .bind(format!("%{}%", model.name))
+                .fetch_one(&*self.pool())
+                .await?
+            } else {
+                // Search by model name in metadata
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM adapters
+                     WHERE metadata_json LIKE ?",
+                )
+                .bind(format!("%{}%", model.name))
+                .fetch_one(&*self.pool())
+                .await?
+            };
+
+            Ok(count)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Get count of training jobs for a model
+    ///
+    /// Note: Current schema doesn't have a direct base_model_id foreign key in training tables.
+    /// This method searches by model name/path in training configuration JSON.
+    /// For accurate tracking, consider adding a base_model_id column to training tables.
+    pub async fn count_training_jobs_for_model(&self, model_id: &str) -> Result<i64> {
+        // First, get the model to find its path/name
+        let model = self.get_model(model_id).await?;
+
+        if let Some(model) = model {
+            // Search for training jobs that reference this model in their config
+            let count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM repository_training_jobs
+                 WHERE training_config_json LIKE ? OR training_config_json LIKE ?",
+            )
+            .bind(format!("%{}%", model.name))
+            .bind(if let Some(path) = &model.model_path {
+                format!("%{}%", path)
+            } else {
+                String::new()
+            })
+            .fetch_one(&*self.pool())
+            .await?;
+
+            Ok(count)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// List models with statistics
+    pub async fn list_models_with_stats(&self) -> Result<Vec<ModelWithStats>> {
+        let models = self.list_models().await?;
+        let mut result = Vec::new();
+
+        for model in models {
+            let adapter_count = self.count_adapters_for_model(&model.id).await?;
+            let training_job_count = self.count_training_jobs_for_model(&model.id).await?;
+
+            result.push(ModelWithStats {
+                model,
+                adapter_count,
+                training_job_count,
+            });
+        }
+
+        Ok(result)
     }
 
     /// Update base model status
@@ -293,7 +611,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(model_id)
-        .fetch_one(self.pool())
+        .fetch_one(&*self.pool())
         .await?;
 
         if existing > 0 {
@@ -307,7 +625,7 @@ impl Db {
             .bind(&now)
             .bind(tenant_id)
             .bind(model_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?;
         } else {
             // Insert new record
@@ -323,7 +641,7 @@ impl Db {
             .bind(memory_usage_mb)
             .bind(&now)
             .bind(&now)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await?;
         }
 
@@ -336,7 +654,7 @@ impl Db {
                 .bind(&now)
                 .bind(tenant_id)
                 .bind(model_id)
-                .execute(self.pool())
+                .execute(&*self.pool())
                 .await?;
             }
             "unloaded" => {
@@ -346,7 +664,7 @@ impl Db {
                 .bind(&now)
                 .bind(tenant_id)
                 .bind(model_id)
-                .execute(self.pool())
+                .execute(&*self.pool())
                 .await?;
             }
             _ => {}
@@ -361,7 +679,7 @@ impl Db {
             "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 1"
         )
         .bind(tenant_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(status)
     }
@@ -371,7 +689,7 @@ impl Db {
         let statuses = sqlx::query_as::<_, BaseModelStatus>(
             "SELECT id, tenant_id, model_id, status, loaded_at, unloaded_at, error_message, memory_usage_mb, created_at, updated_at FROM base_model_status ORDER BY updated_at DESC"
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(statuses)
     }

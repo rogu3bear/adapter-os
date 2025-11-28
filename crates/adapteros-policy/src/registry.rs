@@ -266,10 +266,19 @@ pub trait Policy {
 /// Context for policy enforcement
 pub trait PolicyContext {
     /// Get context type name
-    fn context_type(&self) -> &str;
+    fn context_type(&self) -> &str {
+        "unknown"
+    }
 
     /// Downcast to Any for dynamic type checking
     fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Get metadata for policy enforcement
+    fn metadata(&self) -> &std::collections::HashMap<String, String> {
+        static EMPTY: once_cell::sync::Lazy<std::collections::HashMap<String, String>> =
+            once_cell::sync::Lazy::new(|| std::collections::HashMap::new());
+        &EMPTY
+    }
 }
 
 /// Audit result from policy enforcement

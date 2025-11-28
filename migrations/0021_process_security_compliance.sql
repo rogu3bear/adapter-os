@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS process_access_controls (
     resource_type TEXT NOT NULL CHECK(resource_type IN ('worker','configuration','template','deployment','log','metric')),
     resource_id TEXT NOT NULL,
     user_id TEXT REFERENCES users(id),
-    role TEXT REFERENCES users(role),
+    role TEXT CHECK(role IN ('admin','operator','sre','compliance','auditor','viewer')),
     permission TEXT NOT NULL CHECK(permission IN ('read','write','execute','admin','none')),
     granted_by TEXT REFERENCES users(id),
     granted_at TEXT NOT NULL DEFAULT (datetime('now')),

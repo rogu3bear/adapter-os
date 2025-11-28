@@ -3,16 +3,25 @@ use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
+use adapteros_lora_rag::EmbeddingModel;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
 use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
+use adapteros_policy::PolicyPackManager;
 use adapteros_telemetry::{BundleStore, MetricsCollector, RetentionPolicy};
+
+use crate::boot_state::BootStateManager;
+use crate::load_coordinator::LoadCoordinator;
+use crate::runtime_mode::RuntimeMode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, Mutex};
 
+use crate::caching::DashboardCache;
+use crate::config::PathsConfig;
 use crate::handlers::chunked_upload::UploadSessionManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
 use adapteros_registry::Registry;
@@ -26,6 +35,13 @@ pub struct CapacityLimits {
     pub models_per_tenant: Option<usize>,
     /// Maximum concurrent requests
     pub concurrent_requests: Option<usize>,
+    /// Maximum concurrent training jobs (default: 5)
+    #[serde(default = "default_max_concurrent_training_jobs")]
+    pub max_concurrent_training_jobs: usize,
+}
+
+fn default_max_concurrent_training_jobs() -> usize {
+    5
 }
 
 impl Default for CapacityLimits {
@@ -34,6 +50,7 @@ impl Default for CapacityLimits {
             models_per_worker: Some(10),
             models_per_tenant: Some(5),
             concurrent_requests: Some(100),
+            max_concurrent_training_jobs: 5,
         }
     }
 }
@@ -48,6 +65,20 @@ pub struct ApiConfig {
     /// Capacity limits configuration
     #[serde(default)]
     pub capacity_limits: CapacityLimits,
+    /// General configuration
+    #[serde(default)]
+    pub general: Option<GeneralConfig>,
+    /// Server configuration
+    #[serde(default)]
+    pub server: ServerConfigApi,
+    /// Security configuration
+    #[serde(default)]
+    pub security: SecurityConfigApi,
+    /// Performance configuration
+    #[serde(default)]
+    pub performance: PerformanceConfigApi,
+    /// Paths configuration for storage locations
+    pub paths: PathsConfig,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -60,6 +91,51 @@ pub struct MetricsConfig {
     pub bearer_token: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneralConfig {
+    pub system_name: Option<String>,
+    pub environment: Option<String>,
+    pub api_base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ServerConfigApi {
+    #[serde(default)]
+    pub http_port: Option<u16>,
+    #[serde(default)]
+    pub https_port: Option<u16>,
+    #[serde(default)]
+    pub uds_socket: Option<String>,
+    #[serde(default)]
+    pub production_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecurityConfigApi {
+    #[serde(default)]
+    pub jwt_mode: Option<String>,
+    #[serde(default)]
+    pub token_ttl_seconds: Option<u64>,
+    #[serde(default)]
+    pub require_mfa: Option<bool>,
+    #[serde(default)]
+    pub require_pf_deny: bool,
+    #[serde(default)]
+    pub dev_login_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PerformanceConfigApi {
+    #[serde(default)]
+    pub max_adapters: Option<usize>,
+    #[serde(default)]
+    pub max_workers: Option<usize>,
+    #[serde(default)]
+    pub memory_threshold_pct: Option<f64>,
+    #[serde(default)]
+    pub cache_size_mb: Option<usize>,
+}
+
 /// Cryptographic state for signing and verification
 pub struct CryptoState {
     pub signing_keypair: Keypair,
@@ -68,10 +144,145 @@ pub struct CryptoState {
 
 impl CryptoState {
     pub fn new() -> Self {
+        Self::new_with_path("var/keys")
+    }
+
+    pub fn new_with_path(keys_dir: &str) -> Self {
+        use std::fs;
+        use std::path::PathBuf;
+
+        let keys_path = PathBuf::from(keys_dir);
+        let jwt_key_path = keys_path.join("jwt_signing.key");
+        let policy_key_path = keys_path.join("policy_signing.key");
+
+        // Create keys directory if it doesn't exist
+        if !keys_path.exists() {
+            if let Err(e) = fs::create_dir_all(&keys_path) {
+                tracing::warn!(
+                    path = %keys_path.display(),
+                    error = %e,
+                    "Failed to create keys directory, using ephemeral keys"
+                );
+                return Self::generate_ephemeral();
+            }
+        }
+
+        // Try to load existing keys
+        let jwt_keypair = match Self::load_key(&jwt_key_path) {
+            Ok(keypair) => {
+                tracing::info!(
+                    path = %jwt_key_path.display(),
+                    "Loaded existing JWT signing key"
+                );
+                keypair
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %jwt_key_path.display(),
+                    error = %e,
+                    "Failed to load JWT signing key, generating new key"
+                );
+                let keypair = Keypair::generate();
+                if let Err(save_err) = Self::save_key(&jwt_key_path, &keypair) {
+                    tracing::error!(
+                        path = %jwt_key_path.display(),
+                        error = %save_err,
+                        "Failed to save new JWT signing key"
+                    );
+                }
+                keypair
+            }
+        };
+
+        let signing_keypair = match Self::load_key(&policy_key_path) {
+            Ok(keypair) => {
+                tracing::info!(
+                    path = %policy_key_path.display(),
+                    "Loaded existing policy signing key"
+                );
+                keypair
+            }
+            Err(e) => {
+                tracing::warn!(
+                    path = %policy_key_path.display(),
+                    error = %e,
+                    "Failed to load policy signing key, generating new key"
+                );
+                let keypair = Keypair::generate();
+                if let Err(save_err) = Self::save_key(&policy_key_path, &keypair) {
+                    tracing::error!(
+                        path = %policy_key_path.display(),
+                        error = %save_err,
+                        "Failed to save new policy signing key"
+                    );
+                }
+                keypair
+            }
+        };
+
+        Self {
+            signing_keypair,
+            jwt_keypair,
+        }
+    }
+
+    fn generate_ephemeral() -> Self {
+        tracing::warn!(
+            "Generating ephemeral keys - all existing tokens will be invalidated on restart"
+        );
         Self {
             signing_keypair: Keypair::generate(),
             jwt_keypair: Keypair::generate(),
         }
+    }
+
+    fn load_key(path: &std::path::Path) -> adapteros_core::Result<Keypair> {
+        use std::fs;
+
+        let key_bytes = fs::read(path)
+            .map_err(|e| adapteros_core::AosError::Io(format!("Failed to read key file: {}", e)))?;
+
+        if key_bytes.len() != 32 {
+            return Err(adapteros_core::AosError::Crypto(format!(
+                "Invalid key length: expected 32 bytes, got {}",
+                key_bytes.len()
+            )));
+        }
+
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&key_bytes);
+
+        Ok(Keypair::from_bytes(&key_array))
+    }
+
+    fn save_key(path: &std::path::Path, keypair: &Keypair) -> adapteros_core::Result<()> {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let key_bytes = keypair.to_bytes();
+
+        // Write the key to a temporary file first
+        let temp_path = path.with_extension("tmp");
+        fs::write(&temp_path, &key_bytes).map_err(|e| {
+            adapteros_core::AosError::Io(format!("Failed to write key file: {}", e))
+        })?;
+
+        // Set restrictive permissions (0600 - owner read/write only)
+        let metadata = fs::metadata(&temp_path).map_err(|e| {
+            adapteros_core::AosError::Io(format!("Failed to get file metadata: {}", e))
+        })?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&temp_path, permissions).map_err(|e| {
+            adapteros_core::AosError::Io(format!("Failed to set file permissions: {}", e))
+        })?;
+
+        // Atomically rename to the final path
+        fs::rename(&temp_path, path).map_err(|e| {
+            adapteros_core::AosError::Io(format!("Failed to rename key file: {}", e))
+        })?;
+
+        Ok(())
     }
 
     pub fn from_keypairs(signing: Keypair, jwt: Keypair) -> Self {
@@ -125,6 +336,7 @@ pub struct AppState {
     pub active_stack: Arc<RwLock<HashMap<String, Option<String>>>>,
     pub db_pool: sqlx::SqlitePool,
     pub plugin_registry: Arc<crate::plugin_registry::PluginRegistry>,
+    pub policy_manager: Arc<PolicyPackManager>,
     pub uma_monitor: Arc<UmaPressureMonitor>,
     pub response_validator: Arc<crate::validation::response_schemas::ResponseSchemaValidator>,
     // Enhanced security fields
@@ -151,6 +363,20 @@ pub struct AppState {
     pub telemetry_bundle_store: Arc<std::sync::RwLock<BundleStore>>,
     // Chunked upload session manager
     pub upload_session_manager: Arc<UploadSessionManager>,
+    // Boot lifecycle state manager
+    pub boot_state: Option<BootStateManager>,
+    // Runtime mode (dev/staging/prod)
+    pub runtime_mode: Option<RuntimeMode>,
+    // In-flight request counter for graceful shutdown
+    pub in_flight_requests: Arc<AtomicUsize>,
+    // Plugin event bus for dispatching events to plugins
+    pub event_bus: Option<Arc<crate::event_bus::EventBus>>,
+    // Dashboard cache for tenant validation and system overview
+    pub dashboard_cache: Arc<DashboardCache>,
+    // Load coordinator for thundering herd protection
+    pub load_coordinator: Arc<LoadCoordinator>,
+    // Embedding model for RAG retrieval (optional, loaded from config)
+    pub embedding_model: Option<Arc<dyn EmbeddingModel + Send + Sync>>,
 }
 
 impl AppState {
@@ -170,9 +396,10 @@ impl AppState {
             crate::auth::encode_ed25519_public_key_pem(&ed25519_keypair.public_key().to_bytes());
 
         // Create signal broadcast channels for SSE streaming
-        let (training_signal_tx, _) = broadcast::channel(100);
-        let (discovery_signal_tx, _) = broadcast::channel(100);
-        let (contact_signal_tx, _) = broadcast::channel(100);
+        // Increased capacity from 100 to 1000 to prevent buffer overflow under load
+        let (training_signal_tx, _) = broadcast::channel(1000);
+        let (discovery_signal_tx, _) = broadcast::channel(1000);
+        let (contact_signal_tx, _) = broadcast::channel(1000);
 
         // Create telemetry broadcast channel
         let (telemetry_tx, _) = broadcast::channel(1000);
@@ -192,6 +419,7 @@ impl AppState {
             active_stack: Arc::new(RwLock::new(HashMap::new())),
             db_pool,
             plugin_registry: Arc::new(crate::plugin_registry::PluginRegistry::new(db.clone())),
+            policy_manager: Arc::new(PolicyPackManager::new()),
             uma_monitor,
             response_validator: Arc::new(
                 crate::validation::response_schemas::ResponseSchemaValidator::new(None),
@@ -216,7 +444,32 @@ impl AppState {
             )),
             // Default to 1000 max concurrent upload sessions
             upload_session_manager: Arc::new(UploadSessionManager::new(1000)),
+            // Boot state and runtime mode are set later via with_boot_state/with_runtime_mode
+            boot_state: None,
+            runtime_mode: None,
+            // Initialize in-flight request counter
+            in_flight_requests: Arc::new(AtomicUsize::new(0)),
+            // Event bus is set later via with_event_bus
+            event_bus: None,
+            // Dashboard cache for tenant validation and system overview
+            dashboard_cache: Arc::new(DashboardCache::new()),
+            // Load coordinator for thundering herd protection
+            load_coordinator: Arc::new(LoadCoordinator::new()),
+            // Embedding model initialized via with_embedding_model
+            embedding_model: None,
         }
+    }
+
+    /// Set boot state manager for lifecycle tracking
+    pub fn with_boot_state(mut self, boot_state: BootStateManager) -> Self {
+        self.boot_state = Some(boot_state);
+        self
+    }
+
+    /// Set runtime mode for policy enforcement
+    pub fn with_runtime_mode(mut self, runtime_mode: RuntimeMode) -> Self {
+        self.runtime_mode = Some(runtime_mode);
+        self
     }
 
     pub fn with_federation(mut self, daemon: Arc<FederationDaemon>) -> Self {
@@ -260,6 +513,11 @@ impl AppState {
         self
     }
 
+    pub fn with_policy_manager(mut self, policy_manager: Arc<PolicyPackManager>) -> Self {
+        self.policy_manager = policy_manager;
+        self
+    }
+
     pub fn with_dataset_progress(mut self, tx: broadcast::Sender<DatasetProgressEvent>) -> Self {
         self.dataset_progress_tx = Some(Arc::new(tx));
         self
@@ -300,6 +558,27 @@ impl AppState {
     /// Set custom contact signal transmitter for SSE streaming
     pub fn with_contact_signals(mut self, tx: broadcast::Sender<Signal>) -> Self {
         self.contact_signal_tx = Arc::new(tx);
+        self
+    }
+
+    /// Set plugin event bus for dispatching events to plugins
+    pub fn with_event_bus(mut self, event_bus: Arc<crate::event_bus::EventBus>) -> Self {
+        self.event_bus = Some(event_bus);
+        self
+    }
+
+    /// Set custom load coordinator for thundering herd protection
+    pub fn with_load_coordinator(mut self, load_coordinator: Arc<LoadCoordinator>) -> Self {
+        self.load_coordinator = load_coordinator;
+        self
+    }
+
+    /// Set embedding model for RAG retrieval
+    pub fn with_embedding_model(
+        mut self,
+        embedding_model: Arc<dyn EmbeddingModel + Send + Sync>,
+    ) -> Self {
+        self.embedding_model = Some(embedding_model);
         self
     }
 

@@ -273,10 +273,7 @@ impl RetryExecutor {
         Self { config }
     }
 
-    pub async fn execute<F, Fut, T>(
-        &self,
-        mut operation: F,
-    ) -> std::result::Result<T, AosError>
+    pub async fn execute<F, Fut, T>(&self, mut operation: F) -> std::result::Result<T, AosError>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = std::result::Result<T, AosError>>,

@@ -65,7 +65,6 @@ export default function GuidedFlowPage() {
       const newId =
         (resp as any).dataset_id ||
         (resp as any).id ||
-        resp.dataset?.dataset_id ||
         resp.dataset?.id;
       setDatasetId(newId);
       setDatasetName(resp.dataset?.name || newId);

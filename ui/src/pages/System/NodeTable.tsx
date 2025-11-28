@@ -60,20 +60,20 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
   };
 
   const handleEvict = async (nodeId: string) => {
-    if (!confirm(`Are you sure you want to evict node ${nodeId}? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to remove node ${nodeId}? This action cannot be undone.`)) {
       return;
     }
 
     try {
       await evictNode.execute(nodeId);
       toast({
-        title: 'Node Evicted',
-        description: `Node ${nodeId} has been evicted from the cluster`,
+        title: 'Node Removed',
+        description: `Node ${nodeId} has been removed from the cluster`,
       });
       onRefresh();
     } catch (error) {
       toast({
-        title: 'Eviction Failed',
+        title: 'Removal Failed',
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -144,7 +144,7 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
       {
         id: 'last_heartbeat',
         accessorKey: 'last_heartbeat',
-        header: 'Last Heartbeat',
+        header: 'Last Seen',
         cell: ({ row }) => {
           const heartbeat = row.last_heartbeat;
           if (!heartbeat) return '--';
@@ -187,7 +187,7 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
                   className="text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Evict Node
+                  Remove Node
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

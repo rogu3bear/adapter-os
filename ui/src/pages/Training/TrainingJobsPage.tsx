@@ -12,7 +12,6 @@ import { TrainingProgress } from './TrainingProgress';
 import { useTraining } from '@/hooks/useTraining';
 import { useRBAC } from '@/hooks/useRBAC';
 import { LastUpdated } from '@/components/ui/last-updated';
-import { ConfigPageHeader } from '@/components/ui/page-headers/ConfigPageHeader';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import type { TrainingJob } from '@/api/training-types';
 
@@ -70,18 +69,14 @@ function TrainingJobsPageContent() {
 
   return (
     <div className="space-y-6">
-      <ConfigPageHeader
-        title="Training Jobs"
-        description="Manage LoRA adapter training jobs and monitor progress"
-        primaryAction={can('training:start') ? {
-          label: 'Start Training',
-          icon: Brain,
-          onClick: handleStartTraining,
-        } : undefined}
-      />
-
-      {!can('training:start') && (
-        <div className="flex justify-end -mt-4">
+      <div className="flex items-center justify-between">
+        {can('training:start') && (
+          <Button onClick={handleStartTraining}>
+            <Brain className="h-4 w-4 mr-2" />
+            Start Training
+          </Button>
+        )}
+        {!can('training:start') && (
           <Button
             disabled
             title="Requires training:start permission"
@@ -90,20 +85,19 @@ function TrainingJobsPageContent() {
             <Brain className="h-4 w-4 mr-2" />
             Start Training
           </Button>
+        )}
+        <div className="flex items-center gap-4">
+          <LastUpdated timestamp={lastUpdated} className="text-sm" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <LastUpdated timestamp={lastUpdated} className="text-sm" />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isLoading}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
       </div>
 
       <PageErrors errors={errors} />

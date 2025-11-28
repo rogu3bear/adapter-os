@@ -43,6 +43,8 @@ interface StackFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   stack?: AdapterStack;
+  initialAdapterId?: string;
+  onStackCreated?: (stackId: string) => void;
 }
 
 interface FormData {
@@ -54,7 +56,7 @@ interface FormData {
   }>;
 }
 
-export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProps) {
+export function StackFormModal({ open, onOpenChange, stack, initialAdapterId, onStackCreated }: StackFormModalProps) {
   const isEdit = !!stack;
   const createStack = useCreateAdapterStack();
   const updateStack = useUpdateAdapterStack();
@@ -131,13 +133,14 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
         })) || [],
       });
     } else {
+      // Pre-populate with initialAdapterId if provided
       reset({
         name: '',
         description: '',
-        adapters: [],
+        adapters: initialAdapterId ? [{ adapter_id: initialAdapterId, gate: 32767 }] : [],
       });
     }
-  }, [stack, reset]);
+  }, [stack, initialAdapterId, reset]);
 
   const [warnings, setWarnings] = useState<string[]>([]);
   const [hasCriticalWarning, setHasCriticalWarning] = useState(false);
@@ -257,6 +260,7 @@ export function StackFormModal({ open, onOpenChange, stack }: StackFormModalProp
           // Don't close modal if there are warnings - let user see them
         } else {
           notifyStackUpdate(newStack.stack.id, data.name);
+          onStackCreated?.(newStack.stack.id);
           onOpenChange(false);
           reset();
         }

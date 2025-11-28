@@ -240,7 +240,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
           </CardHeader>
           <CardContent className="space-y-4">
             <InfoRow
-              label="Tenant Namespace"
+              label="Organization Namespace"
               value={adapterData?.tenant_namespace || adapter.tenant_namespace || 'N/A'}
             />
             <InfoRow

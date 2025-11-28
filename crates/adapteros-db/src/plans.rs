@@ -20,7 +20,7 @@ impl Db {
         .bind(plan_id_b3)
         .bind(manifest_hash_b3)
         .bind(kernel_hashes_json)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create plan: {}", e)))?;
         Ok(id)
@@ -31,7 +31,7 @@ impl Db {
             "SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at FROM plans WHERE id = ?"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get plan: {}", e)))?;
         Ok(plan)
@@ -43,7 +43,7 @@ impl Db {
              FROM plans WHERE tenant_id = ? ORDER BY created_at DESC"
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list plans by tenant: {}", e)))?;
         Ok(plans)
@@ -54,7 +54,7 @@ impl Db {
             "SELECT id, tenant_id, plan_id_b3, manifest_hash_b3, kernel_hashes_json, metallib_hash_b3, created_at
              FROM plans ORDER BY created_at DESC"
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list all plans: {}", e)))?;
         Ok(plans)
@@ -63,7 +63,7 @@ impl Db {
     pub async fn delete_plan(&self, id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM plans WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete plan: {}", e)))?;
         Ok(result.rows_affected() > 0)

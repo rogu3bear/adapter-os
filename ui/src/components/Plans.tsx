@@ -368,7 +368,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                   />
                 </TableHead>
                 <TableHead>Plan ID</TableHead>
-                <TableHead>CPID</TableHead>
+                <TableHead>Policy ID</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Metallib Hash</TableHead>

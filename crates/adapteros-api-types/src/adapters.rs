@@ -95,6 +95,9 @@ pub struct AdapterResponse {
     /// Whether adapter is pinned (protected from eviction)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
+    /// Whether the adapter was deduplicated (found existing instead of creating new)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deduplicated: Option<bool>,
     /// Memory usage in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_bytes: Option<i64>,

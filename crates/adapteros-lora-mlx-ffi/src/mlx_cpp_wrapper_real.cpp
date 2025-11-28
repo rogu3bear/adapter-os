@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <set>
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
@@ -160,13 +161,97 @@ struct MLXModelWrapper {
     std::vector<std::pair<std::string, mx::array>> hidden_states_vec;  // Use vector for hidden states
     size_t total_weight_bytes;  // Track total weight memory
 
+    // Model architecture config (loaded from config.json)
+    int num_attention_heads = 32;    // Q heads
+    int num_key_value_heads = 32;    // KV heads (for GQA, may differ from Q heads)
+    int hidden_size = 4096;
+    int num_hidden_layers = 32;
+    int intermediate_size = 11008;
+    int vocab_size = 32000;
+    int head_dim = 128;              // hidden_size / num_attention_heads
+    bool config_loaded = false;
+
     explicit MLXModelWrapper(const std::string& path)
         : model_path(path), total_weight_bytes(0) {}
 
-    // Load weights from safetensors format
+    // Load model configuration from config.json
+    bool load_config() {
+        std::string config_path = model_path + "/config.json";
+        std::ifstream config_file(config_path);
+        if (!config_file.good()) {
+            // Config not found, use defaults
+            std::cerr << "[MLX] Config file not found at " << config_path << ", using defaults" << std::endl;
+            head_dim = hidden_size / num_attention_heads;
+            return false;
+        }
+
+        try {
+            // Simple JSON parsing for the fields we need
+            std::string content((std::istreambuf_iterator<char>(config_file)),
+                               std::istreambuf_iterator<char>());
+            config_file.close();
+
+            auto parse_int = [&content](const std::string& key) -> int {
+                size_t pos = content.find("\"" + key + "\"");
+                if (pos == std::string::npos) return -1;
+                pos = content.find(":", pos);
+                if (pos == std::string::npos) return -1;
+                pos++;
+                while (pos < content.size() && (content[pos] == ' ' || content[pos] == '\t')) pos++;
+                int value = 0;
+                bool negative = false;
+                if (content[pos] == '-') { negative = true; pos++; }
+                while (pos < content.size() && content[pos] >= '0' && content[pos] <= '9') {
+                    value = value * 10 + (content[pos] - '0');
+                    pos++;
+                }
+                return negative ? -value : value;
+            };
+
+            int val;
+            if ((val = parse_int("num_attention_heads")) > 0) num_attention_heads = val;
+            if ((val = parse_int("num_key_value_heads")) > 0) num_key_value_heads = val;
+            if ((val = parse_int("hidden_size")) > 0) hidden_size = val;
+            if ((val = parse_int("num_hidden_layers")) > 0) num_hidden_layers = val;
+            if ((val = parse_int("intermediate_size")) > 0) intermediate_size = val;
+            if ((val = parse_int("vocab_size")) > 0) vocab_size = val;
+
+            // Calculate head_dim
+            head_dim = hidden_size / num_attention_heads;
+
+            std::cerr << "[MLX] Loaded config: heads=" << num_attention_heads
+                      << ", kv_heads=" << num_key_value_heads
+                      << ", hidden=" << hidden_size
+                      << ", layers=" << num_hidden_layers
+                      << ", head_dim=" << head_dim << std::endl;
+
+            config_loaded = true;
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << "[MLX] Failed to parse config.json: " << e.what() << std::endl;
+            head_dim = hidden_size / num_attention_heads;
+            return false;
+        }
+    }
+
+    // Load weights from safetensors format (supports sharded models)
     bool load_weights() {
         try {
-            // Check if model file exists
+            // Load config first to get model architecture parameters
+            load_config();
+
+            // First check for sharded model (model.safetensors.index.json)
+            std::string index_path = model_path + "/model.safetensors.index.json";
+            std::ifstream index_file(index_path);
+
+            if (index_file.good()) {
+                // Sharded model - parse index and load all shards
+                index_file.close();
+                return load_sharded_weights(index_path);
+            }
+            index_file.close();
+
+            // Check for single model file
             std::string safetensors_path = model_path + "/model.safetensors";
 
             // Try alternative naming if primary doesn't exist
@@ -176,7 +261,7 @@ struct MLXModelWrapper {
                 safetensors_path = model_path + "/pytorch_model.bin.safetensors";
                 test_file.open(safetensors_path);
                 if (!test_file.good()) {
-                    g_last_error = "Model file not found: tried '" + model_path + "/model.safetensors' and '" + model_path + "/pytorch_model.bin.safetensors'";
+                    g_last_error = "Model file not found: tried '" + model_path + "/model.safetensors', '" + model_path + "/pytorch_model.bin.safetensors', and '" + model_path + "/model.safetensors.index.json'";
                     return false;
                 }
             }
@@ -203,6 +288,101 @@ struct MLXModelWrapper {
             return true;
         } catch (const std::exception& e) {
             g_last_error = std::string("Failed to load weights: ") + e.what();
+            return false;
+        }
+    }
+
+    // Load weights from sharded safetensors files
+    // Parses the index JSON to find all shard files and merges them
+    bool load_sharded_weights(const std::string& index_path) {
+        try {
+            // Read the index file
+            std::ifstream file(index_path);
+            if (!file.good()) {
+                g_last_error = "Cannot open sharded model index: " + index_path;
+                return false;
+            }
+
+            std::string content((std::istreambuf_iterator<char>(file)),
+                                std::istreambuf_iterator<char>());
+            file.close();
+
+            // Simple JSON parsing to extract unique shard filenames from weight_map
+            // Format: "weight_map": { "name": "model-00001-of-00003.safetensors", ... }
+            std::set<std::string> shard_files;
+
+            // Find all occurrences of "model-XXXXX-of-XXXXX.safetensors"
+            std::string search_prefix = "model-";
+            std::string search_suffix = ".safetensors";
+            size_t pos = 0;
+
+            while ((pos = content.find(search_prefix, pos)) != std::string::npos) {
+                // Find the end of the filename
+                size_t suffix_pos = content.find(search_suffix, pos);
+                if (suffix_pos == std::string::npos) {
+                    pos++;
+                    continue;
+                }
+
+                // Extract the filename
+                std::string filename = content.substr(pos, suffix_pos - pos + search_suffix.length());
+
+                // Validate it looks like a shard filename (model-NNNNN-of-NNNNN.safetensors)
+                if (filename.length() > 25 && filename.find("-of-") != std::string::npos) {
+                    shard_files.insert(filename);
+                }
+
+                pos = suffix_pos + 1;
+            }
+
+            if (shard_files.empty()) {
+                g_last_error = "No shard files found in index: " + index_path;
+                return false;
+            }
+
+            std::cout << "[MLX] Loading sharded model with " << shard_files.size() << " shards..." << std::endl;
+
+            // Load each shard and merge weights
+            total_weight_bytes = 0;
+            int shard_num = 0;
+
+            for (const auto& shard_filename : shard_files) {
+                shard_num++;
+                std::string shard_path = model_path + "/" + shard_filename;
+
+                std::cout << "[MLX] Loading shard " << shard_num << "/" << shard_files.size()
+                          << ": " << shard_filename << std::endl;
+
+                // Check file exists
+                std::ifstream test_file(shard_path);
+                if (!test_file.good()) {
+                    g_last_error = "Shard file not found: " + shard_path;
+                    return false;
+                }
+                test_file.close();
+
+                // Load the shard
+                auto [shard_weights, metadata] = mx::load_safetensors(shard_path);
+
+                // Merge weights into main weights map
+                for (auto& [name, arr] : shard_weights) {
+                    size_t bytes = calculate_array_memory(arr);
+                    total_weight_bytes += bytes;
+                    weights.insert_or_assign(name, std::move(arr));
+                }
+
+                std::cout << "[MLX] Loaded " << shard_weights.size() << " weights from shard " << shard_num << std::endl;
+            }
+
+            // Track memory allocation
+            record_allocation(reinterpret_cast<uintptr_t>(this), total_weight_bytes);
+
+            std::cout << "[MLX] Successfully loaded " << weights.size() << " total weights ("
+                      << (total_weight_bytes / (1024 * 1024)) << " MB)" << std::endl;
+
+            return true;
+        } catch (const std::exception& e) {
+            g_last_error = std::string("Failed to load sharded weights: ") + e.what();
             return false;
         }
     }
@@ -300,11 +480,16 @@ struct MLXModelWrapper {
     }
 
     // Self-attention with hidden state capture using scaled dot-product attention
+    // Supports Grouped Query Attention (GQA) where num_key_value_heads < num_attention_heads
     mx::array self_attention_with_hidden_states(const mx::array& hidden, const std::string& prefix) {
-        int hidden_size = hidden.shape(-1);
-        int num_heads = 32;  // Assume 32 heads for standard models
-        int head_dim = hidden_size / num_heads;
+        int batch_size = hidden.shape(0);
         int seq_len = hidden.shape(1);
+
+        // Use config values for head counts (supports GQA)
+        int n_heads = num_attention_heads;      // Q heads
+        int n_kv_heads = num_key_value_heads;   // KV heads (may be fewer for GQA)
+        int hd = head_dim;                       // head dimension
+        int n_rep = n_heads / n_kv_heads;        // GQA repetition factor
 
         // QKV projections
         mx::array q = linear_projection(hidden, prefix + ".q_proj");
@@ -319,10 +504,25 @@ struct MLXModelWrapper {
         mx::eval(v);
         hidden_states_vec.push_back({prefix + ".v_proj", v});
 
-        // Reshape for multi-head attention
-        q = mx::reshape(q, {q.shape(0), q.shape(1), num_heads, head_dim});
-        k = mx::reshape(k, {k.shape(0), k.shape(1), num_heads, head_dim});
-        v = mx::reshape(v, {v.shape(0), v.shape(1), num_heads, head_dim});
+        // Reshape Q for multi-head attention: [batch, seq, n_heads * head_dim] -> [batch, seq, n_heads, head_dim]
+        q = mx::reshape(q, {batch_size, seq_len, n_heads, hd});
+
+        // Reshape K,V for GQA: [batch, seq, n_kv_heads * head_dim] -> [batch, seq, n_kv_heads, head_dim]
+        k = mx::reshape(k, {batch_size, seq_len, n_kv_heads, hd});
+        v = mx::reshape(v, {batch_size, seq_len, n_kv_heads, hd});
+
+        // GQA: Repeat K,V heads to match Q heads if needed
+        if (n_rep > 1) {
+            // Expand K: [batch, seq, n_kv_heads, head_dim] -> [batch, seq, n_kv_heads, n_rep, head_dim]
+            k = mx::expand_dims(k, 3);
+            k = mx::repeat(k, n_rep, 3);
+            k = mx::reshape(k, {batch_size, seq_len, n_heads, hd});
+
+            // Expand V: same transformation
+            v = mx::expand_dims(v, 3);
+            v = mx::repeat(v, n_rep, 3);
+            v = mx::reshape(v, {batch_size, seq_len, n_heads, hd});
+        }
 
         // Transpose for attention: [batch, seq, heads, head_dim] -> [batch, heads, seq, head_dim]
         q = mx::transpose(q, {0, 2, 1, 3});
@@ -339,7 +539,7 @@ struct MLXModelWrapper {
         mx::array causal_mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
 
         // Scaled dot-product attention: softmax(Q @ K^T * scale + mask) @ V
-        float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
+        float scale = 1.0f / std::sqrt(static_cast<float>(hd));
         mx::array k_transposed = mx::transpose(k, {0, 1, 3, 2});
         mx::array scores = mx::matmul(q, k_transposed);
         scores = mx::multiply(scores, mx::array(scale));
@@ -349,7 +549,7 @@ struct MLXModelWrapper {
 
         // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
         attn_output = mx::transpose(attn_output, {0, 2, 1, 3});
-        attn_output = mx::reshape(attn_output, {attn_output.shape(0), attn_output.shape(1), hidden_size});
+        attn_output = mx::reshape(attn_output, {batch_size, seq_len, n_heads * hd});
 
         // Output projection
         mx::array output = linear_projection(attn_output, prefix + ".o_proj");
@@ -362,21 +562,41 @@ struct MLXModelWrapper {
     }
 
     // Self-attention mechanism using scaled dot-product attention
+    // Supports Grouped Query Attention (GQA) where num_key_value_heads < num_attention_heads
     mx::array self_attention(const mx::array& hidden, const std::string& prefix) {
-        int hidden_size = hidden.shape(-1);
-        int num_heads = 32;  // Assume 32 heads
-        int head_dim = hidden_size / num_heads;
+        int batch_size = hidden.shape(0);
         int seq_len = hidden.shape(1);
+
+        // Use config values for head counts (supports GQA)
+        int n_heads = num_attention_heads;      // Q heads
+        int n_kv_heads = num_key_value_heads;   // KV heads (may be fewer for GQA)
+        int hd = head_dim;                       // head dimension
+        int n_rep = n_heads / n_kv_heads;        // GQA repetition factor
 
         // QKV projections
         mx::array q = linear_projection(hidden, prefix + ".q_proj");
         mx::array k = linear_projection(hidden, prefix + ".k_proj");
         mx::array v = linear_projection(hidden, prefix + ".v_proj");
 
-        // Reshape for multi-head attention
-        q = mx::reshape(q, {q.shape(0), q.shape(1), num_heads, head_dim});
-        k = mx::reshape(k, {k.shape(0), k.shape(1), num_heads, head_dim});
-        v = mx::reshape(v, {v.shape(0), v.shape(1), num_heads, head_dim});
+        // Reshape Q for multi-head attention: [batch, seq, n_heads * head_dim] -> [batch, seq, n_heads, head_dim]
+        q = mx::reshape(q, {batch_size, seq_len, n_heads, hd});
+
+        // Reshape K,V for GQA: [batch, seq, n_kv_heads * head_dim] -> [batch, seq, n_kv_heads, head_dim]
+        k = mx::reshape(k, {batch_size, seq_len, n_kv_heads, hd});
+        v = mx::reshape(v, {batch_size, seq_len, n_kv_heads, hd});
+
+        // GQA: Repeat K,V heads to match Q heads if needed
+        if (n_rep > 1) {
+            // Expand K: [batch, seq, n_kv_heads, head_dim] -> [batch, seq, n_kv_heads, n_rep, head_dim]
+            k = mx::expand_dims(k, 3);
+            k = mx::repeat(k, n_rep, 3);
+            k = mx::reshape(k, {batch_size, seq_len, n_heads, hd});
+
+            // Expand V: same transformation
+            v = mx::expand_dims(v, 3);
+            v = mx::repeat(v, n_rep, 3);
+            v = mx::reshape(v, {batch_size, seq_len, n_heads, hd});
+        }
 
         // Transpose for attention: [batch, seq, heads, head_dim] -> [batch, heads, seq, head_dim]
         q = mx::transpose(q, {0, 2, 1, 3});
@@ -393,7 +613,7 @@ struct MLXModelWrapper {
         mx::array causal_mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
 
         // Scaled dot-product attention: softmax(Q @ K^T * scale + mask) @ V
-        float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
+        float scale = 1.0f / std::sqrt(static_cast<float>(hd));
         mx::array k_transposed = mx::transpose(k, {0, 1, 3, 2});
         mx::array scores = mx::matmul(q, k_transposed);
         scores = mx::multiply(scores, mx::array(scale));
@@ -403,7 +623,7 @@ struct MLXModelWrapper {
 
         // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
         attn_output = mx::transpose(attn_output, {0, 2, 1, 3});
-        attn_output = mx::reshape(attn_output, {attn_output.shape(0), attn_output.shape(1), hidden_size});
+        attn_output = mx::reshape(attn_output, {batch_size, seq_len, n_heads * hd});
 
         // Output projection
         return linear_projection(attn_output, prefix + ".o_proj");

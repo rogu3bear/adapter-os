@@ -3,6 +3,7 @@
 use crate::auth::Claims;
 use crate::middleware::{require_any_role, require_role};
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
@@ -18,7 +19,6 @@ use adapteros_system_metrics::monitoring_types::{
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
 };
 use axum::response::Response;
-use sqlx::Row;
 use utoipa::ToSchema;
 
 pub mod activity;
@@ -27,29 +27,46 @@ pub mod adapters;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;
+pub mod boot_progress;
 pub mod capacity;
+pub mod chat_sessions;
 pub mod chunked_upload;
 pub mod code;
+pub mod collections;
 pub mod dashboard;
 pub mod datasets;
 pub mod diagnostics;
+pub mod documents;
 pub mod domain_adapters;
+pub mod evidence;
 pub mod federation;
 pub mod git;
 pub mod git_repository;
 pub mod golden;
+pub mod health;
+pub mod memory_detail;
+pub mod metrics_time_series;
 pub mod models;
+pub mod node_detail;
 pub mod notifications;
+pub mod owner_chat;
+pub mod owner_cli;
 pub mod plugins;
 pub mod promotion;
 pub mod replay;
 pub mod routing_decisions;
 pub mod services;
+pub mod settings;
+pub mod streaming;
 pub mod streaming_infer;
+pub mod system_info;
+pub mod system_overview;
+pub mod system_state;
 pub mod telemetry;
 pub mod tenants;
 pub mod training;
 pub mod tutorials;
+pub mod worker_detail;
 pub mod workspaces;
 
 // Re-export adapter lifecycle and lineage handlers
@@ -63,6 +80,22 @@ pub use auth::{__path_auth_login, auth_login, auth_logout, auth_me};
 
 // Re-export training handlers
 pub use training::*;
+
+// Re-export health and system info handlers
+pub use health::*;
+pub use system_info::*;
+
+// Re-export system state handler
+pub use system_state::*;
+
+// Re-export boot progress (specific to avoid ambiguity with streaming module)
+pub use boot_progress::{boot_progress_stream, BootProgressEvent};
+
+// Re-export streaming handlers
+pub use streaming::*;
+
+// Re-export adapter_stacks streaming handler
+pub use adapter_stacks::stack_policy_stream;
 
 // Re-export domain adapter handlers
 use adapteros_db::sqlx;
@@ -98,58 +131,6 @@ fn aos_error_to_response(error: AosError) -> (StatusCode, Json<ErrorResponse>) {
         status_code,
         Json(ErrorResponse::new(error.to_string()).with_code(error_code)),
     )
-}
-
-/// Health check endpoint
-#[utoipa::path(
-    tag = "system",
-    get,
-    path = "/healthz",
-    responses(
-        (status = 200, description = "Service is healthy", body = HealthResponse)
-    )
-)]
-pub async fn health() -> impl IntoResponse {
-    Json(HealthResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        status: "healthy".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        models: None,
-    })
-}
-
-/// Readiness check
-#[utoipa::path(
-    tag = "system",
-    get,
-    path = "/readyz",
-    responses(
-        (status = 200, description = "Service is ready", body = HealthResponse),
-        (status = 503, description = "Service is not ready", body = HealthResponse)
-    )
-)]
-pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
-    // Check database connectivity
-    match state.db.pool().acquire().await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(HealthResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: "ready".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                models: None,
-            }),
-        ),
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(HealthResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: "not ready".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                models: None,
-            }),
-        ),
-    }
 }
 
 /// Upsert a synthetic directory adapter and optionally activate it.
@@ -601,7 +582,13 @@ pub async fn update_tenant(
         name: tenant.name,
         itar_flag: tenant.itar_flag,
         created_at: tenant.created_at,
-        status: "active".to_string(),
+        status: tenant.status.unwrap_or_else(|| "active".to_string()),
+        updated_at: tenant.updated_at,
+        default_stack_id: tenant.default_stack_id,
+        max_adapters: tenant.max_adapters,
+        max_training_jobs: tenant.max_training_jobs,
+        max_storage_gb: tenant.max_storage_gb,
+        rate_limit_rpm: tenant.rate_limit_rpm,
     }))
 }
 
@@ -2964,31 +2951,75 @@ pub async fn promotion_gates(
 
 /// List policies (stub)
 pub async fn list_policies(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<PolicyPackResponse>>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: All roles can view policies
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
 
-    // Stub - would query database
-    Ok(Json(vec![]))
+    // Query database for policy packs
+    let packs = state.db.list_policy_packs(None, None).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to list policy packs");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to list policy packs")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let response = packs
+        .into_iter()
+        .map(|pack| PolicyPackResponse {
+            cpid: pack.id,
+            content: pack.content_json,
+            hash_b3: pack.hash_b3,
+            created_at: pack.created_at,
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
-/// Get policy by CPID (stub)
+/// Get policy by CPID
 pub async fn get_policy(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: All roles can view policies
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
 
-    // Stub - would query database
+    // Query database for policy pack
+    let pack = state
+        .db
+        .get_policy_pack(&cpid)
+        .await
+        .map_err(|e| {
+            tracing::error!(cpid = %cpid, error = %e, "Failed to get policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Policy pack not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
     Ok(Json(PolicyPackResponse {
-        cpid,
-        content: r#"{"schema": "adapteros.policy.v1", "packs": {}}"#.to_string(),
-        hash_b3: "b3:placeholder".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        cpid: pack.id,
+        content: pack.content_json,
+        hash_b3: pack.hash_b3,
+        created_at: pack.created_at,
     }))
 }
 
@@ -3050,7 +3081,7 @@ pub async fn validate_policy(
     Ok(result)
 }
 
-/// Apply policy (stub)
+/// Apply policy
 pub async fn apply_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -3059,38 +3090,23 @@ pub async fn apply_policy(
     // Role check: Admin-only (applying policies is a critical operation)
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyApply)?;
 
-    // Stub - would validate, sign, and store policy
-    let response = PolicyPackResponse {
-        cpid: req.cpid.clone(),
-        content: req.content,
-        hash_b3: "b3:placeholder".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-    };
+    // Validate JSON format
+    let content_value: serde_json::Value = serde_json::from_str(&req.content).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid policy JSON")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
-    // Audit log: policy applied
-    let _ = crate::audit_helper::log_success(
-        &state.db,
-        &claims,
-        crate::audit_helper::actions::POLICY_APPLY,
-        crate::audit_helper::resources::POLICY,
-        Some(&req.cpid),
-    )
-    .await;
-
-    Ok(Json(response))
-}
-
-/// Sign policy with Ed25519
-pub async fn sign_policy(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(cpid): Path<String>,
-) -> Result<Json<SignPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Role check: Admin-only (signing policies is a critical operation)
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicySign)?;
+    // Compute hash
+    let hash_b3 = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
 
     // Get or generate signing key for the tenant
-    let signing_key_result = sqlx::query_scalar::<_, Option<String>>(
+    let signing_key_result = sqlx::query_scalar::<_, String>(
         "SELECT signing_key FROM signing_keys WHERE tenant_id = ? AND key_type = 'ed25519' AND active = 1"
     )
     .bind(&claims.sub)
@@ -3114,7 +3130,7 @@ pub async fn sign_policy(
 
             // Store the key
             sqlx::query(
-                "INSERT INTO signing_keys (tenant_id, key_type, signing_key, active, created_at) 
+                "INSERT INTO signing_keys (tenant_id, key_type, signing_key, active, created_at)
                  VALUES (?, 'ed25519', ?, 1, datetime('now'))",
             )
             .bind(&claims.sub)
@@ -3133,30 +3149,139 @@ pub async fn sign_policy(
                 )
             })?;
 
-            tracing::info!(
-                "Generated new Ed25519 signing key for tenant {}",
-                claims.sub
-            );
-            Some(key_hex)
+            key_hex
         }
     };
 
-    // Sign the CPID
-    let signing_key = signing_key_hex.as_deref().unwrap_or("");
-    let signature = match adapteros_crypto::signature::sign_data(cpid.as_bytes(), signing_key) {
-        Ok(sig) => format!("ed25519:{}", hex::encode(sig)),
-        Err(e) => {
-            tracing::error!("Failed to sign CPID: {}", e);
-            return Err((
+    // Sign the policy content
+    let signature =
+        adapteros_crypto::signature::sign_data(req.content.as_bytes(), &signing_key_hex).map_err(
+            |e| {
+                tracing::error!("Failed to sign policy: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Signing failed")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            },
+        )?;
+    let signature_hex = format!("ed25519:{}", hex::encode(signature));
+
+    // Extract public key from signing key
+    let secret_key_bytes = hex::decode(&signing_key_hex).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Invalid signing key format")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    use adapteros_crypto::signature::SigningKey;
+    let signing_key_obj = SigningKey::from_bytes(&secret_key_bytes.try_into().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Invalid signing key length").with_code("INTERNAL_ERROR")),
+        )
+    })?);
+    let public_key = signing_key_obj.verifying_key();
+    let public_key_hex = hex::encode(public_key.to_bytes());
+
+    // Extract policy type from content (default to "custom")
+    let policy_type = content_value
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("custom")
+        .to_string();
+
+    // Store policy pack in database
+    let id = state
+        .db
+        .store_policy_pack(
+            &req.cpid,
+            "1.0", // Default version
+            &policy_type,
+            &req.content,
+            &signature_hex,
+            &public_key_hex,
+            &hash_b3,
+            &claims.email,
+            req.description.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(cpid = %req.cpid, error = %e, "Failed to store policy pack");
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("Signing failed")
+                    ErrorResponse::new("Failed to store policy pack")
                         .with_code("INTERNAL_ERROR")
                         .with_string_details(e.to_string()),
                 ),
-            ));
-        }
-    };
+            )
+        })?;
+
+    // Activate the policy if requested
+    if req.activate.unwrap_or(false) {
+        state.db.activate_policy_pack(&id).await.map_err(|e| {
+            tracing::error!(cpid = %req.cpid, error = %e, "Failed to activate policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to activate policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    }
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    // Audit log: policy applied
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::POLICY_APPLY,
+        crate::audit_helper::resources::POLICY,
+        Some(&req.cpid),
+    )
+    .await;
+
+    Ok(Json(PolicyPackResponse {
+        cpid: id,
+        content: req.content,
+        hash_b3,
+        created_at,
+    }))
+}
+
+/// Sign policy with Ed25519 using server's configured signing key (PRD-SEC-01)
+pub async fn sign_policy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(cpid): Path<String>,
+) -> Result<Json<SignPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Admin-only (signing policies is a critical operation)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicySign)?;
+
+    // Use the server's configured Ed25519 signing key (PRD-SEC-01: no ad-hoc key generation)
+    let signing_key = &state.ed25519_keypair;
+
+    // Sign the CPID using the server's signing key
+    use adapteros_crypto::signature::sign_bytes;
+    let signature_bytes = sign_bytes(signing_key, cpid.as_bytes());
+    let signature = format!("ed25519:{}", hex::encode(signature_bytes.to_bytes()));
+
+    tracing::info!(
+        cpid = %cpid,
+        signed_by = %claims.email,
+        "Policy signed using server signing key"
+    );
 
     // Audit log: policy signed
     let _ = crate::audit_helper::log_success(
@@ -3176,40 +3301,512 @@ pub async fn sign_policy(
     }))
 }
 
+/// Verify policy signature using server's public key (PRD-SEC-01)
+pub async fn verify_policy_signature(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(cpid): Path<String>,
+) -> Result<Json<VerifyPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Any authenticated user can verify signatures
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+
+    // Fetch the policy pack to get its signature
+    let policy_pack = state
+        .db
+        .get_policy_pack(&cpid)
+        .await
+        .map_err(|e| {
+            tracing::error!(cpid = %cpid, error = %e, "Failed to get policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Policy pack not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Get the signature from the policy pack (if exists)
+    let signature_str = policy_pack.signature.clone();
+
+    // Extract the signature bytes (strip "ed25519:" prefix if present)
+    let signature_hex = if signature_str.starts_with("ed25519:") {
+        &signature_str[8..]
+    } else {
+        &signature_str
+    };
+
+    // Parse the signature
+    let signature_bytes = hex::decode(signature_hex).map_err(|e| {
+        tracing::error!("Invalid signature hex: {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid signature format")
+                    .with_code("INVALID_SIGNATURE")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    if signature_bytes.len() != 64 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Invalid signature length")
+                    .with_code("INVALID_SIGNATURE")
+                    .with_string_details(format!("Expected 64 bytes, got {}", signature_bytes.len())),
+            ),
+        ));
+    }
+
+    let mut sig_array = [0u8; 64];
+    sig_array.copy_from_slice(&signature_bytes);
+
+    // Get the server's public key
+    use adapteros_crypto::signature::Signature;
+    let public_key = state.ed25519_keypair.public_key();
+    let public_key_hex = hex::encode(public_key.to_bytes());
+
+    // Verify the signature
+    let signature = Signature::from_bytes(&sig_array).map_err(|e| {
+        tracing::error!("Failed to parse signature: {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Failed to parse signature")
+                    .with_code("INVALID_SIGNATURE")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let is_valid = match public_key.verify(cpid.as_bytes(), &signature) {
+        Ok(()) => {
+            tracing::info!(
+                cpid = %cpid,
+                verified_by = %claims.email,
+                "Policy signature verified successfully"
+            );
+            true
+        }
+        Err(e) => {
+            tracing::warn!(
+                cpid = %cpid,
+                verified_by = %claims.email,
+                error = %e,
+                "Policy signature verification failed"
+            );
+            false
+        }
+    };
+
+    Ok(Json(VerifyPolicyResponse {
+        cpid: cpid.clone(),
+        signature: signature_str,
+        is_valid,
+        public_key: format!("ed25519:{}", public_key_hex),
+        verified_at: chrono::Utc::now().to_rfc3339(),
+        error: if is_valid { None } else { Some("Signature verification failed".to_string()) },
+    }))
+}
+
 /// Compare two policy versions
 pub async fn compare_policy_versions(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Json(req): Json<PolicyComparisonRequest>,
 ) -> Result<Json<PolicyComparisonResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would fetch both policies and compute diff
+    // Fetch both policy packs
+    let pack1 = state
+        .db
+        .get_policy_pack(&req.cpid_1)
+        .await
+        .map_err(|e| {
+            tracing::error!(cpid = %req.cpid_1, error = %e, "Failed to get policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Policy pack 1 not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    let pack2 = state
+        .db
+        .get_policy_pack(&req.cpid_2)
+        .await
+        .map_err(|e| {
+            tracing::error!(cpid = %req.cpid_2, error = %e, "Failed to get policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Policy pack 2 not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Parse JSON content
+    let json1: serde_json::Value = serde_json::from_str(&pack1.content_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Invalid JSON in policy pack 1")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let json2: serde_json::Value = serde_json::from_str(&pack2.content_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Invalid JSON in policy pack 2")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Check if identical
+    let identical = json1 == json2;
+
+    // Compute differences (simple field-level comparison)
+    let mut differences = Vec::new();
+    if !identical {
+        // Simple diff: compare as objects
+        if let (Some(obj1), Some(obj2)) = (json1.as_object(), json2.as_object()) {
+            // Find fields in obj1 not in obj2 or with different values
+            for (key, val1) in obj1 {
+                if let Some(val2) = obj2.get(key) {
+                    if val1 != val2 {
+                        differences.push(format!("{}: {} -> {}", key, val1, val2));
+                    }
+                } else {
+                    differences.push(format!("Removed: {}", key));
+                }
+            }
+
+            // Find fields in obj2 not in obj1
+            for key in obj2.keys() {
+                if !obj1.contains_key(key) {
+                    differences.push(format!("Added: {}", key));
+                }
+            }
+        } else {
+            differences.push("Policies have different structures".to_string());
+        }
+    }
+
     Ok(Json(PolicyComparisonResponse {
         cpid_1: req.cpid_1,
         cpid_2: req.cpid_2,
-        differences: vec![
-            "egress.mode: deny_all -> allow_listed".to_string(),
-            "router.k_sparse: 3 -> 5".to_string(),
-            "Added: output.new_field".to_string(),
-        ],
-        identical: false,
+        differences,
+        identical,
     }))
 }
 
 /// Export policy as downloadable bundle
 pub async fn export_policy(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<ExportPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would fetch policy and signature from database
-    let policy_json = r#"{"schema": "adapteros.policy.v1", "packs": {}}"#.to_string();
+    // Fetch policy pack from database
+    let pack = state
+        .db
+        .get_policy_pack(&cpid)
+        .await
+        .map_err(|e| {
+            tracing::error!(cpid = %cpid, error = %e, "Failed to get policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Policy pack not found").with_code("NOT_FOUND")),
+            )
+        })?;
 
     Ok(Json(ExportPolicyResponse {
-        cpid: cpid.clone(),
-        policy_json,
-        signature: Some(format!("ed25519:sig_{}", cpid)),
+        cpid: pack.id,
+        policy_json: pack.content_json,
+        signature: Some(pack.signature),
         exported_at: chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+/// Assign a policy pack to a tenant or adapter (PRD-RBAC-01)
+#[utoipa::path(
+    post,
+    path = "/v1/policies/assign",
+    request_body = AssignPolicyRequest,
+    responses(
+        (status = 200, description = "Policy assigned successfully", body = PolicyAssignmentResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
+pub async fn assign_policy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<AssignPolicyRequest>,
+) -> Result<Json<PolicyAssignmentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: Admin-only (policy assignment is a critical operation)
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyApply)?;
+
+    // Validate policy pack exists
+    let pack = state
+        .db
+        .get_policy_pack(&req.policy_pack_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(policy_pack_id = %req.policy_pack_id, error = %e, "Failed to get policy pack");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy pack")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Policy pack not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Assign policy
+    let id = state
+        .db
+        .assign_policy(
+            &req.policy_pack_id,
+            &req.target_type,
+            req.target_id.as_deref(),
+            &claims.email,
+            req.priority,
+            req.enforced,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to assign policy");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to assign policy")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Audit log: policy assigned
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::POLICY_APPLY,
+        crate::audit_helper::resources::POLICY,
+        Some(&req.policy_pack_id),
+    )
+    .await;
+
+    Ok(Json(PolicyAssignmentResponse {
+        id: id.clone(),
+        policy_pack_id: req.policy_pack_id,
+        target_type: req.target_type,
+        target_id: req.target_id,
+        priority: req.priority.unwrap_or(100),
+        enforced: req.enforced.unwrap_or(true),
+        assigned_at: chrono::Utc::now().to_rfc3339(),
+        assigned_by: claims.email,
+        expires_at: None,
+    }))
+}
+
+/// List policy assignments (PRD-RBAC-01)
+#[utoipa::path(
+    get,
+    path = "/v1/policies/assignments",
+    params(
+        ("target_type" = Option<String>, Query, description = "Filter by target type (tenant, adapter)"),
+        ("target_id" = Option<String>, Query, description = "Filter by target ID")
+    ),
+    responses(
+        (status = 200, description = "Policy assignments retrieved successfully", body = Vec<PolicyAssignmentResponse>),
+        (status = 403, description = "Insufficient permissions", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
+pub async fn list_policy_assignments(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<PolicyAssignmentResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view policy assignments
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+
+    // Filter by tenant if non-admin
+    let is_admin = claims.roles.contains(&"admin".to_string());
+    let target_type = params.get("target_type").map(|s| s.as_str()).unwrap_or("tenant");
+    let target_id = if is_admin {
+        params.get("target_id").map(|s| s.as_str())
+    } else {
+        // Non-admin users can only see their own tenant's assignments
+        Some(claims.tenant_id.as_str())
+    };
+
+    // Get assignments from database
+    let assignments = state
+        .db
+        .get_policy_assignments(target_type, target_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get policy assignments");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy assignments")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response = assignments
+        .into_iter()
+        .map(|a| PolicyAssignmentResponse {
+            id: a.id,
+            policy_pack_id: a.policy_pack_id,
+            target_type: a.target_type,
+            target_id: a.target_id,
+            priority: a.priority,
+            enforced: a.enforced,
+            assigned_at: a.assigned_at,
+            assigned_by: a.assigned_by,
+            expires_at: a.expires_at,
+        })
+        .collect();
+
+    Ok(Json(response))
+}
+
+/// List policy violations (PRD-RBAC-01)
+#[utoipa::path(
+    get,
+    path = "/v1/policies/violations",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
+        ("severity" = Option<String>, Query, description = "Filter by severity (critical, high, medium, low)"),
+        ("resolved" = Option<bool>, Query, description = "Filter by resolution status"),
+        ("limit" = Option<i64>, Query, description = "Limit number of results (default: 100)")
+    ),
+    responses(
+        (status = 200, description = "Policy violations retrieved successfully", body = Vec<PolicyViolationResponse>),
+        (status = 403, description = "Insufficient permissions", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
+pub async fn list_violations(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<Vec<PolicyViolationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    // Role check: All roles can view violations
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+
+    // Filter by tenant if non-admin
+    let is_admin = claims.roles.contains(&"admin".to_string());
+    let tenant_id = if is_admin {
+        params.get("tenant_id").map(|s| s.as_str())
+    } else {
+        // Non-admin users can only see their own tenant's violations
+        Some(claims.tenant_id.as_str())
+    };
+
+    let resource_type = params.get("resource_type").map(|s| s.as_str());
+    let severity = params.get("severity").map(|s| s.as_str());
+    let resolved = params.get("resolved").and_then(|s| s.parse::<bool>().ok());
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(100);
+
+    // Get violations from database
+    let violations = state
+        .db
+        .get_policy_violations(tenant_id, resource_type, severity, resolved, limit)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get policy violations");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get policy violations")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response = violations
+        .into_iter()
+        .map(|v| PolicyViolationResponse {
+            id: v.id,
+            policy_pack_id: v.policy_pack_id,
+            policy_assignment_id: v.policy_assignment_id,
+            violation_type: v.violation_type,
+            severity: v.severity,
+            resource_type: v.resource_type,
+            resource_id: v.resource_id,
+            tenant_id: v.tenant_id,
+            violation_message: v.violation_message,
+            violation_details_json: v.violation_details_json,
+            detected_at: v.detected_at,
+            resolved_at: v.resolved_at,
+            resolved_by: v.resolved_by,
+            resolution_notes: v.resolution_notes,
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
 /// List telemetry bundles (stub)
@@ -3679,6 +4276,22 @@ pub async fn infer(
         ));
     }
 
+    // Audit log: inference execution start
+    let adapters_requested = req
+        .adapters
+        .as_ref()
+        .map(|a| a.join(","))
+        .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
+
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::INFERENCE_EXECUTE,
+        crate::audit_helper::resources::ADAPTER,
+        adapters_requested.as_deref(),
+    )
+    .await;
+
     // Check UMA pressure - compare by string to avoid version conflicts between crates
     let pressure_str = state.uma_monitor.get_current_pressure().to_string();
     let is_high_pressure = pressure_str == "High" || pressure_str == "Critical";
@@ -3758,6 +4371,34 @@ pub async fn infer(
                 prompt_tokens: None,
                 error: None,
             };
+
+            // Link session traces if session_id is provided
+            if let Some(session_id) = &req.session_id {
+                // Link adapters used
+                for adapter_id in &response.adapters_used {
+                    if let Err(e) = state
+                        .db
+                        .add_session_trace(session_id, "adapter", adapter_id)
+                        .await
+                    {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            adapter_id = %adapter_id,
+                            error = %e,
+                            "Failed to link adapter trace to session"
+                        );
+                    }
+                }
+
+                // Update session activity
+                if let Err(e) = crate::security::update_session_activity(&state.db, session_id).await {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = %e,
+                        "Failed to update session activity"
+                    );
+                }
+            }
 
             // Validate response schema before returning
             let response_value = serde_json::to_value(&response).map_err(|e| {
@@ -4318,7 +4959,7 @@ pub async fn list_adapters(
     // Role check: all roles can list adapters
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterList)?;
 
-    let adapters = state.db.list_adapters().await.map_err(|e| {
+    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -4331,6 +4972,14 @@ pub async fn list_adapters(
 
     let mut responses = Vec::new();
     for adapter in adapters {
+        // Enforce tenant isolation: skip adapters not belonging to user's tenant
+        // (admin users can see all adapters)
+        if claims.role != "admin" {
+            if let Err(_) = validate_tenant_isolation(&claims, &adapter.tenant_id) {
+                continue; // Skip this adapter
+            }
+        }
+
         // Filter by tier if specified
         if let Some(tier) = query.tier {
             if adapter.tier != tier.to_string() {
@@ -4397,6 +5046,7 @@ pub async fn list_adapters(
             runtime_state: Some(adapter.current_state.clone()),
             pinned: None,
             memory_bytes: None,
+            deduplicated: None,
         });
     }
 
@@ -4418,7 +5068,7 @@ pub async fn list_adapters(
 )]
 pub async fn get_adapter(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
@@ -4441,6 +5091,9 @@ pub async fn get_adapter(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     let (total, selected, avg_gate) = state
         .db
@@ -4493,6 +5146,7 @@ pub async fn get_adapter(
         runtime_state: Some(adapter.current_state),
         pinned: None,
         memory_bytes: None,
+        deduplicated: None,
     }))
 }
 /// Register new adapter
@@ -4567,6 +5221,96 @@ pub async fn register_adapter(
         ));
     }
 
+    // POLICY ENFORCEMENT: Check naming policy compliance
+    // Get policy assignments for this tenant
+    let policy_assignments = state
+        .db
+        .get_policy_assignments("tenant", Some(&claims.tenant_id))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get policy assignments");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to check policy assignments")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Check if naming policy is assigned and enforced
+    for assignment in &policy_assignments {
+        if assignment.enforced {
+            // Fetch the policy pack
+            if let Ok(Some(pack)) = state.db.get_policy_pack(&assignment.policy_pack_id).await {
+                if pack.policy_type == "naming" && pack.status == "active" {
+                    // Parse naming policy configuration from policy content
+                    use adapteros_policy::packs::naming_policy::{
+                        AdapterNameValidation, NamingConfig, NamingPolicy,
+                    };
+                    let config: NamingConfig =
+                        serde_json::from_str(&pack.content_json).unwrap_or_default();
+                    let naming_policy = NamingPolicy::new(config);
+
+                    // Validate adapter name against naming policy
+                    let validation_request = AdapterNameValidation {
+                        name: req.name.clone(),
+                        tenant_id: claims.tenant_id.clone(),
+                        parent_name: None,
+                        latest_revision: None,
+                    };
+
+                    if let Err(e) = naming_policy.validate_adapter_name(&validation_request) {
+                        // Record policy violation
+                        let violation_id = state
+                            .db
+                            .record_policy_violation(
+                                &pack.id,
+                                Some(&assignment.id),
+                                "naming",
+                                "high",
+                                "adapter",
+                                Some(&req.adapter_id),
+                                &claims.tenant_id,
+                                &format!("Naming policy violation: {}", e),
+                                None,
+                            )
+                            .await
+                            .map_err(|e| {
+                                tracing::error!(error = %e, "Failed to record policy violation");
+                                (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(
+                                        ErrorResponse::new("Failed to record policy violation")
+                                            .with_code("INTERNAL_ERROR")
+                                            .with_string_details(e.to_string()),
+                                    ),
+                                )
+                            })?;
+
+                        tracing::warn!(
+                            adapter_name = %req.name,
+                            tenant_id = %claims.tenant_id,
+                            violation_id = %violation_id,
+                            "Naming policy violation detected"
+                        );
+
+                        // Reject registration if naming policy is enforced
+                        return Err((
+                            StatusCode::FORBIDDEN,
+                            Json(
+                                ErrorResponse::new(&format!("Naming policy violation: {}", e))
+                                    .with_code("POLICY_VIOLATION")
+                                    .with_string_details(format!("Violation ID: {}", violation_id)),
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     // Build registration params using the builder pattern
     let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
         .adapter_id(&req.adapter_id)
@@ -4639,6 +5383,7 @@ pub async fn register_adapter(
             runtime_state: Some("unloaded".to_string()),
             pinned: Some(false),
             memory_bytes: Some(0),
+            deduplicated: None,
         }),
     ))
 }
@@ -4663,6 +5408,31 @@ pub async fn delete_adapter(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (destructive operation)
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterDelete)?;
+
+    // Get adapter to validate tenant isolation
+    let adapter = state
+        .db
+        .get_adapter(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     state.db.delete_adapter(&adapter_id).await.map_err(|e| {
         (
@@ -4731,6 +5501,9 @@ pub async fn load_adapter(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Use lifecycle manager if available to update state to 'loading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
@@ -4909,6 +5682,7 @@ pub async fn load_adapter(
         runtime_state: Some(adapter.current_state),
         pinned: None,
         memory_bytes: None,
+        deduplicated: None,
     }))
 }
 
@@ -4940,7 +5714,7 @@ pub async fn unload_adapter(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterUnload)?;
 
     // Get adapter from database
-    let _adapter = state
+    let adapter = state
         .db
         .get_adapter(&adapter_id)
         .await
@@ -4960,6 +5734,9 @@ pub async fn unload_adapter(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Use lifecycle manager if available to update state to 'unloading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
@@ -5556,7 +6333,7 @@ pub async fn get_adapter_metrics(
     // Role check: All roles can view metrics
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
-    let adapters = state.db.list_adapters().await.map_err(|e| {
+    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -5879,7 +6656,7 @@ pub async fn get_commit_diff(
 )]
 pub async fn debug_routing(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
 ) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
     use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
@@ -5892,7 +6669,7 @@ pub async fn debug_routing(
     let code_features = CodeFeatures::from_context(&combined_context);
 
     // Fetch all adapters from database
-    let adapters = state.db.list_adapters().await.map_err(|e| {
+    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
         tracing::error!("Failed to list adapters: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -6109,23 +6886,6 @@ pub async fn get_routing_history(
 }
 
 // ===== Agent D Contract Endpoints =====
-
-/// Get system metadata
-#[utoipa::path(
-    tag = "system",
-    get,
-    path = "/v1/meta",
-    responses(
-        (status = 200, description = "System metadata", body = MetaResponse)
-    )
-)]
-pub async fn meta() -> Json<MetaResponse> {
-    Json(MetaResponse {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        build_hash: option_env!("BUILD_HASH").unwrap_or("dev").to_string(),
-        build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
-    })
-}
 
 /// Get routing decisions (placeholder for Agent D)
 #[utoipa::path(
@@ -6506,7 +7266,7 @@ pub async fn telemetry_events_stream(
     Extension(_claims): Extension<Claims>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Subscribe to the telemetry broadcast channel for real-time events
-    let mut receiver = state.telemetry_tx.subscribe();
+    let receiver = state.telemetry_tx.subscribe();
 
     let stream = stream::unfold((receiver, state), |(mut rx, state)| async move {
         // Use select to handle both real-time events and keepalive timeout
@@ -6572,13 +7332,14 @@ pub async fn telemetry_events_stream(
 /// Streams adapter lifecycle events
 pub async fn adapter_state_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
+    let tenant_id = claims.tenant_id.clone();
+    let stream = stream::unfold((state, tenant_id), |(state, tenant_id)| async move {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Fetch all adapters
-        let adapters = match state.db.list_adapters().await {
+        let adapters = match state.db.list_adapters_for_tenant(&tenant_id).await {
             Ok(a) => a,
             Err(e) => {
                 tracing::warn!("Failed to fetch adapters for SSE: {}", e);
@@ -6586,7 +7347,7 @@ pub async fn adapter_state_stream(
                     Ok(Event::default()
                         .event("error")
                         .data(format!("{{\"error\": \"{}\"}}", e))),
-                    state,
+                    (state, tenant_id),
                 ));
             }
         };
@@ -6599,12 +7360,12 @@ pub async fn adapter_state_stream(
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"serialization failed\"}".to_string())),
-                    state,
+                    (state, tenant_id),
                 ));
             }
         };
 
-        Some((Ok(Event::default().event("adapters").data(json)), state))
+        Some((Ok(Event::default().event("adapters").data(json)), (state, tenant_id)))
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
@@ -7304,6 +8065,11 @@ pub async fn create_training_session(
 
     let config = req.config.into();
 
+    // Serialize post_actions to JSON if provided
+    let post_actions_json = req.post_actions.as_ref().and_then(|pa| {
+        serde_json::to_string(pa).ok()
+    });
+
     let job = state
         .training_service
         .start_training(
@@ -7311,8 +8077,20 @@ pub async fn create_training_session(
             config,
             req.template_id,
             req.repo_id,
-            None,                           // dataset_id
-            Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
+            req.dataset_id,                 // dataset_id
+            Some(claims.tenant_id.clone()), // tenant_id
+            Some(claims.sub.clone()),       // initiated_by
+            Some(claims.role.clone()),      // initiated_by_role
+            req.base_model_id,              // base_model_id
+            req.collection_id,              // collection_id
+            // Category metadata
+            req.category,
+            req.description,
+            req.language,
+            req.framework_id,
+            req.framework_version,
+            // Post-training actions
+            post_actions_json,
         )
         .await
         .map_err(|e| {
@@ -7588,7 +8366,7 @@ pub async fn get_training_artifacts(
 
     // Build artifacts list based on job output
     let mut artifacts = Vec::new();
-    let mut total_size_bytes = 0u64;
+    let total_size_bytes = 0u64;
 
     if ready {
         // Add weights artifact if job has adapter_id (populated on completion)
@@ -9030,8 +9808,56 @@ pub async fn get_compliance_audit(
 
     let active_violations: i64 = violations.try_get("count").unwrap_or(0);
 
+    // PRD-DATA-01: Check T1 adapter evidence compliance (cp-evidence-004)
+    let t1_adapters_without_dataset = sqlx::query(
+        r#"
+        SELECT COUNT(*) as count
+        FROM adapters
+        WHERE tier = 'persistent'
+          AND (primary_dataset_id IS NULL OR primary_dataset_id = '')
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to count T1 adapters without dataset")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    let t1_without_dataset: i64 = t1_adapters_without_dataset.try_get("count").unwrap_or(0);
+
+    let t1_adapters_without_evidence = sqlx::query(
+        r#"
+        SELECT COUNT(DISTINCT a.id) as count
+        FROM adapters a
+        WHERE a.tier = 'persistent'
+          AND NOT EXISTS (
+              SELECT 1 FROM evidence_entries e
+              WHERE e.adapter_id = a.id
+          )
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("failed to count T1 adapters without evidence")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    let t1_without_evidence: i64 = t1_adapters_without_evidence.try_get("count").unwrap_or(0);
+
     // Generate compliance controls status
-    let controls = vec![
+    let mut controls = vec![
         ComplianceControl {
             control_id: "EGRESS-001".to_string(),
             control_name: "Network Egress Control".to_string(),
@@ -9072,6 +9898,38 @@ pub async fn get_compliance_audit(
             findings: vec![],
         },
     ];
+
+    // PRD-DATA-01: Add evidence control (cp-evidence-004)
+    let evidence_status = if t1_without_dataset == 0 && t1_without_evidence == 0 {
+        "compliant"
+    } else {
+        "non_compliant"
+    };
+    let mut evidence_findings = vec![];
+    if t1_without_dataset > 0 {
+        evidence_findings.push(format!(
+            "{} T1 adapters missing primary dataset",
+            t1_without_dataset
+        ));
+    }
+    if t1_without_evidence > 0 {
+        evidence_findings.push(format!(
+            "{} T1 adapters missing evidence entries",
+            t1_without_evidence
+        ));
+    }
+
+    controls.push(ComplianceControl {
+        control_id: "EVIDENCE-004".to_string(),
+        control_name: "Training Provenance & Evidence (cp-evidence-004)".to_string(),
+        status: evidence_status.to_string(),
+        last_checked: chrono::Utc::now().to_rfc3339(),
+        evidence: vec![
+            "Dataset-adapter linkage enabled".to_string(),
+            "Evidence entries tracked".to_string(),
+        ],
+        findings: evidence_findings,
+    });
 
     let compliant_count = controls.iter().filter(|c| c.status == "compliant").count();
     let compliance_rate = if !controls.is_empty() {
@@ -9136,7 +9994,8 @@ pub async fn query_audit_logs(
     );
     let logs = state
         .db
-        .query_audit_logs(
+        .query_audit_logs_for_tenant(
+            &claims.tenant_id,
             query.user_id.as_deref(),
             query.action.as_deref(),
             query.resource_type.as_deref(),
@@ -9229,18 +10088,8 @@ pub struct ComplianceControl {
 
 use adapteros_core::{AdapterName, StackName};
 use adapteros_policy::{
-    AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, StackNameValidation,
+    AdapterNameValidation, NamingConfig, NamingPolicy, StackNameValidation,
 };
-
-/// Convert tier string to integer: persistent=0, warm=1, ephemeral=2
-fn tier_str_to_int(tier: &str) -> i32 {
-    match tier {
-        "persistent" => 0,
-        "warm" => 1,
-        "ephemeral" => 2,
-        _ => 1, // default to warm
-    }
-}
 
 /// Request to validate an adapter name
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -9334,7 +10183,7 @@ pub struct ParsedStackName {
 pub async fn validate_adapter_name(
     State(state): State<AppState>,
     Json(req): Json<ValidateAdapterNameRequest>,
-) -> Result<Json<ValidateAdapterNameResponse>, (StatusCode, String)> {
+) -> Result<Json<ValidateAdapterNameResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Create naming policy with default config
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -9399,7 +10248,7 @@ pub async fn validate_adapter_name(
 pub async fn validate_stack_name(
     State(state): State<AppState>,
     Json(req): Json<ValidateStackNameRequest>,
-) -> Result<Json<ValidateStackNameResponse>, (StatusCode, String)> {
+) -> Result<Json<ValidateStackNameResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Create naming policy with default config
     let policy = NamingPolicy::new(NamingConfig::default());
 
@@ -9463,19 +10312,18 @@ pub async fn validate_stack_name(
 pub async fn get_next_revision(
     State(state): State<AppState>,
     Path((tenant, domain, purpose)): Path<(String, String, String)>,
-) -> Result<Json<NextRevisionResponse>, (StatusCode, String)> {
+) -> Result<Json<NextRevisionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::error_helpers::internal_error;
+
     // Get registry from database
     let registry = state.registry.as_ref().ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Registry not available".to_string(),
-        )
+        internal_error("Registry not available")
     })?;
 
     // Get next revision number
     let next_rev = registry
         .next_revision_number(&tenant, &domain, &purpose)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(internal_error)?;
 
     // Format the suggested name
     let suggested_name = format!("{}/{}/{}/r{:03}", tenant, domain, purpose, next_rev);

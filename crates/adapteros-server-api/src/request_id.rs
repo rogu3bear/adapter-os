@@ -7,16 +7,14 @@
 //! - UUID generation: RFC 4122
 
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, Span};
 use uuid::Uuid;
 
 /// Request ID header name
 pub const REQUEST_ID_HEADER: &str = "X-Request-ID";
 
-/// Thread-local storage for current request ID
 thread_local! {
+    /// Thread-local storage for current request ID
     static CURRENT_REQUEST_ID: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
 }
 

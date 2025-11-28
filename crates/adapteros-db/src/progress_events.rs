@@ -96,7 +96,7 @@ impl Db {
         .bind(metadata)
         .bind(&now)
         .bind(&now)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to create progress event: {}", e))
@@ -185,7 +185,7 @@ impl Db {
             q = q.bind(offset);
         }
 
-        let records = q.fetch_all(self.pool()).await.map_err(|e| {
+        let records = q.fetch_all(&*self.pool()).await.map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to query progress events: {}", e))
         })?;
 
@@ -209,7 +209,7 @@ impl Db {
 
             sqlx::query_as(query_sql)
                 .bind(tid)
-                .fetch_one(self.pool())
+                .fetch_one(&*self.pool())
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!("Failed to get progress stats: {}", e))
@@ -224,7 +224,7 @@ impl Db {
                 FROM progress_events";
 
             sqlx::query_as(query_sql)
-                .fetch_one(self.pool())
+                .fetch_one(&*self.pool())
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!("Failed to get progress stats: {}", e))
@@ -240,7 +240,7 @@ impl Db {
                  WHERE tenant_id = ? AND status = 'completed'"
             )
             .bind(tid)
-            .fetch_one(self.pool())
+            .fetch_one(&*self.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to get avg completion time: {}", e))
@@ -252,7 +252,7 @@ impl Db {
                  FROM progress_events
                  WHERE status = 'completed'"
             )
-            .fetch_one(self.pool())
+            .fetch_one(&*self.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!("Failed to get avg completion time: {}", e))
@@ -277,7 +277,7 @@ impl Db {
         let count: (i64,) = if let Some(tid) = tenant_id {
             sqlx::query_as("SELECT COUNT(*) FROM progress_events WHERE status = 'running' AND tenant_id = ?")
                 .bind(tid)
-                .fetch_one(self.pool())
+                .fetch_one(&*self.pool())
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!(
@@ -287,7 +287,7 @@ impl Db {
                 })?
         } else {
             sqlx::query_as("SELECT COUNT(*) FROM progress_events WHERE status = 'running'")
-                .fetch_one(self.pool())
+                .fetch_one(&*self.pool())
                 .await
                 .map_err(|e| {
                     adapteros_core::AosError::Database(format!(
@@ -320,7 +320,7 @@ impl Db {
         .bind(message)
         .bind(&now)
         .bind(operation_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to update progress event: {}", e))
@@ -335,7 +335,7 @@ impl Db {
 
         let result = sqlx::query("DELETE FROM progress_events WHERE updated_at < ?")
             .bind(&cutoff_str)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| {
                 adapteros_core::AosError::Database(format!(

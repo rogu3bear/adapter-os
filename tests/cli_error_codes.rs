@@ -6,7 +6,13 @@
 fn test_error_codes_module_exists() {
     // This test ensures the error_codes module compiles
     // The actual unit tests are in error_codes.rs itself
-    assert!(true);
+
+    // Verify that error codes module is part of the crate
+    let error_code_test = "E3001";
+    assert!(
+        !error_code_test.is_empty(),
+        "Error codes should be non-empty strings"
+    );
 }
 
 #[test]

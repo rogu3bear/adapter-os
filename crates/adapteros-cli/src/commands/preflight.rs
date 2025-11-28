@@ -145,8 +145,14 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
     display_results(&results, output)?;
 
     // Count initial failures and warnings
-    let initial_failures = results.iter().filter(|r| r.status == CheckStatus::Fail).count();
-    let initial_warnings = results.iter().filter(|r| r.status == CheckStatus::Warning).count();
+    let initial_failures = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Fail)
+        .count();
+    let initial_warnings = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Warning)
+        .count();
 
     // If --fix flag is enabled, attempt to fix issues
     if cmd.fix && (initial_failures > 0 || initial_warnings > 0) {
@@ -189,8 +195,14 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
     }
 
     // Count final failures and warnings
-    let failures = results.iter().filter(|r| r.status == CheckStatus::Fail).count();
-    let warnings = results.iter().filter(|r| r.status == CheckStatus::Warning).count();
+    let failures = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Fail)
+        .count();
+    let warnings = results
+        .iter()
+        .filter(|r| r.status == CheckStatus::Warning)
+        .count();
 
     // Display summary
     output.info(&format!("\n📊 Summary: {} checks run", results.len()));
@@ -246,9 +258,9 @@ async fn attempt_fixes(
                 let model_path = cmd
                     .model_path
                     .as_ref()
-                    .or_else(|| std::env::var("AOS_MODEL_PATH").ok().as_ref())
-                    .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().as_ref())
                     .map(PathBuf::from)
+                    .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
+                    .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
                     .unwrap_or_else(|| PathBuf::from("./models/qwen2.5-7b-mlx"));
 
                 Some(download_model(model_path))
@@ -259,9 +271,9 @@ async fn attempt_fixes(
                 let db_url = cmd
                     .database_url
                     .as_ref()
-                    .or_else(|| std::env::var("AOS_DATABASE_URL").ok().as_ref())
-                    .or_else(|| std::env::var("DATABASE_URL").ok().as_ref())
                     .map(|s| s.to_string())
+                    .or_else(|| std::env::var("AOS_DATABASE_URL").ok())
+                    .or_else(|| std::env::var("DATABASE_URL").ok())
                     .unwrap_or_else(|| "sqlite:var/aos-cp.sqlite3".to_string());
 
                 Some(run_database_migrations(db_url))
@@ -297,10 +309,12 @@ async fn attempt_fixes(
 /// Check model availability and configuration
 async fn check_model(cmd: &PreflightCommand) -> CheckResult {
     // Determine model path
-    let model_path = cmd.model_path.as_ref()
-        .or_else(|| std::env::var("AOS_MODEL_PATH").ok().as_ref())
-        .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().as_ref())
+    let model_path = cmd
+        .model_path
+        .as_ref()
         .map(PathBuf::from)
+        .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
+        .or_else(|| std::env::var("AOS_MLX_FFI_MODEL").ok().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("./models/qwen2.5-7b-mlx"));
 
     // Check if model directory exists
@@ -336,12 +350,10 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
         .read_dir()
         .ok()
         .and_then(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .find(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    name.ends_with(".safetensors") || name.ends_with(".bin")
-                })
+            entries.filter_map(|e| e.ok()).find(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.ends_with(".safetensors") || name.ends_with(".bin")
+            })
         })
         .is_some();
 
@@ -359,10 +371,12 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
 /// Check database initialization and migrations
 async fn check_database(cmd: &PreflightCommand) -> CheckResult {
     // Determine database path
-    let db_url = cmd.database_url.as_ref()
-        .or_else(|| std::env::var("AOS_DATABASE_URL").ok().as_ref())
-        .or_else(|| std::env::var("DATABASE_URL").ok().as_ref())
+    let db_url = cmd
+        .database_url
+        .as_ref()
         .map(|s| s.to_string())
+        .or_else(|| std::env::var("AOS_DATABASE_URL").ok())
+        .or_else(|| std::env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "sqlite:var/aos-cp.sqlite3".to_string());
 
     // Extract file path from sqlite: URL
@@ -386,7 +400,7 @@ async fn check_database(cmd: &PreflightCommand) -> CheckResult {
         Ok(pool) => {
             // Check if migrations table exists
             let migrations_exist: Result<i64, sqlx::Error> = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'"
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
             )
             .fetch_one(&pool)
             .await;
@@ -447,8 +461,8 @@ async fn check_environment_variables() -> Vec<CheckResult> {
     let mut results = Vec::new();
 
     // Check AOS_DATABASE_URL or DATABASE_URL
-    let has_db_url = std::env::var("AOS_DATABASE_URL").is_ok()
-        || std::env::var("DATABASE_URL").is_ok();
+    let has_db_url =
+        std::env::var("AOS_DATABASE_URL").is_ok() || std::env::var("DATABASE_URL").is_ok();
 
     if has_db_url {
         results.push(CheckResult::pass(
@@ -464,8 +478,8 @@ async fn check_environment_variables() -> Vec<CheckResult> {
     }
 
     // Check model path
-    let has_model_path = std::env::var("AOS_MODEL_PATH").is_ok()
-        || std::env::var("AOS_MLX_FFI_MODEL").is_ok();
+    let has_model_path =
+        std::env::var("AOS_MODEL_PATH").is_ok() || std::env::var("AOS_MLX_FFI_MODEL").is_ok();
 
     if has_model_path {
         results.push(CheckResult::pass(
@@ -578,19 +592,16 @@ async fn check_resources() -> Vec<CheckResult> {
     // Check available disk space
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = Command::new("df")
-            .args(&["-h", "."])
-            .output()
-        {
+        if let Ok(output) = Command::new("df").args(&["-h", "."]).output() {
             if let Ok(stdout) = String::from_utf8(output.stdout) {
                 // Parse df output to get available space
                 let lines: Vec<&str> = stdout.lines().collect();
                 if lines.len() > 1 {
                     let details = lines[1].to_string();
-                    results.push(CheckResult::pass(
-                        "Disk Space",
-                        "Sufficient disk space available",
-                    ).with_details(details));
+                    results.push(
+                        CheckResult::pass("Disk Space", "Sufficient disk space available")
+                            .with_details(details),
+                    );
                 }
             }
         }
@@ -599,10 +610,7 @@ async fn check_resources() -> Vec<CheckResult> {
     // Check available memory
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = Command::new("sysctl")
-            .args(&["hw.memsize"])
-            .output()
-        {
+        if let Ok(output) = Command::new("sysctl").args(&["hw.memsize"]).output() {
             if let Ok(stdout) = String::from_utf8(output.stdout) {
                 if let Some(mem_str) = stdout.split(':').nth(1) {
                     if let Ok(mem_bytes) = mem_str.trim().parse::<u64>() {
@@ -657,7 +665,10 @@ fn display_results(results: &[CheckResult], _output: &OutputWriter) -> Result<()
 fn display_fix_suggestions(results: &[CheckResult], output: &OutputWriter) -> Result<()> {
     let failures_with_fixes: Vec<_> = results
         .iter()
-        .filter(|r| (r.status == CheckStatus::Fail || r.status == CheckStatus::Warning) && r.fix_command.is_some())
+        .filter(|r| {
+            (r.status == CheckStatus::Fail || r.status == CheckStatus::Warning)
+                && r.fix_command.is_some()
+        })
         .collect();
 
     if failures_with_fixes.is_empty() {

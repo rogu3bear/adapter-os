@@ -52,7 +52,7 @@ console.log(`Backend started with PID ${backend.pid}, logs in ${backendLog}`);
 // Wait for backend to be ready
 let backendReady = false;
 const checkBackend = setInterval(() => {
-  exec('curl -f http://localhost:3300/healthz >/dev/null 2>&1', (err) => {
+  exec('curl -f http://localhost:8080/api/healthz >/dev/null 2>&1', (err) => {
     if (!err) {
       backendReady = true;
       clearInterval(checkBackend);

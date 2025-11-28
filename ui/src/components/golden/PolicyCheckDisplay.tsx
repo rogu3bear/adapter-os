@@ -206,7 +206,7 @@ export function PolicyCheckDisplay({
           <AlertTitle>Promotion Blocked</AlertTitle>
           <AlertDescription>
             This plan cannot be promoted due to {stats.failed} critical policy failure{stats.failed !== 1 ? 's' : ''}.
-            {allowAdmin && userRole === 'admin' && ' Admins can override non-critical policies below.'}
+            {allowAdmin && userRole?.toLowerCase() === 'admin' && ' Admins can override non-critical policies below.'}
           </AlertDescription>
         </Alert>
       )}
@@ -355,7 +355,7 @@ export function PolicyCheckDisplay({
                       <PolicyDetails policy={policy} />
 
                       {/* Override section for admins */}
-                      {allowAdmin && userRole === 'admin' && policy.canOverride && (
+                      {allowAdmin && userRole?.toLowerCase() === 'admin' && policy.canOverride && (
                         <div className="pt-3 border-t">
                           <PolicyOverride
                             policyId={policy.id}

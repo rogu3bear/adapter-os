@@ -45,7 +45,7 @@ export function PolicyTable({
   const columns: ColumnDef<Policy>[] = [
     {
       id: 'cpid',
-      header: 'CPID',
+      header: 'Policy ID',
       accessorKey: 'cpid',
       cell: (context) => {
         const cpid = context.row.cpid || context.row.id;

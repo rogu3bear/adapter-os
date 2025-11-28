@@ -368,7 +368,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
   const handleCreateTenant = async () => {
     if (!newTenantName.trim()) {
-      setCreateTenantError('Tenant name is required');
+      setCreateTenantError('Organization name is required');
       return;
     }
 
@@ -526,7 +526,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       icon: Shield,
       color: 'text-amber-600',
       helpId: 'quick-action-policies',
-      onClick: () => (onNavigate ? onNavigate('policies') : navigate('/policies'))
+      onClick: () => (onNavigate ? onNavigate('policies') : navigate('/security/policies'))
     }
   ], [can, openModal, onNavigate, navigate]);
 
@@ -623,7 +623,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Tenant: {effectiveTenant}</Badge>
+                <Badge variant="outline">Organization: {effectiveTenant}</Badge>
                 <Badge variant="secondary">{defaultStackLabel}</Badge>
               </div>
             </div>
@@ -731,6 +731,33 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </CardContent>
               </Card>
 
+              {/* Training Wizard Quick Start */}
+              <Card className="border-primary/40">
+                <CardHeader>
+                  <CardTitle>Training Wizard</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Guided: upload or pick a dataset, auto-validate, then start training.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Best for the common path. For complex datasets, jump to advanced tools.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild>
+                      <Link to="/training" state={{ openTrainingWizard: true }}>
+                        Start Training Wizard
+                      </Link>
+                    </Button>
+                    <Button variant="outline" asChild>
+                      <Link to="/training/datasets" state={{ openUpload: true }}>
+                        Advanced dataset tools
+                      </Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Adapters & stacks */}
               <Card>
                 <CardHeader>
@@ -834,28 +861,6 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </CardContent>
               </Card>
             </ContentGrid>
-          </div>
-
-          {/* Header */}
-          <div className="flex-between section-header">
-            <div>
-              <h1 className="section-title">System Dashboard — Monitor health, adapters, and performance</h1>
-              <p className="section-description">
-                Welcome back, {effectiveUser.display_name}. System status: Operational
-              </p>
-            </div>
-            <div className="flex-standard">
-              <div className="status-indicator status-success">
-                <CheckCircle className="icon-small" />
-                All Systems Operational
-              </div>
-              <HelpTooltip helpId="export-logs">
-                <Button variant="outline" size="sm" onClick={handleExportLogs}>
-                  <Download className="icon-standard mr-2" />
-                  Export Logs
-                </Button>
-              </HelpTooltip>
-            </div>
           </div>
 
           {/* System Overview Cards */}
@@ -1146,11 +1151,11 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               <div className="space-y-4">
                 <div className="space-y-2">
                   <HelpTooltip helpId="tenant-name-field">
-                    <Label htmlFor="tenant-name" className="cursor-help">Tenant Name</Label>
+                    <Label htmlFor="tenant-name" className="cursor-help">Organization Name</Label>
                   </HelpTooltip>
                   <Input
                     id="tenant-name"
-                    placeholder="Enter tenant name"
+                    placeholder="Enter organization name"
                     value={newTenantName}
                     onChange={(e) => setNewTenantName(e.target.value)}
                   />

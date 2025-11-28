@@ -335,6 +335,42 @@ export const CANONICAL_POLICIES = [
 ];
 
 /**
+ * Policy preflight check request for adapter operations
+ * Used before loading/unloading adapters to validate policy compliance
+ */
+export interface PolicyPreflightRequest {
+  adapterId: string;
+  operation: 'load' | 'unload' | 'activate' | 'deactivate';
+  includeDetails?: boolean;
+}
+
+/**
+ * Policy preflight check response
+ * Maps to PolicyPreflightDialog component's PolicyCheck interface
+ */
+export interface PolicyPreflightResponse {
+  adapterId: string;
+  operation: string;
+  canProceed: boolean;
+  checks: PolicyPreflightCheck[];
+  checkedAt: string;
+}
+
+/**
+ * Individual preflight check result
+ * Compatible with PolicyPreflightDialog component
+ */
+export interface PolicyPreflightCheck {
+  policy_id: string;
+  policy_name: string;
+  passed: boolean;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  can_override?: boolean;
+  details?: string;
+}
+
+/**
  * Get policy metadata by ID
  */
 export function getPolicyMetadata(policyId: string) {
@@ -396,4 +432,274 @@ function getDefaultRemediation(policyId: string): string {
   };
 
   return remediations[policyId] || 'Review policy documentation for remediation steps';
+}
+
+// ============================================================================
+// Stack Policy Types (PRD-GOV-01)
+// Types for /v1/adapter-stacks/{id}/policies endpoint
+// ============================================================================
+
+/**
+ * Compliance status for a stack
+ */
+export type ComplianceStatus = 'compliant' | 'warning' | 'non_compliant';
+
+/**
+ * Policy assignment status
+ */
+export type PolicyAssignmentStatus = 'active' | 'pending' | 'expired' | 'revoked';
+
+/**
+ * Response from GET /v1/adapter-stacks/{id}/policies
+ */
+export interface StackPoliciesResponse {
+  stack_id: string;
+  stack_name: string;
+  assignments: PolicyAssignmentDetail[];
+  compliance: StackComplianceSummary;
+  recent_violations: PolicyViolationSummary[];
+  timestamp: string;
+}
+
+/**
+ * Details of a policy assignment to a stack
+ */
+export interface PolicyAssignmentDetail {
+  id: string;
+  policy_pack_id: string;
+  policy_type: string;
+  policy_name: string;
+  version: string;
+  status: PolicyAssignmentStatus;
+  enforced: boolean;
+  priority: number;
+  assigned_at: string;
+  assigned_by: string;
+  expires_at?: string;
+}
+
+/**
+ * Compliance summary for a stack
+ */
+export interface StackComplianceSummary {
+  overall_score: number;
+  status: ComplianceStatus;
+  by_category: Record<PolicyCategory, CategoryComplianceScore>;
+  last_calculated: string;
+}
+
+/**
+ * Compliance score breakdown by category
+ */
+export interface CategoryComplianceScore {
+  score: number;
+  passed: number;
+  failed: number;
+}
+
+/**
+ * Summary of a policy violation
+ */
+export interface PolicyViolationSummary {
+  id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  severity: PolicySeverity;
+  message: string;
+  resource_type: string;
+  resource_id: string;
+  detected_at: string;
+  resolved_at?: string;
+  resolution_notes?: string;
+}
+
+/**
+ * Error response when an operation fails due to policy violations
+ * HTTP 422 Unprocessable Entity
+ */
+export interface PolicyViolationErrorResponse {
+  error: string;
+  code: string;
+  details: PolicyViolationErrorDetails;
+}
+
+/**
+ * Details of policy violations that caused an operation to fail
+ */
+export interface PolicyViolationErrorDetails {
+  stack_id: string;
+  operation: string;
+  violations: PolicyViolationItem[];
+  remediation_steps: string[];
+}
+
+/**
+ * Individual violation in an error response
+ */
+export interface PolicyViolationItem {
+  policy_id: string;
+  policy_name: string;
+  severity: PolicySeverity;
+  message: string;
+  remediation?: string;
+}
+
+// ============================================================================
+// Stack Policy SSE Stream Types
+// Types for /v1/stream/stack-policies/{id} endpoint
+// ============================================================================
+
+/**
+ * Event types emitted by the stack policy stream
+ */
+export type StackPolicyEventType =
+  | 'compliance_changed'
+  | 'violation_detected'
+  | 'violation_resolved'
+  | 'policy_assigned'
+  | 'policy_revoked';
+
+/**
+ * Base event structure for stack policy SSE stream
+ */
+export interface StackPolicyStreamEvent {
+  event_type: StackPolicyEventType;
+  stack_id: string;
+  timestamp: string;
+  data: StackPolicyEventData;
+}
+
+/**
+ * Union type for event data payloads
+ */
+export type StackPolicyEventData =
+  | ComplianceChangedData
+  | ViolationDetectedData
+  | ViolationResolvedData
+  | PolicyAssignedData
+  | PolicyRevokedData;
+
+/**
+ * Data payload for compliance_changed events
+ */
+export interface ComplianceChangedData {
+  previous_score: number;
+  current_score: number;
+  previous_status: ComplianceStatus;
+  current_status: ComplianceStatus;
+  changed_categories: PolicyCategory[];
+}
+
+/**
+ * Data payload for violation_detected events
+ */
+export interface ViolationDetectedData {
+  violation_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  severity: PolicySeverity;
+  message: string;
+  resource_type: string;
+  resource_id: string;
+}
+
+/**
+ * Data payload for violation_resolved events
+ */
+export interface ViolationResolvedData {
+  violation_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  resolved_by: string;
+  resolution_notes?: string;
+}
+
+/**
+ * Data payload for policy_assigned events
+ */
+export interface PolicyAssignedData {
+  assignment_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  assigned_by: string;
+  priority: number;
+  enforced: boolean;
+}
+
+/**
+ * Data payload for policy_revoked events
+ */
+export interface PolicyRevokedData {
+  assignment_id: string;
+  policy_pack_id: string;
+  policy_name: string;
+  revoked_by: string;
+  reason?: string;
+}
+
+// ============================================================================
+// Helper Functions for Stack Policies
+// ============================================================================
+
+/**
+ * Get compliance status color for UI display
+ */
+export function getComplianceStatusColor(status: ComplianceStatus): string {
+  switch (status) {
+    case 'compliant':
+      return 'green';
+    case 'warning':
+      return 'yellow';
+    case 'non_compliant':
+      return 'red';
+    default:
+      return 'gray';
+  }
+}
+
+/**
+ * Get compliance status label for display
+ */
+export function getComplianceStatusLabel(status: ComplianceStatus): string {
+  switch (status) {
+    case 'compliant':
+      return 'Compliant';
+    case 'warning':
+      return 'Warning';
+    case 'non_compliant':
+      return 'Non-Compliant';
+    default:
+      return 'Unknown';
+  }
+}
+
+/**
+ * Format compliance score for display (0-100 with %)
+ */
+export function formatComplianceScore(score: number): string {
+  return `${Math.round(score)}%`;
+}
+
+/**
+ * Check if compliance score is acceptable for promotion
+ */
+export function isComplianceAcceptable(score: number, threshold = 70): boolean {
+  return score >= threshold;
+}
+
+/**
+ * Sort violations by severity (critical first)
+ */
+export function sortViolationsBySeverity(
+  violations: PolicyViolationSummary[]
+): PolicyViolationSummary[] {
+  const severityOrder: Record<PolicySeverity, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+  return [...violations].sort(
+    (a, b) => severityOrder[a.severity] - severityOrder[b.severity]
+  );
 }

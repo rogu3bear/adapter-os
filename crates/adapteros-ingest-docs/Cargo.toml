@@ -21,6 +21,7 @@ multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-db = { path = "../adapteros-db" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 tokenizers = { workspace = true }
@@ -28,6 +29,7 @@ pulldown-cmark = "0.9"
 lopdf = "0.32"
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }

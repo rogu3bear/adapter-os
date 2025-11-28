@@ -393,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Run with --ignored flag to test against actual migrations
+    #[ignore = "Verifies actual migrations directory - run with: cargo test --release -- --ignored test_verify_actual_migrations"]
     fn test_verify_actual_migrations() {
         // This test verifies the actual migrations in the project
         // Run with: cargo test test_verify_actual_migrations -- --ignored

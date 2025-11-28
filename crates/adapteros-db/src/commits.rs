@@ -188,7 +188,7 @@ impl Db {
         .bind(&params.impacted_symbols_json)
         .bind(&params.test_results_json)
         .bind(&params.ephemeral_adapter_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         Ok(id)
     }
@@ -202,7 +202,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(sha)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         Ok(commit)
     }
@@ -215,7 +215,7 @@ impl Db {
              FROM commits WHERE repo_id = ? ORDER BY date DESC",
         )
         .bind(repo_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         Ok(commits)
     }
@@ -238,7 +238,7 @@ impl Db {
                 .bind(repo_id)
                 .bind(branch)
                 .bind(limit as i64)
-                .fetch_all(self.pool())
+                .fetch_all(&*self.pool())
                 .await?
             }
             (Some(repo_id), None) => {
@@ -250,7 +250,7 @@ impl Db {
                 )
                 .bind(repo_id)
                 .bind(limit as i64)
-                .fetch_all(self.pool())
+                .fetch_all(&*self.pool())
                 .await?
             }
             (None, Some(branch)) => {
@@ -262,7 +262,7 @@ impl Db {
                 )
                 .bind(branch)
                 .bind(limit as i64)
-                .fetch_all(self.pool())
+                .fetch_all(&*self.pool())
                 .await?
             }
             (None, None) => {
@@ -273,7 +273,7 @@ impl Db {
                      ORDER BY date DESC LIMIT ?",
                 )
                 .bind(limit as i64)
-                .fetch_all(self.pool())
+                .fetch_all(&*self.pool())
                 .await?
             }
         };

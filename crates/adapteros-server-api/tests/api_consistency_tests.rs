@@ -462,7 +462,7 @@ mod type_validation {
     #[test]
     fn test_response_type_consistency() {
         println!("Response Envelope Patterns:");
-        println!("  Success: {\"data\": {...}}");
+        println!("  Success: {{\"data\": {{...}}}}");
         println!("  Error: {{\"error\": \"...\", \"code\": \"...\"}}");
         println!("  Async: {{\"id\": \"...\", \"status\": \"pending\"}}");
     }

@@ -26,6 +26,7 @@
 //! ```
 
 pub mod circuit_breaker;
+pub mod context_hash;
 pub mod error;
 pub mod hash;
 pub mod id;
@@ -35,6 +36,7 @@ pub mod json;
 pub mod lifecycle;
 pub mod naming;
 pub mod paths;
+pub mod plugin_events;
 pub mod plugins;
 pub mod policy;
 pub mod retry_policy;
@@ -52,13 +54,18 @@ pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,
 };
+pub use context_hash::{compute_context_hash, ChunkRef};
 pub use error::{AosError, Result, ResultExt};
 pub use hash::B3Hash;
 pub use id::CPID;
 pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
 pub use naming::{AdapterName, ForkType, StackName};
 pub use paths::{get_adapter_path, get_default_adapters_root, AdapterPaths};
-pub use plugins::{Plugin, PluginConfig, PluginHealth, PluginStatus};
+pub use plugin_events::{
+    AdapterEvent, AuditEvent, InferenceEvent, MetricsTickEvent, PluginEvent, PolicyViolationEvent,
+    TrainingJobEvent,
+};
+pub use plugins::{EventHookType, Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_seed, derive_seed_full, derive_seed_indexed,
@@ -77,10 +84,12 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        AdapterName, AdapterOSStatus, AosError, B3Hash, CircuitBreaker, CircuitBreakerConfig,
-        CircuitBreakerMetrics, CircuitState, DriftPolicy, ForkType, HealthCheckResult,
-        HealthStatus, LifecycleState, LifecycleTransition, Result, ResultExt, SemanticVersion,
-        ServiceStatus, SharedCircuitBreaker, StackName, StandardCircuitBreaker, TrainingConfig,
-        TrainingJob, TrainingJobStatus, TrainingTemplate, TransitionReason, VersionInfo, CPID,
+        AdapterEvent, AdapterName, AdapterOSStatus, AosError, AuditEvent, B3Hash, CircuitBreaker,
+        CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
+        ForkType, HealthCheckResult, HealthStatus, InferenceEvent, LifecycleState,
+        LifecycleTransition, MetricsTickEvent, Plugin, PluginConfig, PluginEvent, PluginHealth,
+        PluginStatus, PolicyViolationEvent, Result, ResultExt, SemanticVersion, ServiceStatus,
+        SharedCircuitBreaker, StackName, StandardCircuitBreaker, TrainingConfig, TrainingJob,
+        TrainingJobEvent, TrainingJobStatus, TrainingTemplate, TransitionReason, VersionInfo, CPID,
     };
 }

@@ -1,4 +1,4 @@
-use crate::config::SecurityConfig;
+use adapteros_server_api::config::SecurityConfig;
 use anyhow::{bail, Result};
 use tracing::{info, warn};
 

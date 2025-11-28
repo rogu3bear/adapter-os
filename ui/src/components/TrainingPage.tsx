@@ -420,7 +420,7 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
                                     </Link>
                                   )}
                                   {jobTyped.stack_id && (
-                                    <Link to={`/adapter-stacks/${jobTyped.stack_id}`}>
+                                    <Link to={`/admin/stacks`}>
                                       <Button size="sm" variant="outline" aria-label={`View stack ${jobTyped.stack_id}`}>
                                         View Stack
                                       </Button>
@@ -429,7 +429,7 @@ function TrainingPageContent({ selectedTenant }: { selectedTenant?: string } = {
                                   {!jobTyped.stack_id && jobTyped.adapter_id && (() => {
                                     const stack = stacks.find(s => s.adapter_ids?.includes(jobTyped.adapter_id!));
                                     return stack ? (
-                                      <Link to={`/adapter-stacks/${stack.id}`}>
+                                      <Link to={`/admin/stacks`}>
                                         <Button size="sm" variant="outline" aria-label={`View stack ${stack.id}`}>
                                           View Stack
                                         </Button>

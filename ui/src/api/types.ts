@@ -50,3 +50,4 @@ export * from './api-types';
 export * from './federation-types';
 export * from './plugin-types';
 export * from './streaming-types';
+export * from './owner-types';

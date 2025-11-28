@@ -5,29 +5,45 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ChatMessageComponent, type ChatMessage } from './chat/ChatMessage';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChatMessageComponent, type ChatMessage, type EvidenceItem } from './chat/ChatMessage';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-import { Send, Loader2, Layers, History, X, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Activity } from 'lucide-react';
+import { Send, Loader2, Layers, History, X, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Activity, Database } from 'lucide-react';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
-import { useChatSessions } from '@/hooks/useChatSessions';
+import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
+import { useCollections } from '@/hooks/useCollectionsApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDebouncedCallback } from '@/hooks/useDebouncedValue';
-import type { AdapterStack, RouterDecision, RouterCandidateInfo, ExtendedRouterDecision } from '@/api/types';
+import type { AdapterStack, RoutingDecision, RouterCandidateInfo, ExtendedRouterDecision } from '@/api/types';
 import type { ChatSession } from '@/types/chat';
 import { RouterActivitySidebar } from './chat/RouterActivitySidebar';
+import { AdapterLoadingStatus, type AdapterState, type AdapterLifecycleState } from './chat/AdapterLoadingStatus';
+import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
+import { AdapterLoadingProgress, type AdapterLoadingItem } from './chat/AdapterLoadingProgress';
+import { useSSE } from '@/hooks/useSSE';
+import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
   initialStackId?: string;
   sessionId?: string; // Optional: load existing session
+  /** Document context for document-specific chat */
+  documentContext?: {
+    documentId: string;
+    documentName: string;
+    collectionId?: string;
+  };
+  /** Callback when user wants to view a document (for evidence navigation) */
+  onViewDocument?: (documentId: string, pageNumber?: number, highlightText?: string) => void;
 }
 
-export function ChatInterface({ selectedTenant, initialStackId, sessionId }: ChatInterfaceProps) {
+export function ChatInterface({ selectedTenant, initialStackId, sessionId, documentContext, onViewDocument }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [selectedStackId, setSelectedStackId] = useState<string>(initialStackId || '');
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId || null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingRouterDecision, setIsLoadingRouterDecision] = useState(false);
@@ -36,12 +52,20 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
   const [isRouterActivityOpen, setIsRouterActivityOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [newSessionName, setNewSessionName] = useState('');
+  const [showContext, setShowContext] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Adapter loading state
+  const [adapterStates, setAdapterStates] = useState<Map<string, AdapterState>>(new Map());
+  const [showAdapterPrompt, setShowAdapterPrompt] = useState(false);
+  const [isLoadingAdapters, setIsLoadingAdapters] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   const tenantId = selectedTenant || 'default';
   const { data: stacks = [] } = useAdapterStacks();
   const { data: defaultStack } = useGetDefaultStack(tenantId);
+  const { data: collections = [] } = useCollections();
   const queryClient = useQueryClient();
   const {
     sessions,
@@ -52,15 +76,8 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
     updateMessage,
     deleteSession,
     getSession,
-  } = useChatSessions(tenantId);
-
-  // Debounced session save to avoid performance issues
-  const debouncedUpdateSession = useDebouncedCallback(
-    (sessionId: string, updates: Partial<ChatSession>) => {
-      updateSession(sessionId, updates);
-    },
-    500 // 500ms debounce
-  );
+    updateSessionCollection,
+  } = useChatSessionsApi(tenantId);
 
   // Set default stack on mount
   useEffect(() => {
@@ -77,6 +94,8 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
         setCurrentSessionId(sessionId);
         setMessages(session.messages);
         setSelectedStackId(session.stackId);
+        // Note: collection_id is on the backend session, not local session
+        // We'll fetch it when needed
       }
     } else if (!currentSessionId && selectedStackId && !isLoadingSessions) {
       // Create new session if none exists and stack is selected
@@ -85,12 +104,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
         const newSession = createSession(
           `Chat with ${stack.name || 'Stack'}`,
           selectedStackId,
-          stack.name
+          stack.name,
+          selectedCollectionId || undefined
         );
         setCurrentSessionId(newSession.id);
       }
     }
-  }, [sessionId, currentSessionId, selectedStackId, stacks, isLoadingSessions, getSession, createSession]);
+  }, [sessionId, currentSessionId, selectedStackId, stacks, isLoadingSessions, getSession, createSession, selectedCollectionId]);
 
   // Debounced session save to avoid performance issues
   // Use useRef to avoid dependency issues
@@ -128,6 +148,127 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
     }
   }, [messages]);
 
+  // Subscribe to adapter state transitions via SSE
+  useSSE<AdapterStreamEvent>('/v1/stream/adapters', {
+    enabled: !!selectedStackId,
+    onMessage: (event) => {
+      if (event && 'current_state' in event) {
+        const transition = event as AdapterStateTransitionEvent;
+        setAdapterStates((prev) => {
+          const updated = new Map(prev);
+          const existing = updated.get(transition.adapter_id);
+          if (existing) {
+            updated.set(transition.adapter_id, {
+              ...existing,
+              state: transition.current_state,
+              isLoading: false,
+            });
+          }
+          return updated;
+        });
+      }
+    },
+  });
+
+  // Memoize selected stack
+  const selectedStack = useMemo(
+    () => stacks.find(s => s.id === selectedStackId),
+    [stacks, selectedStackId]
+  );
+
+  // Build adapter states from stack when stack changes
+  useEffect(() => {
+    if (selectedStack?.adapters) {
+      const states = new Map<string, AdapterState>();
+      selectedStack.adapters.forEach((adapter) => {
+        states.set(adapter.id || adapter.adapter_id || '', {
+          id: adapter.id || adapter.adapter_id || '',
+          name: adapter.name || adapter.adapter_id || 'Unknown',
+          state: (adapter.lifecycle_state as AdapterLifecycleState) || 'unloaded',
+        });
+      });
+      setAdapterStates(states);
+    } else if (selectedStack?.adapter_ids) {
+      // Fallback: create basic states from IDs
+      const states = new Map<string, AdapterState>();
+      selectedStack.adapter_ids.forEach((id) => {
+        states.set(id, {
+          id,
+          name: id,
+          state: 'unloaded', // Unknown - will update via SSE
+        });
+      });
+      setAdapterStates(states);
+    }
+  }, [selectedStack]);
+
+  // Check if all adapters are ready for inference
+  const allAdaptersReady = useMemo(() => {
+    if (adapterStates.size === 0) return true; // No adapters = ok
+    const states = Array.from(adapterStates.values());
+    return states.every((a) =>
+      a.state === 'hot' || a.state === 'warm' || a.state === 'resident'
+    );
+  }, [adapterStates]);
+
+  // Handle loading all adapters
+  const handleLoadAllAdapters = useCallback(async () => {
+    setIsLoadingAdapters(true);
+    try {
+      const adapterIds = Array.from(adapterStates.keys());
+      // Load each adapter that isn't ready
+      for (const adapterId of adapterIds) {
+        const adapter = adapterStates.get(adapterId);
+        if (adapter && adapter.state !== 'hot' && adapter.state !== 'warm' && adapter.state !== 'resident') {
+          // Update state to loading
+          setAdapterStates((prev) => {
+            const updated = new Map(prev);
+            const existing = updated.get(adapterId);
+            if (existing) {
+              updated.set(adapterId, { ...existing, isLoading: true });
+            }
+            return updated;
+          });
+          // Trigger load via API
+          try {
+            await apiClient.loadAdapter(adapterId);
+          } catch (err) {
+            logger.error('Failed to load adapter', { adapterId }, toError(err));
+            setAdapterStates((prev) => {
+              const updated = new Map(prev);
+              const existing = updated.get(adapterId);
+              if (existing) {
+                updated.set(adapterId, { ...existing, isLoading: false, error: 'Failed to load' });
+              }
+              return updated;
+            });
+          }
+        }
+      }
+      // Close prompt and send pending message if any
+      setShowAdapterPrompt(false);
+      if (pendingMessage) {
+        setInput(pendingMessage);
+        setPendingMessage(null);
+        // Wait a moment for states to update, then send
+        setTimeout(() => {
+          // The handleSend will be triggered by the user or we can auto-send
+        }, 1000);
+      }
+    } finally {
+      setIsLoadingAdapters(false);
+    }
+  }, [adapterStates, pendingMessage]);
+
+  // Handle continuing without loading adapters
+  const handleContinueAnyway = useCallback(() => {
+    setShowAdapterPrompt(false);
+    if (pendingMessage) {
+      setInput(pendingMessage);
+      setPendingMessage(null);
+    }
+  }, [pendingMessage]);
+
   // Use React Query to cache stack fetches with retry
   const fetchStackWithRetry = useCallback(async (stackId: string): Promise<AdapterStack | null> => {
     // Use React Query for caching, with retry built-in
@@ -147,13 +288,30 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
       });
       return stack;
     } catch (err) {
-      logger.warn('Failed to fetch stack after retries', {
+      logger.error('Failed to fetch stack after retries', {
         component: 'ChatInterface',
         stackId,
       }, toError(err));
       return null;
     }
   }, [queryClient]);
+
+  // Fetch evidence data for a message
+  const fetchMessageEvidence = useCallback(async (messageId: string): Promise<EvidenceItem[]> => {
+    try {
+      const response = await fetch(`/api/v1/chat/messages/${messageId}/evidence`);
+      if (response.ok) {
+        return await response.json();
+      }
+      return [];
+    } catch (err) {
+      logger.error('Failed to fetch message evidence', {
+        component: 'ChatInterface',
+        messageId,
+      }, toError(err));
+      return [];
+    }
+  }, []);
 
   // Use React Query to cache router decisions
   const fetchRouterDecision = useCallback(async (requestId: string): Promise<ExtendedRouterDecision | null> => {
@@ -166,18 +324,18 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
         staleTime: 30000, // Cache for 30 seconds
         retry: 1, // Only retry once for router decisions
       });
-      
+
       // Convert SessionRouterViewResponse to RouterDecision format
       if (!routerView.steps || routerView.steps.length === 0) {
         return null;
       }
 
       const firstStep = routerView.steps[0];
-      
+
       // Map adapter_idx to actual adapter IDs using cached stack fetch
       let adapterIdMap = new Map<number, string>();
       let stackFetchFailed = false;
-      
+
       if (routerView.stack_id) {
         const stack = await fetchStackWithRetry(routerView.stack_id);
         if (stack && stack.adapter_ids && stack.adapter_ids.length > 0) {
@@ -200,7 +358,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
       // Map adapter indices to adapter IDs
       const selectedAdapters: string[] = [];
       const scores: Record<string, number> = {};
-      
+
       firstStep.adapters_fired.forEach(a => {
         if (a.selected) {
           const adapterId = adapterIdMap.get(a.adapter_idx) || `adapter-${a.adapter_idx}`;
@@ -221,7 +379,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
           selected: a.selected,
         };
       });
-      
+
       // Create extended router decision with proper types
       const mappedDecision: ExtendedRouterDecision = {
         request_id: routerView.request_id,
@@ -236,10 +394,10 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
         candidates,
         adapter_map: adapterIdMap, // Store map for debugging
       };
-      
+
       return mappedDecision;
     } catch (err) {
-      logger.warn('Failed to fetch router decision', {
+      logger.error('Failed to fetch router decision', {
         component: 'ChatInterface',
         requestId,
       }, toError(err));
@@ -249,6 +407,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return;
+
+    // Check if adapters are ready before sending
+    if (!allAdaptersReady && adapterStates.size > 0) {
+      setPendingMessage(input.trim());
+      setShowAdapterPrompt(true);
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -303,6 +468,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
           max_tokens: 500,
           temperature: 0.7,
           adapter_stack: adapterIds,
+          ...(selectedCollectionId && {
+            collection_id: selectedCollectionId,
+          }),
+          ...(documentContext && {
+            document_id: documentContext.documentId,
+            collection_id: documentContext.collectionId,
+          }),
         },
         {
           onToken: (token: string) => {
@@ -317,8 +489,13 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
             );
           },
           onComplete: async (fullText: string, finishReason: string | null) => {
-            // Fetch router decision (with loading state)
+            // Fetch router decision and evidence (with loading state)
             const routerDecision = await fetchRouterDecision(requestId);
+
+            // Fetch evidence data if session has collection_id
+            // Note: This assumes the session has a collection_id property
+            // If not available, evidence will be empty array
+            const evidence = await fetchMessageEvidence(assistantMessageId);
 
             const completedMessage: ChatMessage = {
               id: assistantMessageId,
@@ -327,6 +504,9 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
               timestamp: new Date(),
               requestId,
               routerDecision,
+              evidence,
+              isVerified: evidence.length > 0, // Mark as verified if evidence exists
+              verifiedAt: evidence.length > 0 ? new Date().toISOString() : undefined,
               isStreaming: false,
             };
 
@@ -373,7 +553,7 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
       setIsLoading(false);
       setCurrentRequestId(null);
     }
-  }, [input, isLoading, selectedStackId, stacks, fetchRouterDecision]);
+  }, [input, isLoading, selectedStackId, stacks, fetchRouterDecision, allAdaptersReady, adapterStates]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -382,11 +562,14 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
     }
   };
 
-  // Memoize selected stack to avoid recalculation
-  const selectedStack = useMemo(
-    () => stacks.find(s => s.id === selectedStackId),
-    [stacks, selectedStackId]
+  // selectedStack is memoized earlier in the component
+  const adapterCount = selectedStack?.adapter_ids?.length ?? selectedStack?.adapters?.length ?? 0;
+  const stackLabel = selectedStack?.name || 'No stack selected';
+  const isDefaultStack = Boolean(
+    defaultStack?.id && selectedStack?.id && selectedStack.id === defaultStack.id
   );
+  const stackDetails = selectedStack?.lifecycle_state ?? selectedStack?.description ?? null;
+  const baseModelLabel = 'Not provided';
 
   // Get recent sessions (last 10, sorted by updatedAt)
   const recentSessions = useMemo(() => {
@@ -463,8 +646,63 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
     toast.success('Session renamed');
   }, [updateSession]);
 
+  // Handler for viewing document evidence
+  const handleViewDocumentClick = useCallback((documentId: string, pageNumber?: number, highlightText?: string) => {
+    // Use the provided callback if available
+    if (onViewDocument) {
+      onViewDocument(documentId, pageNumber, highlightText);
+    } else {
+      // Fallback behavior: log and show toast
+      logger.info('View document requested', {
+        component: 'ChatInterface',
+        documentId,
+        pageNumber,
+        highlightText,
+      });
+      toast.info(`Opening document ${documentId}${pageNumber ? ` (page ${pageNumber})` : ''}`);
+    }
+  }, [onViewDocument]);
+
+  // Handler for collection change
+  const handleCollectionChange = useCallback(async (collectionId: string) => {
+    const newCollectionId = collectionId === 'none' ? null : collectionId;
+    setSelectedCollectionId(newCollectionId);
+
+    // Update current session's collection if session exists
+    if (currentSessionId) {
+      try {
+        await updateSessionCollection(currentSessionId, newCollectionId);
+        toast.success(newCollectionId ? 'Collection selected' : 'Collection cleared');
+      } catch (error) {
+        logger.error('Failed to update session collection', {
+          component: 'ChatInterface',
+          sessionId: currentSessionId,
+          collectionId: newCollectionId,
+        }, toError(error));
+        toast.error('Failed to update collection');
+      }
+    }
+  }, [currentSessionId, updateSessionCollection]);
+
+  // Get selected collection name for display
+  const selectedCollectionName = useMemo(() => {
+    if (!selectedCollectionId) return 'No collection';
+    const collection = collections.find(c => c.collection_id === selectedCollectionId);
+    return collection?.name || 'Unknown';
+  }, [selectedCollectionId, collections]);
+
   return (
     <div className="flex flex-col h-full relative">
+      {/* Pre-Chat Adapter Loading Prompt */}
+      <PreChatAdapterPrompt
+        open={showAdapterPrompt}
+        onOpenChange={setShowAdapterPrompt}
+        adapters={Array.from(adapterStates.values())}
+        onLoadAll={handleLoadAllAdapters}
+        onContinueAnyway={handleContinueAnyway}
+        isLoading={isLoadingAdapters}
+      />
+
       {/* History Sidebar */}
       {isHistoryOpen && (
         <div className="absolute left-0 top-0 bottom-0 w-80 bg-background border-r z-10 flex flex-col">
@@ -598,6 +836,56 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
         stackId={selectedStackId}
       />
 
+      {/* Currently Loaded Panel */}
+      <div className={`px-4 mt-2 ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between space-y-0">
+            <div className="space-y-1">
+              <CardTitle className="text-base">Currently Loaded</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Stack context for this chat session.
+              </p>
+              {isDefaultStack && (
+                <Badge variant="secondary" className="w-fit" aria-label="This is the default adapter stack for your tenant">
+                  Default stack for tenant
+                </Badge>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowContext(!showContext)}
+              aria-label={showContext ? 'Hide stack context' : 'Show stack context'}
+            >
+              {showContext ? 'Hide' : 'Show'}
+            </Button>
+          </CardHeader>
+          {showContext && (
+            <CardContent className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Stack</p>
+                <p className="font-medium truncate">{stackLabel}</p>
+                {stackDetails && (
+                  <p className="text-xs text-muted-foreground truncate">{stackDetails}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Adapters</p>
+                <p className="font-medium">{adapterCount || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Collection</p>
+                <p className="font-medium truncate">{selectedCollectionName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Base model</p>
+                <p className="font-medium text-muted-foreground">{baseModelLabel}</p>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      </div>
+
       {/* Header with stack selector */}
       <div className={`border-b px-4 py-3 flex items-center justify-between transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
         <div className="flex items-center gap-3">
@@ -650,6 +938,40 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
               {(selectedStack.adapter_ids?.length || 0) !== 1 ? 's' : ''}
             </Badge>
           )}
+          {/* Adapter loading status indicator */}
+          {adapterStates.size > 0 && (
+            <AdapterLoadingStatus
+              stackId={selectedStackId}
+              adapters={Array.from(adapterStates.values())}
+              compact
+            />
+          )}
+          <Database className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Collection:</span>
+            <Select
+              value={selectedCollectionId || 'none'}
+              onValueChange={handleCollectionChange}
+              aria-label="Select collection"
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="No collection" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No collection</SelectItem>
+                {collections.map(collection => (
+                  <SelectItem key={collection.collection_id} value={collection.collection_id}>
+                    {collection.name}
+                    {collection.document_count > 0 && (
+                      <span className="text-muted-foreground ml-2">
+                        ({collection.document_count} docs)
+                      </span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -688,7 +1010,11 @@ export function ChatInterface({ selectedTenant, initialStackId, sessionId }: Cha
             </div>
           ) : (
             messages.map(message => (
-              <ChatMessageComponent key={message.id} message={message} />
+              <ChatMessageComponent
+                key={message.id}
+                message={message}
+                onViewDocument={handleViewDocumentClick}
+              />
             ))
           )}
           {isLoadingRouterDecision && (

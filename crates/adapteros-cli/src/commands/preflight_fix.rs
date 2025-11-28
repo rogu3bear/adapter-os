@@ -95,7 +95,8 @@ impl AutoFixer {
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
-                        self.output.success(&format!("✅ Fixed: {}", issue.check_name));
+                        self.output
+                            .success(&format!("✅ Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
@@ -116,7 +117,8 @@ impl AutoFixer {
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
-                        self.output.success(&format!("✅ Fixed: {}", issue.check_name));
+                        self.output
+                            .success(&format!("✅ Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
@@ -147,7 +149,8 @@ impl AutoFixer {
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
-                        self.output.success(&format!("✅ Fixed: {}", issue.check_name));
+                        self.output
+                            .success(&format!("✅ Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
@@ -357,7 +360,9 @@ pub fn install_mlx_library() -> FixableIssue {
         FixSafety::Unsafe,
         |_output| {
             // This should never be called due to Unsafe safety level
-            Err(AosError::Config("MLX must be installed manually".to_string()))
+            Err(AosError::Config(
+                "MLX must be installed manually".to_string(),
+            ))
         },
     )
 }

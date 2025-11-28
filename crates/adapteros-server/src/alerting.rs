@@ -2,7 +2,7 @@
 
 use adapteros_db::{Db, Job};
 use adapteros_deterministic_exec::{spawn_deterministic, DeterministicJoinHandle};
-use adapteros_server::config::AlertingConfig;
+use adapteros_server_api::config::AlertingConfig;
 use anyhow::Result;
 use std::fs::{File, OpenOptions};
 use std::io::Write;

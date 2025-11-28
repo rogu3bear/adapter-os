@@ -35,7 +35,6 @@ import { PolicyDetail } from './PolicyDetail';
 import { usePolicies, usePolicyMutations } from '@/hooks/usePolicies';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Policy, PolicyComparisonResponse } from '@/api/types';
 
@@ -63,10 +62,6 @@ export default function PoliciesPage() {
   if (!can('policy:view')) {
     return (
       <div className="container mx-auto p-6">
-        <PageHeader
-          title="Security Policies"
-          description="Manage and enforce security policies"
-        />
         <ErrorRecovery
           error="You do not have permission to view policies. This page requires the policy:view permission."
           onRetry={() => window.location.reload()}
@@ -90,7 +85,7 @@ export default function PoliciesPage() {
 
   const handleCompare = useCallback(async () => {
     if (!compareCpid1 || !compareCpid2) {
-      toast.error('Please enter both policy CPIDs to compare');
+      toast.error('Please enter both policy IDs to compare');
       return;
     }
     try {
@@ -108,7 +103,7 @@ export default function PoliciesPage() {
       return;
     }
     if (!applyCpid || !applyContent) {
-      toast.error('Please enter both CPID and policy content');
+      toast.error('Please enter both Policy ID and policy content');
       return;
     }
     try {
@@ -157,10 +152,6 @@ export default function PoliciesPage() {
   if (error) {
     return (
       <div className="container mx-auto p-6">
-        <PageHeader
-          title="Security Policies"
-          description="Manage and enforce security policies"
-        />
         <ErrorRecovery
           error={error.message}
           onRetry={refetch}
@@ -171,11 +162,6 @@ export default function PoliciesPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <PageHeader
-        title="Security Policies"
-        description="Manage, sign, and enforce security policies across your organization"
-      />
-
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -347,12 +333,12 @@ export default function PoliciesPage() {
           <DialogHeader>
             <DialogTitle>Apply Policy</DialogTitle>
             <DialogDescription>
-              Enter the policy CPID and content to apply a new or updated policy.
+              Enter the policy ID and content to apply a new or updated policy.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="cpid">Policy CPID</Label>
+              <Label htmlFor="cpid">Policy ID</Label>
               <Input
                 id="cpid"
                 value={applyCpid}
@@ -388,13 +374,13 @@ export default function PoliciesPage() {
           <DialogHeader>
             <DialogTitle>Compare Policies</DialogTitle>
             <DialogDescription>
-              Enter two policy CPIDs to compare their differences.
+              Enter two policy IDs to compare their differences.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="cpid1">First Policy CPID</Label>
+                <Label htmlFor="cpid1">First Policy ID</Label>
                 <Input
                   id="cpid1"
                   value={compareCpid1}
@@ -403,7 +389,7 @@ export default function PoliciesPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cpid2">Second Policy CPID</Label>
+                <Label htmlFor="cpid2">Second Policy ID</Label>
                 <Input
                   id="cpid2"
                   value={compareCpid2}

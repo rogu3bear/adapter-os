@@ -7,7 +7,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { X, Layers, Clock, Zap } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { X, Layers, Clock, Zap, AlertCircle, ChevronDown } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type { RoutingDecision } from '@/api/types';
@@ -21,7 +22,10 @@ interface RouterActivitySidebarProps {
 }
 
 export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: RouterActivitySidebarProps) {
-  const { data: routingHistory, isLoading } = useQuery({
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
+  const { data: routingHistory, isLoading, error, refetch } = useQuery({
     queryKey: ['routing-history', stackId, limit],
     queryFn: () => apiClient.getRoutingHistory(limit),
     enabled: open,
@@ -36,6 +40,12 @@ export function RouterActivitySidebar({ open, onClose, stackId, limit = 20 }: Ro
     // This is a limitation - ideally routing decisions would include stack_id
     return routingHistory;
   }, [routingHistory, stackId]);
+
+  const handleLoadMore = () => {
+    setPage(prev => prev + 1);
+    // In a real implementation, this would fetch more data
+    // For now, we'll just show what we have
+  };
 
   if (!open) return null;
 

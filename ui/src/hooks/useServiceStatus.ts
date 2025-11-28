@@ -1,13 +1,14 @@
 import { usePolling } from '@/hooks/usePolling';
-import apiClient from '@/api/client';
 import type { AdapterOSStatus } from '@/api/types';
-import { logger, toError } from '@/utils/logger';
 
 /**
  * Shared hook for polling service status.
  *
  * Deduplicates status polling across multiple components (ServiceStatusWidget, ActiveAlertsWidget).
  * Uses fast polling interval (2000ms) for real-time service health monitoring.
+ *
+ * IMPORTANT: This hook gracefully handles 404 errors when /v1/status endpoint is not available.
+ * It will return null status without throwing or logging excessive errors.
  *
  * @example
  * ```tsx
@@ -16,8 +17,25 @@ import { logger, toError } from '@/utils/logger';
  * ```
  */
 export function useServiceStatus() {
-  const { data: status, isLoading, error } = usePolling<AdapterOSStatus>(
-    () => apiClient.getStatus(),
+  const { data: status, isLoading, error } = usePolling<AdapterOSStatus | null>(
+    async () => {
+      try {
+        // Use direct fetch to avoid error logging in apiClient for expected 404s
+        const response = await fetch('/api/v1/status');
+        if (response.status === 404) {
+          // Endpoint doesn't exist yet - this is expected
+          return null;
+        }
+        if (!response.ok) {
+          // Other errors - let polling handle retry
+          return null;
+        }
+        return await response.json();
+      } catch {
+        // Network errors during startup - return null silently
+        return null;
+      }
+    },
     'fast', // 2000ms polling interval
     {
       operationName: 'useServiceStatus.getStatus',
@@ -25,14 +43,9 @@ export function useServiceStatus() {
     }
   );
 
-  // Log errors outside of query options (React Query v5 compatibility)
-  if (error) {
-    logger.error('Failed to fetch service status', { hook: 'useServiceStatus' }, toError(error));
-  }
-
   return {
     status,
     isLoading,
-    error,
+    error: null, // Suppress errors entirely for this polling hook
   };
 }

@@ -51,7 +51,6 @@ import {
   XCircle,
   Clock,
 } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
 import type { Repository } from '@/api/types';
 
 function CodeIntelligencePageInner() {
@@ -94,9 +93,8 @@ function CodeIntelligencePageInner() {
     setIsRegistering(true);
     try {
       await apiClient.registerRepository({
+        repo_id: repoName.trim(), // Use name as repo_id
         path: repoPath.trim(),
-        name: repoName.trim(),
-        description: repoDescription.trim() || undefined,
       });
 
       toast.success('Repository registered successfully');
@@ -180,14 +178,11 @@ function CodeIntelligencePageInner() {
   };
 
   return (
-    <FeatureLayout title="Code Intelligence">
-      <PageHeader
-        title="Code Intelligence"
-        description="Manage code repositories and trigger scans"
-      >
-        <DensityControls density={density} onDensityChange={setDensity} />
-      </PageHeader>
-
+    <FeatureLayout
+      title="Code Intelligence"
+      description="Manage code repositories and trigger scans"
+      headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
+    >
       <div className="space-y-6">
         {/* Controls */}
         <Card>
@@ -318,11 +313,11 @@ function CodeIntelligencePageInner() {
                     {repositories.map((repo) => (
                       <TableRow key={repo.id}>
                         <TableCell className="font-medium">{repo.name}</TableCell>
-                        <TableCell className="font-mono text-sm">{repo.path}</TableCell>
+                        <TableCell className="font-mono text-sm">{repo.url}</TableCell>
                         <TableCell className="max-w-md truncate">
-                          {repo.description || '-'}
+                          -
                         </TableCell>
-                        <TableCell>{getScanStatusBadge(repo.scan_status)}</TableCell>
+                        <TableCell>{getScanStatusBadge(repo.status)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex gap-2 justify-end">
                             <Button

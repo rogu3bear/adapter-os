@@ -29,29 +29,6 @@ interface IconProps {
 }
 
 export const Icon: React.FC<IconProps> = ({ name, className = '', size = 16 }) => {
-  const iconPaths: Record<IconName, string> = {
-    'checkmark': '/src/assets/icons/checkmark.svg',
-    'cross': '/src/assets/icons/cross.svg',
-    'warning': '/src/assets/icons/warning.svg',
-    'rocket': '/src/assets/icons/rocket.svg',
-    'chart': '/src/assets/icons/chart.svg',
-    'search': '/src/assets/icons/search.svg',
-    'lightning': '/src/assets/icons/lightning.svg',
-    'book': '/src/assets/icons/book.svg',
-    'shield': '/src/assets/icons/shield.svg',
-    'trending-up': '/src/assets/icons/trending-up.svg',
-    'lock': '/src/assets/icons/lock.svg',
-    'play': '/src/assets/icons/play.svg',
-    'pause': '/src/assets/icons/pause.svg',
-    'sun': '/src/assets/icons/sun.svg',
-    'moon': '/src/assets/icons/moon.svg',
-    'target': '/src/assets/icons/target.svg',
-    'fire': '/src/assets/icons/fire.svg',
-    'clipboard': '/src/assets/icons/clipboard.svg',
-    'file': '/src/assets/icons/file.svg',
-    'alert-triangle': '/src/assets/icons/alert-triangle.svg',
-  };
-
   const iconComponents: Record<IconName, React.ComponentType<{ className?: string; size?: number }>> = {
     'checkmark': ({ className, size }) => (
       <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>

@@ -2,7 +2,7 @@
 //!
 //! Provides endpoints for creating, listing, and verifying deterministic replay sessions.
 
-use adapteros_crypto::signature::{Keypair, PublicKey, Signature};
+use adapteros_crypto::signature::{Keypair, Signature};
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::Result;
 use axum::{
@@ -16,9 +16,10 @@ use tracing::{debug, warn};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::Claims;
+use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
-// use crate::types::ErrorResponse; // unused
+use crate::types::ErrorResponse;
 
 /// Replay verification response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -97,24 +98,14 @@ pub async fn list_replay_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<ListReplaySessionsParams>,
-) -> Result<Json<Vec<ReplaySessionResponse>>, (StatusCode, String)> {
-    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            "Insufficient permissions".to_string(),
-        )
-    })?;
+) -> Result<Json<Vec<ReplaySessionResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::ReplayManage)?;
 
     let sessions = state
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to list replay sessions: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
     let responses: Vec<ReplaySessionResponse> = sessions
         .into_iter()
@@ -137,35 +128,17 @@ pub async fn get_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<Json<ReplaySessionResponse>, (StatusCode, String)> {
-    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            "Insufficient permissions".to_string(),
-        )
-    })?;
+) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::ReplayManage)?;
 
     let session = state
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get replay session: {}", e),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            "Replay session not found".to_string(),
-        ))?;
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Replay session"))?;
 
-    let response = session_to_response(session).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to serialize response: {}", e),
-        )
-    })?;
+    let response = session_to_response(session).map_err(internal_error)?;
 
     Ok(Json(response))
 }
@@ -184,13 +157,8 @@ pub async fn create_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateReplaySessionRequest>,
-) -> Result<Json<ReplaySessionResponse>, (StatusCode, String)> {
-    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            "Insufficient permissions".to_string(),
-        )
-    })?;
+) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::ReplayManage)?;
 
     // Generate session ID
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -227,9 +195,9 @@ pub async fn create_replay_session(
         policy_hash_b3: "b3:placeholder".to_string(),
         kernel_hash_b3: None,
         telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+            .map_err(internal_error)?,
         adapter_state_json: serde_json::to_string(&adapter_state)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+            .map_err(internal_error)?,
         routing_decisions_json: "[]".to_string(),
         inference_traces_json: None,
         signature: hex::encode(signature.to_bytes()),
@@ -240,15 +208,9 @@ pub async fn create_replay_session(
         .db
         .create_replay_session(&session)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create replay session: {}", e),
-            )
-        })?;
+        .map_err(db_error)?;
 
-    let response = session_to_response(session)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let response = session_to_response(session).map_err(internal_error)?;
 
     Ok(Json(response))
 }
@@ -266,28 +228,15 @@ pub async fn verify_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<Json<ReplayVerificationResponse>, (StatusCode, String)> {
-    require_permission(&claims, Permission::ReplayManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            "Insufficient permissions".to_string(),
-        )
-    })?;
+) -> Result<Json<ReplayVerificationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::ReplayManage)?;
 
     let session = state
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get replay session: {}", e),
-            )
-        })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            "Replay session not found".to_string(),
-        ))?;
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Replay session"))?;
 
     // Perform cryptographic verification of the replay session
     let mut divergences = Vec::new();

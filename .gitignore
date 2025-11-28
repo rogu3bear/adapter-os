@@ -218,6 +218,51 @@ freeze.json
 libintegration_tests.rlib
 openapi_new.json
 
+# AI slop detector reports
+ai_slop_reports/
+
+# Analysis reports (generated during development)
+*_ANALYSIS.md
+
+# Vercel deployment
+.vercel/
+
+# Next.js (if used in UI)
+ui/.next/
+
+# Coverage reports
+coverage/
+*.profraw
+*.lcov
+
+# Test artifacts
+test_output/
+*.test
+*_test
+
+# Rust specific
+*.rlib
+rustc-ice-*.txt
+
+# Additional OS files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.swp
+*.swo
+*~
+.nfs*
+
+# Lock files (keep specific ones)
+*.lock
+!pnpm-lock.yaml
+!Cargo.lock
+
 # macOS
 .DS_Store
 .AppleDouble
@@ -254,3 +299,8 @@ create_aos.rs
 launch.sh
 libdeterminism_guardrail_suite.rlib
 libreplay_path_verification.rlib
+aosctl
+
+# Generated/temporary directories
+training_data/
+ui-test-screenshots/

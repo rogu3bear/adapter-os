@@ -5,10 +5,11 @@
 
 export interface TrainingJob {
   id: string;
-  dataset_id?: string;
-  adapter_id?: string;
   adapter_name?: string;
   template_id?: string;
+  repo_id?: string;
+  dataset_id?: string;
+  adapter_id?: string;
   config?: TrainingConfig;
   status: TrainingStatus;
   progress_pct?: number;
@@ -17,6 +18,7 @@ export interface TrainingJob {
   current_epoch?: number;
   total_epochs?: number;
   tokens_per_second?: number;
+  learning_rate?: number;
   eta_seconds?: number;
   created_at?: string;
   updated_at?: string;
@@ -29,9 +31,22 @@ export interface TrainingJob {
   progress?: number;
   metrics?: Record<string, number>;
   artifact_path?: string;
-  learning_rate?: number;
   tenant_id?: string;
   stack_id?: string;
+
+  // Provenance tracking
+  base_model_id?: string;
+  collection_id?: string;
+  build_id?: string;
+  config_hash_b3?: string;
+  weights_hash_b3?: string;
+
+  // Category metadata
+  category?: string;
+  description?: string;
+  language?: string;
+  framework_id?: string;
+  framework_version?: string;
 }
 
 export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
@@ -61,45 +76,77 @@ export interface TrainingConfig {
   commit_sha?: string;
 }
 
+/**
+ * Request to start a new training job
+ * Matches backend StartTrainingRequest in adapteros-api-types/src/training.rs
+ */
 export interface StartTrainingRequest {
-  // Required fields (match backend)
+  // Required fields
   adapter_name: string;           // REQUIRED - semantic name format
   config: TrainingConfigRequest;  // REQUIRED - training configuration
 
-  // Optional fields (match backend)
+  // Data source references
   template_id?: string;
   repo_id?: string;
   dataset_id?: string;
+
+  // Provenance tracking
+  base_model_id?: string;         // Base model used for training
+  collection_id?: string;         // Document collection used
+
+  // Category & metadata
+  category?: string;              // code, framework, codebase, docs, domain
+  description?: string;           // Human-readable description
+
+  // Category-specific configuration
+  language?: string;              // Programming language (for code adapters)
+  symbol_targets?: string[];      // Symbol targets (for code adapters)
+  framework_id?: string;          // Framework ID (for framework adapters)
+  framework_version?: string;     // Framework version (for framework adapters)
+  api_patterns?: string[];        // API patterns (for framework adapters)
+  repo_scope?: string;            // Repository scope (for codebase adapters)
+  file_patterns?: string[];       // File patterns to include (for codebase adapters)
+  exclude_patterns?: string[];    // File patterns to exclude (for codebase adapters)
+
+  // Post-training actions
+  post_actions?: PostActionsRequest;
+}
+
+/**
+ * Post-training actions configuration
+ * Controls what happens after training completes
+ */
+export interface PostActionsRequest {
+  package?: boolean;              // Package adapter after training (default: true)
+  register?: boolean;             // Register adapter in registry (default: true)
+  tier?: string;                  // Tier to assign: persistent, warm, ephemeral (default: warm)
+  adapters_root?: string;         // Custom adapters root directory
 }
 
 // TrainingConfigRequest matches backend TrainingConfigRequest
 export interface TrainingConfigRequest {
-  learning_rate: number;
-  epochs: number;
-  batch_size: number;
   rank: number;
   alpha: number;
+  epochs: number;
+  learning_rate: number;
+  batch_size: number;
+  targets?: string[];  // Optional - backend has default targets
   warmup_steps?: number;
-  weight_decay?: number;
-  gradient_clip?: number;
   max_seq_length?: number;
   gradient_accumulation_steps?: number;
+  // Additional UI fields (sent to backend if supported)
+  weight_decay?: number;
+  gradient_clip?: number;
   save_steps?: number;
   eval_steps?: number;
   logging_steps?: number;
-  targets?: string[];
 }
 
-// UI-only fields for StartTrainingRequest (not sent to backend)
+// UI-only fields for form state (not sent to backend directly)
 export interface StartTrainingRequestUIExtras {
   directory_root?: string;
   directory_path?: string;
-  adapters_root?: string;
   dataset_path?: string;
-  tenant_id?: string;
-  package?: string;
-  category?: string;
-  language?: string;
 }
 
 export interface TrainingResponse {
@@ -151,12 +198,26 @@ export interface Dataset {
   format?: string;
   storage_path?: string;
   validation_errors?: string;
+  description?: string;
+  // PRD-DATA-01: Dataset Lab extensions
+  dataset_type?: DatasetType;
+  purpose?: string;
+  source_location?: string;
+  collection_method?: CollectionMethod;
+  ownership?: string;
+  tenant_id?: string;
+  // Usage and evidence counts (computed)
+  usage_count?: number;
+  evidence_count?: number;
+  linked_adapters?: string[];
 }
 
 export type TrainingDataset = Dataset;
 
 export type DatasetSourceType = 'code_repo' | 'uploaded_files' | 'generated';
 export type DatasetValidationStatus = 'draft' | 'validating' | 'valid' | 'invalid' | 'failed';
+export type DatasetType = 'training' | 'eval' | 'red_team' | 'logs' | 'other';
+export type CollectionMethod = 'manual' | 'sync' | 'api' | 'pipeline' | 'scrape' | 'other';
 export type Strictness = 'strict' | 'epsilon-tolerant' | 'relaxed';
 
 export interface CreateDatasetRequest {
@@ -417,5 +478,30 @@ export interface TrainingSession {
   error_message?: string;
   config?: TrainingConfig;
   metrics?: TrainingMetrics;
+}
+
+// PRD-DATA-01: Evidence entries for datasets and adapters
+export type EvidenceType = 'doc' | 'ticket' | 'commit' | 'policy_approval' | 'data_agreement' | 'review' | 'audit' | 'other';
+export type EvidenceConfidence = 'high' | 'medium' | 'low';
+
+export interface EvidenceEntry {
+  id: string;
+  dataset_id?: string;
+  adapter_id?: string;
+  evidence_type: EvidenceType;
+  reference: string;
+  description?: string;
+  confidence: EvidenceConfidence;
+  created_by?: string;
+  created_at: string;
+  metadata_json?: string;
+}
+
+export interface DatasetAdapterLink {
+  id: string;
+  dataset_id: string;
+  adapter_id: string;
+  link_type: 'training' | 'eval' | 'validation' | 'test';
+  created_at: string;
 }
 

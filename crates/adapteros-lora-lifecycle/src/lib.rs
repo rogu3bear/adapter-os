@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
@@ -108,6 +109,31 @@ pub struct GpuIntegrityViolationEvent {
     pub timestamp: u64,
 }
 
+/// Download progress event for model hub acquisition
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadProgress {
+    pub model_id: String,
+    pub phase: String, // "downloading", "verifying", "loading"
+    pub progress_pct: u8,
+    pub eta_seconds: Option<u64>,
+    pub speed_mbps: Option<f64>,
+}
+
+/// Model acquisition state for tracking downloads
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AcquisitionState {
+    /// Model not present locally
+    NotAvailable,
+    /// Download in progress
+    Downloading { progress_pct: u8 },
+    /// Verifying downloaded model
+    Verifying,
+    /// Model available locally
+    Available,
+    /// Download failed
+    Failed { reason: String },
+}
+
 pub mod activation_tracker;
 pub mod category_policies;
 pub mod k_reduction_coordinator;
@@ -160,6 +186,10 @@ pub struct LifecycleManager {
     >,
     /// K reduction decision history for audit trail
     k_reduction_history: Arc<parking_lot::RwLock<Vec<KReductionExecutionRecord>>>,
+    /// Model acquisition states for tracking downloads
+    acquisition_states: Arc<RwLock<HashMap<String, AcquisitionState>>>,
+    /// Download progress event broadcaster
+    download_progress_tx: Option<broadcast::Sender<DownloadProgress>>,
 }
 
 impl LifecycleManager {
@@ -180,6 +210,9 @@ impl LifecycleManager {
             );
         }
 
+        // Create download progress channel with capacity for 100 events
+        let (download_progress_tx, _) = broadcast::channel(100);
+
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
@@ -198,6 +231,8 @@ impl LifecycleManager {
             )),
             k_reduction_rx: Arc::new(parking_lot::Mutex::new(None)),
             k_reduction_history: Arc::new(parking_lot::RwLock::new(Vec::new())),
+            acquisition_states: Arc::new(RwLock::new(HashMap::new())),
+            download_progress_tx: Some(download_progress_tx),
         }
     }
 
@@ -224,6 +259,9 @@ impl LifecycleManager {
             );
         }
 
+        // Create download progress channel with capacity for 100 events
+        let (download_progress_tx, _) = broadcast::channel(100);
+
         Self {
             states: Arc::new(RwLock::new(states)),
             policy: LifecyclePolicy::from_manifest(policies),
@@ -242,12 +280,76 @@ impl LifecycleManager {
             )),
             k_reduction_rx: Arc::new(parking_lot::Mutex::new(None)),
             k_reduction_history: Arc::new(parking_lot::RwLock::new(Vec::new())),
+            acquisition_states: Arc::new(RwLock::new(HashMap::new())),
+            download_progress_tx: Some(download_progress_tx),
         }
     }
 
     /// Get the K reduction coordinator
     pub fn get_k_reduction_coordinator(&self) -> Arc<LifecycleKReductionCoordinator> {
         Arc::clone(&self.k_reduction_coordinator)
+    }
+
+    /// Register a newly imported adapter with the lifecycle manager
+    ///
+    /// This method is called after an adapter is imported via the API to:
+    /// 1. Register the adapter's expected hash with the loader
+    /// 2. Add it to the states map so it can be managed
+    /// 3. Optionally load it immediately
+    ///
+    /// # Arguments
+    /// * `adapter_id` - String identifier for the adapter
+    /// * `hash` - BLAKE3 hash of the adapter weights
+    /// * `category` - Optional category (defaults to "code")
+    /// * `load_immediately` - If true, promotes adapter to Cold state and loads it
+    ///
+    /// # Returns
+    /// The adapter index assigned to this adapter
+    pub fn register_adapter(
+        &mut self,
+        adapter_id: String,
+        hash: B3Hash,
+        category: Option<String>,
+        load_immediately: bool,
+    ) -> Result<u16> {
+        // 1. Determine next available adapter index
+        let next_idx = {
+            let states = self.states.read();
+            states.keys().max().map(|k| k + 1).unwrap_or(0)
+        };
+
+        // 2. Register hash with loader
+        {
+            let mut loader = self.loader.write();
+            loader.register_hash(adapter_id.clone(), hash);
+        }
+
+        // 3. Create state record and add to states map
+        {
+            let mut states = self.states.write();
+            let mut record = AdapterStateRecord::new(adapter_id.clone(), next_idx);
+            record.category = category.unwrap_or_else(|| "code".to_string());
+            states.insert(next_idx, record);
+        }
+
+        // 4. If load_immediately, promote and load the adapter
+        if load_immediately {
+            self.promote_adapter(next_idx)?;
+            // Try to load via get_or_reload
+            if let Err(e) = self.get_or_reload(&adapter_id) {
+                warn!("Failed to load adapter {} immediately: {}", adapter_id, e);
+                // Don't fail the registration, just warn
+            }
+        }
+
+        info!(
+            adapter_id = %adapter_id,
+            adapter_idx = next_idx,
+            load_immediately = load_immediately,
+            "Registered new adapter with lifecycle manager"
+        );
+
+        Ok(next_idx)
     }
 
     /// Wire K reduction event receiver from memory manager
@@ -268,21 +370,39 @@ impl LifecycleManager {
     ///
     /// This should be called in a background loop to process incoming K reduction
     /// requests from the memory manager. Returns the number of requests processed.
-    #[allow(clippy::await_holding_lock, clippy::explicit_auto_deref)]
+    ///
+    /// ## Locking Strategy:
+    /// - Extracts all pending requests from the channel while holding the lock briefly
+    /// - Releases the lock immediately before processing (which involves async operations)
+    /// - This prevents deadlocks from holding a parking_lot::Mutex across await points
+    /// - The unbounded channel ensures we won't lose requests between polls
     pub async fn poll_k_reduction_events(&self) -> Result<usize> {
-        let mut rx_guard = self.k_reduction_rx.lock();
-        let rx: &mut Option<
-            tokio::sync::mpsc::UnboundedReceiver<adapteros_memory::KReductionRequest>,
-        > = &mut *rx_guard;
-        let rx_channel = match rx {
-            Some(channel) => channel,
-            None => return Ok(0),
+        // Step 1: Collect all pending requests while holding the lock briefly
+        // We use a local vector to avoid holding the lock during async processing
+        let pending_requests = {
+            let mut rx_guard = self.k_reduction_rx.lock();
+
+            // Extract the channel reference (if it exists)
+            let rx_channel = match rx_guard.as_mut() {
+                Some(channel) => channel,
+                None => return Ok(0), // Channel not wired yet
+            };
+
+            // Drain all pending requests using try_recv (non-blocking)
+            let mut requests = Vec::new();
+            while let Ok(request) = rx_channel.try_recv() {
+                requests.push(request);
+            }
+
+            requests
+            // Lock is dropped here automatically when rx_guard goes out of scope
         };
 
+        // Step 2: Process all requests without holding any locks
+        // This is safe because we've extracted the requests and dropped the lock
         let mut processed_count = 0;
 
-        // Process all pending requests in a non-blocking manner
-        while let Ok(request) = rx_channel.try_recv() {
+        for request in pending_requests {
             processed_count += 1;
 
             // Evaluate the K reduction request
@@ -358,14 +478,16 @@ impl LifecycleManager {
 
     /// Execute K reduction by unloading adapters with rollback capability
     ///
+    /// FIX 5: K reduction rollback incomplete - Implement full rollback on failure
     /// This method unloads the specified adapters and updates the K value.
-    /// If any unload fails, it attempts rollback of previously unloaded adapters.
+    /// If any unload fails, it performs FULL rollback: restore K value and reload adapters.
     async fn execute_k_reduction(
         &self,
         request: &adapteros_memory::KReductionRequest,
         response: &adapteros_memory::KReductionResponse,
     ) -> Result<()> {
         let mut successfully_unloaded = Vec::new();
+        let old_k = *self.current_k.read(); // FIX 5: Save old K value for rollback
 
         // Step 1: Unload adapters in order
         for adapter_idx in &response.adapters_to_unload {
@@ -383,12 +505,16 @@ impl LifecycleManager {
                         request_id = %request.request_id,
                         adapter_idx = adapter_idx,
                         error = %e,
-                        "Failed to unload adapter during K reduction, initiating rollback"
+                        "Failed to unload adapter during K reduction, initiating FULL rollback"
                     );
 
-                    // Initiate rollback
-                    self.rollback_k_reduction(&successfully_unloaded, request.request_id.as_str())
-                        .await;
+                    // FIX 5: FULL rollback - reload adapters AND restore K value
+                    self.rollback_k_reduction(
+                        &successfully_unloaded,
+                        old_k,
+                        request.request_id.as_str(),
+                    )
+                    .await;
 
                     return Err(e);
                 }
@@ -429,18 +555,38 @@ impl LifecycleManager {
 
     /// Rollback K reduction by attempting to reload unloaded adapters
     ///
+    /// FIX 5: Full rollback implementation - restore K value AND reload adapters
     /// Called if adapter unload fails during K reduction to restore previous state.
     /// This is a best-effort operation; if reload also fails, we accept the partial state.
-    async fn rollback_k_reduction(&self, unloaded_adapters: &[u16], request_id: &str) {
+    async fn rollback_k_reduction(
+        &self,
+        unloaded_adapters: &[u16],
+        old_k: usize,
+        request_id: &str,
+    ) {
         warn!(
             request_id = request_id,
             unloaded_count = unloaded_adapters.len(),
-            "Initiating rollback for K reduction"
+            old_k = old_k,
+            "Initiating FULL rollback for K reduction (restore K + reload adapters)"
         );
+
+        // FIX 5: Step 1 - Restore K value FIRST
+        {
+            let mut k = self.current_k.write();
+            let attempted_k = *k;
+            *k = old_k;
+            info!(
+                request_id = request_id,
+                old_k = old_k,
+                attempted_k = attempted_k,
+                "Restored K value during rollback"
+            );
+        }
 
         let mut successfully_reloaded = Vec::new();
 
-        // Attempt to reload each unloaded adapter in reverse order
+        // FIX 5: Step 2 - Attempt to reload each unloaded adapter in reverse order
         for adapter_idx in unloaded_adapters.iter().rev() {
             let adapter_id_str = {
                 let states = self.states.read();
@@ -471,7 +617,7 @@ impl LifecycleManager {
             }
         }
 
-        // Emit rollback telemetry
+        // Emit rollback telemetry with K value restoration
         if let Some(ref telemetry) = self.telemetry {
             let _ = telemetry.log(
                 "k_reduction_rollback",
@@ -479,6 +625,7 @@ impl LifecycleManager {
                     "request_id": request_id,
                     "attempted_rollback": unloaded_adapters.len(),
                     "successfully_reloaded": successfully_reloaded.len(),
+                    "k_restored": old_k,
                     "timestamp": std::time::SystemTime::now(),
                 }),
             );
@@ -488,7 +635,8 @@ impl LifecycleManager {
             request_id = request_id,
             successfully_reloaded = successfully_reloaded.len(),
             failed_to_reload = unloaded_adapters.len() - successfully_reloaded.len(),
-            "Completed K reduction rollback (partial state accepted)"
+            k_restored = old_k,
+            "Completed FULL K reduction rollback (K restored, partial adapter state accepted if reload failed)"
         );
     }
 
@@ -743,6 +891,7 @@ impl LifecycleManager {
 
     /// Pin adapter to resident state
     ///
+    /// FIX 7: Pin+demote atomic operation - Make pin state change and database update atomic
     /// Persists pin to database via `pinned_adapters` table.
     /// Pinned adapters will not be evicted by TTL or memory pressure.
     pub async fn pin_adapter(
@@ -753,27 +902,11 @@ impl LifecycleManager {
         pinned_until: Option<String>,
         reason: Option<String>,
     ) -> Result<()> {
+        // FIX 7: Step 1 - Persist pin to database FIRST, before changing in-memory state
+        // This ensures if DB write fails, we don't have inconsistent state
         let adapter_id_str = {
-            let mut states = self.states.write();
-
-            if let Some(record) = states.get_mut(&adapter_id) {
-                let old_state = record.state;
-                record.pin();
-
-                info!("Pinned adapter {} to resident state", record.adapter_id);
-
-                if let Some(ref telemetry) = self.telemetry {
-                    telemetry.log(
-                        "adapter_promoted",
-                        AdapterTransitionEvent {
-                            adapter_id: record.adapter_id.clone(),
-                            from_state: old_state.to_string(),
-                            to_state: AdapterState::Resident.to_string(),
-                            reason: "manual_pin".to_string(),
-                        },
-                    )?;
-                }
-
+            let states = self.states.read();
+            if let Some(record) = states.get(&adapter_id) {
                 record.adapter_id.clone()
             } else {
                 return Err(AosError::Lifecycle(format!(
@@ -783,13 +916,13 @@ impl LifecycleManager {
             }
         };
 
-        // Persist pin to database (single source of truth)
         if let Some(ref db) = self.db {
             // Use tenant_id:adapter_id as stable pin ID
             let pin_id = format!("{}:{}", tenant_id, adapter_id_str);
             let pinned_until_sql = pinned_until.as_deref();
             let reason_sql = reason.as_deref();
 
+            // FIX 7: Database write happens BEFORE state change
             sqlx::query(
                 r#"
                 INSERT INTO pinned_adapters (id, tenant_id, adapter_id, pinned_until, reason, pinned_by)
@@ -814,19 +947,58 @@ impl LifecycleManager {
             info!("✓ Persisted pin for adapter {} to database", adapter_id_str);
         }
 
+        // FIX 7: Step 2 - Update in-memory state AFTER successful database write
+        // This ensures atomic operation: DB is source of truth, memory follows
+        {
+            let mut states = self.states.write();
+
+            if let Some(record) = states.get_mut(&adapter_id) {
+                let old_state = record.state;
+                let memory_bytes = record.memory_bytes;
+                record.pin();
+
+                // Structured log for adapter state transition (PRD-INFRA-01)
+                info!(
+                    adapter_id = %record.adapter_id,
+                    from_state = %old_state,
+                    to_state = "resident",
+                    reason = "manual_pin",
+                    memory_bytes = memory_bytes,
+                    event_type = "adapter_state_transition",
+                    "Adapter state transition: pinned to resident (after DB persistence)"
+                );
+
+                if let Some(ref telemetry) = self.telemetry {
+                    telemetry.log(
+                        "adapter_promoted",
+                        AdapterTransitionEvent {
+                            adapter_id: record.adapter_id.clone(),
+                            from_state: old_state.to_string(),
+                            to_state: AdapterState::Resident.to_string(),
+                            reason: "manual_pin".to_string(),
+                        },
+                    )?;
+                }
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
+            }
+        }
+
         Ok(())
     }
 
     /// Unpin adapter
     ///
+    /// FIX 7: Pin+demote atomic operation - Remove pin from database FIRST, then update memory
     /// Removes pin from database. Adapter becomes eligible for eviction again.
     pub async fn unpin_adapter(&self, adapter_id: u16, tenant_id: &str) -> Result<()> {
+        // FIX 7: Step 1 - Get adapter ID and remove pin from database FIRST
         let adapter_id_str = {
-            let mut states = self.states.write();
-
-            if let Some(record) = states.get_mut(&adapter_id) {
-                record.unpin();
-                info!("Unpinned adapter {}", record.adapter_id);
+            let states = self.states.read();
+            if let Some(record) = states.get(&adapter_id) {
                 record.adapter_id.clone()
             } else {
                 return Err(AosError::Lifecycle(format!(
@@ -848,6 +1020,21 @@ impl LifecycleManager {
             info!("✓ Removed pin for adapter {} from database", adapter_id_str);
         }
 
+        // FIX 7: Step 2 - Update in-memory state AFTER successful database write
+        {
+            let mut states = self.states.write();
+
+            if let Some(record) = states.get_mut(&adapter_id) {
+                record.unpin();
+                info!("Unpinned adapter {} (after DB removal)", record.adapter_id);
+            } else {
+                return Err(AosError::Lifecycle(format!(
+                    "Adapter {} not found",
+                    adapter_id
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -857,11 +1044,18 @@ impl LifecycleManager {
 
         if let Some(record) = states.get_mut(&adapter_id) {
             let old_state = record.state;
+            let memory_bytes = record.memory_bytes;
 
             if record.promote() {
+                // Structured log for adapter state transition (PRD-INFRA-01)
                 info!(
-                    "Promoted adapter {} from {} to {}",
-                    record.adapter_id, old_state, record.state
+                    adapter_id = %record.adapter_id,
+                    from_state = %old_state,
+                    to_state = %record.state,
+                    reason = "manual_promotion",
+                    memory_bytes = memory_bytes,
+                    event_type = "adapter_state_transition",
+                    "Adapter state transition: promoted"
                 );
 
                 if let Some(ref telemetry) = self.telemetry {
@@ -897,11 +1091,18 @@ impl LifecycleManager {
 
         if let Some(record) = states.get_mut(&adapter_id) {
             let old_state = record.state;
+            let memory_bytes = record.memory_bytes;
 
             if record.demote() {
+                // Structured log for adapter state transition (PRD-INFRA-01)
                 info!(
-                    "Demoted adapter {} from {} to {}",
-                    record.adapter_id, old_state, record.state
+                    adapter_id = %record.adapter_id,
+                    from_state = %old_state,
+                    to_state = %record.state,
+                    reason = "manual_demotion",
+                    memory_bytes = memory_bytes,
+                    event_type = "adapter_state_transition",
+                    "Adapter state transition: demoted"
                 );
 
                 if let Some(ref telemetry) = self.telemetry {
@@ -1031,12 +1232,22 @@ impl LifecycleManager {
         for (adapter_id, metric) in candidates {
             if let Some(record) = states.get_mut(&adapter_id) {
                 if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
-                    let _old_state = record.state;
+                    let old_state = record.state;
+                    let memory_freed = record.memory_bytes;
                     record.state = AdapterState::Unloaded;
+                    // FIX 6: Reset memory_bytes = 0 after eviction (like evict_adapter does)
+                    record.memory_bytes = 0;
 
+                    // Structured log for adapter eviction (PRD-INFRA-01)
                     info!(
-                        "Evicted adapter {} due to memory pressure",
-                        record.adapter_id
+                        adapter_id = %record.adapter_id,
+                        from_state = %old_state,
+                        to_state = "unloaded",
+                        reason = "memory_pressure",
+                        memory_freed_bytes = memory_freed,
+                        category = %record.category,
+                        event_type = "adapter_eviction",
+                        "Adapter evicted due to memory pressure"
                     );
 
                     if let Some(ref telemetry) = self.telemetry {
@@ -1046,7 +1257,7 @@ impl LifecycleManager {
                                 adapter_id: record.adapter_id.clone(),
                                 from_state: record.state.to_string(),
                                 category: record.category.clone(),
-                                memory_freed: record.memory_bytes,
+                                memory_freed,
                             },
                         )?;
                     }
@@ -1259,48 +1470,63 @@ impl LifecycleManager {
     }
 
     /// Auto-promote adapter based on category policy
-    #[allow(clippy::await_holding_lock)]
     pub async fn auto_promote_adapter(&self, adapter_id: u16) -> Result<()> {
-        let states = self.states.read();
+        // Extract data while holding lock, then release before async operation
+        let next_state_opt = {
+            let states = self.states.read();
 
-        if let Some(record) = states.get(&adapter_id) {
-            let category = &record.category;
-            let current_state = record.state;
+            states.get(&adapter_id).and_then(|record| {
+                let category = &record.category;
+                let current_state = record.state;
 
-            if current_state.can_promote(category) {
-                if let Some(next_state) = current_state.promote() {
-                    drop(states); // Release read lock before write
-                    self.update_adapter_state(adapter_id, next_state, "auto_promotion")
-                        .await?;
+                if current_state.can_promote(category) {
+                    current_state.promote()
+                } else {
+                    None
                 }
-            }
+            })
+            // Lock is dropped here
+        };
+
+        // Perform async operation without holding any locks
+        if let Some(next_state) = next_state_opt {
+            self.update_adapter_state(adapter_id, next_state, "auto_promotion")
+                .await?;
         }
 
         Ok(())
     }
 
     /// Auto-demote adapter based on category policy and inactivity
-    #[allow(clippy::await_holding_lock)]
     pub async fn auto_demote_adapter(&self, adapter_id: u16) -> Result<()> {
-        let states = self.states.read();
+        // Extract data while holding lock, then release before async operation
+        let next_state_opt = {
+            let states = self.states.read();
 
-        if let Some(record) = states.get(&adapter_id) {
-            let category = &record.category;
-            let current_state = record.state;
+            states.get(&adapter_id).and_then(|record| {
+                let category = &record.category;
+                let current_state = record.state;
 
-            // Check if we should demote based on last activation time
-            if let Some(last_activated) = record.last_activated {
-                let time_since_activation = last_activated
-                    .elapsed()
-                    .unwrap_or(std::time::Duration::from_secs(0));
-                if current_state.should_demote(category, time_since_activation) {
-                    if let Some(next_state) = current_state.demote() {
-                        drop(states); // Release read lock before write
-                        self.update_adapter_state(adapter_id, next_state, "auto_demotion")
-                            .await?;
+                // Check if we should demote based on last activation time
+                record.last_activated.and_then(|last_activated| {
+                    let time_since_activation = last_activated
+                        .elapsed()
+                        .unwrap_or(std::time::Duration::from_secs(0));
+
+                    if current_state.should_demote(category, time_since_activation) {
+                        current_state.demote()
+                    } else {
+                        None
                     }
-                }
-            }
+                })
+            })
+            // Lock is dropped here
+        };
+
+        // Perform async operation without holding any locks
+        if let Some(next_state) = next_state_opt {
+            self.update_adapter_state(adapter_id, next_state, "auto_demotion")
+                .await?;
         }
 
         Ok(())
@@ -1466,12 +1692,17 @@ impl LifecycleManager {
     }
 
     /// Evict an adapter (unload from memory)
+    ///
+    /// FIX 1: Pinned adapter eviction race - Hold lock during entire pin check + eviction operation
+    /// Don't release lock between checking pinned status and performing eviction.
     pub async fn evict_adapter(&self, adapter_id: u16) -> Result<()> {
-        // Extract required data and perform state updates while holding lock
+        // FIX 1: Hold lock during ENTIRE operation to prevent race between pin check and eviction
+        // Extract required data and perform state updates AND loader unload while holding lock
         let (adapter_id_str, old_state, category, memory_freed) = {
             let mut states = self.states.write();
 
             if let Some(record) = states.get_mut(&adapter_id) {
+                // FIX 1: Check pinned status WHILE holding lock - no window for race
                 if record.pinned {
                     return Err(AosError::Lifecycle(format!(
                         "Cannot evict pinned adapter: {}",
@@ -1481,25 +1712,26 @@ impl LifecycleManager {
 
                 let old_state = record.state;
                 let memory_freed = record.memory_bytes;
+                let adapter_id_str = record.adapter_id.clone();
+                let category = record.category.clone();
+
+                // FIX 1: Unload from loader BEFORE changing state, while still holding states lock
+                // This prevents race where adapter could be pinned after check but before unload
+                {
+                    let mut loader = self.loader.write();
+                    loader.unload_adapter(adapter_id)?;
+                } // LOADER LOCK RELEASED
+
+                // FIX 2: Set state to Unloaded AFTER successful loader.unload()
+                // If unload fails, state remains unchanged (error returns above)
                 record.state = AdapterState::Unloaded;
                 record.memory_bytes = 0;
 
-                (
-                    record.adapter_id.clone(),
-                    old_state,
-                    record.category.clone(),
-                    memory_freed,
-                )
+                (adapter_id_str, old_state, category, memory_freed)
             } else {
                 return Ok(());
             }
-        }; // LOCK RELEASED HERE
-
-        // Unload from loader (separate lock, not nested)
-        {
-            let mut loader = self.loader.write();
-            loader.unload_adapter(adapter_id)?;
-        } // LOADER LOCK RELEASED
+        }; // LOCK RELEASED HERE - but eviction is already complete
 
         // Async operations happen WITHOUT any locks
         if let Some(ref db) = self.db {
@@ -1529,7 +1761,19 @@ impl LifecycleManager {
             });
         }
 
-        // Log eviction (non-blocking)
+        // Structured log for adapter eviction (PRD-INFRA-01)
+        info!(
+            adapter_id = %adapter_id_str,
+            from_state = %old_state,
+            to_state = "unloaded",
+            reason = "lru_eviction",
+            memory_freed_bytes = memory_freed,
+            category = %category,
+            event_type = "adapter_eviction",
+            "Adapter evicted via LRU policy"
+        );
+
+        // Log eviction (non-blocking telemetry)
         if let Some(ref telemetry) = self.telemetry {
             telemetry.log(
                 "adapter_evicted",
@@ -1541,11 +1785,6 @@ impl LifecycleManager {
                 },
             )?;
         }
-
-        info!(
-            "Evicted adapter {} ({} -> unloaded)",
-            adapter_id_str, old_state
-        );
 
         Ok(())
     }
@@ -1961,6 +2200,283 @@ impl LifecycleManager {
             }
         }
         Ok(())
+    }
+
+    // ===== Model Hub Integration Methods =====
+
+    /// Ensure model is available (download if needed, then load)
+    ///
+    /// This method coordinates model acquisition from a remote hub:
+    /// 1. Check if model exists locally
+    /// 2. Download if needed (updating acquisition state)
+    /// 3. Verify downloaded model
+    /// 4. Load into lifecycle manager
+    ///
+    /// # Arguments
+    /// * `model_id` - Unique identifier for the model/adapter
+    /// * `repo_id` - Optional repository ID (e.g., "username/model-name" for HuggingFace)
+    ///
+    /// # Returns
+    /// Path to the locally available model file
+    pub async fn ensure_available(&self, model_id: &str, repo_id: Option<&str>) -> Result<PathBuf> {
+        // Check if model is already available locally
+        if self.needs_download(model_id) {
+            // Set acquisition state to downloading
+            self.set_acquisition_state(model_id, AcquisitionState::Downloading { progress_pct: 0 });
+
+            info!(
+                model_id = %model_id,
+                repo_id = ?repo_id,
+                "Starting model download from hub"
+            );
+
+            // Emit download start event
+            if let Some(ref tx) = self.download_progress_tx {
+                let _ = tx.send(DownloadProgress {
+                    model_id: model_id.to_string(),
+                    phase: "downloading".to_string(),
+                    progress_pct: 0,
+                    eta_seconds: None,
+                    speed_mbps: None,
+                });
+            }
+
+            // NOTE: Actual download implementation would go here
+            // For now, we return an error indicating this needs to be implemented
+            // by the caller or in a separate model hub crate
+            self.set_acquisition_state(
+                model_id,
+                AcquisitionState::Failed {
+                    reason: "Download not implemented - use external model hub integration"
+                        .to_string(),
+                },
+            );
+
+            return Err(AosError::NotFound(
+                "Model download not implemented in lifecycle manager - use external hub integration".to_string(),
+            ));
+        }
+
+        // Model is available, get its path
+        let loader = self.loader.read();
+        let base_path = loader.adapters_base_path();
+        let model_path = base_path.join(format!("{}.aos", model_id));
+
+        if model_path.exists() {
+            self.set_acquisition_state(model_id, AcquisitionState::Available);
+            Ok(model_path)
+        } else {
+            self.set_acquisition_state(
+                model_id,
+                AcquisitionState::Failed {
+                    reason: "Model file not found".to_string(),
+                },
+            );
+            Err(AosError::NotFound(format!(
+                "Model file not found: {}",
+                model_path.display()
+            )))
+        }
+    }
+
+    /// Get acquisition state for a model
+    ///
+    /// Returns the current acquisition state (downloading, available, failed, etc.)
+    pub fn get_acquisition_state(&self, model_id: &str) -> AcquisitionState {
+        let states = self.acquisition_states.read();
+        states
+            .get(model_id)
+            .cloned()
+            .unwrap_or(AcquisitionState::NotAvailable)
+    }
+
+    /// Set acquisition state (called during download progress)
+    ///
+    /// Updates the acquisition state for a model and emits telemetry events
+    pub fn set_acquisition_state(&self, model_id: &str, state: AcquisitionState) {
+        {
+            let mut states = self.acquisition_states.write();
+            states.insert(model_id.to_string(), state.clone());
+        }
+
+        // Log state change
+        info!(
+            model_id = %model_id,
+            state = ?state,
+            event_type = "model_acquisition_state_change",
+            "Model acquisition state changed"
+        );
+
+        // Emit telemetry
+        if let Some(ref telemetry) = self.telemetry {
+            let _ = telemetry.log(
+                "model_acquisition_state_change",
+                serde_json::json!({
+                    "model_id": model_id,
+                    "state": match &state {
+                        AcquisitionState::NotAvailable => "not_available",
+                        AcquisitionState::Downloading { .. } => "downloading",
+                        AcquisitionState::Verifying => "verifying",
+                        AcquisitionState::Available => "available",
+                        AcquisitionState::Failed { .. } => "failed",
+                    },
+                    "details": state,
+                }),
+            );
+        }
+
+        // Emit download progress if in downloading state
+        if let AcquisitionState::Downloading { progress_pct } = state {
+            if let Some(ref tx) = self.download_progress_tx {
+                let _ = tx.send(DownloadProgress {
+                    model_id: model_id.to_string(),
+                    phase: "downloading".to_string(),
+                    progress_pct,
+                    eta_seconds: None,
+                    speed_mbps: None,
+                });
+            }
+        }
+    }
+
+    /// Subscribe to download progress events
+    ///
+    /// Returns a broadcast receiver that will receive download progress updates
+    /// for all models being acquired. Clients can filter by model_id.
+    pub fn subscribe_progress(&self) -> Result<broadcast::Receiver<DownloadProgress>> {
+        self.download_progress_tx
+            .as_ref()
+            .map(|tx| tx.subscribe())
+            .ok_or_else(|| {
+                AosError::Internal("Download progress channel not initialized".to_string())
+            })
+    }
+
+    /// Check if model needs download
+    ///
+    /// Returns true if the model is not available locally and needs to be downloaded
+    pub fn needs_download(&self, model_id: &str) -> bool {
+        // Check acquisition state first
+        let state = self.get_acquisition_state(model_id);
+        match state {
+            AcquisitionState::Available => false,
+            AcquisitionState::Downloading { .. } => false, // Already downloading
+            _ => {
+                // Check if file exists locally
+                let loader = self.loader.read();
+                let base_path = loader.adapters_base_path();
+                let model_path = base_path.join(format!("{}.aos", model_id));
+                !model_path.exists()
+            }
+        }
+    }
+
+    /// Update download progress with detailed metrics
+    ///
+    /// Called by external download implementations to report progress
+    pub fn update_download_progress(
+        &self,
+        model_id: &str,
+        phase: &str,
+        progress_pct: u8,
+        eta_seconds: Option<u64>,
+        speed_mbps: Option<f64>,
+    ) {
+        // Update acquisition state if in downloading phase
+        if phase == "downloading" {
+            self.set_acquisition_state(model_id, AcquisitionState::Downloading { progress_pct });
+        } else if phase == "verifying" {
+            self.set_acquisition_state(model_id, AcquisitionState::Verifying);
+        }
+
+        // Emit progress event
+        if let Some(ref tx) = self.download_progress_tx {
+            let _ = tx.send(DownloadProgress {
+                model_id: model_id.to_string(),
+                phase: phase.to_string(),
+                progress_pct,
+                eta_seconds,
+                speed_mbps,
+            });
+        }
+
+        info!(
+            model_id = %model_id,
+            phase = %phase,
+            progress_pct = progress_pct,
+            eta_seconds = ?eta_seconds,
+            speed_mbps = ?speed_mbps,
+            "Download progress update"
+        );
+    }
+
+    /// Mark model acquisition as complete
+    ///
+    /// Called after successful download and verification
+    pub fn mark_acquisition_complete(&self, model_id: &str, local_path: PathBuf) -> Result<()> {
+        // Verify file exists
+        if !local_path.exists() {
+            return Err(AosError::NotFound(format!(
+                "Model file not found after download: {}",
+                local_path.display()
+            )));
+        }
+
+        // Update state to available
+        self.set_acquisition_state(model_id, AcquisitionState::Available);
+
+        // Emit completion event
+        if let Some(ref tx) = self.download_progress_tx {
+            let _ = tx.send(DownloadProgress {
+                model_id: model_id.to_string(),
+                phase: "complete".to_string(),
+                progress_pct: 100,
+                eta_seconds: Some(0),
+                speed_mbps: None,
+            });
+        }
+
+        info!(
+            model_id = %model_id,
+            path = %local_path.display(),
+            "Model acquisition complete"
+        );
+
+        Ok(())
+    }
+
+    /// Mark model acquisition as failed
+    ///
+    /// Called when download or verification fails
+    pub fn mark_acquisition_failed(&self, model_id: &str, reason: &str) {
+        self.set_acquisition_state(
+            model_id,
+            AcquisitionState::Failed {
+                reason: reason.to_string(),
+            },
+        );
+
+        warn!(
+            model_id = %model_id,
+            reason = %reason,
+            "Model acquisition failed"
+        );
+    }
+
+    /// Get all models with their acquisition states
+    ///
+    /// Returns a map of model_id -> acquisition state for all tracked models
+    pub fn get_all_acquisition_states(&self) -> HashMap<String, AcquisitionState> {
+        self.acquisition_states.read().clone()
+    }
+
+    /// Clear acquisition state for a model
+    ///
+    /// Useful for retrying failed downloads
+    pub fn clear_acquisition_state(&self, model_id: &str) {
+        let mut states = self.acquisition_states.write();
+        states.remove(model_id);
+        info!(model_id = %model_id, "Cleared acquisition state");
     }
 }
 

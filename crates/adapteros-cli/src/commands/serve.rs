@@ -266,7 +266,8 @@ pub async fn run(
             #[cfg(feature = "multi-backend")]
             {
                 // Check if MLX is available
-                let mlx_env_set = std::env::var("MLX_LIB_DIR").is_ok() || std::env::var("MLX_PATH").is_ok();
+                let mlx_env_set =
+                    std::env::var("MLX_LIB_DIR").is_ok() || std::env::var("MLX_PATH").is_ok();
                 if mlx_env_set {
                     output.verbose("MLX path variables detected (MLX_LIB_DIR/MLX_PATH)");
                 }
@@ -280,8 +281,12 @@ pub async fn run(
                 if !mlx_available {
                     output.error("MLX not found. Install the C++ MLX library (real backend) before using --backend mlx.");
                     output.info("  Homebrew: brew install mlx");
-                    output.info("  Or set MLX_PATH/MLX_INCLUDE_DIR/MLX_LIB_DIR to your installation.");
-                    output.info("  Docs: MLX_INSTALLATION_GUIDE.md or run scripts/build-mlx.sh --help");
+                    output.info(
+                        "  Or set MLX_PATH/MLX_INCLUDE_DIR/MLX_LIB_DIR to your installation.",
+                    );
+                    output.info(
+                        "  Docs: MLX_INSTALLATION_GUIDE.md or run scripts/build-mlx.sh --help",
+                    );
                     return Err(anyhow::anyhow!("MLX not installed"));
                 }
 

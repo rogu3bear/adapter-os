@@ -85,8 +85,20 @@ async fn run_migrate(
         output.info("Verifying migration signatures...");
 
         // Just verify signatures without running migrations
+        // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
         use adapteros_db::migration_verify::MigrationVerifier;
-        let verifier = MigrationVerifier::new("migrations")?;
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let workspace_root = std::path::Path::new(manifest_dir)
+            .parent() // crates/
+            .and_then(|p| p.parent()) // workspace root
+            .ok_or_else(|| anyhow::anyhow!("Failed to find workspace root"))?;
+        let migrations_path = workspace_root.join("migrations");
+
+        if !migrations_path.exists() {
+            anyhow::bail!("Migrations directory not found: {}", migrations_path.display());
+        }
+
+        let verifier = MigrationVerifier::new(&migrations_path)?;
         verifier.verify_all()?;
 
         output.success("All migration signatures verified");

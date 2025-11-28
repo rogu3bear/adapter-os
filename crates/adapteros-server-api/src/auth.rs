@@ -15,7 +15,11 @@ pub struct Claims {
     pub sub: String, // user_id
     pub email: String,
     pub role: String,
+    #[serde(default)]
+    pub roles: Vec<String>, // Multiple roles support
     pub tenant_id: String,
+    #[serde(default)]
+    pub admin_tenants: Vec<String>, // Tenants this admin can access (empty = own tenant only)
     pub exp: i64,
     pub iat: i64,
     pub jti: String, // JWT ID for token tracking and revocation
@@ -34,13 +38,31 @@ pub fn hash_password(password: &str) -> Result<String> {
 }
 
 /// Verify a password against a hash
+///
+/// SECURITY: This uses constant-time comparison to prevent timing attacks.
+/// The Argon2 verify_password() internally uses constant-time comparison,
+/// but we ensure the entire flow is constant-time by always parsing the hash
+/// and always calling verify_password, regardless of intermediate results.
 pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
-    let parsed_hash =
-        PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("failed to parse hash: {}", e))?;
+    // SECURITY: Always attempt to parse the hash, even if it might be invalid
+    // This ensures timing is consistent regardless of hash validity
+    let parsed_hash = match PasswordHash::new(hash) {
+        Ok(h) => h,
+        Err(_) => {
+            // SECURITY: Use a dummy hash to maintain constant-time behavior
+            // The password will fail verification, but timing remains constant
+            return Ok(false);
+        }
+    };
+
     let argon2 = Argon2::default();
-    Ok(argon2
-        .verify_password(password.as_bytes(), &parsed_hash)
-        .is_ok())
+
+    // SECURITY: Argon2::verify_password uses constant-time comparison internally
+    // This prevents timing attacks by taking the same time for any password
+    let result = argon2.verify_password(password.as_bytes(), &parsed_hash);
+
+    // Return success/failure - both paths take similar time
+    Ok(result.is_ok())
 }
 
 /// Generate a JWT token with Ed25519 signing
@@ -50,9 +72,36 @@ pub fn generate_token_ed25519(
     role: &str,
     tenant_id: &str,
     keypair: &Keypair,
+    token_ttl_seconds: u64,
+) -> Result<String> {
+    generate_token_ed25519_with_admin_tenants(
+        user_id,
+        email,
+        role,
+        tenant_id,
+        &[],
+        keypair,
+        token_ttl_seconds,
+    )
+}
+
+/// Generate a JWT token with Ed25519 signing and admin tenant access
+pub fn generate_token_ed25519_with_admin_tenants(
+    user_id: &str,
+    email: &str,
+    role: &str,
+    tenant_id: &str,
+    admin_tenants: &[String],
+    keypair: &Keypair,
+    token_ttl_seconds: u64,
 ) -> Result<String> {
     let now = Utc::now();
-    let exp = now + Duration::hours(8); // 8 hour expiry
+    let ttl_secs = if token_ttl_seconds == 0 {
+        8 * 3600
+    } else {
+        token_ttl_seconds
+    };
+    let exp = now + Duration::seconds(ttl_secs as i64); // 8 hour expiry
     let nbf = now; // Token valid immediately
 
     // Generate unique JWT ID using BLAKE3
@@ -68,7 +117,9 @@ pub fn generate_token_ed25519(
         sub: user_id.to_string(),
         email: email.to_string(),
         role: role.to_string(),
+        roles: vec![role.to_string()], // Initialize roles with the primary role
         tenant_id: tenant_id.to_string(),
+        admin_tenants: admin_tenants.to_vec(),
         exp: exp.timestamp(),
         iat: now.timestamp(),
         jti,
@@ -118,7 +169,6 @@ pub fn encode_ed25519_public_key_pem(public_key_bytes: &[u8]) -> String {
 
 /// Base64 encode bytes (standard Base64 without padding)
 fn base64_encode(data: &[u8]) -> String {
-    use std::fmt::Write;
     const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut result = String::new();
@@ -211,9 +261,36 @@ pub fn generate_token(
     role: &str,
     tenant_id: &str,
     secret: &[u8],
+    token_ttl_seconds: u64,
+) -> Result<String> {
+    generate_token_with_admin_tenants(
+        user_id,
+        email,
+        role,
+        tenant_id,
+        &[],
+        secret,
+        token_ttl_seconds,
+    )
+}
+
+/// Generate a JWT token with admin tenant access (HMAC-SHA256 fallback)
+pub fn generate_token_with_admin_tenants(
+    user_id: &str,
+    email: &str,
+    role: &str,
+    tenant_id: &str,
+    admin_tenants: &[String],
+    secret: &[u8],
+    token_ttl_seconds: u64,
 ) -> Result<String> {
     let now = Utc::now();
-    let exp = now + Duration::hours(8); // 8 hour expiry
+    let ttl_secs = if token_ttl_seconds == 0 {
+        8 * 3600
+    } else {
+        token_ttl_seconds
+    };
+    let exp = now + Duration::seconds(ttl_secs as i64); // 8 hour expiry
     let nbf = now; // Token valid immediately
 
     // Generate unique JWT ID using BLAKE3
@@ -229,7 +306,9 @@ pub fn generate_token(
         sub: user_id.to_string(),
         email: email.to_string(),
         role: role.to_string(),
+        roles: vec![role.to_string()], // Initialize roles with the primary role
         tenant_id: tenant_id.to_string(),
+        admin_tenants: admin_tenants.to_vec(),
         exp: exp.timestamp(),
         iat: now.timestamp(),
         jti,
@@ -248,6 +327,7 @@ pub fn generate_token(
 pub fn validate_token_ed25519(token: &str, public_key_pem: &str) -> Result<Claims> {
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.validate_nbf = true; // Validate "not before" timestamp
+    validation.leeway = 60; // SECURITY: 60 second clock skew tolerance
 
     let token_data = decode::<Claims>(
         token,
@@ -261,19 +341,21 @@ pub fn validate_token_ed25519(token: &str, public_key_pem: &str) -> Result<Claim
 pub fn validate_token(token: &str, secret: &[u8]) -> Result<Claims> {
     let mut validation = Validation::default();
     validation.validate_nbf = true; // Validate "not before" timestamp
+    validation.leeway = 60; // SECURITY: 60 second clock skew tolerance
 
     let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret), &validation)?;
     Ok(token_data.claims)
 }
 
 /// Refresh a JWT token (generate new token with updated expiry)
-pub fn refresh_token(claims: &Claims, keypair: &Keypair) -> Result<String> {
+pub fn refresh_token(claims: &Claims, keypair: &Keypair, token_ttl_seconds: u64) -> Result<String> {
     generate_token_ed25519(
         &claims.sub,
         &claims.email,
         &claims.role,
         &claims.tenant_id,
         keypair,
+        token_ttl_seconds,
     )
 }
 

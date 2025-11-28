@@ -14,12 +14,12 @@
 
 mod common;
 
-use common::test_harness::ApiTestHarness;
 use adapteros_db::users::Role;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use common::test_harness::ApiTestHarness;
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -41,6 +41,7 @@ async fn test_multi_user_rbac_permissions() {
             "Test Viewer",
             &viewer_password_hash,
             Role::Viewer,
+            "default",
         )
         .await
         .expect("Failed to create viewer user");
@@ -57,6 +58,7 @@ async fn test_multi_user_rbac_permissions() {
             "Test Operator",
             &operator_password_hash,
             Role::Operator,
+            "default",
         )
         .await
         .expect("Failed to create operator user");
@@ -73,6 +75,7 @@ async fn test_multi_user_rbac_permissions() {
             "Test Admin 2",
             &admin_password_hash,
             Role::Admin,
+            "default",
         )
         .await
         .expect("Failed to create admin user");
@@ -84,24 +87,36 @@ async fn test_multi_user_rbac_permissions() {
     // For full testing, we'd need to implement proper JWT generation here
     // For now, we verify users exist in database
 
-    let viewer = sqlx::query!("SELECT id, role FROM users WHERE email = ?", "viewer@example.com")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Viewer should exist");
+    let viewer = sqlx::query!(
+        "SELECT id, role FROM users WHERE email = ?",
+        "viewer@example.com"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Viewer should exist");
 
     assert_eq!(viewer.role, "viewer", "Viewer should have viewer role");
 
-    let operator = sqlx::query!("SELECT id, role FROM users WHERE email = ?", "operator@example.com")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Operator should exist");
+    let operator = sqlx::query!(
+        "SELECT id, role FROM users WHERE email = ?",
+        "operator@example.com"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Operator should exist");
 
-    assert_eq!(operator.role, "operator", "Operator should have operator role");
+    assert_eq!(
+        operator.role, "operator",
+        "Operator should have operator role"
+    );
 
-    let admin = sqlx::query!("SELECT id, role FROM users WHERE email = ?", "admin2@example.com")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Admin should exist");
+    let admin = sqlx::query!(
+        "SELECT id, role FROM users WHERE email = ?",
+        "admin2@example.com"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Admin should exist");
 
     assert_eq!(admin.role, "admin", "Admin should have admin role");
 
@@ -115,8 +130,8 @@ async fn test_viewer_cannot_delete_adapter() {
         .expect("Failed to initialize test harness");
 
     // Create viewer user
-    let viewer_password_hash = adapteros_server_api::auth::hash_password("viewer-pass")
-        .expect("Failed to hash password");
+    let viewer_password_hash =
+        adapteros_server_api::auth::hash_password("viewer-pass").expect("Failed to hash password");
 
     harness
         .db()
@@ -125,6 +140,7 @@ async fn test_viewer_cannot_delete_adapter() {
             "Viewer Test",
             &viewer_password_hash,
             Role::Viewer,
+            "default",
         )
         .await
         .expect("Failed to create viewer user");
@@ -136,14 +152,20 @@ async fn test_viewer_cannot_delete_adapter() {
         .expect("Failed to create test adapter");
 
     // Get admin token (default user)
-    let admin_token = harness.authenticate().await.expect("Failed to authenticate as admin");
+    let admin_token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate as admin");
 
     // Try to delete adapter as viewer (would need proper viewer token)
     // For now, verify that viewer role exists and has correct permissions in database
-    let viewer = sqlx::query!("SELECT role FROM users WHERE email = ?", "viewer-test@example.com")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Viewer should exist");
+    let viewer = sqlx::query!(
+        "SELECT role FROM users WHERE email = ?",
+        "viewer-test@example.com"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Viewer should exist");
 
     assert_eq!(viewer.role, "viewer", "User should have viewer role");
 
@@ -182,15 +204,19 @@ async fn test_operator_can_load_adapter() {
             "Operator Test",
             &operator_password_hash,
             Role::Operator,
+            "default",
         )
         .await
         .expect("Failed to create operator user");
 
     // Verify operator has correct role
-    let operator = sqlx::query!("SELECT role FROM users WHERE email = ?", "operator-test@example.com")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Operator should exist");
+    let operator = sqlx::query!(
+        "SELECT role FROM users WHERE email = ?",
+        "operator-test@example.com"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Operator should exist");
 
     assert_eq!(operator.role, "operator", "User should have operator role");
 
@@ -202,10 +228,13 @@ async fn test_operator_can_load_adapter() {
 
     // Verify adapter can be loaded (would require proper operator token)
     // For now, verify the adapter exists
-    let adapter = sqlx::query!("SELECT id FROM adapters WHERE id = ?", "operator-load-adapter")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Adapter should exist");
+    let adapter = sqlx::query!(
+        "SELECT id FROM adapters WHERE id = ?",
+        "operator-load-adapter"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Adapter should exist");
 
     assert_eq!(adapter.id, "operator-load-adapter");
 
@@ -218,7 +247,10 @@ async fn test_audit_log_captures_all_actions() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     // Perform various actions that should be audited
 
@@ -286,10 +318,15 @@ async fn test_tenant_isolation() {
         .expect("Failed to initialize test harness");
 
     // Create second tenant
-    sqlx::query!("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)", "tenant-b", "Tenant B", 0)
-        .execute(harness.db().pool())
-        .await
-        .expect("Failed to create second tenant");
+    sqlx::query!(
+        "INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, ?)",
+        "tenant-b",
+        "Tenant B",
+        0
+    )
+    .execute(harness.db().pool())
+    .await
+    .expect("Failed to create second tenant");
 
     // Create adapter for tenant-a (default)
     harness
@@ -313,34 +350,58 @@ async fn test_tenant_isolation() {
     .expect("Failed to create adapter for tenant-b");
 
     // Verify tenant-a adapter belongs to default tenant
-    let adapter_a = sqlx::query!("SELECT tenant_id FROM adapters WHERE id = ?", "tenant-a-adapter")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Adapter A should exist");
+    let adapter_a = sqlx::query!(
+        "SELECT tenant_id FROM adapters WHERE id = ?",
+        "tenant-a-adapter"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Adapter A should exist");
 
-    assert_eq!(adapter_a.tenant_id, "default", "Adapter A should belong to default tenant");
+    assert_eq!(
+        adapter_a.tenant_id, "default",
+        "Adapter A should belong to default tenant"
+    );
 
     // Verify tenant-b adapter belongs to tenant-b
-    let adapter_b = sqlx::query!("SELECT tenant_id FROM adapters WHERE id = ?", "tenant-b-adapter")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Adapter B should exist");
+    let adapter_b = sqlx::query!(
+        "SELECT tenant_id FROM adapters WHERE id = ?",
+        "tenant-b-adapter"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Adapter B should exist");
 
-    assert_eq!(adapter_b.tenant_id, "tenant-b", "Adapter B should belong to tenant-b");
+    assert_eq!(
+        adapter_b.tenant_id, "tenant-b",
+        "Adapter B should belong to tenant-b"
+    );
 
     // Verify tenants are isolated
-    let tenant_a_adapters = sqlx::query!("SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?", "default")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Should be able to count tenant-a adapters");
+    let tenant_a_adapters = sqlx::query!(
+        "SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?",
+        "default"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Should be able to count tenant-a adapters");
 
-    let tenant_b_adapters = sqlx::query!("SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?", "tenant-b")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Should be able to count tenant-b adapters");
+    let tenant_b_adapters = sqlx::query!(
+        "SELECT COUNT(*) as count FROM adapters WHERE tenant_id = ?",
+        "tenant-b"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Should be able to count tenant-b adapters");
 
-    assert!(tenant_a_adapters.count >= 1, "Tenant A should have at least 1 adapter");
-    assert_eq!(tenant_b_adapters.count, 1, "Tenant B should have exactly 1 adapter");
+    assert!(
+        tenant_a_adapters.count >= 1,
+        "Tenant A should have at least 1 adapter"
+    );
+    assert_eq!(
+        tenant_b_adapters.count, 1,
+        "Tenant B should have exactly 1 adapter"
+    );
 
     println!("✓ Tenant isolation test passed");
 }
@@ -366,7 +427,13 @@ async fn test_role_hierarchy() {
 
         harness
             .db()
-            .create_user(email, &format!("Test {}", email), &password_hash, role)
+            .create_user(
+                email,
+                &format!("Test {}", email),
+                &password_hash,
+                role,
+                "default",
+            )
             .await
             .expect(&format!("Failed to create user with role {:?}", role));
     }
@@ -380,9 +447,15 @@ async fn test_role_hierarchy() {
     let role_names: Vec<_> = users.iter().map(|u| u.role.as_str()).collect();
 
     assert!(role_names.contains(&"admin"), "Should have admin role");
-    assert!(role_names.contains(&"operator"), "Should have operator role");
+    assert!(
+        role_names.contains(&"operator"),
+        "Should have operator role"
+    );
     assert!(role_names.contains(&"sre"), "Should have sre role");
-    assert!(role_names.contains(&"compliance"), "Should have compliance role");
+    assert!(
+        role_names.contains(&"compliance"),
+        "Should have compliance role"
+    );
     assert!(role_names.contains(&"viewer"), "Should have viewer role");
 
     println!("✓ Role hierarchy test passed");

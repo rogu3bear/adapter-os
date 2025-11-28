@@ -201,7 +201,7 @@ export function AdapterFilters({
                 </div>
               </div>
 
-              {/* Pinned Only Checkbox */}
+              {/* Protected Only Checkbox */}
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="pinned-only"
@@ -211,7 +211,7 @@ export function AdapterFilters({
                   }
                 />
                 <Label htmlFor="pinned-only" className="text-sm font-medium cursor-pointer">
-                  Pinned only
+                  Protected only
                 </Label>
               </div>
             </div>
@@ -282,7 +282,7 @@ export function AdapterFilters({
 
           {filters.pinned && (
             <Badge variant="secondary" className="gap-1">
-              Pinned
+              Protected
               <button
                 onClick={() => updateFilter('pinned', undefined)}
                 className="ml-1 hover:text-destructive"

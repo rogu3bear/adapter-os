@@ -17,7 +17,7 @@ impl Db {
         .bind(tenant_id)
         .bind(hash_b3)
         .bind(body_json)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -28,7 +28,7 @@ impl Db {
             "SELECT id, tenant_id, hash_b3, body_json, created_at FROM manifests WHERE hash_b3 = ?",
         )
         .bind(hash_b3)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(manifest)

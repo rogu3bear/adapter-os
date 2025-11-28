@@ -5,9 +5,9 @@
 
 #[cfg(test)]
 mod lifecycle_tests {
-    use std::time::Duration;
     use adapteros_core::B3Hash;
     use adapteros_deterministic_exec::{init_global_executor, ExecutorConfig};
+    use std::time::Duration;
 
     fn init_test_executor() {
         let manifest_hash = B3Hash::hash(b"test-manifest");
@@ -36,14 +36,22 @@ mod lifecycle_tests {
             component: "test-component".to_string(),
             phase: adapteros_server_api::LifecyclePhase::BeforeStartup,
             callback: std::sync::Arc::new(|ctx| {
-                assert_eq!(ctx.phase, adapteros_server_api::LifecyclePhase::BeforeStartup);
+                assert_eq!(
+                    ctx.phase,
+                    adapteros_server_api::LifecyclePhase::BeforeStartup
+                );
             }),
         };
         registry.register(hook);
 
         // Run hooks for before_startup
         let start_time = std::time::Instant::now();
-        let result = registry.run_hooks(adapteros_server_api::LifecyclePhase::BeforeStartup, start_time).await;
+        let result = registry
+            .run_hooks(
+                adapteros_server_api::LifecyclePhase::BeforeStartup,
+                start_time,
+            )
+            .await;
         assert!(result.is_ok());
     }
 
@@ -58,13 +66,21 @@ mod lifecycle_tests {
             component: "test-component".to_string(),
             phase: adapteros_server_api::LifecyclePhase::AfterStartup,
             callback: std::sync::Arc::new(|ctx| {
-                assert_eq!(ctx.phase, adapteros_server_api::LifecyclePhase::AfterStartup);
+                assert_eq!(
+                    ctx.phase,
+                    adapteros_server_api::LifecyclePhase::AfterStartup
+                );
             }),
         };
         registry.register(hook);
 
         let start_time = std::time::Instant::now();
-        let result = registry.run_hooks(adapteros_server_api::LifecyclePhase::AfterStartup, start_time).await;
+        let result = registry
+            .run_hooks(
+                adapteros_server_api::LifecyclePhase::AfterStartup,
+                start_time,
+            )
+            .await;
         assert!(result.is_ok());
     }
 
@@ -79,13 +95,21 @@ mod lifecycle_tests {
             component: "test-component".to_string(),
             phase: adapteros_server_api::LifecyclePhase::BeforeShutdown,
             callback: std::sync::Arc::new(|ctx| {
-                assert_eq!(ctx.phase, adapteros_server_api::LifecyclePhase::BeforeShutdown);
+                assert_eq!(
+                    ctx.phase,
+                    adapteros_server_api::LifecyclePhase::BeforeShutdown
+                );
             }),
         };
         registry.register(hook);
 
         let start_time = std::time::Instant::now();
-        let result = registry.run_hooks(adapteros_server_api::LifecyclePhase::BeforeShutdown, start_time).await;
+        let result = registry
+            .run_hooks(
+                adapteros_server_api::LifecyclePhase::BeforeShutdown,
+                start_time,
+            )
+            .await;
         assert!(result.is_ok());
     }
 
@@ -100,13 +124,21 @@ mod lifecycle_tests {
             component: "test-component".to_string(),
             phase: adapteros_server_api::LifecyclePhase::AfterShutdown,
             callback: std::sync::Arc::new(|ctx| {
-                assert_eq!(ctx.phase, adapteros_server_api::LifecyclePhase::AfterShutdown);
+                assert_eq!(
+                    ctx.phase,
+                    adapteros_server_api::LifecyclePhase::AfterShutdown
+                );
             }),
         };
         registry.register(hook);
 
         let start_time = std::time::Instant::now();
-        let result = registry.run_hooks(adapteros_server_api::LifecyclePhase::AfterShutdown, start_time).await;
+        let result = registry
+            .run_hooks(
+                adapteros_server_api::LifecyclePhase::AfterShutdown,
+                start_time,
+            )
+            .await;
         assert!(result.is_ok());
     }
 
@@ -167,20 +199,16 @@ mod lifecycle_tests {
         let mut coordinator = adapteros_server_api::ShutdownCoordinator::new();
 
         // Register a simple background task
-        let handle = adapteros_deterministic_exec::spawn_deterministic(
-            "test-task".to_string(),
-            async {
+        let handle =
+            adapteros_deterministic_exec::spawn_deterministic("test-task".to_string(), async {
                 tokio::time::sleep(Duration::from_millis(50)).await;
-            },
-        ).expect("Failed to spawn test task");
+            })
+            .expect("Failed to spawn test task");
 
         coordinator.register_task(handle);
 
         // Shutdown should complete successfully
-        let result = tokio::time::timeout(
-            Duration::from_secs(5),
-            coordinator.shutdown()
-        ).await;
+        let result = tokio::time::timeout(Duration::from_secs(5), coordinator.shutdown()).await;
 
         assert!(result.is_ok(), "Shutdown timed out");
         assert!(result.unwrap().is_ok(), "Shutdown failed");
@@ -271,11 +299,13 @@ mod lifecycle_tests {
         }
 
         // Retrieve hooks for before_startup
-        let hooks = registry.get_hooks_for_phase(adapteros_server_api::LifecyclePhase::BeforeStartup);
+        let hooks =
+            registry.get_hooks_for_phase(adapteros_server_api::LifecyclePhase::BeforeStartup);
         assert_eq!(hooks.len(), 3, "Expected 3 hooks for BeforeStartup phase");
 
         // Verify no hooks for other phases
-        let hooks = registry.get_hooks_for_phase(adapteros_server_api::LifecyclePhase::AfterStartup);
+        let hooks =
+            registry.get_hooks_for_phase(adapteros_server_api::LifecyclePhase::AfterStartup);
         assert_eq!(hooks.len(), 0, "Expected 0 hooks for AfterStartup phase");
     }
 

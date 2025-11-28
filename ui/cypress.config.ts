@@ -16,7 +16,7 @@ export default defineConfig({
     responseTimeout: 30000, // 30 seconds for response
     pageLoadTimeout: 60000, // 60 seconds for page loads
     env: {
-      API_BASE_URL: process.env.CYPRESS_API_BASE_URL || 'http://localhost:3300',
+      API_BASE_URL: process.env.CYPRESS_API_BASE_URL || 'http://localhost:8080',
       TEST_USER_EMAIL: process.env.CYPRESS_TEST_USER_EMAIL || 'test@example.com',
       TEST_USER_PASSWORD: process.env.CYPRESS_TEST_USER_PASSWORD || 'password',
     },

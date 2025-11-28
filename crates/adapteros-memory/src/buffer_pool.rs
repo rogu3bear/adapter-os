@@ -112,6 +112,8 @@ pub struct BufferPool {
     total_pooled_bytes: Arc<Mutex<usize>>,
     /// Total cache bytes
     total_cache_bytes: Arc<Mutex<usize>>,
+    /// Mutex poisoning event counter for metrics
+    poisoning_events: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl BufferPool {
@@ -123,7 +125,14 @@ impl BufferPool {
             conversion_cache: Arc::new(Mutex::new(HashMap::new())),
             total_pooled_bytes: Arc::new(Mutex::new(0)),
             total_cache_bytes: Arc::new(Mutex::new(0)),
+            poisoning_events: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
+    }
+
+    /// Get the number of mutex poisoning events (for metrics)
+    pub fn poisoning_events(&self) -> u64 {
+        self.poisoning_events
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Acquire a buffer from the pool or allocate new
@@ -137,7 +146,14 @@ impl BufferPool {
 
         let bucket = self.size_bucket(size);
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
-            warn!("Buffer pool mutex was poisoned, recovering: {:?}", e);
+            // Mutex poisoning is critical - log as error and increment counter
+            use std::sync::atomic::Ordering;
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Buffer pool mutex was poisoned, recovering with fresh state: {:?}",
+                e
+            );
             e.into_inner()
         });
 
@@ -146,7 +162,13 @@ impl BufferPool {
                 pooled.reset(size);
 
                 let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| {
-                    warn!("Mutex was poisoned, recovering: {:?}", e);
+                    use std::sync::atomic::Ordering;
+                    self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                    tracing::error!(
+                        poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                        "Total pooled bytes mutex was poisoned, recovering: {:?}",
+                        e
+                    );
                     e.into_inner()
                 });
                 *total_pooled = total_pooled.saturating_sub(pooled.capacity);
@@ -162,7 +184,7 @@ impl BufferPool {
             }
         }
 
-        // Allocate new buffer
+        // Allocate new fresh buffer (not from poisoned pool)
         let mut buffer = Vec::with_capacity(bucket);
         buffer.resize(size, 0);
 
@@ -183,7 +205,13 @@ impl BufferPool {
 
         let bucket = self.size_bucket(capacity);
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
-            warn!("Mutex was poisoned, recovering: {:?}", e);
+            use std::sync::atomic::Ordering;
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Buffer pool mutex was poisoned during release, recovering: {:?}",
+                e
+            );
             e.into_inner()
         });
 
@@ -194,7 +222,13 @@ impl BufferPool {
             // Evict oldest buffer
             if let Some(old) = bucket_queue.pop_back() {
                 let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| {
-                    warn!("Mutex was poisoned, recovering: {:?}", e);
+                    use std::sync::atomic::Ordering;
+                    self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                    tracing::error!(
+                        poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                        "Mutex poisoned during buffer eviction, recovering: {:?}",
+                        e
+                    );
                     e.into_inner()
                 });
                 *total_pooled = total_pooled.saturating_sub(old.capacity);
@@ -214,7 +248,13 @@ impl BufferPool {
         bucket_queue.push_front(pooled);
 
         let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| {
-            warn!("Mutex was poisoned, recovering: {:?}", e);
+            use std::sync::atomic::Ordering;
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Mutex poisoned during buffer release, recovering: {:?}",
+                e
+            );
             e.into_inner()
         });
         *total_pooled += capacity;
@@ -247,7 +287,13 @@ impl BufferPool {
         // Check cache
         {
             let mut cache = self.conversion_cache.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                use std::sync::atomic::Ordering;
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Conversion cache mutex poisoned during cache check, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             if let Some(cached) = cache.get_mut(&key) {
@@ -268,7 +314,13 @@ impl BufferPool {
         // Cache result
         {
             let mut cache = self.conversion_cache.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                use std::sync::atomic::Ordering;
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Conversion cache mutex poisoned during cache insert, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
 
@@ -288,7 +340,13 @@ impl BufferPool {
             );
 
             let mut total_cache = self.total_cache_bytes.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                use std::sync::atomic::Ordering;
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Cache bytes mutex poisoned, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             *total_cache += size_bytes;
@@ -400,7 +458,13 @@ impl BufferPool {
             cache.remove(&oldest_key);
 
             let mut total_cache = self.total_cache_bytes.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                use std::sync::atomic::Ordering;
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Cache bytes mutex poisoned during eviction, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             *total_cache = total_cache.saturating_sub(oldest_size);
@@ -425,21 +489,43 @@ impl BufferPool {
 
     /// Get pool statistics
     pub fn stats(&self) -> BufferPoolStats {
+        use std::sync::atomic::Ordering;
+
         let buffers = self.buffers.lock().unwrap_or_else(|e| {
-            warn!("Mutex was poisoned, recovering: {:?}", e);
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Buffers mutex poisoned in stats, recovering: {:?}",
+                e
+            );
             e.into_inner()
         });
         let cache = self.conversion_cache.lock().unwrap_or_else(|e| {
-            warn!("Mutex was poisoned, recovering: {:?}", e);
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Cache mutex poisoned in stats, recovering: {:?}",
+                e
+            );
             e.into_inner()
         });
 
         let total_pooled = *self.total_pooled_bytes.lock().unwrap_or_else(|e| {
-            warn!("Mutex was poisoned, recovering: {:?}", e);
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Total pooled mutex poisoned in stats, recovering: {:?}",
+                e
+            );
             e.into_inner()
         });
         let total_cache = *self.total_cache_bytes.lock().unwrap_or_else(|e| {
-            warn!("Mutex was poisoned, recovering: {:?}", e);
+            self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(
+                poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                "Total cache mutex poisoned in stats, recovering: {:?}",
+                e
+            );
             e.into_inner()
         });
 
@@ -456,14 +542,26 @@ impl BufferPool {
 
     /// Clear all pooled buffers and cache (for memory pressure)
     pub fn clear(&self) {
+        use std::sync::atomic::Ordering;
+
         {
             let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Buffers mutex poisoned during clear, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             buffers.clear();
             let mut total_pooled = self.total_pooled_bytes.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Total pooled mutex poisoned during clear, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             *total_pooled = 0;
@@ -471,18 +569,28 @@ impl BufferPool {
 
         {
             let mut cache = self.conversion_cache.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Cache mutex poisoned during clear, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             cache.clear();
             let mut total_cache = self.total_cache_bytes.lock().unwrap_or_else(|e| {
-                warn!("Mutex was poisoned, recovering: {:?}", e);
+                self.poisoning_events.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(
+                    poisoning_events = self.poisoning_events.load(Ordering::Relaxed),
+                    "Total cache mutex poisoned during clear, recovering: {:?}",
+                    e
+                );
                 e.into_inner()
             });
             *total_cache = 0;
         }
 
-        warn!("Cleared all pooled buffers and conversion cache");
+        tracing::warn!("Cleared all pooled buffers and conversion cache");
     }
 }
 

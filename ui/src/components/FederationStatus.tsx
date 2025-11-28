@@ -217,7 +217,7 @@ export function FederationStatus() {
                     <p><strong>Violation Type:</strong> {quarantineStatus.details.violation_type}</p>
                     <p><strong>Triggered:</strong> {new Date(quarantineStatus.details.triggered_at).toLocaleString()}</p>
                     {quarantineStatus.details.cpid && (
-                      <p><strong>CPID:</strong> {quarantineStatus.details.cpid}</p>
+                      <p><strong>Policy ID:</strong> {quarantineStatus.details.cpid}</p>
                     )}
                   </div>
                 </>

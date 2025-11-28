@@ -49,7 +49,7 @@ impl Db {
         .bind("{}") // Empty security scan JSON for now
         .bind("registered")
         .bind(created_by)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -66,7 +66,7 @@ impl Db {
              FROM git_repositories WHERE repo_id = ?",
         )
         .bind(repo_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repository)
@@ -82,7 +82,7 @@ impl Db {
                     security_scan_json, status, created_at, created_by, last_scan
              FROM git_repositories ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
@@ -96,7 +96,7 @@ impl Db {
         sqlx::query("UPDATE git_repositories SET status = ? WHERE repo_id = ?")
             .bind(status)
             .bind(repo_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -122,7 +122,7 @@ impl Db {
         .bind(evidence_json)
         .bind(security_scan_json)
         .bind(repo_id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -135,7 +135,7 @@ impl Db {
     pub async fn delete_git_repository(&self, repo_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM git_repositories WHERE repo_id = ?")
             .bind(repo_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -152,7 +152,7 @@ impl Db {
              FROM git_repositories WHERE status = ? ORDER BY created_at DESC",
         )
         .bind(status)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
@@ -172,7 +172,7 @@ impl Db {
              FROM git_repositories WHERE created_by = ? ORDER BY created_at DESC",
         )
         .bind(created_by)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(repositories)
@@ -185,7 +185,7 @@ impl Db {
     pub async fn update_git_repository_last_scan(&self, repo_id: &str) -> Result<()> {
         sqlx::query("UPDATE git_repositories SET last_scan = datetime('now') WHERE repo_id = ?")
             .bind(repo_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())

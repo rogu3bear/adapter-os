@@ -24,10 +24,15 @@ echo "AdapterOS Migration Signing Tool"
 echo "================================="
 echo
 
-# Check if openssl is available
-if ! command -v openssl &> /dev/null; then
+# Check if openssl is available (prefer Homebrew version for Ed25519 support)
+OPENSSL_BIN=""
+if [ -f "/opt/homebrew/bin/openssl" ]; then
+    OPENSSL_BIN="/opt/homebrew/bin/openssl"
+elif command -v openssl &> /dev/null; then
+    OPENSSL_BIN="openssl"
+else
     echo -e "${RED}Error: openssl not found${NC}"
-    echo "Install openssl to sign migrations"
+    echo "Install openssl to sign migrations: brew install openssl"
     exit 1
 fi
 
@@ -37,7 +42,7 @@ if [ ! -f "$KEY_FILE" ]; then
     mkdir -p "$(dirname "$KEY_FILE")"
 
     # Generate Ed25519 private key
-    openssl genpkey -algorithm Ed25519 -out "$KEY_FILE" 2>/dev/null
+    $OPENSSL_BIN genpkey -algorithm Ed25519 -out "$KEY_FILE" 2>/dev/null
 
     # Set restrictive permissions
     chmod 600 "$KEY_FILE"
@@ -52,7 +57,7 @@ fi
 
 # Extract public key for verification
 PUBLIC_KEY_FILE="$PROJECT_ROOT/var/migration_signing_key.pub"
-openssl pkey -in "$KEY_FILE" -pubout -out "$PUBLIC_KEY_FILE" 2>/dev/null
+$OPENSSL_BIN pkey -in "$KEY_FILE" -pubout -out "$PUBLIC_KEY_FILE" 2>/dev/null
 echo -e "${GREEN}✓ Public key exported: $PUBLIC_KEY_FILE${NC}"
 echo
 
@@ -88,7 +93,7 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
 
     # Sign the file hash
     echo -n "$file_hash" > /tmp/hash_input.txt
-    openssl pkeyutl -sign -rawin -inkey "$KEY_FILE" -in /tmp/hash_input.txt -out /tmp/migration.sig 2>/dev/null
+    $OPENSSL_BIN pkeyutl -sign -rawin -inkey "$KEY_FILE" -in /tmp/hash_input.txt -out /tmp/migration.sig 2>/dev/null
     signature=$(base64 < /tmp/migration.sig | tr -d '\n')
     rm -f /tmp/migration.sig /tmp/hash_input.txt
 
@@ -151,7 +156,7 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
     # Verify signature
     echo "$signature" | base64 -d > /tmp/migration.sig
     echo -n "$file_hash" > /tmp/hash_input.txt
-    if openssl pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
+    if $OPENSSL_BIN pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
         verify_count=$((verify_count + 1))
     else
         echo -e "${RED}✗ Signature verification failed for $filename${NC}"

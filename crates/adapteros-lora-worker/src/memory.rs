@@ -3,8 +3,10 @@
 use adapteros_core::Result;
 use adapteros_telemetry::TelemetryWriter; // Assume
 use chrono::Utc;
+use parking_lot::RwLock;
 use serde_json::json;
 use std::process::Command;
+use std::sync::Arc;
 use tokio::time::{interval, Duration};
 use tracing::warn;
 
@@ -13,6 +15,7 @@ pub struct UmaPressureMonitor {
     min_headroom_pct: u8,
     telemetry: Option<TelemetryWriter>,
     handle: Option<tokio::task::JoinHandle<()>>,
+    cached_pressure: Arc<RwLock<MemoryPressureLevel>>,
 }
 
 impl UmaPressureMonitor {
@@ -21,31 +24,116 @@ impl UmaPressureMonitor {
             min_headroom_pct,
             telemetry,
             handle: None,
+            cached_pressure: Arc::new(RwLock::new(MemoryPressureLevel::Low)),
         }
     }
 
     pub async fn start_polling(&mut self) {
         let telemetry_clone = self.telemetry.clone();
         let min_headroom = self.min_headroom_pct;
+        let pressure_cache = self.cached_pressure.clone();
         self.handle = Some(tokio::spawn(async move {
+            // Import backoff utilities from parent crate
+            use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
+
+            let backoff = BackoffConfig::new(
+                Duration::from_millis(1000),
+                Duration::from_secs(30),
+                2.0,
+                5,
+            );
+            let circuit_breaker = BackoffCircuitBreaker::new(10, Duration::from_secs(300));
+            let mut consecutive_failures = 0u32;
+
             let mut interval = interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
-                let stats = get_uma_stats().await;
-                let pressure = determine_pressure(&stats, min_headroom as f32);
-                if pressure != MemoryPressureLevel::Low {
-                    emit_telemetry(&telemetry_clone, &stats, pressure).await;
+
+                // Check circuit breaker state
+                if circuit_breaker.is_open() {
+                    warn!(
+                        failure_count = circuit_breaker.failure_count(),
+                        "Memory monitoring circuit breaker is open, pausing"
+                    );
+                    tokio::time::sleep(circuit_breaker.reset_timeout()).await;
+                    continue;
                 }
-                if pressure == MemoryPressureLevel::Critical {
-                    warn!("Critical UMA pressure: headroom {}%", stats.headroom_pct);
+
+                // Attempt to get memory stats
+                match tokio::task::spawn_blocking(|| {
+                    // Run potentially blocking system calls in a blocking thread
+                    std::panic::catch_unwind(|| {
+                        // This is synchronous but may call system APIs
+                        // We wrap it to prevent panics from killing the task
+                        tokio::runtime::Handle::current().block_on(get_uma_stats())
+                    })
+                })
+                .await
+                {
+                    Ok(Ok(stats)) => {
+                        // Success - reset backoff and circuit breaker
+                        circuit_breaker.record_success();
+                        consecutive_failures = 0;
+
+                        let pressure = determine_pressure(&stats, min_headroom as f32);
+
+                        // Update cached pressure level
+                        *pressure_cache.write() = pressure;
+
+                        if pressure != MemoryPressureLevel::Low {
+                            emit_telemetry(&telemetry_clone, &stats, pressure).await;
+                        }
+                        if pressure == MemoryPressureLevel::Critical {
+                            warn!("Critical UMA pressure: headroom {}%", stats.headroom_pct);
+                        }
+                    }
+                    Ok(Err(panic_err)) => {
+                        // Panic in stats collection
+                        circuit_breaker.record_failure();
+                        consecutive_failures += 1;
+
+                        warn!(
+                            error = ?panic_err,
+                            consecutive_failures = consecutive_failures,
+                            "Memory stats collection panicked"
+                        );
+
+                        // Apply backoff
+                        let delay = backoff.next_delay(consecutive_failures);
+                        tokio::time::sleep(delay).await;
+                    }
+                    Err(join_err) => {
+                        // Task join error
+                        circuit_breaker.record_failure();
+                        consecutive_failures += 1;
+
+                        warn!(
+                            error = %join_err,
+                            consecutive_failures = consecutive_failures,
+                            "Memory monitoring task failed"
+                        );
+
+                        // Apply backoff
+                        let delay = backoff.next_delay(consecutive_failures);
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+
+                // Extended backoff if we've exceeded max retries
+                if backoff.should_give_up(consecutive_failures) {
+                    warn!(
+                        "Memory monitoring has failed {} times, entering extended backoff",
+                        consecutive_failures
+                    );
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    consecutive_failures = 0;
                 }
             }
         }));
     }
 
     pub fn get_current_pressure(&self) -> MemoryPressureLevel {
-        // Cache last pressure, assume impl
-        MemoryPressureLevel::Low // Stub
+        *self.cached_pressure.read()
     }
 
     /// Check if headroom meets minimum
@@ -222,11 +310,19 @@ impl UmaPressureMonitor {
         let used_mb = ((100.0 - headroom_pct) / 100.0 * total_mb as f32) as u64;
         let available_mb = total_mb - used_mb;
 
+        // Collect ANE metrics if on macOS
+        let (ane_allocated_mb, ane_used_mb, ane_available_mb, ane_usage_percent) =
+            self.get_ane_metrics();
+
         UmaStats {
             headroom_pct,
             used_mb,
             total_mb,
             available_mb,
+            ane_allocated_mb,
+            ane_used_mb,
+            ane_available_mb,
+            ane_usage_percent,
         }
     }
 
@@ -240,12 +336,110 @@ impl UmaPressureMonitor {
         let used_mb = ((100.0 - headroom_pct) / 100.0 * total_mb as f32) as u64;
         let available_mb = total_mb - used_mb;
 
+        // Collect ANE metrics if on macOS
+        let (ane_allocated_mb, ane_used_mb, ane_available_mb, ane_usage_percent) =
+            self.get_ane_metrics();
+
         UmaStats {
             headroom_pct,
             used_mb,
             total_mb,
             available_mb,
+            ane_allocated_mb,
+            ane_used_mb,
+            ane_available_mb,
+            ane_usage_percent,
         }
+    }
+
+    /// Get ANE-specific metrics
+    fn get_ane_metrics(&self) -> (Option<u64>, Option<u64>, Option<u64>, Option<f32>) {
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+
+            // Check if we're on Apple Silicon
+            let is_apple_silicon = Command::new("sysctl")
+                .args(["-n", "machdep.cpu.brand_string"])
+                .output()
+                .ok()
+                .and_then(|output| {
+                    let brand = String::from_utf8_lossy(&output.stdout);
+                    Some(brand.contains("Apple"))
+                })
+                .unwrap_or(false);
+
+            if !is_apple_silicon {
+                return (None, None, None, None);
+            }
+
+            // Get total system memory
+            let total_bytes = self.get_total_memory_bytes().unwrap_or(0);
+            if total_bytes == 0 {
+                return (None, None, None, None);
+            }
+
+            // Estimate ANE allocation: 15-20% of system memory on Apple Silicon
+            let ane_allocated_bytes = (total_bytes as f64 * 0.18) as u64;
+            let ane_allocated_mb = ane_allocated_bytes / (1024 * 1024);
+
+            // Estimate ANE usage based on compressor activity (proxy for ML workload)
+            let ane_usage_pct = self.estimate_ane_usage_pct().unwrap_or(0.0);
+            let ane_used_mb = (ane_allocated_mb as f64 * ane_usage_pct as f64 / 100.0) as u64;
+            let ane_available_mb = ane_allocated_mb.saturating_sub(ane_used_mb);
+
+            (
+                Some(ane_allocated_mb),
+                Some(ane_used_mb),
+                Some(ane_available_mb),
+                Some(ane_usage_pct),
+            )
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            (None, None, None, None)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn estimate_ane_usage_pct(&self) -> Option<f32> {
+        use std::process::Command;
+
+        let vm_stat = Command::new("vm_stat")
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())?;
+
+        let mut pages_compressed = 0u64;
+        let mut pages_total = 0u64;
+
+        for line in vm_stat.lines() {
+            if line.contains("Pages occupied by compressor:") {
+                pages_compressed = line
+                    .split(':')
+                    .nth(1)
+                    .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
+                    .unwrap_or(0);
+            } else if line.contains("Pages active:") || line.contains("Pages wired down:") {
+                let pages: u64 = line
+                    .split(':')
+                    .nth(1)
+                    .and_then(|s| s.trim().trim_end_matches('.').parse().ok())
+                    .unwrap_or(0);
+                pages_total += pages;
+            }
+        }
+
+        if pages_total == 0 {
+            return Some(0.0);
+        }
+
+        // Estimate ANE usage based on compression activity
+        let compression_ratio = pages_compressed as f64 / pages_total as f64;
+        let estimated_usage = (compression_ratio * 100.0).min(100.0) as f32;
+
+        Some(estimated_usage)
     }
 }
 
@@ -281,6 +475,10 @@ mod tests {
             used_mb: 12000,
             total_mb: 16000,
             available_mb: 4000,
+            ane_allocated_mb: None,
+            ane_used_mb: None,
+            ane_available_mb: None,
+            ane_usage_percent: None,
         };
         let level = determine_pressure(&stats, 15.0);
         assert_eq!(level, MemoryPressureLevel::Medium);
@@ -290,6 +488,10 @@ mod tests {
             used_mb: 14400,
             total_mb: 16000,
             available_mb: 1600,
+            ane_allocated_mb: None,
+            ane_used_mb: None,
+            ane_available_mb: None,
+            ane_usage_percent: None,
         };
         let level = determine_pressure(&critical, 15.0);
         assert_eq!(level, MemoryPressureLevel::Critical);
@@ -335,6 +537,11 @@ pub struct UmaStats {
     pub used_mb: u64,
     pub total_mb: u64,
     pub available_mb: u64,
+    /// ANE-specific memory statistics (populated on macOS with Apple Silicon)
+    pub ane_allocated_mb: Option<u64>,
+    pub ane_used_mb: Option<u64>,
+    pub ane_available_mb: Option<u64>,
+    pub ane_usage_percent: Option<f32>,
 }
 
 /// Standalone function to get UMA stats for use in spawned tasks
@@ -392,18 +599,27 @@ async fn get_uma_stats() -> UmaStats {
         let used_bytes = (pages_active + pages_wired + pages_compressed) * page_size;
         let total_mb = total_bytes / (1024 * 1024);
         let used_mb = used_bytes / (1024 * 1024);
-        let available_mb = total_mb - used_mb;
+        let available_mb = total_mb.saturating_sub(used_mb);
+        let headroom_bytes = total_bytes.saturating_sub(used_bytes);
         let headroom_pct = if total_bytes > 0 {
-            ((total_bytes - used_bytes) as f32 / total_bytes as f32) * 100.0
+            (headroom_bytes as f32 / total_bytes as f32) * 100.0
         } else {
             20.0
         };
+
+        // ANE metrics for Apple Silicon
+        let (ane_allocated_mb, ane_used_mb, ane_available_mb, ane_usage_percent) =
+            get_ane_metrics_standalone(total_bytes, pages_compressed, pages_active + pages_wired);
 
         UmaStats {
             headroom_pct,
             used_mb,
             total_mb,
             available_mb,
+            ane_allocated_mb,
+            ane_used_mb,
+            ane_available_mb,
+            ane_usage_percent,
         }
     }
 
@@ -415,6 +631,57 @@ async fn get_uma_stats() -> UmaStats {
             used_mb: 0,
             total_mb: 0,
             available_mb: 0,
+            ane_allocated_mb: None,
+            ane_used_mb: None,
+            ane_available_mb: None,
+            ane_usage_percent: None,
         }
     }
+}
+
+/// Get ANE metrics for standalone function
+#[cfg(target_os = "macos")]
+fn get_ane_metrics_standalone(
+    total_bytes: u64,
+    pages_compressed: u64,
+    pages_total: u64,
+) -> (Option<u64>, Option<u64>, Option<u64>, Option<f32>) {
+    use std::process::Command;
+
+    // Check if we're on Apple Silicon
+    let is_apple_silicon = Command::new("sysctl")
+        .args(["-n", "machdep.cpu.brand_string"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            let brand = String::from_utf8_lossy(&output.stdout);
+            Some(brand.contains("Apple"))
+        })
+        .unwrap_or(false);
+
+    if !is_apple_silicon || total_bytes == 0 {
+        return (None, None, None, None);
+    }
+
+    // Estimate ANE allocation: 15-20% of system memory
+    let ane_allocated_bytes = (total_bytes as f64 * 0.18) as u64;
+    let ane_allocated_mb = ane_allocated_bytes / (1024 * 1024);
+
+    // Estimate ANE usage based on compression activity
+    let ane_usage_pct = if pages_total > 0 {
+        let compression_ratio = pages_compressed as f64 / pages_total as f64;
+        ((compression_ratio * 100.0).min(100.0)) as f32
+    } else {
+        0.0
+    };
+
+    let ane_used_mb = (ane_allocated_mb as f64 * ane_usage_pct as f64 / 100.0) as u64;
+    let ane_available_mb = ane_allocated_mb.saturating_sub(ane_used_mb);
+
+    (
+        Some(ane_allocated_mb),
+        Some(ane_used_mb),
+        Some(ane_available_mb),
+        Some(ane_usage_pct),
+    )
 }

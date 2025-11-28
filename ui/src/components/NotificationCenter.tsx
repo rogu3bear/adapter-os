@@ -69,13 +69,13 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col backdrop-blur-xl bg-background/95 border-border/50">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2">
               Notifications
               {summary && (
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-background/50">
                   {summary.unread_count} unread
                 </Badge>
               )}
@@ -87,6 +87,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
                 onClick={handleRefresh}
                 disabled={loading}
                 aria-label="Refresh notifications"
+                className="bg-background/50 hover:bg-background/80"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </Button>
@@ -96,6 +97,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
                   size="sm"
                   onClick={handleMarkAllRead}
                   aria-label="Mark all as read"
+                  className="bg-background/50 hover:bg-background/80"
                 >
                   <CheckCheck className="h-4 w-4 mr-1" />
                   Mark All Read
@@ -105,7 +107,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
           </div>
         </DialogHeader>
 
-        <div className="flex items-center gap-4 py-4 border-b">
+        <div className="flex items-center gap-4 py-4 border-b border-border/30">
           <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as NotificationType)}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Filter by type" />

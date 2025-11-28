@@ -110,7 +110,10 @@ impl TrainArgs {
 
         info!(
             "Training completed successfully: adapter_id={}, final_loss={:.4}, time={}ms ({}us)",
-            result.adapter_id, result.final_loss, result.training_time_ms(), result.training_time_us
+            result.adapter_id,
+            result.final_loss,
+            result.training_time_ms(),
+            result.training_time_us
         );
 
         Ok(())
@@ -139,9 +142,7 @@ impl TrainArgs {
                 batch_size: self.batch_size,
                 epochs: self.epochs,
                 hidden_dim: self.hidden_dim,
-                max_gpu_memory_mb: 0,
-                preferred_backend: None,
-                require_gpu: false,
+                ..TrainingConfig::default()
             };
 
             info!("Using command-line training configuration");

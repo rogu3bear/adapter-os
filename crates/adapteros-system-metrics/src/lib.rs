@@ -16,6 +16,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod alerting;
+pub mod ane;
 pub mod anomaly;
 pub mod baselines;
 pub mod collector;
@@ -31,6 +32,7 @@ pub mod telemetry;
 pub mod types;
 
 pub use alerting::{AlertEvaluator, AlertingConfig};
+pub use ane::{AneMemoryStats, AneMetricsCollector};
 pub use anomaly::{AnomalyConfig, AnomalyDetector};
 pub use baselines::{BaselineConfig, BaselineService};
 pub use collector::SystemMetricsCollector;

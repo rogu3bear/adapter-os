@@ -16,13 +16,11 @@ use tracing::info;
 #[derive(Debug, Subcommand, Clone)]
 pub enum FederationCommand {
     /// Verify cross-host federation signatures
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl federation verify --bundle-dir ./var/telemetry
   aosctl federation verify --bundle-dir ./var/telemetry --database ./var/cp.db
   aosctl federation verify --bundle-dir ./var/telemetry --json > federation.json
-"#
-    )]
+"#)]
     Verify {
         /// Telemetry bundle directory
         #[arg(short, long)]
@@ -44,7 +42,10 @@ fn get_federation_command_name(cmd: &FederationCommand) -> &'static str {
 /// Handle federation management commands
 ///
 /// Routes federation commands to appropriate handlers
-pub async fn handle_federation_command(cmd: FederationCommand, output: &OutputWriter) -> Result<()> {
+pub async fn handle_federation_command(
+    cmd: FederationCommand,
+    output: &OutputWriter,
+) -> Result<()> {
     let command_name = get_federation_command_name(&cmd);
 
     info!(command = ?cmd, "Handling federation command");
@@ -74,7 +75,11 @@ struct FederationVerificationResult {
 }
 
 /// Verify cross-host federation signatures
-pub async fn verify_federation(bundle_dir: &Path, database: &Path, output: &OutputWriter) -> Result<()> {
+pub async fn verify_federation(
+    bundle_dir: &Path,
+    database: &Path,
+    output: &OutputWriter,
+) -> Result<()> {
     output.info(format!(
         "Verifying federation chain: {}",
         bundle_dir.display()
@@ -82,7 +87,9 @@ pub async fn verify_federation(bundle_dir: &Path, database: &Path, output: &Outp
 
     // Connect to database
     output.progress("Connecting to database");
-    let db = Db::connect(database.to_str().unwrap())
+    let db_path_str = database.to_str()
+        .ok_or_else(|| anyhow::anyhow!("Database path contains invalid UTF-8: {}", database.display()))?;
+    let db = Db::connect(db_path_str)
         .await
         .context("Failed to connect to database")?;
 

@@ -211,10 +211,10 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="filterTenant">Tenant</Label>
+              <Label htmlFor="filterTenant">Organization</Label>
               <Input
                 id="filterTenant"
-                placeholder="Filter by tenant..."
+                placeholder="Filter by organization..."
                 value={filterTenant}
                 onChange={(e) => setFilterTenant(e.target.value)}
               />
@@ -261,7 +261,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
             <TableHeader>
               <TableRow>
                 <TableHead>Worker ID</TableHead>
-                <TableHead>Tenant</TableHead>
+                <TableHead>Organization</TableHead>
                 <TableHead>Node</TableHead>
                 <TableHead>Plan</TableHead>
                 <TableHead>Status</TableHead>

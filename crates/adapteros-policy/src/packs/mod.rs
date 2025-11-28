@@ -19,8 +19,7 @@ pub mod memory;
 pub mod mplora;
 pub mod naming_policy;
 pub mod numeric;
-// TODO: Fix nvd_client compilation errors (RateLimiter generic args, NvdClient trait)
-// pub mod nvd_client;
+pub mod nvd_client;
 pub mod output;
 pub mod performance;
 pub mod rag;
@@ -80,11 +79,10 @@ pub use numeric::{
     NumericClaim, NumericConfig, NumericPolicy, PrecisionInfo, PrecisionRequirements, RangeLimit,
     RoundingMode, UnitConversion, ValidationRules,
 };
-// NvdClient exports disabled - module is not compiled due to errors
-// pub use nvd_client::{
-//     NvdApiResponse, NvdClient, NvdCve, NvdCveWrapper, NvdCvssData, NvdCvssV30, NvdCvssV31,
-//     NvdDescription, NvdError, NvdMetrics, NvdReference, NvdWeakness,
-// };
+pub use nvd_client::{
+    NvdApiResponse, NvdClient, NvdCve, NvdCveWrapper, NvdCvssData, NvdCvssV30, NvdCvssV31,
+    NvdDescription, NvdError, NvdMetrics, NvdReference, NvdWeakness,
+};
 pub use output::{LlmOutput, OutputConfig, OutputPolicy, SafetyCheckResult};
 pub use performance::{InferenceMetrics, PerformanceConfig, PerformancePolicy, PerformanceStats};
 pub use rag::{

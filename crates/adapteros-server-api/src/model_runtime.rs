@@ -1229,8 +1229,7 @@ mod tests {
     #[test]
     fn test_model_runtime_creation() {
         let _runtime = ModelRuntimeImpl::new();
-        // Runtime created successfully
-        assert!(true);
+        // Verify runtime can be created without panicking
     }
 
     #[test]

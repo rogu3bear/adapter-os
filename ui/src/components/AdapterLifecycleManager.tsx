@@ -822,9 +822,9 @@ function CategoryPolicyEditor({
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor="eviction_priority">Eviction Priority</Label>
-          <Select 
-            value={localPolicy.eviction_priority} 
+          <Label htmlFor="eviction_priority">Removal Priority</Label>
+          <Select
+            value={localPolicy.eviction_priority}
             onValueChange={(value) => setLocalPolicy({
               ...localPolicy,
               eviction_priority: value as EvictionPriority

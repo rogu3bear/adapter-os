@@ -2,14 +2,14 @@
 
 use crate::cache::{AdapterCache, CacheConfig};
 use crate::hot_swap::HotSwapManager;
-use crate::mmap_loader::{MmapAdapter, MmapAdapterLoader};
-use adapteros_core::Result;
+use crate::implementation::{AosLoader, LoadedAdapter};
+use adapteros_core::{B3Hash, Result};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
 
 pub struct AosManager {
-    loader: MmapAdapterLoader,
+    loader: AosLoader,
     cache: Option<Arc<AdapterCache>>,
     hot_swap: Option<Arc<HotSwapManager>>,
 }
@@ -20,7 +20,7 @@ impl AosManager {
     }
 
     #[instrument(skip(self), fields(path = %path.as_ref().display()))]
-    pub async fn load<P: AsRef<Path>>(&self, path: P) -> Result<Arc<MmapAdapter>> {
+    pub async fn load<P: AsRef<Path>>(&self, path: P) -> Result<Arc<LoadedAdapter>> {
         let path = path.as_ref();
 
         if let Some(ref cache) = self.cache {
@@ -29,7 +29,7 @@ impl AosManager {
             }
         }
 
-        let adapter = self.loader.load(path).await?;
+        let adapter = self.loader.load_from_path(path).await?;
         let adapter = Arc::new(adapter);
 
         if let Some(ref cache) = self.cache {
@@ -40,8 +40,8 @@ impl AosManager {
     }
 
     #[instrument(skip(self), fields(path = %path.as_ref().display()))]
-    pub async fn load_uncached<P: AsRef<Path>>(&self, path: P) -> Result<MmapAdapter> {
-        self.loader.load(path).await
+    pub async fn load_uncached<P: AsRef<Path>>(&self, path: P) -> Result<LoadedAdapter> {
+        self.loader.load_from_path(path.as_ref()).await
     }
 
     #[instrument(skip(self), fields(slot = %slot, path = %path.as_ref().display()))]
@@ -93,7 +93,7 @@ impl AosManager {
         self.hot_swap.as_ref().map(Arc::clone)
     }
 
-    pub fn evict<P: AsRef<Path>>(&self, path: P) -> Option<Arc<MmapAdapter>> {
+    pub fn evict<P: AsRef<Path>>(&self, path: P) -> Option<Arc<LoadedAdapter>> {
         if let Some(ref cache) = self.cache {
             cache.remove(path)
         } else {
@@ -108,11 +108,20 @@ impl AosManager {
     }
 }
 
-#[derive(Default)]
 pub struct AosManagerBuilder {
     cache_config: Option<CacheConfig>,
     enable_hot_swap: bool,
-    verify_signatures: bool,
+    global_seed: Option<B3Hash>,
+}
+
+impl Default for AosManagerBuilder {
+    fn default() -> Self {
+        Self {
+            cache_config: None,
+            enable_hot_swap: false,
+            global_seed: None,
+        }
+    }
 }
 
 impl AosManagerBuilder {
@@ -134,16 +143,24 @@ impl AosManagerBuilder {
         self
     }
 
-    pub fn without_verification(mut self) -> Self {
-        self.verify_signatures = false;
+    pub fn with_seed(mut self, seed: B3Hash) -> Self {
+        self.global_seed = Some(seed);
+        self
+    }
+
+    /// Deprecated: AosLoader always validates format. Kept for API compatibility.
+    #[deprecated(note = "AosLoader always validates format. This method has no effect.")]
+    pub fn without_verification(self) -> Self {
+        // AosLoader always validates the AOS format. This method is kept for
+        // API compatibility but has no effect.
         self
     }
 
     pub fn build(self) -> Result<AosManager> {
-        let loader = if self.verify_signatures {
-            MmapAdapterLoader::new()
+        let loader = if let Some(seed) = self.global_seed {
+            AosLoader::with_seed(&seed)?
         } else {
-            MmapAdapterLoader::without_verification()
+            AosLoader::new()?
         };
 
         let cache = self
@@ -151,10 +168,11 @@ impl AosManagerBuilder {
             .map(|config| Arc::new(AdapterCache::new(config)));
 
         let hot_swap = if self.enable_hot_swap {
-            let manager = if self.verify_signatures {
-                HotSwapManager::new()
+            let seed = self.global_seed.clone();
+            let manager = if let Some(seed) = seed {
+                HotSwapManager::with_seed(&seed)?
             } else {
-                HotSwapManager::without_verification()
+                HotSwapManager::new()?
             };
             Some(Arc::new(manager))
         } else {

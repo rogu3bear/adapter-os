@@ -346,9 +346,9 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     };
 
     setConfirmationOptions({
-      title: 'Evict Nodes',
-      description: `Permanently evict ${nodeIds.length} node(s)? This action cannot be undone.`,
-      confirmText: 'Evict Nodes',
+      title: 'Remove Nodes',
+      description: `Permanently remove ${nodeIds.length} node(s)? This action cannot be undone.`,
+      confirmText: 'Remove Nodes',
       variant: 'destructive'
     });
     setPendingBulkAction(() => performBulkEvict);
@@ -364,7 +364,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
     },
     {
       id: 'evict',
-      label: 'Evict',
+      label: 'Remove',
       variant: 'destructive',
       handler: handleBulkEvict,
       disabled: !can('node:manage')
@@ -624,7 +624,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                               disabled={!can('node:manage')}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Evict Node
+                              Remove Node
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

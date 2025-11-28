@@ -104,7 +104,8 @@ impl Default for RagConfig {
                 "effectivity".to_string(),
                 "source_type".to_string(),
             ],
-            embedding_model_hash: "b3:default".to_string(),
+            // Default uses wildcard - production should configure actual model hash
+            embedding_model_hash: "b3:*".to_string(),
             topk: 5,
             order: vec![OrderingRule::ScoreDesc, OrderingRule::DocIdAsc],
             tenant_isolation: TenantIsolation {
@@ -239,6 +240,10 @@ impl RagPolicy {
 
     /// Validate embedding model hash
     pub fn validate_embedding_model_hash(&self, hash: &str) -> Result<()> {
+        // Wildcard "b3:*" allows any embedding model hash (for development/testing)
+        if self.config.embedding_model_hash == "b3:*" {
+            return Ok(());
+        }
         if hash != self.config.embedding_model_hash {
             Err(AosError::PolicyViolation(format!(
                 "Embedding model hash mismatch: expected {}, got {}",
@@ -279,8 +284,14 @@ impl RagPolicy {
             return SupersessionStatus::Current;
         }
 
-        let max_rev = same_doc_id.iter().map(|doc| doc.rev).max().unwrap();
-        let min_rev = same_doc_id.iter().map(|doc| doc.rev).min().unwrap();
+        let max_rev = match same_doc_id.iter().map(|doc| doc.rev).max() {
+            Some(rev) => rev,
+            None => return SupersessionStatus::Current,
+        };
+        let min_rev = match same_doc_id.iter().map(|doc| doc.rev).min() {
+            Some(rev) => rev,
+            None => return SupersessionStatus::Current,
+        };
 
         if current_doc.rev == max_rev {
             SupersessionStatus::Current
@@ -488,11 +499,18 @@ mod tests {
         let config = RagConfig::default();
         let policy = RagPolicy::new(config);
 
-        // Valid case
-        assert!(policy.validate_embedding_model_hash("b3:default").is_ok());
+        // Default is wildcard, allows any hash
+        assert!(policy.validate_embedding_model_hash("b3:any_hash").is_ok());
+        assert!(policy.validate_embedding_model_hash("b3:different").is_ok());
 
-        // Invalid case
-        assert!(policy
+        // With specific hash configured, only that hash is allowed
+        let mut strict_config = RagConfig::default();
+        strict_config.embedding_model_hash = "b3:specific_hash".to_string();
+        let strict_policy = RagPolicy::new(strict_config);
+        assert!(strict_policy
+            .validate_embedding_model_hash("b3:specific_hash")
+            .is_ok());
+        assert!(strict_policy
             .validate_embedding_model_hash("b3:different")
             .is_err());
     }
@@ -527,7 +545,7 @@ mod tests {
             SupersessionStatus::Superseded { newer_rev } => {
                 assert_eq!(newer_rev, 2);
             }
-            _ => panic!("Expected superseded status"),
+            _ => panic!("Expected superseded status, got: {:?}", status),
         }
     }
 

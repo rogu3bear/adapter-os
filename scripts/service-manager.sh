@@ -272,6 +272,13 @@ start_backend() {
     fi
 }
 
+restart_backend() {
+    local mode="${1:-graceful}"
+    status_msg "Restarting Backend Server (mode: ${mode})..."
+    stop_backend "$mode"
+    start_backend
+}
+
 stop_backend() {
     local mode="${1:-graceful}"
 
@@ -325,7 +332,7 @@ start_ui() {
         cd "$PROJECT_ROOT"
     fi
 
-    # Start UI dev server
+# Start UI dev server
     cd "$PROJECT_ROOT/ui"
 
     # Set the port for Vite
@@ -350,6 +357,13 @@ start_ui() {
         rm -f "$UI_PID_FILE"
         return 1
     fi
+}
+
+restart_ui() {
+    local mode="${1:-graceful}"
+    status_msg "Restarting Web UI (mode: ${mode})..."
+    stop_ui "$mode"
+    start_ui
 }
 
 stop_ui() {
@@ -436,6 +450,13 @@ start_menu_bar() {
     fi
 
     return 0
+}
+
+restart_menu_bar() {
+    local mode="${1:-graceful}"
+    status_msg "Restarting Menu Bar App (mode: ${mode})..."
+    stop_menu_bar "$mode"
+    start_menu_bar
 }
 
 stop_menu_bar() {
@@ -552,6 +573,7 @@ usage() {
     echo "  $0 start <service>        Start a service"
     echo "  $0 stop all [mode]        Stop all services"
     echo "  $0 stop <service> [mode]  Stop a specific service"
+    echo "  $0 restart <service> [mode] Restart a service (stop then start)"
     echo "  $0 status                 Show status of all services"
     echo ""
     echo "SERVICES:"
@@ -559,7 +581,7 @@ usage() {
     echo "  ui          Web UI development server"
     echo "  menu-bar    Menu Bar status app (macOS only)"
     echo ""
-    echo "STOP MODES:"
+    echo "STOP MODES (used by stop/restart commands):"
     echo "  graceful    Graceful shutdown with full cleanup (default)"
     echo "  fast        Fast shutdown, reduced cleanup"
     echo "  immediate   Immediate shutdown, minimal cleanup"
@@ -569,6 +591,8 @@ usage() {
     echo "  $0 start ui               # Start web UI"
     echo "  $0 stop all               # Stop all services gracefully"
     echo "  $0 stop all fast          # Fast stop all services"
+    echo "  $0 restart backend        # Restart backend gracefully"
+    echo "  $0 restart ui fast        # Restart UI using fast stop"
     echo "  $0 status                 # Show service status"
 }
 
@@ -625,6 +649,29 @@ case "$COMMAND" in
                 ;;
             "")
                 error_msg "Please specify a service to stop (or 'all')"
+                usage
+                exit 1
+                ;;
+            *)
+                error_msg "Unknown service: $SERVICE"
+                usage
+                exit 1
+                ;;
+        esac
+        ;;
+    restart)
+        case "$SERVICE" in
+            backend)
+                restart_backend "$MODE"
+                ;;
+            ui)
+                restart_ui "$MODE"
+                ;;
+            menu-bar|menubar)
+                restart_menu_bar "$MODE"
+                ;;
+            "")
+                error_msg "Please specify a service to restart"
                 usage
                 exit 1
                 ;;

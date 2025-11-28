@@ -5,6 +5,7 @@ use adapteros_db::Db;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::auth::Claims;
+use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
 use adapteros_server_api::telemetry::MetricsRegistry;
 use adapteros_telemetry::MetricsCollector;
@@ -38,13 +39,26 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     // 3. Create test JWT secret
     let jwt_secret = b"test-jwt-secret-for-integration-tests-32bytes!".to_vec();
 
-    // 4. Create API config
+    // 4. Create API config with all required fields
     let config = Arc::new(RwLock::new(ApiConfig {
         metrics: MetricsConfig {
             enabled: true,
             bearer_token: "test-bearer-token".to_string(),
         },
         directory_analysis_timeout_secs: 120,
+        capacity_limits: Default::default(),
+        general: None,
+        server: Default::default(),
+        security: Default::default(),
+        performance: Default::default(),
+        paths: PathsConfig {
+            artifacts_root: "/tmp/test-artifacts".to_string(),
+            bundles_root: "/tmp/test-bundles".to_string(),
+            adapters_root: "/tmp/test-adapters".to_string(),
+            plan_dir: "/tmp/test-plan".to_string(),
+            datasets_root: "/tmp/test-datasets".to_string(),
+            documents_root: "/tmp/test-documents".to_string(),
+        },
     }));
 
     // 5. Create metrics exporter with standard histogram buckets
@@ -57,7 +71,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     );
 
     // 6. Create metrics collector and registry
-    let metrics_collector = Arc::new(MetricsCollector::default());
+    let metrics_collector = Arc::new(MetricsCollector::new(Default::default()));
     let metrics_registry = Arc::new(MetricsRegistry::new());
 
     // 7. Create UMA pressure monitor (15% min headroom, no telemetry for tests)
@@ -81,6 +95,7 @@ pub fn test_admin_claims() -> Claims {
         sub: "tenant-1-user".to_string(),
         email: "user@example.com".to_string(),
         role: "admin".to_string(),
+        roles: vec!["admin".to_string()],
         tenant_id: "tenant-1".to_string(),
         exp: 0,
         iat: 0,
@@ -95,6 +110,7 @@ pub fn test_viewer_claims() -> Claims {
         sub: "viewer-user-id".to_string(),
         email: "viewer@example.com".to_string(),
         role: "viewer".to_string(),
+        roles: vec!["viewer".to_string()],
         tenant_id: "default".to_string(),
         exp: 9999999999,
         iat: 0,
@@ -109,6 +125,7 @@ pub fn test_operator_claims() -> Claims {
         sub: "operator-user-id".to_string(),
         email: "operator@example.com".to_string(),
         role: "operator".to_string(),
+        roles: vec!["operator".to_string()],
         tenant_id: "default".to_string(),
         exp: 9999999999,
         iat: 0,
@@ -123,6 +140,7 @@ pub fn test_compliance_claims() -> Claims {
         sub: "compliance-user-id".to_string(),
         email: "compliance@example.com".to_string(),
         role: "compliance".to_string(),
+        roles: vec!["compliance".to_string()],
         tenant_id: "default".to_string(),
         exp: 9999999999,
         iat: 0,
@@ -239,10 +257,7 @@ pub async fn create_test_adapter_default(
 }
 
 /// Create a test dataset in the database
-pub async fn create_test_dataset(
-    state: &AppState,
-    dataset_id: &str,
-) -> anyhow::Result<()> {
+pub async fn create_test_dataset(state: &AppState, dataset_id: &str) -> anyhow::Result<()> {
     use adapteros_core::B3Hash;
 
     let hash = B3Hash::hash(dataset_id.as_bytes()).to_hex();
@@ -267,22 +282,17 @@ pub async fn create_test_tenant(
     tenant_id: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    adapteros_db::sqlx::query(
-        "INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)",
-    )
-    .bind(tenant_id)
-    .bind(name)
-    .execute(state.db.pool())
-    .await?;
+    adapteros_db::sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind(tenant_id)
+        .bind(name)
+        .execute(state.db.pool())
+        .await?;
 
     Ok(())
 }
 
 /// Cleanup: delete a test adapter
-pub async fn delete_test_adapter(
-    state: &AppState,
-    adapter_id: &str,
-) -> anyhow::Result<()> {
+pub async fn delete_test_adapter(state: &AppState, adapter_id: &str) -> anyhow::Result<()> {
     adapteros_db::sqlx::query("DELETE FROM adapters WHERE id = ?")
         .bind(adapter_id)
         .execute(state.db.pool())
@@ -292,10 +302,7 @@ pub async fn delete_test_adapter(
 }
 
 /// Cleanup: delete a test dataset
-pub async fn delete_test_dataset(
-    state: &AppState,
-    dataset_id: &str,
-) -> anyhow::Result<()> {
+pub async fn delete_test_dataset(state: &AppState, dataset_id: &str) -> anyhow::Result<()> {
     adapteros_db::sqlx::query("DELETE FROM training_datasets WHERE id = ?")
         .bind(dataset_id)
         .execute(state.db.pool())
@@ -305,10 +312,7 @@ pub async fn delete_test_dataset(
 }
 
 /// Cleanup: delete a test training job
-pub async fn delete_test_training_job(
-    state: &AppState,
-    job_id: &str,
-) -> anyhow::Result<()> {
+pub async fn delete_test_training_job(state: &AppState, job_id: &str) -> anyhow::Result<()> {
     adapteros_db::sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
         .bind(job_id)
         .execute(state.db.pool())

@@ -87,9 +87,8 @@ async fn test_streaming_backpressure() {
 
     // Next send will block until receiver drains
     let sender = tx.clone();
-    let send_task = tokio::spawn(async move {
-        sender.send(StreamEvent::Token("3".to_string())).await
-    });
+    let send_task =
+        tokio::spawn(async move { sender.send(StreamEvent::Token("3".to_string())).await });
 
     // Give send task time to attempt send
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -271,12 +270,18 @@ async fn test_streaming_client_disconnect_during_inference() {
             Err(_) => {
                 // Client disconnected - server should stop
                 println!("Client disconnected after {} tokens", i);
-                assert!(i >= 5, "Should detect disconnect after client receives some tokens");
+                assert!(
+                    i >= 5,
+                    "Should detect disconnect after client receives some tokens"
+                );
                 break;
             }
         }
     }
 
     let received = client_task.await.unwrap();
-    assert_eq!(received, 5, "Client should receive exactly 5 tokens before disconnect");
+    assert_eq!(
+        received, 5,
+        "Client should receive exactly 5 tokens before disconnect"
+    );
 }

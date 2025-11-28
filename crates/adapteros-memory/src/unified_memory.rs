@@ -110,28 +110,33 @@ impl UnifiedMemoryManager {
     }
 
     /// Allocate memory block
+    ///
+    /// Lock ordering: Always acquire total_allocated BEFORE pool to prevent deadlock
     pub fn allocate(&self, request: AllocationRequest) -> Result<MemoryBlock> {
         let pool = self
             .pools
             .get(&request.backend)
             .ok_or_else(|| AosError::Memory(format!("No pool for backend {}", request.backend)))?;
 
-        let mut pool_guard = pool.lock().unwrap();
-
-        // Check if we have enough memory
-        if pool_guard.available < request.size {
-            return Err(AosError::Memory(format!(
-                "Insufficient memory in {} pool: need {}, available {}",
-                request.backend, request.size, pool_guard.available
-            )));
-        }
-
-        // Check global memory limit
+        // LOCK ORDER: 1. total_allocated first (prevent deadlock with deallocate)
         let mut total_allocated = self.total_allocated.lock().unwrap();
+
+        // Check global memory limit before acquiring pool lock
         if *total_allocated + request.size > self.memory_limit {
             return Err(AosError::Memory(format!(
                 "Global memory limit exceeded: {} + {} > {}",
                 *total_allocated, request.size, self.memory_limit
+            )));
+        }
+
+        // LOCK ORDER: 2. pool second
+        let mut pool_guard = pool.lock().unwrap();
+
+        // Check if we have enough memory in the pool
+        if pool_guard.available < request.size {
+            return Err(AosError::Memory(format!(
+                "Insufficient memory in {} pool: need {}, available {}",
+                request.backend, request.size, pool_guard.available
             )));
         }
 
@@ -160,19 +165,27 @@ impl UnifiedMemoryManager {
     }
 
     /// Deallocate memory block
+    ///
+    /// Lock ordering: Always acquire total_allocated BEFORE pool to prevent deadlock
     pub fn deallocate(&self, block: &MemoryBlock) -> Result<()> {
         let pool = self
             .pools
             .get(&block.backend)
             .ok_or_else(|| AosError::Memory(format!("No pool for backend {}", block.backend)))?;
 
+        // LOCK ORDER: 1. total_allocated first (consistent with allocate)
+        let mut total_allocated = self.total_allocated.lock().unwrap();
+
+        // LOCK ORDER: 2. pool second
         let mut pool_guard = pool.lock().unwrap();
 
         if pool_guard.blocks.remove(&block.id).is_some() {
             pool_guard.available += block.size;
-
-            let mut total_allocated = self.total_allocated.lock().unwrap();
             *total_allocated -= block.size;
+
+            // Release locks before calling deallocate_memory
+            drop(pool_guard);
+            drop(total_allocated);
 
             self.deallocate_memory(block.ptr, block.size)?;
 

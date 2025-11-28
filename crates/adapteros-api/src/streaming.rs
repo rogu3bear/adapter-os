@@ -4,6 +4,7 @@
 //! using a chat-style chunked response format.
 
 use adapteros_core::Result;
+use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_kernel_api::FusedKernels;
 use axum::{
     extract::State,
@@ -164,12 +165,19 @@ pub async fn streaming_inference_handler<K: FusedKernels + Send + Sync + 'static
     let state_clone = state.clone();
 
     // Spawn background generation task
-    tokio::spawn(async move {
-        if let Err(e) = generate_streaming_response(state_clone, req, tx.clone()).await {
+    let spawn_name = format!("streaming-inference-{}", request_id);
+    let tx_for_spawn = tx.clone();
+    if let Err(e) = spawn_deterministic(spawn_name, async move {
+        if let Err(e) = generate_streaming_response(state_clone, req, tx_for_spawn.clone()).await {
             warn!("Streaming generation error: {}", e);
-            let _ = tx.send(StreamEvent::Error(e.to_string())).await;
+            let _ = tx_for_spawn.send(StreamEvent::Error(e.to_string())).await;
         }
-    });
+    }) {
+        warn!("Failed to spawn deterministic streaming task: {}", e);
+        let _ = tx
+            .send(StreamEvent::Error("spawn failed".to_string()))
+            .await;
+    }
 
     // Convert channel to SSE stream
     let stream = ReceiverStream::new(rx).map(move |event| {

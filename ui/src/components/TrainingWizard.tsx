@@ -2,6 +2,7 @@
 // 【ui/src/components/TrainingWizard.tsx§1-981】 - Add density controls and breadcrumbs
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Wizard, WizardStep } from './ui/wizard';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -28,6 +29,7 @@ import { HelpTooltip } from './ui/help-tooltip';
 import { useWizardPersistence } from '../hooks/useWizardPersistence';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { TrainingConfigSchema, formatValidationError } from '../schemas';
+import { TERMS } from '../constants/terminology';
 import {
   AdapterCategory,
   AdapterScope,
@@ -35,6 +37,41 @@ import {
   TrainingTemplate,
   Repository,
 } from '../api/types';
+
+const FILE_VALIDATION = {
+  maxSize: 100 * 1024 * 1024, // 100MB per file
+  allowedExtensions: ['.pdf', '.txt', '.json', '.jsonl', '.csv', '.md', '.py', '.js', '.ts', '.tsx', '.jsx', '.rs', '.go', '.java'],
+};
+
+/**
+ * Format bytes to human-readable string
+ */
+function formatBytes(bytes?: number): string {
+  if (bytes === undefined || bytes === null) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+/**
+ * Maps backend error codes to user-friendly messages
+ * Error codes match those returned by backend training handlers
+ */
+function getTrainingErrorMessage(code: string, fallback: string): string {
+  const messages: Record<string, string> = {
+    'VALIDATION_ERROR': 'Please fix the highlighted configuration issues and try again.',
+    'NOT_FOUND': 'The dataset or template was deleted. Please reselect.',
+    'TENANT_ISOLATION_ERROR': 'This dataset belongs to a different tenant.',
+    'POLICY_VIOLATION': 'Policy requirements not met. Check dataset validation status.',
+    'TRAINING_CAPACITY_LIMIT': 'System is at capacity. Try again later or reduce batch size.',
+    'MEMORY_PRESSURE_CRITICAL': 'Memory pressure too high. Reduce batch size or wait.',
+    'TRAINING_ERROR': 'Training failed. Check the Training Jobs page for details.',
+    'INTERNAL_ERROR': 'An internal error occurred. Please try again later.',
+    'DATABASE_ERROR': 'Database error. Please try again later.',
+  };
+  return messages[code] || fallback;
+}
 
 interface TrainingWizardProps {
   onComplete: (trainingJobId: string) => void;
@@ -128,15 +165,23 @@ const LORA_TARGETS = [
 // Inner component that uses density context
 function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatasetId }: TrainingWizardProps): JSX.Element {
   const { density, setDensity, spacing, textSizes } = useDensity();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
-  const [datasets, setDatasets] = useState<Array<{ id: string; name: string; validation_status: string }>>([]);
+  const [datasets, setDatasets] = useState<Array<{ id: string; name: string; validation_status: string; file_count: number; total_size_bytes: number; validation_errors?: string }>>([]);
   const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedState, setSavedState] = useState<WizardState | null>(null);
   const [simpleMode, setSimpleMode] = useState(true); // Default to simple mode for MVP
+  const [simpleDatasetMode, setSimpleDatasetMode] = useState<'existing' | 'upload'>('existing');
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [createStatus, setCreateStatus] = useState<'idle' | 'creating' | 'validating'>('idle');
+  const [createdDatasetId, setCreatedDatasetId] = useState<string | null>(null);
+  const [validationResult, setValidationResult] = useState<{ status: string; errors?: string[]; warnings?: string[] } | null>(null);
+  const [datasetName, setDatasetName] = useState('');
   const dataSourceLocked = Boolean(initialDatasetId && lockDatasetId);
 
   const initialState: WizardState = {
@@ -195,10 +240,13 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         ]);
         setRepositories(reposData);
         setTemplates(templatesData);
-        setDatasets(datasetsData.datasets?.map((d: any) => ({ 
-          id: d.id, 
+        setDatasets(datasetsData.datasets?.map((d: any) => ({
+          id: d.id,
           name: d.name,
-          validation_status: d.validation_status || 'draft'
+          validation_status: d.validation_status || 'draft',
+          file_count: d.file_count || 0,
+          total_size_bytes: d.total_size_bytes || 0,
+          validation_errors: d.validation_errors
         })) || []);
       } catch (error) {
 
@@ -231,11 +279,109 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     // Reset to initial state
     setPersistedState(initialState);
     setCurrentStep(0);
+    setSimpleDatasetMode('existing');
+    setUploadFiles([]);
+    setValidationResult(null);
+    setCreatedDatasetId(null);
     setShowResumeDialog(false);
   };
 
   const updateState = (updates: Partial<WizardState>) => {
     setPersistedState(updates);
+  };
+
+  const validateUploadFile = (file: File): string | null => {
+    if (file.size > FILE_VALIDATION.maxSize) {
+      return `File ${file.name} exceeds ${FILE_VALIDATION.maxSize / (1024 * 1024)}MB`;
+    }
+    const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+    if (!FILE_VALIDATION.allowedExtensions.includes(extension)) {
+      return `Unsupported type ${extension}`;
+    }
+    return null;
+  };
+
+  const handleUploadFilesSelect = (files: FileList | null) => {
+    if (!files) return;
+    const valid: File[] = [];
+    const errors: string[] = [];
+    Array.from(files).forEach((file) => {
+      const err = validateUploadFile(file);
+      if (err) {
+        errors.push(err);
+        return;
+      }
+      const duplicate = uploadFiles.some(f => f.name === file.name && f.size === file.size);
+      if (!duplicate) {
+        valid.push(file);
+      }
+    });
+    if (errors.length > 0) {
+      setUploadError(errors.join('\n'));
+    } else {
+      setUploadError(null);
+    }
+    if (valid.length > 0) {
+      setUploadFiles(prev => [...prev, ...valid]);
+    }
+  };
+
+  const handleCreateAndValidateDataset = async () => {
+    if (uploadFiles.length === 0) {
+      setUploadError('Add at least one file to continue');
+      return;
+    }
+    setUploadError(null);
+    setCreateStatus('creating');
+    setValidationResult(null);
+    try {
+      const nameToUse = (datasetName || state.name || '').trim() || `dataset-${Date.now()}`;
+      const response = await apiClient.createDataset({
+        name: nameToUse,
+        source_type: 'uploaded_files',
+        files: uploadFiles,
+      });
+      const newDatasetId = response.dataset.id;
+      setCreatedDatasetId(newDatasetId);
+      updateState({
+        datasetId: newDatasetId,
+        dataSourceType: 'dataset',
+        name: state.name || response.dataset.name || nameToUse,
+      });
+      setDatasets(prev => [
+        {
+          id: newDatasetId,
+          name: response.dataset.name || nameToUse,
+          validation_status: response.dataset.validation_status || 'draft',
+          file_count: response.dataset.file_count || 0,
+          total_size_bytes: response.dataset.total_size_bytes || 0,
+          validation_errors: response.dataset.validation_errors
+        },
+        ...prev.filter(d => d.id !== newDatasetId),
+      ]);
+
+      setCreateStatus('validating');
+      const result = await apiClient.validateDataset(newDatasetId);
+      setValidationResult(result);
+      setDatasets(prev => prev.map(d => d.id === newDatasetId ? { ...d, validation_status: result.status } : d));
+
+      if (result.status === 'valid') {
+        toast.success('Dataset uploaded and validated');
+      } else {
+        toast.error('Dataset validation reported issues');
+      }
+    } catch (error) {
+      const err = toError(error);
+      setUploadError(err.message);
+      logger.error('Wizard dataset upload failed', { component: 'TrainingWizard' }, err);
+    } finally {
+      setCreateStatus('idle');
+    }
+  };
+
+  const handleOpenDatasetTools = (datasetId?: string | null) => {
+    if (!datasetId) return;
+    navigate(`/training/datasets/${datasetId}`, { state: { focus: 'validation' } });
   };
 
   // Step 1: Category Selection
@@ -308,8 +454,8 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="global">Global - Available to all tenants</SelectItem>
-            <SelectItem value="tenant">Tenant - Isolated to this tenant</SelectItem>
+            <SelectItem value="global">Global - Available to all organizations</SelectItem>
+            <SelectItem value="tenant">Organization - Isolated to this organization</SelectItem>
             <SelectItem value="repo">Repository - Scoped to a specific repository</SelectItem>
             <SelectItem value="commit">Commit - Scoped to a specific commit</SelectItem>
           </SelectContent>
@@ -325,71 +471,203 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
     </div>
   );
 
-  // Simple Mode: Dataset Selection Step (only dataset option)
+  // Simple Mode: Collection Selection / Upload
   const SimpleDatasetStep = () => (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Select a validated dataset to train your adapter. The dataset must be validated before training.
+        Pick an existing validated collection or upload documents to create a new one. The wizard will auto-validate uploads.
       </p>
-      <div className="space-y-2">
-        <Label htmlFor="dataset">Select Dataset</Label>
-        <Select value={state.datasetId} onValueChange={(value) => {
-          updateState({ 
-            datasetId: value, 
-            dataSourceType: 'dataset',
-            // Set defaults for simple mode
-            category: state.category || 'codebase',
-            name: state.name || `adapter-${Date.now()}`,
-            scope: state.scope || 'tenant',
-            packageAfter: true,
-            registerAfter: true,
-            adaptersRoot: './adapters',
-            tier: 'warm',
-            targets: state.targets.length > 0 ? state.targets : ['q_proj', 'v_proj'],
-          });
-        }}>
-          <SelectTrigger id="dataset">
-            <SelectValue placeholder="Choose a dataset..." />
-          </SelectTrigger>
-          <SelectContent>
-            {datasets.length === 0 ? (
-              <SelectItem value="" disabled>No datasets available</SelectItem>
-            ) : (
-              datasets.map((dataset) => (
-                <SelectItem key={dataset.id} value={dataset.id}>
-                  <div className="flex items-center gap-2">
-                    <span>{dataset.name}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {dataset.validation_status}
-                    </Badge>
-                  </div>
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-        {datasets.length === 0 && (
-          <p className="text-xs text-muted-foreground">
-            No datasets available. Upload a dataset first from the Datasets page.
-          </p>
-        )}
-        {state.datasetId && (() => {
-          const selectedDataset = datasets.find(d => d.id === state.datasetId);
-          if (selectedDataset && selectedDataset.validation_status !== 'valid') {
-            return (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  Dataset "{selectedDataset.name}" must be validated before training. 
-                  Current status: {selectedDataset.validation_status}. 
-                  Please validate the dataset from the Datasets page.
-                </AlertDescription>
-              </Alert>
-            );
-          }
-          return null;
-        })()}
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={simpleDatasetMode === 'existing' ? 'default' : 'outline'}
+          onClick={() => setSimpleDatasetMode('existing')}
+        >
+          Use existing collection
+        </Button>
+        <Button
+          type="button"
+          variant={simpleDatasetMode === 'upload' ? 'default' : 'outline'}
+          onClick={() => setSimpleDatasetMode('upload')}
+        >
+          Upload new documents
+        </Button>
       </div>
+
+      {simpleDatasetMode === 'existing' && (
+        <div className="space-y-2">
+          <Label htmlFor="dataset">{TERMS.selectDataset}</Label>
+          <Select value={state.datasetId} onValueChange={(value) => {
+            updateState({ 
+              datasetId: value, 
+              dataSourceType: 'dataset',
+              // Set defaults for simple mode
+              category: state.category || 'codebase',
+              name: state.name || `adapter-${Date.now()}`,
+              scope: state.scope || 'tenant',
+              packageAfter: true,
+              registerAfter: true,
+              adaptersRoot: './adapters',
+              tier: 'warm',
+              targets: state.targets.length > 0 ? state.targets : ['q_proj', 'v_proj'],
+            });
+            setCreatedDatasetId(null);
+            setValidationResult(null);
+          }}>
+            <SelectTrigger id="dataset">
+              <SelectValue placeholder="Choose a collection..." />
+            </SelectTrigger>
+            <SelectContent>
+              {datasets.length === 0 ? (
+                <SelectItem value="" disabled>{TERMS.noDatasets}</SelectItem>
+              ) : (
+                datasets.map((dataset) => (
+                  <SelectItem key={dataset.id} value={dataset.id}>
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <div className="flex items-center gap-2">
+                        <span>{dataset.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {dataset.validation_status}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {dataset.file_count} files • {formatBytes(dataset.total_size_bytes)}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          {datasets.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              {TERMS.noDatasetsDescription}. Switch to "Upload new documents" to create one.
+            </p>
+          )}
+          {state.datasetId && (() => {
+            const selectedDataset = datasets.find(d => d.id === state.datasetId);
+            if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+              return (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <p className="font-medium">
+                      Collection "{selectedDataset.name}" must be validated before training.
+                    </p>
+                    <p className="text-sm mt-1">
+                      Current status: {selectedDataset.validation_status}.
+                    </p>
+                    {selectedDataset.validation_errors && (
+                      <p className="text-sm mt-2 font-mono">
+                        {selectedDataset.validation_errors}
+                      </p>
+                    )}
+                    <p className="text-sm mt-2">
+                      Please validate from the Document Collections page.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              );
+            }
+            return null;
+          })()}
+        </div>
+      )}
+
+      {simpleDatasetMode === 'upload' && (
+        <div className="space-y-3 border rounded-lg p-4">
+          <div className="space-y-1">
+            <Label htmlFor="wizard-dataset-name">{TERMS.datasetName}</Label>
+            <Input
+              id="wizard-dataset-name"
+              value={datasetName}
+              onChange={(e) => setDatasetName(e.target.value)}
+              placeholder="my-collection"
+            />
+            <p className="text-xs text-muted-foreground">
+              Optional. Defaults to your adapter name or a generated value.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Upload {TERMS.documents.toLowerCase()}</Label>
+            <Input
+              type="file"
+              multiple
+              accept={FILE_VALIDATION.allowedExtensions.join(',')}
+              onChange={(e) => handleUploadFilesSelect(e.target.files)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Supported: {FILE_VALIDATION.allowedExtensions.join(', ')} • Max {FILE_VALIDATION.maxSize / (1024 * 1024)}MB each
+            </p>
+            {uploadFiles.length > 0 && (
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">Selected ({uploadFiles.length}):</p>
+                <ul className="list-disc list-inside text-muted-foreground max-h-24 overflow-auto">
+                  {uploadFiles.map((file) => (
+                    <li key={file.name}>{file.name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {uploadError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{uploadError}</AlertDescription>
+            </Alert>
+          )}
+
+          {validationResult && (
+            <Card className="border-muted">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Badge variant={validationResult.status === 'valid' ? 'outline' : 'destructive'}>
+                    {validationResult.status}
+                  </Badge>
+                  <span>Validation result</span>
+                </CardTitle>
+                <CardDescription>Auto-validation after upload</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {validationResult.errors && validationResult.errors.length > 0 && (
+                  <div className="text-sm text-red-600 space-y-1">
+                    {validationResult.errors.map((err, idx) => <p key={idx}>{err}</p>)}
+                  </div>
+                )}
+                {validationResult.warnings && validationResult.warnings.length > 0 && (
+                  <div className="text-sm text-yellow-700 space-y-1">
+                    {validationResult.warnings.map((warn, idx) => <p key={idx}>{warn}</p>)}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={handleCreateAndValidateDataset}
+              disabled={createStatus !== 'idle'}
+            >
+              {createStatus === 'creating' && 'Uploading...'}
+              {createStatus === 'validating' && TERMS.datasetValidating}
+              {createStatus === 'idle' && 'Create & validate collection'}
+            </Button>
+            {createdDatasetId && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenDatasetTools(createdDatasetId)}
+              >
+                Open in Collection Tools
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -642,11 +920,16 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
               ) : (
                 datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>
-                    <div className="flex items-center gap-2">
-                      <span>{dataset.name}</span>
-                      <Badge variant="outline" className="text-xs">
-                        {dataset.validation_status}
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <div className="flex items-center gap-2">
+                        <span>{dataset.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {dataset.validation_status}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {dataset.file_count} files • {formatBytes(dataset.total_size_bytes)}
+                      </span>
                     </div>
                   </SelectItem>
                 ))
@@ -665,9 +948,20 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    Dataset "{selectedDataset.name}" must be validated before training. 
-                    Current status: {selectedDataset.validation_status}. 
-                    Please validate the dataset from the Datasets page.
+                    <p className="font-medium">
+                      Dataset "{selectedDataset.name}" must be validated before training.
+                    </p>
+                    <p className="text-sm mt-1">
+                      Current status: {selectedDataset.validation_status}.
+                    </p>
+                    {selectedDataset.validation_errors && (
+                      <p className="text-sm mt-2 font-mono">
+                        {selectedDataset.validation_errors}
+                      </p>
+                    )}
+                    <p className="text-sm mt-2">
+                      Please validate the dataset from the Datasets page.
+                    </p>
                   </AlertDescription>
                 </Alert>
               );
@@ -1391,18 +1685,18 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       let stateToValidate = { ...state };
       if (simpleMode) {
         if (!stateToValidate.datasetId) {
-          setValidationError('Please select a dataset');
+          setValidationError(TERMS.datasetRequired);
           setIsLoading(false);
           return;
         }
-        
-        // Enforce dataset validation status
+
+        // Enforce collection validation status
         const selectedDataset = datasets.find(d => d.id === stateToValidate.datasetId);
         if (selectedDataset && selectedDataset.validation_status !== 'valid') {
           setValidationError(
-            `Dataset "${selectedDataset.name}" must be validated before training. ` +
+            `Collection "${selectedDataset.name}" must be validated before training. ` +
             `Current status: ${selectedDataset.validation_status}. ` +
-            `Please validate the dataset from the Datasets page.`
+            `Please validate from the Document Collections page.`
           );
           setIsLoading(false);
           return;
@@ -1443,13 +1737,13 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 
       if (stateToValidate.dataSourceType === 'dataset') {
         if (!stateToValidate.datasetId) {
-          setValidationError('Please select a dataset');
+          setValidationError(TERMS.datasetRequired);
           setIsLoading(false);
           return;
         }
         if (selectedDataset && selectedDataset.validation_status !== 'valid') {
           setValidationError(
-            `Dataset ${selectedDataset.id} is not validated (status: ${selectedDataset.validation_status}). Please run validation first.`
+            `Collection ${selectedDataset.id} is not validated (status: ${selectedDataset.validation_status}). Please run validation first.`
           );
           setIsLoading(false);
           return;
@@ -1506,19 +1800,23 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         max_seq_length: stateToValidate.maxSeqLength,
       };
 
-      // Start training
+      // Start training - build request matching backend StartTrainingRequest
       const trainingRequest: any = {
         adapter_name: stateToValidate.name,
         config: trainingConfig,
-        adapters_root: stateToValidate.adaptersRoot || undefined,
-        package: !!stateToValidate.packageAfter,
-        register: !!stateToValidate.registerAfter,
-        adapter_id: stateToValidate.adapterId || undefined,
-        tier: stateToValidate.tier,
-      };
 
-      // Add category and configuration fields
-      trainingRequest.category = stateToValidate.category || 'codebase';
+        // Category & metadata
+        category: stateToValidate.category || 'codebase',
+        description: stateToValidate.description || undefined,
+
+        // Post-training actions (wrapped in post_actions object)
+        post_actions: {
+          package: stateToValidate.packageAfter ?? true,
+          register: stateToValidate.registerAfter ?? true,
+          tier: stateToValidate.tier || 'warm',
+          adapters_root: stateToValidate.adaptersRoot || undefined,
+        },
+      };
 
       switch (stateToValidate.category) {
         case 'code':
@@ -1577,7 +1875,12 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 
       // Success - training started, clear persisted state
       clearPersistedState();
-      toast.success(`Training job ${job.id} started successfully!`);
+      toast.success(`Training job ${job.id} started successfully!`, {
+        action: {
+          label: 'View Progress',
+          onClick: () => navigate(`/training/jobs/${job.id}`),
+        },
+      });
       onComplete(job.id);
     } catch (error) {
       if (error instanceof Error && error.name === 'ZodError') {
@@ -1591,36 +1894,66 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           errorCount: validationResult.errors.length,
         });
       } else {
-        const err = error instanceof Error ? error : new Error('Failed to start training');
+        // Extract error code from API response if available
+        const apiError = error as any;
+        const errorCode = apiError?.code || apiError?.response?.data?.code || 'UNKNOWN_ERROR';
+        const errorMessage = getTrainingErrorMessage(errorCode, apiError?.message || 'Failed to start training');
+
+        const err = new Error(errorMessage);
         setWizardError(err);
+
+        // Handle specific error codes
+        if (errorCode === 'TRAINING_CAPACITY_LIMIT' || errorCode === 'MEMORY_PRESSURE_CRITICAL') {
+          toast.error(errorMessage, { duration: 8000 });
+        } else {
+          toast.error(errorMessage);
+        }
+
         logger.error('Training job start failed', {
           component: 'TrainingWizard',
           operation: 'startTraining',
           adapterName: state.name,
+          errorCode,
         }, toError(error));
-        toast.error(err.message);
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Simple mode steps: Dataset → Rank/Alpha → Review
+  // Simple mode steps: Collection → Rank/Alpha → Review
   const simpleModeSteps: WizardStep[] = [
     {
       id: 'dataset',
-      title: 'Select Dataset',
+      title: TERMS.selectDataset,
       description: 'Choose your training data',
       component: <SimpleDatasetStep />,
       validate: () => {
         setValidationError(null);
-        if (!state.datasetId?.trim()) {
-          setValidationError('Please select a dataset');
+        if (simpleDatasetMode === 'existing') {
+          if (!state.datasetId?.trim()) {
+            setValidationError(TERMS.datasetRequired);
+            return false;
+          }
+          const selectedDataset = datasets.find(d => d.id === state.datasetId);
+          if (selectedDataset && selectedDataset.validation_status !== 'valid') {
+            setValidationError(`Collection "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
+            return false;
+          }
+          return true;
+        }
+
+        // Upload path
+        const selectedStatus =
+          validationResult?.status ||
+          datasets.find(d => d.id === state.datasetId)?.validation_status;
+
+        if (!state.datasetId || !createdDatasetId) {
+          setValidationError('Upload and validate documents before continuing.');
           return false;
         }
-        const selectedDataset = datasets.find(d => d.id === state.datasetId);
-        if (selectedDataset && selectedDataset.validation_status !== 'valid') {
-          setValidationError(`Dataset "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
+        if (selectedStatus !== 'valid') {
+          setValidationError('Uploaded collection must be valid before training.');
           return false;
         }
         return true;
@@ -1856,7 +2189,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         <Alert className="mb-4">
           <Sparkles className="h-4 w-4" />
           <AlertDescription>
-            Simple mode streamlines the training process to just 3 steps: Select Dataset → Configure Parameters → Start Training.
+            Simple mode streamlines the training process to just 3 steps: {TERMS.selectDataset} → Configure Parameters → Start Training.
             Toggle off for advanced options like repositories, templates, and custom configurations.
           </AlertDescription>
         </Alert>

@@ -13,11 +13,11 @@
 
 mod common;
 
-use common::test_harness::ApiTestHarness;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use common::test_harness::ApiTestHarness;
 use futures::future::join_all;
 use serde_json::json;
 use std::sync::Arc;
@@ -32,7 +32,10 @@ async fn test_concurrent_inference_requests() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Starting 100 concurrent inference requests...");
 
@@ -126,7 +129,10 @@ async fn test_simultaneous_training_jobs() {
     // Create prerequisite datasets and adapters
     for i in 0..10 {
         harness
-            .create_test_dataset(&format!("stress-dataset-{}", i), &format!("Stress Dataset {}", i))
+            .create_test_dataset(
+                &format!("stress-dataset-{}", i),
+                &format!("Stress Dataset {}", i),
+            )
             .await
             .expect("Failed to create dataset");
 
@@ -211,7 +217,10 @@ async fn test_rapid_adapter_registration() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Testing 50 rapid adapter registrations...");
 
@@ -373,7 +382,11 @@ async fn test_memory_pressure_simulation() {
             format!("memory-pressure-adapter-{}", i),
             "default",
             format!("{:0<64}", i),
-            if i % 3 == 0 { "persistent" } else { "ephemeral" },
+            if i % 3 == 0 {
+                "persistent"
+            } else {
+                "ephemeral"
+            },
             8,
             (i as f64) / (adapter_count as f64) * 100.0
         )
@@ -386,10 +399,12 @@ async fn test_memory_pressure_simulation() {
     }
 
     // Verify adapters were created
-    let count = sqlx::query!("SELECT COUNT(*) as count FROM adapters WHERE id LIKE 'memory-pressure-adapter-%'")
-        .fetch_one(harness.db().pool())
-        .await
-        .expect("Should be able to count adapters");
+    let count = sqlx::query!(
+        "SELECT COUNT(*) as count FROM adapters WHERE id LIKE 'memory-pressure-adapter-%'"
+    )
+    .fetch_one(harness.db().pool())
+    .await
+    .expect("Should be able to count adapters");
 
     println!("Created {} adapters for memory pressure test", count.count);
 
@@ -424,7 +439,10 @@ async fn test_no_deadlocks_under_load() {
         .await
         .expect("Failed to initialize test harness");
 
-    let token = harness.authenticate().await.expect("Failed to authenticate");
+    let token = harness
+        .authenticate()
+        .await
+        .expect("Failed to authenticate");
 
     println!("Testing for deadlocks under mixed concurrent operations...");
 
@@ -521,7 +539,10 @@ async fn test_no_deadlocks_under_load() {
             assert!(true, "No deadlock occurred");
         }
         Err(_) => {
-            panic!("Deadlock detected: operations did not complete within {:?}", timeout);
+            panic!(
+                "Deadlock detected: operations did not complete within {:?}",
+                timeout
+            );
         }
     }
 

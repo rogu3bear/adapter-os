@@ -14,13 +14,11 @@ use crate::commands::{secd_audit, secd_status};
 #[derive(Debug, Subcommand, Clone)]
 pub enum SecdCommand {
     /// Show aos-secd daemon status
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl secd status
   aosctl secd status --database ./var/custom.db
   aosctl secd status --pid-file /custom/path/aos-secd.pid
-"#
-    )]
+"#)]
     Status {
         /// PID file path
         #[arg(long, default_value = "/var/run/aos-secd.pid")]
@@ -40,14 +38,12 @@ pub enum SecdCommand {
     },
 
     /// Show aos-secd operation audit trail
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl secd audit
   aosctl secd audit --limit 100
   aosctl secd audit --operation sign
   aosctl secd audit --database ./var/custom.db
-"#
-    )]
+"#)]
     Audit {
         /// Database path
         #[arg(long, default_value = "./var/aos-cp.sqlite3")]

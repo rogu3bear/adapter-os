@@ -392,8 +392,10 @@ pub mod utils {
         overrides: serde_json::Value,
     ) -> serde_json::Value {
         let mut merged = base;
-        if let (serde_json::Value::Object(ref mut base_obj), serde_json::Value::Object(override_obj)) =
-            (&mut merged, overrides)
+        if let (
+            serde_json::Value::Object(ref mut base_obj),
+            serde_json::Value::Object(override_obj),
+        ) = (&mut merged, overrides)
         {
             for (key, value) in override_obj {
                 base_obj.insert(key, value);
@@ -403,7 +405,10 @@ pub mod utils {
     }
 
     /// Create multiple fixtures with IDs
-    pub fn create_multiple_fixtures(template_fn: fn(&str) -> serde_json::Value, count: usize) -> Vec<serde_json::Value> {
+    pub fn create_multiple_fixtures(
+        template_fn: fn(&str) -> serde_json::Value,
+        count: usize,
+    ) -> Vec<serde_json::Value> {
         (0..count)
             .map(|i| template_fn(&format!("fixture-{:03}", i)))
             .collect()

@@ -11,9 +11,9 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-util = "0.7"
 
 # HTTP server
-axum = { version = "0.7", features = ["json", "macros", "tracing"] }
-tower = { version = "0.4", features = ["util", "timeout", "load-shed", "limit"] }
-tower-http = { version = "0.5", features = ["cors", "trace", "auth"] }
+axum = { workspace = true, features = ["json", "macros"] }
+tower = { workspace = true, features = ["util", "timeout", "load-shed", "limit"] }
+tower-http = { workspace = true, features = ["auth"] }
 reqwest = { version = "0.12", features = ["json"] }
 
 # Serialization
@@ -34,6 +34,7 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
 blake3 = { workspace = true }
 hex = "0.4"
 

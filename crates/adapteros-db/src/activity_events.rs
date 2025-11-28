@@ -128,7 +128,7 @@ impl Db {
         .bind(target_type)
         .bind(target_id)
         .bind(metadata_json)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("failed to create activity event: {}", e)))?;
         Ok(id)
@@ -143,7 +143,7 @@ impl Db {
             "#,
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("failed to fetch activity event '{}': {}", id, e)))?;
         Ok(event)
@@ -206,7 +206,7 @@ impl Db {
 
         query_builder = query_builder.bind(limit).bind(offset);
 
-        let events = query_builder.fetch_all(self.pool()).await
+        let events = query_builder.fetch_all(&*self.pool()).await
             .map_err(|e| AosError::Database(format!("failed to list activity events with filters (workspace_id: {:?}, user_id: {:?}, tenant_id: {:?}, event_type: {:?}): {}", workspace_id, user_id, tenant_id, event_type, e)))?;
         Ok(events)
     }
@@ -237,9 +237,56 @@ impl Db {
         .bind(user_id)
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("failed to list user workspace activity for user '{}' in tenant '{}': {}", user_id, tenant_id, e)))?;
+        Ok(events)
+    }
+
+    /// List activity events for a workspace created after a given timestamp (delta mode for SSE streaming).
+    /// Returns events ordered by created_at ASC so clients process them in chronological order.
+    pub async fn list_activity_events_since(
+        &self,
+        workspace_id: &str,
+        since_timestamp: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<ActivityEvent>> {
+        let limit = limit.unwrap_or(50);
+
+        let events = if let Some(since_ts) = since_timestamp {
+            sqlx::query_as::<_, ActivityEvent>(
+                r#"
+                SELECT id, workspace_id, user_id, tenant_id, event_type, target_type, target_id, metadata_json, created_at
+                FROM activity_events
+                WHERE workspace_id = ? AND created_at > ?
+                ORDER BY created_at ASC
+                LIMIT ?
+                "#,
+            )
+            .bind(workspace_id)
+            .bind(since_ts)
+            .bind(limit)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("failed to list activity events since '{}' for workspace '{}': {}", since_ts, workspace_id, e)))?
+        } else {
+            // No since_timestamp: return most recent events
+            sqlx::query_as::<_, ActivityEvent>(
+                r#"
+                SELECT id, workspace_id, user_id, tenant_id, event_type, target_type, target_id, metadata_json, created_at
+                FROM activity_events
+                WHERE workspace_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                "#,
+            )
+            .bind(workspace_id)
+            .bind(limit)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("failed to list activity events for workspace '{}': {}", workspace_id, e)))?
+        };
+
         Ok(events)
     }
 }

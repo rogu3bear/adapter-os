@@ -1,11 +1,10 @@
 import React from 'react';
 
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/components/ui/utils';
-import { Link, useLocation } from 'react-router-dom';
 import { useResize } from '@/layout/LayoutProvider';
 import { PageHeader, PageHeaderAction, PageHeaderBadge } from '@/components/ui/page-header';
+import { logger } from '@/utils/logger';
 
 type BreadcrumbDefinition = {
   label: string;
@@ -89,29 +88,6 @@ const maxWidthClassMap: Record<MaxWidth, string> = {
   full: 'max-w-none',
 };
 
-const routeLabels: Record<string, string> = {
-  dashboard: 'Dashboard',
-  workflow: 'Getting Started',
-  trainer: 'Single-File Trainer',
-  training: 'Training Jobs',
-  testing: 'Testing',
-  golden: 'Golden Runs',
-  promotion: 'Promotion',
-  adapters: 'Adapters',
-  metrics: 'Metrics',
-  monitoring: 'System Health',
-  routing: 'Routing Inspector',
-  inference: 'Inference',
-  telemetry: 'Telemetry',
-  replay: 'Replay',
-  policies: 'Policies',
-  audit: 'Audit',
-  admin: 'IT Admin',
-  reports: 'Reports',
-  tenants: 'Tenants',
-  observability: 'Observability',
-};
-
 export default function FeatureLayout({
   title,
   description,
@@ -131,24 +107,8 @@ export default function FeatureLayout({
   right,
   defaultLayout,
 }: FeatureLayoutProps) {
-  const location = useLocation();
-
-  const autoBreadcrumbs = React.useMemo(() => {
-    const pathnames = location.pathname.split('/').filter(Boolean);
-    return pathnames.map((segment, index) => ({
-      href: '/' + pathnames.slice(0, index + 1).join('/'),
-      label: routeLabels[segment] || segment.charAt(0).toUpperCase() + segment.slice(1).replace('-', ' '),
-    }));
-  }, [location.pathname]);
-
-  const effectiveBreadcrumbs = React.useMemo(() => {
-    if (breadcrumbs) {
-      return breadcrumbs;
-    }
-    return autoBreadcrumbs;
-  }, [autoBreadcrumbs, breadcrumbs]);
-
-  const shouldRenderBreadcrumbs = effectiveBreadcrumbs.length > 0;
+  // Note: breadcrumbs are now rendered in the global header (AppHeader)
+  // The breadcrumbs prop is kept for backward compatibility but no longer rendered here
 
   const hasSplitPanels = Boolean(left) || Boolean(right);
   const panelDefinitions = React.useMemo(() => {
@@ -224,7 +184,14 @@ export default function FeatureLayout({
     }
 
     const panels = panelDefinitions;
-    if (!panels.length) return null;
+    // Defensive fallback: if split panels enabled but array empty, render children directly
+    // This prevents blank pages in edge cases where panelDefinitions might be unexpectedly empty
+    if (!panels.length) {
+      if (process.env.NODE_ENV === 'development') {
+        logger.warn('FeatureLayout: hasSplitPanels is true but panelDefinitions is empty, falling back to children');
+      }
+      return children;
+    }
 
     const layoutToApply = layout ?? defaultSplit;
     return (
@@ -260,34 +227,6 @@ export default function FeatureLayout({
           >
             {headerActions}
           </PageHeader>
-          {shouldRenderBreadcrumbs && (
-            <Breadcrumb className="mt-3 hidden sm:flex">
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link to="/">Home</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              {effectiveBreadcrumbs.map((crumb, index) => {
-                const isLast = index === effectiveBreadcrumbs.length - 1;
-                return (
-                  <React.Fragment key={`${crumb.label}-${index}`}>
-                    <BreadcrumbSeparator />
-                    <BreadcrumbItem>
-                      {crumb.href && !isLast ? (
-                        <BreadcrumbLink asChild>
-                          <Link to={crumb.href}>{crumb.label}</Link>
-                        </BreadcrumbLink>
-                      ) : (
-                        <span aria-current={isLast ? 'page' : undefined} className="text-sm text-muted-foreground">
-                          {crumb.label}
-                        </span>
-                      )}
-                    </BreadcrumbItem>
-                  </React.Fragment>
-                );
-              })}
-            </Breadcrumb>
-          )}
         </header>
 
         <main

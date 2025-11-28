@@ -4,7 +4,8 @@
 
 use crate::embeddings::EmbeddingModel;
 use crate::types::IngestedDocument;
-use adapteros_core::Result;
+use adapteros_core::{B3Hash, Result};
+use adapteros_db::Db;
 use chrono::Utc;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -21,9 +22,98 @@ pub struct RagChunkParams {
     pub effectivity: String,
     pub source_type: String,
     pub page_number: Option<u32>,
+    pub chunk_hash: String,
+    pub text_preview: String,
 }
 
-/// Index a single ingested document into the RAG system
+/// Index a single ingested document into the RAG system with provenance
+///
+/// This function takes an ingested document and its chunks, generates embeddings
+/// for each chunk, and populates both the RAG index and document_chunks table.
+pub async fn index_document_with_provenance(
+    db: &Db,
+    document_id: &str,
+    ingested_doc: &IngestedDocument,
+    embedding_model: &Arc<dyn EmbeddingModel>,
+) -> Result<Vec<String>> {
+    info!(
+        "Indexing document {} ({} chunks) with provenance",
+        ingested_doc.source_name,
+        ingested_doc.chunks.len()
+    );
+
+    let mut chunk_ids = Vec::new();
+
+    for chunk in &ingested_doc.chunks {
+        debug!(
+            "Indexing chunk {}/{}",
+            chunk.chunk_index + 1,
+            chunk.total_chunks
+        );
+
+        // Generate embedding for chunk
+        let embedding = embedding_model.encode_text(&chunk.text)?;
+
+        // Compute chunk hash (BLAKE3 of normalized text)
+        let chunk_hash = B3Hash::hash(chunk.text.as_bytes());
+        let chunk_hash_str = chunk_hash.to_hex();
+
+        // Create text preview (first 200 chars)
+        let text_preview = if chunk.text.len() > 200 {
+            format!("{}...", &chunk.text[..200])
+        } else {
+            chunk.text.clone()
+        };
+
+        // Generate chunk_id
+        let chunk_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
+
+        // Store embedding as JSON
+        let embedding_json = serde_json::to_string(&embedding)
+            .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+
+        // Insert into document_chunks table
+        sqlx::query(
+            r#"
+            INSERT INTO document_chunks (
+                id, document_id, chunk_index, page_number,
+                start_offset, end_offset, chunk_hash, text_preview, embedding_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&chunk_id)
+        .bind(document_id)
+        .bind(chunk.chunk_index as i64)
+        .bind(chunk.page_number.map(|p| p as i64))
+        .bind(chunk.start_offset as i64)
+        .bind(chunk.end_offset as i64)
+        .bind(&chunk_hash_str)
+        .bind(&text_preview)
+        .bind(&embedding_json)
+        .execute(&*db.pool())
+        .await
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to insert document chunk: {}", e))
+        })?;
+
+        chunk_ids.push(chunk_id);
+
+        debug!(
+            "Stored chunk {} with hash {}",
+            chunk.chunk_index, chunk_hash_str
+        );
+    }
+
+    info!(
+        "Indexed {} chunks from document {} with provenance",
+        chunk_ids.len(),
+        ingested_doc.source_name
+    );
+
+    Ok(chunk_ids)
+}
+
+/// Index a single ingested document into the RAG system (legacy function)
 ///
 /// This function takes an ingested document and its chunks, generates embeddings
 /// for each chunk, and returns parameters that can be used to insert into the
@@ -53,6 +143,17 @@ pub async fn prepare_document_for_rag(
 
         let embedding = embedding_model.encode_text(&chunk.text)?;
 
+        // Compute chunk hash (BLAKE3 of normalized text)
+        let chunk_hash = B3Hash::hash(chunk.text.as_bytes());
+        let chunk_hash_str = chunk_hash.to_hex();
+
+        // Create text preview (first 200 chars)
+        let text_preview = if chunk.text.len() > 200 {
+            format!("{}...", &chunk.text[..200])
+        } else {
+            chunk.text.clone()
+        };
+
         // Create a unique doc_id for each chunk
         let chunk_doc_id = format!(
             "{}__chunk_{}",
@@ -70,6 +171,8 @@ pub async fn prepare_document_for_rag(
             effectivity: "all".to_string(),
             source_type: source_type.to_string(),
             page_number: chunk.page_number,
+            chunk_hash: chunk_hash_str,
+            text_preview,
         });
     }
 
@@ -172,6 +275,8 @@ mod tests {
         assert_eq!(params[0].text, "Test chunk text");
         assert_eq!(params[0].embedding.len(), 384);
         assert_eq!(params[0].source_type, "pdf");
+        assert_eq!(params[0].text_preview, "Test chunk text");
+        assert!(!params[0].chunk_hash.is_empty());
     }
 
     #[test]

@@ -28,13 +28,14 @@ adapteros-api = { path = "../adapteros-api" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
-# Removed: adapteros-single-file-adapter (migrated to adapteros-aos)
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-secd = { path = "../adapteros-secd", optional = true }
+adapteros-tui = { path = "../adapteros-tui", optional = true }
 # adapteros-system-metrics = { path = "../adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-replay = { path = "../adapteros-replay" }
 adapteros-trace = { path = "../adapteros-trace" }
@@ -59,6 +60,7 @@ owo-colors = "4.0"
 serde_yaml = "0.9"
 toml = "0.8"
 tempfile = "3.8"
+glob = "0.3"
 walkdir = "2.4"
 chrono = "0.4"
 hex = { workspace = true }
@@ -73,6 +75,8 @@ once_cell = "1.19"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 rusqlite = "0.31"
 tokenizers = "0.15"
+argon2 = "0.5"
+rand = "0.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
@@ -92,3 +96,4 @@ tokenizers = "0.15"
 
 multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 secd-support = ["dep:adapteros-secd"]
+tui = ["dep:adapteros-tui"]

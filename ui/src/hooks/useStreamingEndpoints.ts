@@ -28,6 +28,7 @@ import {
   MetricsStreamEvent,
   TelemetryStreamEvent,
   AdapterStreamEvent,
+  StackPolicyStreamEvent,
 } from '../api/streaming-types';
 
 /**
@@ -184,8 +185,10 @@ export function useFileChangesStream(
  * ```tsx
  * const { data, error, connected } = useMetricsStream({
  *   onMessage: (event) => {
- *     console.log('CPU:', event.cpu.usage_percent + '%');
- *     console.log('Memory:', event.memory.usage_percent + '%');
+ *     if ('system' in event) {
+ *       console.log('CPU:', event.system.cpu_percent + '%');
+ *       console.log('Memory:', event.system.memory_percent + '%');
+ *     }
  *   },
  * });
  * ```
@@ -205,7 +208,7 @@ export function useMetricsStream(
       error,
       connected,
       reconnect,
-      lastUpdated: data?.timestamp,
+      lastUpdated: data && 'timestamp' in data ? data.timestamp : undefined,
     }),
     [data, error, connected, reconnect]
   );
@@ -267,6 +270,54 @@ export function useAdaptersStream(
   const { data, error, connected, reconnect } = useSSE<AdapterStreamEvent>(
     '/v1/stream/adapters',
     memoizedOptions
+  );
+
+  return useMemo(
+    () => ({
+      data,
+      error,
+      connected,
+      reconnect,
+      lastUpdated: data?.timestamp ? new Date(data.timestamp).toISOString() : undefined,
+    }),
+    [data, error, connected, reconnect]
+  );
+}
+
+/**
+ * Base hook for stack policy stream events (PRD-GOV-01)
+ * Endpoint: /v1/stream/stack-policies/{stackId}
+ *
+ * Provides real-time updates for:
+ * - Compliance score changes
+ * - Policy violations detected
+ * - Policy violations resolved
+ * - Policy assignments/revocations
+ *
+ * Usage:
+ * ```tsx
+ * const { data, error, connected } = useStackPolicyStream('stack-123', {
+ *   onMessage: (event) => {
+ *     if (event.event_type === 'violation_detected') {
+ *       toast.error(`Policy violation: ${event.message}`);
+ *     }
+ *   },
+ * });
+ * ```
+ */
+export function useStackPolicyStream(
+  stackId: string,
+  options: UseSSEOptions<StackPolicyStreamEvent> = {}
+): StreamHookResult<StackPolicyStreamEvent> {
+  const memoizedOptions = useMemo(() => options, [options.enabled, options.onError, options.onMessage]);
+  const endpoint = stackId ? `/v1/stream/stack-policies/${encodeURIComponent(stackId)}` : '';
+
+  const { data, error, connected, reconnect } = useSSE<StackPolicyStreamEvent>(
+    endpoint,
+    {
+      ...memoizedOptions,
+      enabled: memoizedOptions.enabled !== false && !!stackId,
+    }
   );
 
   return useMemo(

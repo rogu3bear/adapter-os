@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
@@ -16,6 +16,9 @@ import {
   getHealthStatus,
   type HealthStatus,
 } from '@/hooks/useSystemMetrics';
+import { useMetricsStream } from '@/hooks/useStreamingEndpoints';
+import type { MetricsSnapshotEvent } from '@/api/streaming-types';
+import { Activity, Wifi, WifiOff } from 'lucide-react';
 
 function HealthBadge({ status }: { status: HealthStatus }) {
   const variant = {
@@ -115,12 +118,39 @@ function QuickLinkCard({
 }
 
 export default function SystemOverviewPage() {
-  const { metrics, isLoading: metricsLoading, error: metricsError, lastUpdated } = useSystemMetrics('normal');
+  const [useSSE, setUseSSE] = useState(true);
+  const [sseMetrics, setSSEMetrics] = useState<MetricsSnapshotEvent | null>(null);
+
+  // SSE stream for live metrics
+  const { data: sseData, error: sseError, connected: sseConnected, reconnect } = useMetricsStream({
+    enabled: useSSE,
+    onMessage: useCallback((event) => {
+      if ('system' in event) {
+        setSSEMetrics(event as MetricsSnapshotEvent);
+      }
+    }, []),
+  });
+
+  // Fallback to polling if SSE is disabled or fails
+  const { metrics, isLoading: metricsLoading, error: metricsError, lastUpdated } = useSystemMetrics('normal', !useSSE);
   const { nodes, isLoading: nodesLoading } = useNodes('slow');
   const { workers, isLoading: workersLoading } = useWorkers(undefined, undefined, 'slow');
 
-  const computed = useComputedMetrics(metrics);
-  const healthStatus = useSystemHealthStatus(metrics);
+  // Use SSE metrics if available, otherwise fall back to polling
+  const activeMetrics = useSSE && sseMetrics ? {
+    cpu_usage_percent: sseMetrics.system.cpu_percent,
+    memory_usage_percent: sseMetrics.system.memory_percent,
+    disk_usage_percent: sseMetrics.system.disk_percent,
+    gpu_usage_percent: 0,
+    tokens_per_second: sseMetrics.throughput.tokens_per_second,
+    inferences_per_second: sseMetrics.throughput.inferences_per_second,
+    latency_p95_ms: sseMetrics.latency.p95_ms,
+    active_adapters: 0,
+    active_sessions: 0,
+  } : metrics;
+
+  const computed = useComputedMetrics(activeMetrics);
+  const healthStatus = useSystemHealthStatus(activeMetrics);
 
   const nodeStats = useMemo(() => {
     const healthy = nodes.filter(n => n.status === 'healthy').length;
@@ -144,17 +174,61 @@ export default function SystemOverviewPage() {
         maxWidth="xl"
         badges={[{ label: healthStatus.toUpperCase(), variant: healthStatus === 'healthy' ? 'success' : healthStatus === 'warning' ? 'warning' : 'destructive' }]}
         headerActions={
-          lastUpdated && (
-            <span className="text-sm text-muted-foreground">
-              Last updated: {lastUpdated.toLocaleTimeString()}
-            </span>
-          )
+          <div className="flex items-center gap-4">
+            {useSSE && (
+              <div className="flex items-center gap-2 text-sm">
+                {sseConnected ? (
+                  <>
+                    <Wifi className="h-4 w-4 text-green-500" />
+                    <span className="text-muted-foreground">Live</span>
+                  </>
+                ) : sseError ? (
+                  <>
+                    <WifiOff className="h-4 w-4 text-destructive" />
+                    <span className="text-destructive text-xs">Disconnected</span>
+                    <Button variant="ghost" size="sm" onClick={reconnect}>
+                      Reconnect
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 animate-pulse text-yellow-500" />
+                    <span className="text-muted-foreground">Connecting...</span>
+                  </>
+                )}
+              </div>
+            )}
+            {lastUpdated && !useSSE && (
+              <span className="text-sm text-muted-foreground">
+                Last updated: {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+            {sseMetrics && useSSE && (
+              <span className="text-sm text-muted-foreground">
+                Last updated: {new Date(sseMetrics.timestamp_ms).toLocaleTimeString()}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUseSSE(!useSSE)}
+            >
+              {useSSE ? 'Switch to Polling' : 'Switch to Live'}
+            </Button>
+          </div>
         }
       >
-        {metricsError && (
+        {(metricsError || (useSSE && sseError && !sseConnected)) && (
           <Card className="border-destructive bg-destructive/10 mb-6">
             <CardContent className="pt-6">
-              <p className="text-destructive">Failed to load system metrics: {metricsError.message}</p>
+              <p className="text-destructive">
+                Failed to load system metrics: {metricsError?.message || sseError}
+              </p>
+              {useSSE && sseError && (
+                <Button variant="outline" size="sm" onClick={() => setUseSSE(false)} className="mt-2">
+                  Fall back to polling
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}

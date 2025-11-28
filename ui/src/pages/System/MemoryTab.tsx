@@ -1,4 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import FeatureLayout from '@/layout/FeatureLayout';
+import { DensityProvider } from '@/contexts/DensityContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -8,7 +10,9 @@ import { DataTable } from '@/components/shared/DataTable/DataTable';
 import { type Column } from '@/components/shared/DataTable/types';
 import { useMemoryUsage, useMemoryOperations } from '@/hooks/useSystemMetrics';
 import { useToast } from '@/hooks/use-toast';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Wifi, WifiOff, Activity } from 'lucide-react';
+import { useMetricsStream } from '@/hooks/useStreamingEndpoints';
+import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 
 interface AdapterMemoryInfo {
   id: string;
@@ -20,25 +24,38 @@ interface AdapterMemoryInfo {
 }
 
 export default function MemoryTab() {
+  const [useSSE, setUseSSE] = useState(true);
+  const [liveMemoryPercent, setLiveMemoryPercent] = useState<number | null>(null);
+
+  // SSE stream for live memory percentage
+  const { error: sseError, connected: sseConnected, reconnect } = useMetricsStream({
+    enabled: useSSE,
+    onMessage: useCallback((event) => {
+      if ('system' in event) {
+        setLiveMemoryPercent((event as MetricsSnapshotEvent).system.memory_percent);
+      }
+    }, []),
+  });
+
   const { data: memoryData, isLoading, refetch } = useMemoryUsage('normal');
   const { evictAdapter } = useMemoryOperations();
   const { toast } = useToast();
 
   const handleEvict = async (adapterId: string) => {
-    if (!confirm(`Are you sure you want to evict adapter ${adapterId} from memory?`)) {
+    if (!confirm(`Are you sure you want to remove adapter ${adapterId} from memory?`)) {
       return;
     }
 
     try {
       await evictAdapter.execute(adapterId);
       toast({
-        title: 'Adapter Evicted',
-        description: `Adapter ${adapterId} has been evicted from memory`,
+        title: 'Adapter Removed',
+        description: `Adapter ${adapterId} has been removed from memory`,
       });
       refetch();
     } catch (error) {
       toast({
-        title: 'Eviction Failed',
+        title: 'Removal Failed',
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -46,10 +63,15 @@ export default function MemoryTab() {
   };
 
   const memoryUsagePercent = useMemo(() => {
+    // Use live SSE data if available and connected
+    if (useSSE && sseConnected && liveMemoryPercent !== null) {
+      return liveMemoryPercent;
+    }
+    // Otherwise calculate from memoryData
     if (!memoryData) return 0;
     const used = memoryData.total_memory_mb - memoryData.available_memory_mb;
     return (used / memoryData.total_memory_mb) * 100;
-  }, [memoryData]);
+  }, [memoryData, useSSE, sseConnected, liveMemoryPercent]);
 
   const pressureVariant = useMemo(() => {
     if (!memoryData) return 'secondary';
@@ -99,10 +121,10 @@ export default function MemoryTab() {
       {
         id: 'pinned',
         accessorKey: 'pinned',
-        header: 'Pinned',
+        header: 'Protected',
         cell: ({ row }) => (
           <Badge variant={row.pinned ? 'default' : 'secondary'}>
-            {row.pinned ? 'Yes' : 'No'}
+            {row.pinned ? 'Protected' : '-'}
           </Badge>
         ),
       },
@@ -116,10 +138,10 @@ export default function MemoryTab() {
               size="sm"
               onClick={() => handleEvict(row.id)}
               disabled={evictAdapter.isLoading || row.pinned}
-              title={row.pinned ? 'Cannot evict pinned adapter' : 'Evict adapter from memory'}
+              title={row.pinned ? 'Cannot remove protected adapter' : 'Remove adapter from memory'}
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Evict
+              Remove
             </Button>
           );
         },
@@ -130,25 +152,114 @@ export default function MemoryTab() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
+      <DensityProvider pageKey="system-memory">
+        <FeatureLayout
+          title="Memory"
+          description="Monitor memory usage and manage adapters"
+          maxWidth="xl"
+        >
+          <div className="space-y-6">
+            <Skeleton className="h-48 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </FeatureLayout>
+      </DensityProvider>
     );
   }
 
   if (!memoryData) {
     return (
-      <Card className="border-destructive bg-destructive/10">
-        <CardContent className="pt-6">
-          <p className="text-destructive">Failed to load memory information</p>
-        </CardContent>
-      </Card>
+      <DensityProvider pageKey="system-memory">
+        <FeatureLayout
+          title="Memory"
+          description="Monitor memory usage and manage adapters"
+          maxWidth="xl"
+        >
+          <Card className="border-destructive bg-destructive/10">
+            <CardContent className="pt-6">
+              <p className="text-destructive">Failed to load memory information</p>
+            </CardContent>
+          </Card>
+        </FeatureLayout>
+      </DensityProvider>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <DensityProvider pageKey="system-memory">
+      <FeatureLayout
+        title="Memory"
+        description="Monitor memory usage and manage adapters"
+        maxWidth="xl"
+        headerActions={
+          <div className="flex items-center gap-2">
+            {useSSE && sseError && (
+              <Button variant="outline" size="sm" onClick={reconnect}>
+                Reconnect
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUseSSE(!useSSE)}
+            >
+              {useSSE ? 'Switch to Polling' : 'Switch to Live'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-6">
+      {/* Live Connection Status */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-3">
+            {useSSE && (
+              <>
+                {sseConnected ? (
+                  <>
+                    <Wifi className="h-5 w-5 text-green-500" />
+                    <div>
+                      <div className="font-medium">Live Updates Active</div>
+                      <div className="text-sm text-muted-foreground">
+                        Memory metrics updating in real-time
+                      </div>
+                    </div>
+                  </>
+                ) : sseError ? (
+                  <>
+                    <WifiOff className="h-5 w-5 text-destructive" />
+                    <div>
+                      <div className="font-medium text-destructive">Connection Lost</div>
+                      <div className="text-sm text-muted-foreground">
+                        {sseError}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-5 w-5 animate-pulse text-yellow-500" />
+                    <div>
+                      <div className="font-medium">Connecting...</div>
+                      <div className="text-sm text-muted-foreground">
+                        Establishing live connection
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {!useSSE && (
+              <div>
+                <div className="font-medium">Polling Mode</div>
+                <div className="text-sm text-muted-foreground">
+                  Updates every few seconds
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Memory Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -237,6 +348,8 @@ export default function MemoryTab() {
           />
         </CardContent>
       </Card>
-    </div>
+        </div>
+      </FeatureLayout>
+    </DensityProvider>
   );
 }

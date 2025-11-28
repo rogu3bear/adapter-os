@@ -55,6 +55,7 @@ thiserror = { workspace = true }
 tokenizers = { workspace = true }
 safetensors = { workspace = true }
 memmap2 = { workspace = true }
+half = "2.3"
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
@@ -70,11 +71,19 @@ sha2 = "0.10"
 hex = { workspace = true }
 async-trait = "0.1"
 anyhow = { workspace = true }
+serde_yaml = "0.9"
 blake3 = { workspace = true }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 chrono = "0.4"
 smallvec = "1.13"
 reqwest = { version = "0.12", features = ["json"] }
+
+clap = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "aos-worker"
+path = "src/bin/aos_worker.rs"
 
 [dev-dependencies]
 loom = "0.7"

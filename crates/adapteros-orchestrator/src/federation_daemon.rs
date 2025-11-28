@@ -402,7 +402,8 @@ mod tests {
         db.migrate().await.unwrap();
 
         let keypair = Keypair::generate();
-        let federation = FederationManager::new(db.clone(), keypair).unwrap();
+        let federation =
+            FederationManager::new(db.clone(), keypair, "test-tenant".to_string()).unwrap();
 
         let telemetry_dir = temp_dir.path().join("telemetry");
         std::fs::create_dir_all(&telemetry_dir).unwrap();

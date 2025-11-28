@@ -40,7 +40,8 @@ pub async fn run(
 
     Err(AosError::FeatureDisabled {
         feature: "MLX model import".to_string(),
-        reason: "Requires MLX C++ library - see crates/adapteros-lora-mlx-ffi/README.md".to_string(),
+        reason: "Requires MLX C++ library - see crates/adapteros-lora-mlx-ffi/README.md"
+            .to_string(),
         alternative: Some("Use Metal backend for inference".to_string()),
     }
     .into())

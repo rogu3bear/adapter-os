@@ -3,7 +3,7 @@
 //! Global context for managing action history across the application.
 //! Integrates with UndoRedoContext for seamless undo/redo functionality.
 
-import React, { createContext, useContext, ReactNode } from 'react';
+import { createContext, useContext, ReactNode } from 'react';
 import useEnhancedActionHistory from '../hooks/useEnhancedActionHistory';
 import {
   ActionHistoryItem,

@@ -146,10 +146,10 @@ impl RetryManager {
         if path.exists() {
             tokio::fs::metadata(path)
                 .await
-                .map_err(|e| AosError::Recovery(format!("Path not accessible: {}", e)))?;
+                .map_err(|e| AosError::Io(format!("Recovery: Path not accessible: {}", e)))?;
             Ok(())
         } else {
-            Err(AosError::Recovery("Path does not exist".to_string()))
+            Err(AosError::Io("Recovery: Path does not exist".to_string()))
         }
     }
 
@@ -264,8 +264,10 @@ where
         }
     }
 
-    // This should never be reached due to the loop logic above
-    unreachable!("Maximum retry attempts exceeded")
+    // Loop exhausted all retries without returning (only reachable if max_attempts was 0)
+    Err(AosError::Io(
+        "Retry: Maximum retry attempts exceeded".to_string(),
+    ))
 }
 
 /// Retry operation with custom error handling
@@ -311,8 +313,9 @@ where
         }
     }
 
-    // This should never be reached due to the loop logic above
-    unreachable!("Maximum retry attempts exceeded")
+    // Loop exhausted without returning - only reachable if max_attempts was 0
+    // This is an API misuse since at least one attempt should always be made
+    panic!("retry_with_error_handler: max_attempts must be >= 1")
 }
 
 #[cfg(test)]
@@ -404,7 +407,7 @@ mod tests {
                 if test_file.exists() {
                     Ok("success")
                 } else {
-                    Err(AosError::Retry("File not found".to_string()))
+                    Err(AosError::Io("Retry: File not found".to_string()))
                 }
             },
             3,
@@ -431,7 +434,7 @@ mod tests {
                 if test_file.exists() {
                     Ok("success")
                 } else {
-                    Err(AosError::Retry("File not found".to_string()))
+                    Err(AosError::Io("Retry: File not found".to_string()))
                 }
             },
             3,

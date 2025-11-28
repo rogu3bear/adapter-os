@@ -275,7 +275,7 @@ fn generate_fallback_attestation(
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
 
     Ok(SepAttestation {
@@ -323,7 +323,7 @@ pub fn get_key_creation_date(_key_label: &str) -> Result<u64> {
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
 
     Ok(timestamp)

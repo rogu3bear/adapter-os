@@ -11,16 +11,15 @@
 //! - Brotli: RFC 7932
 
 use axum::{
-    body::Body,
     extract::Request,
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderValue},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression as GzCompression;
 use std::io::Write;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Compression algorithm
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,9 +187,15 @@ mod tests {
 
     #[test]
     fn test_compress_gzip() {
-        let data = b"Hello, world! This is test data for compression.";
-        let compressed = compress_gzip(data).unwrap();
-        assert!(compressed.len() < data.len());
+        // Use repetitive data that compresses well (gzip has ~18 byte header overhead)
+        let data = b"Hello, world! This is test data for compression. ".repeat(10);
+        let compressed = compress_gzip(&data).unwrap();
+        assert!(
+            compressed.len() < data.len(),
+            "Compressed len {} should be smaller than original len {}",
+            compressed.len(),
+            data.len()
+        );
         assert!(!compressed.is_empty());
     }
 

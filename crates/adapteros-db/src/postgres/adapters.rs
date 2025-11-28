@@ -45,7 +45,7 @@ impl PostgresDb {
         .bind(base_model)
         .bind(lora_config)
         .bind(weights_hash)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Sqlx(format!("Failed to create adapter: {}", e)))?;
 
@@ -59,7 +59,7 @@ impl PostgresDb {
              FROM adapters WHERE id = $1"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Sqlx(format!("Failed to get adapter: {}", e)))?;
 
@@ -74,7 +74,7 @@ impl PostgresDb {
              ORDER BY rank DESC, created_at DESC"
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Sqlx(format!("Failed to list adapters: {}", e)))?;
 
@@ -86,7 +86,7 @@ impl PostgresDb {
         sqlx::query("UPDATE adapters SET status = $1 WHERE id = $2")
             .bind(status)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Sqlx(format!("Failed to update adapter status: {}", e)))?;
 
@@ -97,7 +97,7 @@ impl PostgresDb {
     pub async fn delete_adapter(&self, id: &str) -> Result<()> {
         sqlx::query("UPDATE adapters SET status = 'deleted' WHERE id = $1")
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Sqlx(format!("Failed to delete adapter: {}", e)))?;
 
@@ -120,7 +120,7 @@ impl PostgresDb {
         .bind(tenant_id)
         .bind(min_rank)
         .bind(max_rank)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Sqlx(format!("Failed to get adapters by rank: {}", e)))?;
 

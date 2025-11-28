@@ -19,8 +19,7 @@ use tracing::info;
 #[derive(Debug, Subcommand, Clone)]
 pub enum TelemetryCommand {
     /// List telemetry events with optional filtering
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   # List all events
   aosctl telemetry list
 
@@ -32,8 +31,7 @@ pub enum TelemetryCommand {
 
   # Combine filters with JSON output
   aosctl telemetry list --by-stack stack-prod-001 --limit 100 --json > events.json
-"#
-    )]
+"#)]
     List {
         /// Database path
         #[arg(long, default_value = "./var/aos-cp.sqlite3")]
@@ -53,12 +51,10 @@ pub enum TelemetryCommand {
     },
 
     /// Verify telemetry bundle chain integrity
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   aosctl telemetry verify --bundle-dir ./var/telemetry
   aosctl telemetry verify --bundle-dir ./var/telemetry --json > verify.json
-"#
-    )]
+"#)]
     Verify {
         /// Telemetry bundle directory
         #[arg(short, long)]
@@ -91,10 +87,18 @@ pub async fn handle_telemetry_command(cmd: TelemetryCommand, output: &OutputWrit
             by_stack,
             event_type,
             limit,
-        } => list_telemetry_events(&database, by_stack.as_deref(), event_type.as_deref(), limit, output)
-            .await
-            .map_err(|e| AosError::Other(e.to_string())),
-        TelemetryCommand::Verify { bundle_dir } => verify_telemetry_chain(&bundle_dir, output).await,
+        } => list_telemetry_events(
+            &database,
+            by_stack.as_deref(),
+            event_type.as_deref(),
+            limit,
+            output,
+        )
+        .await
+        .map_err(|e| AosError::Other(e.to_string())),
+        TelemetryCommand::Verify { bundle_dir } => {
+            verify_telemetry_chain(&bundle_dir, output).await
+        }
     }
 }
 

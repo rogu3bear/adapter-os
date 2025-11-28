@@ -115,6 +115,13 @@ impl PolicyPackRegistry {
         // Verify schema version
         pack.verify_schema_version()?;
 
+        // Validate that trusted keys are configured
+        if self.trusted_keys.is_empty() {
+            return Err(AosError::Crypto(
+                "No trusted keys configured - cannot verify policy pack signature".to_string(),
+            ));
+        }
+
         // Verify signature against trusted keys
         let mut verified = false;
         for trusted_key in &self.trusted_keys {
@@ -189,5 +196,27 @@ mod tests {
 
         let retrieved_pack = registry.get_pack("test_policy").unwrap();
         assert_eq!(retrieved_pack.policy_id, "test_policy");
+    }
+
+    #[test]
+    fn test_policy_pack_registry_empty_trusted_keys() {
+        let keypair = Keypair::generate();
+        let mut policy_data = BTreeMap::new();
+        policy_data.insert(
+            "test_key".to_string(),
+            serde_json::Value::String("test_value".to_string()),
+        );
+
+        let signed_pack =
+            SignedPolicyPack::sign("test_policy", "1.0", policy_data, &keypair).unwrap();
+
+        // Create registry without adding any trusted keys
+        let mut registry = PolicyPackRegistry::new();
+
+        // Should fail with specific error about no trusted keys
+        let result = registry.register_pack(signed_pack);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("No trusted keys configured"));
     }
 }

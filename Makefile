@@ -1,4 +1,4 @@
-.PHONY: help build prepare test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env
+.PHONY: help build prepare test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -13,8 +13,18 @@ build: ## Build all crates (fresh build with cleanup)
 	./scripts/strip_timestamps.sh
 	@echo "✅ Fresh build complete!"
 
+cli: ## Build CLI with TUI and symlink to ./aosctl
+	@echo "🔧 Building aosctl CLI with TUI..."
+	cargo build --release -p adapteros-cli --features tui
+	@ln -sf target/release/aosctl ./aosctl
+	@echo "✅ CLI ready! Run with: ./aosctl"
+	@echo "   TUI dashboard: ./aosctl tui"
+
 dev: ## Run control plane in dev mode (auth bypass available, no prod hardening). Set NO_AUTH=1 to disable auth middleware.
-	AOS_DEV_NO_AUTH=$(NO_AUTH) cargo run -p adapteros-server -- --config configs/cp.toml --skip_pf_check
+	@echo "🧹 Cleaning ports for dev server..."
+	-@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+	@echo "🚀 Starting dev server..."
+	AOS_DEV_NO_AUTH=$(NO_AUTH) cargo run -p adapteros-server -- --config configs/cp.toml --skip-pf-check --skip-drift-check
 
 dev-no-auth: ## Run control plane in dev mode with authentication disabled (debug-only)
 	NO_AUTH=1 $(MAKE) dev

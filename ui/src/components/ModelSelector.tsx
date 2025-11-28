@@ -7,10 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { CheckCircle, XCircle, AlertTriangle, Download, Code } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../api/client';
-import type { CursorModelInfo, ModelValidationResponse } from '../api/types';
+import type { ModelValidationResponse, ModelWithStatsResponse } from '../api/types';
 import { logger } from '../utils/logger';
 
-interface ModelInfo extends CursorModelInfo {
+interface ModelInfo extends ModelWithStatsResponse {
   validation?: ModelValidationResponse;
   validating?: boolean;
 }
@@ -33,7 +33,10 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
       try {
         const list = await apiClient.listModels();
         if (mounted) {
-          const modelsWithValidation: ModelInfo[] = list.map(m => ({ id: m.id, name: m.id, loaded: false }));
+          const modelsWithValidation: ModelInfo[] = list.map((model) => ({
+            ...model,
+            validation: undefined,
+          }));
           setModels(modelsWithValidation);
 
           // Mark all as validating

@@ -41,7 +41,10 @@ use tracing::{debug, info, instrument};
 // See crate::implementation for the canonical working implementation.
 
 /// Stub manifest for mmap loader (DEPRECATED - use crate::AosManifest instead)
-#[deprecated(since = "0.1.0", note = "Use crate::AosManifest from crate::implementation instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use crate::AosManifest from crate::implementation instead"
+)]
 #[derive(Debug, Clone, Default)]
 pub struct AdapterManifest {
     pub adapter_id: String,
@@ -49,7 +52,10 @@ pub struct AdapterManifest {
 }
 
 /// Stub adapter for mmap loader (DEPRECATED - use crate::LoadedAdapter instead)
-#[deprecated(since = "0.1.0", note = "Use crate::LoadedAdapter from crate::implementation instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use crate::LoadedAdapter from crate::implementation instead"
+)]
 #[derive(Debug, Clone, Default)]
 pub struct SingleFileAdapter {
     pub manifest: AdapterManifest,
@@ -72,7 +78,10 @@ impl SingleFileAdapter {
 /// This type was intended to provide zero-copy access to .aos file contents via
 /// memory mapping, but the implementation is incomplete and non-functional.
 /// The canonical implementation is in [`crate::implementation`].
-#[deprecated(since = "0.1.0", note = "Use crate::LoadedAdapter from crate::AosLoader instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use crate::LoadedAdapter from crate::AosLoader instead"
+)]
 #[derive(Clone)]
 pub struct MmapAdapter {
     /// Path to the .aos file
@@ -135,7 +144,10 @@ impl std::fmt::Debug for MmapAdapter {
 ///
 /// This loader is non-functional. All load operations return an error.
 /// The canonical working implementation is [`crate::AosLoader`].
-#[deprecated(since = "0.1.0", note = "Use crate::AosLoader from crate::implementation instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use crate::AosLoader from crate::implementation instead"
+)]
 #[derive(Debug)]
 pub struct MmapAdapterLoader {
     /// Whether to verify signatures during load

@@ -45,7 +45,7 @@ impl PostgresDb {
         .bind(base_model)
         .bind(lora_config)
         .bind(weights_hash)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         
         Ok(id)
@@ -58,7 +58,7 @@ impl PostgresDb {
              FROM adapters WHERE id = $1"
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await?;
         
         Ok(adapter)
@@ -72,7 +72,7 @@ impl PostgresDb {
              ORDER BY rank DESC, created_at DESC"
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         
         Ok(adapters)
@@ -85,7 +85,7 @@ impl PostgresDb {
         )
         .bind(status)
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         
         Ok(())
@@ -97,7 +97,7 @@ impl PostgresDb {
             "UPDATE adapters SET status = 'deleted' WHERE id = $1"
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await?;
         
         Ok(())
@@ -119,7 +119,7 @@ impl PostgresDb {
         .bind(tenant_id)
         .bind(min_rank)
         .bind(max_rank)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await?;
         
         Ok(adapters)
@@ -131,7 +131,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires PostgreSQL server
+    #[ignore = "Requires PostgreSQL server - run with: cargo test --release -- --ignored"]
     async fn test_adapter_crud() {
         let db = PostgresDb::connect("postgresql://aos:aos@localhost/adapteros_test")
             .await

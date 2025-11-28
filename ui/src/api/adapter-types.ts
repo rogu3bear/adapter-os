@@ -155,6 +155,10 @@ export interface ActiveAdapter {
   adapter_id: string;
   gate: number;  // Q15 quantized gate value
   priority?: EvictionPriority;
+  // Optional fields for enriched adapter info (may be included by some endpoints)
+  id?: string;  // Alias for adapter_id in some API responses
+  name?: string;
+  lifecycle_state?: string;
 }
 
 export interface AdapterStack {
@@ -198,6 +202,7 @@ export interface UpdateAdapterStackRequest {
 export interface AdapterStackResponse {
   schema_version: string;
   stack: AdapterStack;
+  warnings?: string[];
 }
 
 export interface ListAdapterStacksResponse {
@@ -621,6 +626,75 @@ export interface AdapterEvictionEvent {
 
 // Memory usage tracking by adapter category
 export type MemoryUsageByCategory = Record<AdapterCategory, number>;
+
+// Policy preflight check types (【2025-11-25†ui†stack-preflight-checks】)
+export interface PolicyCheck {
+  policy_id: string;
+  policy_name: string;
+  passed: boolean;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  can_override?: boolean;
+  details?: string;
+}
+
+export interface PolicyPreflightResponse {
+  checks: PolicyCheck[];
+  can_proceed: boolean;
+  stack_id?: string;
+  adapter_ids?: string[];
+}
+
+// Training provenance export types
+export interface TrainingExportAdapter {
+  id: string;
+  name: string;
+  version: string;
+  base_model: string;
+  rank: number;
+  alpha: number;
+  created_at: string;
+}
+
+export interface TrainingExportJob {
+  id: string;
+  config_hash: string;
+  training_config: Record<string, unknown>;
+  started_at: string;
+  completed_at?: string;
+  status: string;
+}
+
+export interface TrainingExportDataset {
+  id: string;
+  name: string;
+  hash: string;
+  source_location?: string;
+}
+
+export interface TrainingExportDocument {
+  id: string;
+  name: string;
+  hash: string;
+  page_count?: number;
+  created_at: string;
+}
+
+export interface TrainingExportConfigVersions {
+  chunking_config?: Record<string, unknown>;
+  training_config?: Record<string, unknown>;
+}
+
+export interface TrainingProvenanceExportResponse {
+  schema_version: string;
+  adapter: TrainingExportAdapter;
+  training_jobs: TrainingExportJob[];
+  datasets: TrainingExportDataset[];
+  documents: TrainingExportDocument[];
+  config_versions: TrainingExportConfigVersions;
+  export_timestamp: string;
+  export_hash: string;
+}
 
 // Re-export commonly used types for convenience
 export type { Adapter as default };

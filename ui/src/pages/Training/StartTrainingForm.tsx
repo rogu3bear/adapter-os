@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,6 +22,8 @@ import {
   Loader2,
   CheckCircle,
   Info,
+  Power,
+  Cpu,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
@@ -32,6 +34,7 @@ import type {
   TrainingConfigRequest,
   Dataset,
 } from '@/api/training-types';
+import type { ModelWithStatsResponse, BaseModelStatus } from '@/api/api-types';
 
 interface StartTrainingFormProps {
   onSuccess: (jobId: string) => void;
@@ -73,27 +76,49 @@ export function StartTrainingForm({
   // Data from API
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [models, setModels] = useState<ModelWithStatsResponse[]>([]);
+  const [baseModelStatus, setBaseModelStatus] = useState<BaseModelStatus | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [selectedModelToLoad, setSelectedModelToLoad] = useState<string>('');
 
   // Validation state
   const [nameError, setNameError] = useState<string | null>(null);
-  
+
   // Get selected dataset validation status
   const selectedDataset = datasets.find(d => d.id === datasetId);
   const isDatasetValid = !datasetId || selectedDataset?.validation_status === 'valid';
 
-  // Load templates and datasets
+  // Check if a base model is loaded (from runtime status)
+  const isModelLoaded = useMemo(() => {
+    if (!baseModelStatus) return false;
+    return baseModelStatus.status === 'loaded' ||
+           baseModelStatus.status === 'ready' ||
+           baseModelStatus.is_loaded === true;
+  }, [baseModelStatus]);
+
+  // Get available models that can be loaded (not the currently loaded one)
+  const availableModels = useMemo(() => {
+    if (!baseModelStatus?.model_id) return models;
+    return models.filter(m => m.id !== baseModelStatus.model_id);
+  }, [models, baseModelStatus]);
+
+  // Load templates, datasets, models, and base model status
   useEffect(() => {
     async function loadData() {
       setIsLoadingData(true);
       try {
-        const [templatesRes, datasetsRes] = await Promise.all([
+        const [templatesRes, datasetsRes, modelsRes, modelStatusRes] = await Promise.all([
           apiClient.listTrainingTemplates(),
           apiClient.listDatasets(),
+          apiClient.listModels(),
+          apiClient.getBaseModelStatus().catch(() => null), // May not be available
         ]);
 
         setTemplates(templatesRes);
         setDatasets(datasetsRes.datasets || []);
+        setModels(modelsRes || []);
+        setBaseModelStatus(modelStatusRes);
 
         if (initialTemplate) {
           setTemplateId(initialTemplate.id);
@@ -109,6 +134,27 @@ export function StartTrainingForm({
 
     loadData();
   }, [initialTemplate]);
+
+  // Handle loading a model
+  const handleLoadModel = async () => {
+    if (!selectedModelToLoad) return;
+
+    setIsLoadingModel(true);
+    try {
+      await apiClient.loadBaseModel(selectedModelToLoad);
+      toast.success('Model loaded successfully');
+      // Refresh base model status to reflect the newly loaded model
+      const modelStatusRes = await apiClient.getBaseModelStatus().catch(() => null);
+      setBaseModelStatus(modelStatusRes);
+      setSelectedModelToLoad('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load model';
+      toast.error(message);
+      logger.error('Failed to load model', { modelId: selectedModelToLoad }, err as Error);
+    } finally {
+      setIsLoadingModel(false);
+    }
+  };
 
   // Apply template settings
   const applyTemplate = (template: TrainingTemplate) => {
@@ -141,10 +187,10 @@ export function StartTrainingForm({
 
   // Validate adapter name format
   const validateAdapterName = (name: string): boolean => {
-    // Semantic naming: tenant/domain/purpose/revision
+    // Semantic naming: organization/domain/purpose/revision
     const pattern = /^[a-z0-9-]+\/[a-z0-9-]+\/[a-z0-9-]+\/r\d{3}$/;
     if (!pattern.test(name)) {
-      setNameError('Format: tenant/domain/purpose/r001 (e.g., acme/engineering/code-review/r001)');
+      setNameError('Format: organization/domain/purpose/r001 (e.g., acme/engineering/code-review/r001)');
       return false;
     }
     setNameError(null);
@@ -170,6 +216,12 @@ export function StartTrainingForm({
     // Check dataset validation status
     if (datasetId && selectedDataset && selectedDataset.validation_status !== 'valid') {
       setError(`Dataset "${selectedDataset.name}" must be validated before training. Current status: ${selectedDataset.validation_status}`);
+      return;
+    }
+
+    // Check if a model is loaded
+    if (!isModelLoaded) {
+      setError('A base model must be loaded before starting training. Please load a model first.');
       return;
     }
 
@@ -220,6 +272,72 @@ export function StartTrainingForm({
         </Alert>
       )}
 
+      {/* Model Status Section */}
+      <Card className={isModelLoaded ? 'border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/50' : 'border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/50'}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Cpu className="h-4 w-4" />
+            Base Model Status
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isModelLoaded && baseModelStatus ? (
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <span className="text-sm text-green-700 dark:text-green-300">
+                Model loaded: <span className="font-medium">{baseModelStatus.model_name || baseModelStatus.model_id}</span>
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <span className="text-sm text-amber-700 dark:text-amber-300">
+                  No model loaded. A base model must be loaded before training.
+                </span>
+              </div>
+              {availableModels.length > 0 ? (
+                <div className="flex gap-2">
+                  <Select value={selectedModelToLoad} onValueChange={setSelectedModelToLoad}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select a model to load..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          <span>{model.name || model.id}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    onClick={handleLoadModel}
+                    disabled={!selectedModelToLoad || isLoadingModel}
+                  >
+                    {isLoadingModel ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Power className="h-4 w-4 mr-2" />
+                        Load
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    No models available to load. Please import a model from the Owner Home page.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="basic" className="gap-2">
@@ -242,7 +360,7 @@ export function StartTrainingForm({
             <Label htmlFor="adapter-name">Adapter Name *</Label>
             <Input
               id="adapter-name"
-              placeholder="tenant/domain/purpose/r001"
+              placeholder="organization/domain/purpose/r001"
               value={adapterName}
               onChange={(e) => {
                 setAdapterName(e.target.value);
@@ -258,7 +376,7 @@ export function StartTrainingForm({
               <p className="text-sm text-destructive">{nameError}</p>
             )}
             <p className="text-xs text-muted-foreground">
-              Semantic naming format: tenant/domain/purpose/revision
+              Semantic naming format: organization/domain/purpose/revision
             </p>
           </div>
 
@@ -508,10 +626,10 @@ export function StartTrainingForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button 
-          type="submit" 
-          disabled={isSubmitting || !isDatasetValid}
-          title={!isDatasetValid ? 'Dataset must be validated before training' : undefined}
+        <Button
+          type="submit"
+          disabled={isSubmitting || !isDatasetValid || !isModelLoaded}
+          title={!isModelLoaded ? 'A base model must be loaded before training' : !isDatasetValid ? 'Dataset must be validated before training' : undefined}
         >
           {isSubmitting ? (
             <>

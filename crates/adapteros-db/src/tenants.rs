@@ -15,6 +15,33 @@ pub struct Tenant {
     pub name: String,
     pub itar_flag: bool,
     pub created_at: String,
+    #[sqlx(default)]
+    pub status: Option<String>,
+    #[sqlx(default)]
+    pub updated_at: Option<String>,
+    #[sqlx(default)]
+    pub default_stack_id: Option<String>,
+    #[sqlx(default)]
+    pub max_adapters: Option<i32>,
+    #[sqlx(default)]
+    pub max_training_jobs: Option<i32>,
+    #[sqlx(default)]
+    pub max_storage_gb: Option<f64>,
+    #[sqlx(default)]
+    pub rate_limit_rpm: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantUsage {
+    pub tenant_id: String,
+    pub active_adapters_count: i32,
+    pub running_training_jobs: i32,
+    pub inference_count_24h: i64,
+    pub storage_used_gb: f64,
+    pub cpu_usage_pct: f64,
+    pub gpu_usage_pct: f64,
+    pub memory_used_gb: f64,
+    pub memory_total_gb: f64,
 }
 
 impl Db {
@@ -24,7 +51,7 @@ impl Db {
             .bind(&id)
             .bind(name)
             .bind(itar_flag)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(id)
@@ -32,10 +59,12 @@ impl Db {
 
     pub async fn get_tenant(&self, id: &str) -> Result<Option<Tenant>> {
         let tenant = sqlx::query_as::<_, Tenant>(
-            "SELECT id, name, itar_flag, created_at FROM tenants WHERE id = ?",
+            "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+             FROM tenants WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenant)
@@ -43,12 +72,38 @@ impl Db {
 
     pub async fn list_tenants(&self) -> Result<Vec<Tenant>> {
         let tenants = sqlx::query_as::<_, Tenant>(
-            "SELECT id, name, itar_flag, created_at FROM tenants ORDER BY created_at DESC",
+            "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+             FROM tenants ORDER BY created_at DESC",
         )
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(tenants)
+    }
+
+    /// List tenants with pagination
+    pub async fn list_tenants_paginated(&self, limit: i64, offset: i64) -> Result<(Vec<Tenant>, i64)> {
+        // Get total count
+        let total = sqlx::query("SELECT COUNT(*) as cnt FROM tenants")
+            .fetch_one(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?
+            .get::<i64, _>(0);
+
+        // Get paginated results
+        let tenants = sqlx::query_as::<_, Tenant>(
+            "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+             FROM tenants ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok((tenants, total))
     }
 
     /// Rename a tenant
@@ -56,7 +111,7 @@ impl Db {
         sqlx::query("UPDATE tenants SET name = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(new_name)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -67,7 +122,7 @@ impl Db {
         sqlx::query("UPDATE tenants SET itar_flag = ?, updated_at = datetime('now') WHERE id = ?")
             .bind(itar_flag)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -79,7 +134,7 @@ impl Db {
             "UPDATE tenants SET status = 'paused', updated_at = datetime('now') WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -91,10 +146,95 @@ impl Db {
             "UPDATE tenants SET status = 'archived', updated_at = datetime('now') WHERE id = ?",
         )
         .bind(id)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    /// Reactivate a paused or archived tenant
+    pub async fn activate_tenant(&self, id: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE tenants SET status = 'active', updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Update tenant resource limits
+    pub async fn update_tenant_limits(
+        &self,
+        id: &str,
+        max_adapters: Option<i32>,
+        max_training_jobs: Option<i32>,
+        max_storage_gb: Option<f64>,
+        rate_limit_rpm: Option<i32>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE tenants
+             SET max_adapters = ?, max_training_jobs = ?, max_storage_gb = ?, rate_limit_rpm = ?,
+                 updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(max_adapters)
+        .bind(max_training_jobs)
+        .bind(max_storage_gb)
+        .bind(rate_limit_rpm)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update tenant limits: {}", e)))?;
+        Ok(())
+    }
+
+    /// Get tenant usage statistics
+    pub async fn get_tenant_usage(&self, tenant_id: &str) -> Result<TenantUsage> {
+        // Count active adapters
+        let adapter_count =
+            sqlx::query("SELECT COUNT(*) as cnt FROM adapters WHERE tenant_id = ? AND active = 1")
+                .bind(tenant_id)
+                .fetch_one(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to count adapters: {}", e)))?
+                .get::<i32, _>(0);
+
+        // Count running training jobs
+        let training_jobs_count = sqlx::query(
+            "SELECT COUNT(*) as cnt FROM training_jobs WHERE tenant_id = ? AND status = 'running'",
+        )
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to count training jobs: {}", e)))?
+        .get::<i32, _>(0);
+
+        // Count inference operations in last 24h
+        let inference_count_24h = sqlx::query(
+            "SELECT COUNT(*) as cnt FROM audit_logs
+             WHERE tenant_id = ? AND action = 'inference.execute'
+             AND created_at >= datetime('now', '-24 hours')",
+        )
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to count inference operations: {}", e)))?
+        .map(|row| row.get::<i32, _>(0))
+        .unwrap_or(0);
+
+        Ok(TenantUsage {
+            tenant_id: tenant_id.to_string(),
+            active_adapters_count: adapter_count,
+            running_training_jobs: training_jobs_count,
+            inference_count_24h: inference_count_24h as i64,
+            storage_used_gb: 0.0, // TODO: calculate from artifacts
+            cpu_usage_pct: 0.0,   // TODO: from system metrics
+            gpu_usage_pct: 0.0,   // TODO: from system metrics
+            memory_used_gb: 0.0,  // TODO: from system metrics
+            memory_total_gb: 0.0, // TODO: from system metrics
+        })
     }
 
     pub async fn store_tenant_snapshot_hash(
@@ -105,7 +245,7 @@ impl Db {
         sqlx::query("INSERT OR REPLACE INTO tenant_snapshots (tenant_id, state_hash, created_at) VALUES (?, ?, datetime('now'))")
             .bind(tenant_id)
             .bind(state_hash.to_hex())
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -114,7 +254,7 @@ impl Db {
     pub async fn get_tenant_snapshot_hash(&self, tenant_id: &str) -> Result<Option<B3Hash>> {
         let hash_str = sqlx::query("SELECT state_hash FROM tenant_snapshots WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 1")
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?
             .map(|row| row.get::<String, _>(0));
@@ -122,8 +262,8 @@ impl Db {
     }
 
     pub async fn build_tenant_snapshot(&self, tenant_id: &str) -> Result<TenantStateSnapshot> {
-        // Adapters
-        let all_adapters = self.list_adapters().await?;
+        // Adapters - use system-level API for snapshot building
+        let all_adapters = self.list_all_adapters_system().await?;
         let adapters: Vec<&Adapter> = all_adapters
             .iter()
             .filter(|a| a.tenant_id == tenant_id)
@@ -156,7 +296,7 @@ impl Db {
         let mut policies_rs = Vec::new();
         let rows = sqlx::query("SELECT name, rules_json FROM router_policies WHERE tenant_id = ?")
             .bind(tenant_id)
-            .fetch_all(self.pool())
+            .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to query policies: {}", e)))?;
 
@@ -183,7 +323,7 @@ impl Db {
             "SELECT key, value_json FROM tenant_configs WHERE tenant_id = ? ORDER BY key",
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to query configs: {}", e)))?;
 
@@ -233,7 +373,7 @@ impl Db {
     pub async fn get_default_stack(&self, tenant_id: &str) -> Result<Option<String>> {
         let stack_id = sqlx::query("SELECT default_stack_id FROM tenants WHERE id = ?")
             .bind(tenant_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get default stack: {}", e)))?
             .and_then(|row| row.get::<Option<String>, _>(0));
@@ -255,7 +395,7 @@ impl Db {
         sqlx::query("UPDATE tenants SET default_stack_id = ? WHERE id = ?")
             .bind(stack_id)
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to set default stack: {}", e)))?;
 
@@ -266,7 +406,7 @@ impl Db {
     pub async fn clear_default_stack(&self, tenant_id: &str) -> Result<()> {
         sqlx::query("UPDATE tenants SET default_stack_id = NULL WHERE id = ?")
             .bind(tenant_id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to clear default stack: {}", e)))?;
 
@@ -287,7 +427,7 @@ impl Db {
         .bind(tenant_id)
         .bind(policy_id)
         .bind(assigned_by)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to assign policy to tenant: {}", e)))?;
         Ok(())
@@ -307,7 +447,7 @@ impl Db {
         .bind(tenant_id)
         .bind(adapter_id)
         .bind(assigned_by)
-        .execute(self.pool())
+        .execute(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to assign adapter to tenant: {}", e)))?;
         Ok(())

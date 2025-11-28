@@ -12,6 +12,7 @@ exclude = []  # adapteros-server temporarily included for building
 members = [
     "crates/adapteros-core",
     "crates/adapteros-crypto",
+    "crates/adapteros-platform",  # Platform utilities and path resolution
     "crates/adapteros-manifest",
     "crates/adapteros-registry",
     "crates/adapteros-artifacts",
@@ -34,6 +35,7 @@ members = [
     "crates/adapteros-policy",
     "crates/adapteros-config",
     "crates/adapteros-cli",
+    "crates/adapteros-tui",  # Terminal UI dashboard
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
@@ -59,6 +61,7 @@ members = [
     "crates/adapteros-verify",
     "crates/adapteros-federation",
     "crates/adapteros-domain",
+    "crates/adapteros-error-recovery",
     "crates/adapteros-base-llm",
     "crates/adapteros-testing",
     "crates/adapteros-verification",
@@ -66,8 +69,11 @@ members = [
     # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
     "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
     # "crates/sign-migrations",  # Migration signing tool - directory missing
+    "crates/adapteros-plugin-advanced-metrics",  # Advanced metrics plugin
     "xtask",
     "fuzz",
+    "crates/adapteros-service-supervisor",
+    "crates/adapteros-model-hub",  # Model discovery and download
 ]
 
 [workspace.package]

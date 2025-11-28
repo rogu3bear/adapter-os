@@ -8,8 +8,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
-use tokio::time::{timeout, Duration};
-use tracing::{debug, error, info, warn};
+use tokio::time::Duration;
+use tracing::{info, warn};
 
 /// Process manager for handling service processes
 pub struct ProcessManager {
@@ -36,10 +36,14 @@ impl ProcessManager {
         // Check if process already exists
         let mut processes = self.processes.write().await;
         if processes.contains_key(&id) {
-            return Err(SupervisorError::ServiceOperation(format!("Process {} already exists", id)));
+            return Err(SupervisorError::ServiceOperation(format!(
+                "Process {} already exists",
+                id
+            )));
         }
 
-        let managed_process = Arc::new(ManagedProcess::new(id.clone(), command, args, working_dir, env).await?);
+        let managed_process =
+            Arc::new(ManagedProcess::new(id.clone(), command, args, working_dir, env).await?);
         processes.insert(id, Arc::clone(&managed_process));
 
         Ok(managed_process)
@@ -96,9 +100,7 @@ impl ManagedProcess {
         env: &HashMap<String, String>,
     ) -> Result<Self> {
         let mut cmd = Command::new(command);
-        cmd.args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
@@ -109,8 +111,9 @@ impl ManagedProcess {
             cmd.env(key, value);
         }
 
-        let child = cmd.spawn()
-            .map_err(|e| SupervisorError::Process(format!("Failed to spawn process {}: {}", id, e)))?;
+        let child = cmd.spawn().map_err(|e| {
+            SupervisorError::Process(format!("Failed to spawn process {}: {}", id, e))
+        })?;
 
         info!("Started process {} with PID {:?}", id, child.id());
 
@@ -126,7 +129,7 @@ impl ManagedProcess {
         ProcessStatus {
             id: self.id.clone(),
             running: true, // We'll check this properly
-            pid: None, // We'll implement this
+            pid: None,     // We'll implement this
             start_time: self.start_time,
             uptime: self.start_time.elapsed(),
         }
@@ -143,12 +146,10 @@ impl ManagedProcess {
 
             // Wait for process to exit
             match tokio::time::timeout(timeout, child.wait()).await {
-                Ok(result) => {
-                    match result {
-                        Ok(status) => info!("Process {} exited with status: {}", self.id, status),
-                        Err(e) => warn!("Error waiting for process {}: {}", self.id, e),
-                    }
-                }
+                Ok(result) => match result {
+                    Ok(status) => info!("Process {} exited with status: {}", self.id, status),
+                    Err(e) => warn!("Error waiting for process {}: {}", self.id, e),
+                },
                 Err(_) => {
                     // Force kill if timeout
                     if let Some(pid) = child.id() {
@@ -167,8 +168,9 @@ impl ManagedProcess {
         let child_guard = self.child.read().await;
         if let Some(child) = child_guard.as_ref() {
             if let Some(pid) = child.id() {
-                kill(Pid::from_raw(pid as i32), signal)
-                    .map_err(|e| SupervisorError::Process(format!("Failed to send signal to {}: {}", self.id, e)))?;
+                kill(Pid::from_raw(pid as i32), signal).map_err(|e| {
+                    SupervisorError::Process(format!("Failed to send signal to {}: {}", self.id, e))
+                })?;
             }
         }
         Ok(())

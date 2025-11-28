@@ -79,8 +79,8 @@ async fn test_adapter_default_version_and_lifecycle() -> anyhow::Result<()> {
 
     db.register_adapter(params).await?;
 
-    // Query adapter
-    let adapters = db.list_adapters().await?;
+    // Query adapter (system-level for tests)
+    let adapters = db.list_all_adapters_system().await?;
     let adapter = adapters
         .into_iter()
         .find(|a| a.id == adapter_id)
@@ -119,8 +119,8 @@ async fn test_adapter_to_adaptermeta_conversion() -> anyhow::Result<()> {
 
     db.register_adapter(params).await?;
 
-    // Query adapter
-    let adapters = db.list_adapters().await?;
+    // Query adapter (system-level for tests)
+    let adapters = db.list_all_adapters_system().await?;
     let adapter = adapters
         .into_iter()
         .find(|a| a.id == adapter_id)
@@ -170,8 +170,8 @@ async fn test_multiple_adapters_metadata_consistency() -> anyhow::Result<()> {
         db.register_adapter(params).await?;
     }
 
-    // Query all adapters
-    let adapters = db.list_adapters().await?;
+    // Query all adapters (system-level for tests)
+    let adapters = db.list_all_adapters_system().await?;
     assert_eq!(adapters.len(), 5, "Should have 5 adapters");
 
     // Verify all have version and lifecycle_state
@@ -226,7 +226,7 @@ async fn test_adapter_meta_has_all_required_fields() -> anyhow::Result<()> {
 
     db.register_adapter(params).await?;
 
-    let adapters = db.list_adapters().await?;
+    let adapters = db.list_all_adapters_system().await?;
     let adapter = adapters
         .into_iter()
         .find(|a| a.id == adapter_id)

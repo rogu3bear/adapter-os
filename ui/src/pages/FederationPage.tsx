@@ -7,15 +7,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiClient } from '@/api/client';
-import { FederationStatusResponse, FederationAuditResponse, QuarantineStatusResponse } from '@/api/federation-types';
+import { FederationStatusResponse, FederationAuditResponse, QuarantineStatusResponse, PeerListResponse } from '@/api/federation-types';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
+import { PeerSyncStatusCard } from '@/components/federation/PeerSyncStatusCard';
+import { derivePeerSyncInfoList } from '@/utils/peerSync';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { usePolling } from '@/hooks/usePolling';
 import { RefreshCw, ShieldAlert, CheckCircle, AlertTriangle, Server, Activity } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
 import {
   Dialog,
   DialogContent,
@@ -38,11 +39,10 @@ function FederationPageInner() {
 
   if (!canViewFederation) {
     return (
-      <FeatureLayout title="Federation Status">
-        <PageHeader
-          title="Federation Status"
-          description="Cross-node synchronization and health"
-        />
+      <FeatureLayout
+        title="Federation Status"
+        description="Cross-node synchronization and health"
+      >
         <ErrorRecovery
           error="You do not have permission to view federation status. This page requires federation:view or audit:view permission."
           onRetry={() => window.location.reload()}
@@ -109,6 +109,25 @@ function FederationPageInner() {
     }
   );
 
+  // Fetch peer list for sync status
+  const fetchPeers = useCallback(async () => {
+    return await apiClient.getFederationPeers();
+  }, []);
+
+  const {
+    data: peersData,
+    isLoading: peersLoading,
+    error: peersError,
+    refetch: refetchPeers,
+  } = usePolling<PeerListResponse>(
+    fetchPeers,
+    'normal', // 10s polling
+    {
+      enabled: true,
+      operationName: 'fetchFederationPeers',
+    }
+  );
+
   const handleReleaseQuarantine = async () => {
     setReleasing(true);
     try {
@@ -132,6 +151,7 @@ function FederationPageInner() {
     refetchStatus();
     refetchQuarantine();
     refetchAudit();
+    refetchPeers();
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -158,14 +178,11 @@ function FederationPageInner() {
   };
 
   return (
-    <FeatureLayout title="Federation Status">
-      <PageHeader
-        title="Federation Status"
-        description="Cross-node synchronization and health monitoring"
-      >
-        <DensityControls density={density} onDensityChange={setDensity} />
-      </PageHeader>
-
+    <FeatureLayout
+      title="Federation Status"
+      description="Cross-node synchronization and health monitoring"
+      headerActions={<DensityControls density={density} onDensityChange={setDensity} />}
+    >
       <div className="space-y-6">
         {/* Controls */}
         <Card>
@@ -263,6 +280,17 @@ function FederationPageInner() {
             )}
           </CardContent>
         </Card>
+
+        {/* Peer Sync Status */}
+        {peersError && errorRecoveryTemplates.genericError(peersError.message, refetchPeers)}
+        {peersData && (
+          <PeerSyncStatusCard
+            peers={derivePeerSyncInfoList(peersData.peers)}
+            isLoading={peersLoading}
+            showTitle={true}
+            compact={false}
+          />
+        )}
 
         {/* Quarantine Status */}
         <Card>

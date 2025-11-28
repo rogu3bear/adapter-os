@@ -13,7 +13,6 @@
 use adapteros_core::circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, StandardCircuitBreaker,
 };
-use adapteros_core::retry_policy::RetryPolicy;
 use adapteros_telemetry::unified_events::TelemetryEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -21,7 +20,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Telemetry system health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +142,8 @@ impl TokenBucket {
     }
 
     /// Get current token count
+    /// Reserved for future rate limiting and quota enforcement
+    #[allow(dead_code)]
     fn tokens(&self) -> u64 {
         self.tokens.load(Ordering::Relaxed)
     }
@@ -468,6 +469,8 @@ pub struct MetricsRegistry {
 
 /// Series type for metrics with time-series data
 pub struct MetricsSeries {
+    /// Metric name (used for internal tracking, exposed via conversion to response types)
+    #[allow(dead_code)]
     name: String,
     points: Vec<MetricDataPoint>,
 }
@@ -1179,7 +1182,7 @@ pub fn spawn_telemetry_workers(
 /// Convert from adapteros_telemetry::metrics::MetricsSnapshot to crate::types::MetricsSnapshotResponse
 impl From<adapteros_telemetry::metrics::MetricsSnapshot> for crate::types::MetricsSnapshotResponse {
     fn from(snapshot: adapteros_telemetry::metrics::MetricsSnapshot) -> Self {
-        let mut counters = HashMap::new();
+        let counters = HashMap::new();
         let mut gauges = HashMap::new();
         let mut histograms: HashMap<String, Vec<f64>> = HashMap::new();
 

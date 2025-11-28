@@ -14,6 +14,8 @@ pub struct SqliteBackend {
 
 impl SqliteBackend {
     /// Create a new SQLite backend
+    ///
+    /// **CRITICAL:** Enables foreign key enforcement on all connections.
     pub async fn new(path: &str) -> Result<Self> {
         info!("Connecting to SQLite database at: {}", path);
 
@@ -21,7 +23,8 @@ impl SqliteBackend {
             .map_err(|e| AosError::Database(format!("Invalid SQLite path: {}", e)))?
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .foreign_keys(true); // CRITICAL: Enable foreign key constraints
 
         let pool = SqlitePool::connect_with(options)
             .await
@@ -56,7 +59,7 @@ impl DatabaseBackend for SqliteBackend {
         .bind(description)
         .bind(&adapter_ids_json)
         .bind(workflow_type)
-        .fetch_one(self.pool())
+        .fetch_one(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert stack: {}", e)))?;
 
@@ -70,7 +73,7 @@ impl DatabaseBackend for SqliteBackend {
         )
         .bind(tenant_id)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
 
@@ -136,7 +139,7 @@ impl DatabaseBackend for SqliteBackend {
         let result = sqlx::query("DELETE FROM adapter_stacks WHERE tenant_id = ? AND id = ?")
             .bind(tenant_id)
             .bind(id)
-            .execute(self.pool())
+            .execute(&*self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
 
@@ -156,52 +159,39 @@ impl DatabaseBackend for SqliteBackend {
 
         let tenant_id = &stack.tenant_id;
 
-        // First, fetch the current stack to check if version should increment
-        let current = self.get_stack(tenant_id, id).await?;
-
-        let should_increment_version = if let Some(current_stack) = current {
-            // Increment version if adapter_ids or workflow_type changed
-            let adapter_ids_changed = current_stack.adapter_ids_json != adapter_ids_json;
-            let workflow_type_changed =
-                current_stack.workflow_type.as_deref() != Some(workflow_type);
-            adapter_ids_changed || workflow_type_changed
-        } else {
-            false // Stack doesn't exist, won't update
-        };
-
-        let result = if should_increment_version {
-            sqlx::query(
-                "UPDATE adapter_stacks
-                 SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?,
-                     version = version + 1, updated_at = datetime('now')
-                 WHERE tenant_id = ? AND id = ?",
-            )
-            .bind(&stack.name)
-            .bind(description)
-            .bind(&adapter_ids_json)
-            .bind(workflow_type)
-            .bind(tenant_id)
-            .bind(id)
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
-        } else {
-            sqlx::query(
-                "UPDATE adapter_stacks
-                 SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?,
-                     updated_at = datetime('now')
-                 WHERE tenant_id = ? AND id = ?",
-            )
-            .bind(&stack.name)
-            .bind(description)
-            .bind(&adapter_ids_json)
-            .bind(workflow_type)
-            .bind(tenant_id)
-            .bind(id)
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?
-        };
+        // CRITICAL FIX: Use a single atomic UPDATE with conditional version increment
+        // This prevents race conditions where two concurrent updates could both read
+        // the same version and both increment it, resulting in lost updates.
+        //
+        // Strategy: Always do a conditional update based on comparing JSON values
+        // directly in SQL, eliminating the SELECT-then-UPDATE race window.
+        let result = sqlx::query(
+            r#"
+            UPDATE adapter_stacks
+            SET name = ?,
+                description = ?,
+                adapter_ids_json = ?,
+                workflow_type = ?,
+                version = CASE
+                    WHEN adapter_ids_json != ? OR workflow_type != ?
+                    THEN version + 1
+                    ELSE version
+                END,
+                updated_at = datetime('now')
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(&stack.name)
+        .bind(description)
+        .bind(&adapter_ids_json)
+        .bind(workflow_type)
+        .bind(&adapter_ids_json) // For comparison
+        .bind(workflow_type) // For comparison
+        .bind(tenant_id)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update stack: {}", e)))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -274,7 +264,7 @@ impl DatabaseBackend for SqliteBackend {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(self.pool())
+        .fetch_all(&*self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks for tenant: {}", e)))?;
 

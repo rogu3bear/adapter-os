@@ -247,7 +247,7 @@ export function GoldenRuns() {
                     <div className="font-mono">{summary.run_id}</div>
                   </div>
                   <div>
-                    <div className="text-muted-foreground">CPID</div>
+                    <div className="text-muted-foreground">Policy ID</div>
                     <div className="font-mono">{summary.cpid}</div>
                   </div>
                   <div>

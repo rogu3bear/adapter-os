@@ -33,7 +33,7 @@ export function useCreateTenant() {
     mutationFn: (data: CreateTenantRequest) => apiClient.createTenant(data),
     onSuccess: (newTenant) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(`Tenant "${newTenant.name}" created successfully`);
+      toast.success(`Organization "${newTenant.name}" created successfully`);
       logger.info('Tenant created', {
         component: 'useAdmin',
         operation: 'createTenant',
@@ -41,7 +41,7 @@ export function useCreateTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to create tenant: ${error.message}`);
+      toast.error(`Failed to create organization: ${error.message}`);
       logger.error('Failed to create tenant', {
         component: 'useAdmin',
         operation: 'createTenant',
@@ -58,7 +58,7 @@ export function useUpdateTenant() {
       apiClient.updateTenant(tenantId, name),
     onSuccess: (updatedTenant) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(`Tenant "${updatedTenant.name}" updated successfully`);
+      toast.success(`Organization "${updatedTenant.name}" updated successfully`);
       logger.info('Tenant updated', {
         component: 'useAdmin',
         operation: 'updateTenant',
@@ -66,7 +66,7 @@ export function useUpdateTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to update tenant: ${error.message}`);
+      toast.error(`Failed to update organization: ${error.message}`);
       logger.error('Failed to update tenant', {
         component: 'useAdmin',
         operation: 'updateTenant',
@@ -82,7 +82,7 @@ export function usePauseTenant() {
     mutationFn: (tenantId: string) => apiClient.pauseTenant(tenantId),
     onSuccess: (_, tenantId) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success('Tenant paused successfully');
+      toast.success('Organization paused successfully');
       logger.info('Tenant paused', {
         component: 'useAdmin',
         operation: 'pauseTenant',
@@ -90,7 +90,7 @@ export function usePauseTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to pause tenant: ${error.message}`);
+      toast.error(`Failed to pause organization: ${error.message}`);
       logger.error('Failed to pause tenant', {
         component: 'useAdmin',
         operation: 'pauseTenant',
@@ -106,7 +106,7 @@ export function useArchiveTenant() {
     mutationFn: (tenantId: string) => apiClient.archiveTenant(tenantId),
     onSuccess: (_, tenantId) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success('Tenant archived successfully');
+      toast.success('Organization archived successfully');
       logger.info('Tenant archived', {
         component: 'useAdmin',
         operation: 'archiveTenant',
@@ -114,7 +114,7 @@ export function useArchiveTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to archive tenant: ${error.message}`);
+      toast.error(`Failed to archive organization: ${error.message}`);
       logger.error('Failed to archive tenant', {
         component: 'useAdmin',
         operation: 'archiveTenant',

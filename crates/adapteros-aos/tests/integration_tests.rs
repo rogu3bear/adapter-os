@@ -4,7 +4,7 @@
 
 #![cfg(feature = "mmap")]
 
-use adapteros_aos::{AosManager, MmapAdapterLoader};
+use adapteros_aos::{AosLoader, AosManager};
 use std::path::PathBuf;
 
 fn test_adapter_path() -> Option<PathBuf> {
@@ -31,14 +31,15 @@ async fn test_load_adapter() {
         return;
     };
 
-    let loader = MmapAdapterLoader::new();
-    let result = loader.load(&adapter_path).await;
+    let loader = AosLoader::new().expect("Failed to create AosLoader");
+    let result = loader.load_from_path(&adapter_path).await;
 
     match result {
         Ok(adapter) => {
             println!("Loaded: {}", adapter.adapter_id());
             println!("Version: {}", adapter.version());
             println!("Size: {} bytes", adapter.size_bytes());
+            println!("Tensors: {}", adapter.tensor_count());
             assert!(!adapter.adapter_id().is_empty());
         }
         Err(e) => {
