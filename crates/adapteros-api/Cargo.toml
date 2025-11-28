@@ -12,6 +12,7 @@ adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
 axum = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = "0.1"

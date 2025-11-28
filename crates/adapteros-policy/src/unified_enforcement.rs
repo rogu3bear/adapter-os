@@ -483,21 +483,14 @@ impl PolicyEnforcer for UnifiedPolicyEnforcer {
                     warnings.extend(validation.warnings);
                 }
                 Err(e) => {
+                    // Policy evaluation errors should be propagated, not converted to violations
+                    // This distinguishes between "policy violated" vs "policy evaluation failed"
                     error!(
                         policy_pack = pack_name,
                         error = %e,
-                        "Policy pack validation failed"
+                        "Policy pack evaluation failed - propagating error"
                     );
-
-                    violations.push(PolicyViolation {
-                        violation_id: uuid::Uuid::new_v4().to_string(),
-                        policy_pack: pack_name.clone(),
-                        severity: ViolationSeverity::High,
-                        message: format!("Policy pack validation failed: {}", e),
-                        details: None,
-                        remediation: Some(vec!["Check policy pack configuration".to_string()]),
-                        timestamp: chrono::Utc::now(),
-                    });
+                    return Err(e);
                 }
             }
         }

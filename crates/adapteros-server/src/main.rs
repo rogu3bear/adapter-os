@@ -7,18 +7,18 @@ use adapteros_deterministic_exec::{
 };
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
-use adapteros_server::boot_state::BootStateManager;
-use adapteros_server::config::Config;
-use adapteros_server::runtime_mode::{RuntimeMode, RuntimeModeResolver};
+use adapteros_model_hub::{ModelHubClient, ModelHubConfig};
 use adapteros_server::security::PfGuard;
 use adapteros_server::shutdown::ShutdownCoordinator;
 use adapteros_server::status_writer;
+use adapteros_server_api::boot_state::BootStateManager;
+use adapteros_server_api::config::Config;
+use adapteros_server_api::runtime_mode::RuntimeModeResolver;
 use adapteros_server_api::{routes, AppState};
 use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::signal;
@@ -119,6 +119,10 @@ struct Cli {
     #[arg(long)]
     skip_pf_check: bool,
 
+    /// Skip environment drift detection (for development only)
+    #[arg(long)]
+    skip_drift_check: bool,
+
     /// Path to base model manifest for executor seeding
     /// Can also be set via AOS_MANIFEST_PATH environment variable
     #[arg(
@@ -164,6 +168,42 @@ async fn main() -> Result<()> {
     // Load configuration early (needed for production mode check)
     info!("Loading configuration from {}", cli.config);
     let server_config = Arc::new(RwLock::new(Config::load(&cli.config)?));
+
+    // Log effective configuration at startup
+    {
+        let cfg = server_config.read().map_err(|e| {
+            error!("Config lock poisoned at startup: {}", e);
+            AosError::Config("config lock poisoned at startup".into())
+        })?;
+        info!(
+            port = cfg.server.port,
+            bind = %cfg.server.bind,
+            production_mode = cfg.server.production_mode,
+            uds_socket = ?cfg.server.uds_socket,
+            drain_timeout_secs = cfg.server.drain_timeout_secs,
+            db_path = %cfg.db.path,
+            artifacts_root = %cfg.paths.artifacts_root,
+            bundles_root = %cfg.paths.bundles_root,
+            adapters_root = %cfg.paths.adapters_root,
+            "Effective server configuration"
+        );
+        info!(
+            require_pf_deny = cfg.security.require_pf_deny,
+            mtls_required = cfg.security.mtls_required,
+            jwt_ttl_hours = cfg.security.jwt_ttl_hours,
+            jwt_issuer = %cfg.security.jwt_issuer,
+            key_provider_mode = %cfg.security.key_provider_mode,
+            "Effective security configuration"
+        );
+        info!(
+            rate_limit_rpm = cfg.rate_limits.requests_per_minute,
+            burst_size = cfg.rate_limits.burst_size,
+            inference_rpm = cfg.rate_limits.inference_per_minute,
+            metrics_enabled = cfg.metrics.enabled,
+            alerting_enabled = cfg.alerting.enabled,
+            "Effective operational configuration"
+        );
+    }
 
     // Initialize shutdown coordinator for graceful lifecycle management
     let mut shutdown_coordinator = ShutdownCoordinator::new();
@@ -291,6 +331,9 @@ async fn main() -> Result<()> {
     // Transition to loading base models state
     boot_state.load_base_models().await;
 
+    // Download priority models from HuggingFace Hub if enabled
+    download_priority_models().await;
+
     // Security preflight: ensure egress is blocked
     info!("Running security preflight checks");
     {
@@ -298,7 +341,22 @@ async fn main() -> Result<()> {
             .read()
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.security.require_pf_deny && !cli.skip_pf_check {
-            PfGuard::preflight(&cfg.security)?;
+            // Convert server SecurityConfig to API SecurityConfig
+            let api_security_config = adapteros_server_api::config::SecurityConfig {
+                require_pf_deny: cfg.security.require_pf_deny,
+                mtls_required: cfg.security.mtls_required,
+                jwt_secret: cfg.security.jwt_secret.clone(),
+                jwt_ttl_hours: cfg.security.jwt_ttl_hours,
+                key_provider_mode: cfg.security.key_provider_mode.clone(),
+                key_file_path: cfg.security.key_file_path.clone(),
+                jwt_issuer: cfg.security.jwt_issuer.clone(),
+                jwt_audience: cfg.security.jwt_audience.clone(),
+                dev_login_enabled: cfg.security.dev_login_enabled,
+                require_mfa: cfg.security.require_mfa,
+                token_ttl_seconds: cfg.security.token_ttl_seconds,
+                jwt_mode: cfg.security.jwt_mode.clone(),
+            };
+            PfGuard::preflight(&api_security_config)?;
         } else if cli.skip_pf_check {
             warn!("PF security check skipped via --skip-pf-check flag (DEVELOPMENT ONLY)");
         }
@@ -306,7 +364,7 @@ async fn main() -> Result<()> {
 
     // Environment fingerprint drift detection
     info!("Verifying environment fingerprint");
-    {
+    if !cli.skip_drift_check {
         use adapteros_verify::{
             get_or_create_fingerprint_keypair, DeviceFingerprint, DriftEvaluator,
         };
@@ -383,6 +441,8 @@ async fn main() -> Result<()> {
                 .map_err(|e| AosError::Io(format!("Failed to save baseline fingerprint: {}", e)))?;
             info!("Baseline fingerprint created at {:?}", baseline_path);
         }
+    } else {
+        warn!("Environment drift check skipped via --skip-drift-check flag (DEVELOPMENT ONLY)");
     }
 
     // Connect to database
@@ -400,14 +460,70 @@ async fn main() -> Result<()> {
     let boot_state = BootStateManager::with_db(Arc::new(db.clone()));
 
     // Resolve runtime mode with precedence: env > db > config > default
-    let runtime_mode = RuntimeModeResolver::resolve(
-        &server_config
+    let runtime_mode = {
+        let production_mode = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?,
-        &db,
-    )
-    .await
-    .map_err(|e| AosError::Config(format!("Failed to resolve runtime mode: {}", e)))?;
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .server
+            .production_mode;
+
+        // Create a minimal API config for runtime mode resolution
+        let api_cfg = adapteros_server_api::config::Config {
+            server: adapteros_server_api::config::ServerConfig {
+                port: 0,             // Unused
+                bind: String::new(), // Unused
+                production_mode,
+                uds_socket: None,
+                drain_timeout_secs: 30,
+            },
+            db: adapteros_server_api::config::DatabaseConfig {
+                path: String::new(), // Unused
+            },
+            security: adapteros_server_api::config::SecurityConfig {
+                require_pf_deny: false,
+                mtls_required: false,
+                jwt_secret: String::new(),
+                jwt_ttl_hours: 8,
+                key_provider_mode: String::new(),
+                key_file_path: None,
+                jwt_issuer: String::new(),
+                jwt_audience: None,
+                dev_login_enabled: false,
+                require_mfa: None,
+                token_ttl_seconds: None,
+                jwt_mode: None,
+            },
+            paths: adapteros_server_api::config::PathsConfig {
+                artifacts_root: String::new(),
+                bundles_root: String::new(),
+                adapters_root: String::new(),
+                plan_dir: String::new(),
+            },
+            rate_limits: adapteros_server_api::config::RateLimitsConfig {
+                requests_per_minute: 0,
+                burst_size: 0,
+                inference_per_minute: 0,
+            },
+            metrics: adapteros_server_api::config::MetricsConfig {
+                enabled: false,
+                bearer_token: String::new(),
+                include_histogram: false,
+                histogram_buckets: vec![],
+            },
+            alerting: adapteros_server_api::config::AlertingConfig {
+                enabled: false,
+                alert_dir: String::new(),
+                max_alerts_per_file: 0,
+                rotate_size_mb: 0,
+            },
+            git: None,
+            policies: Default::default(),
+        };
+
+        RuntimeModeResolver::resolve(&api_cfg, &db)
+            .await
+            .map_err(|e| AosError::Config(format!("Failed to resolve runtime mode: {}", e)))?
+    };
 
     info!(
         mode = %runtime_mode,
@@ -418,15 +534,70 @@ async fn main() -> Result<()> {
     );
 
     // Validate runtime mode configuration
-    RuntimeModeResolver::validate(
-        runtime_mode,
-        &server_config
+    {
+        let production_mode = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?,
-        &db,
-    )
-    .await
-    .map_err(|e| AosError::Config(format!("Runtime mode validation failed: {}", e)))?;
+            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .server
+            .production_mode;
+
+        // Create a minimal API config for validation
+        let api_cfg = adapteros_server_api::config::Config {
+            server: adapteros_server_api::config::ServerConfig {
+                port: 0,
+                bind: String::new(),
+                production_mode,
+                uds_socket: None,
+                drain_timeout_secs: 30,
+            },
+            db: adapteros_server_api::config::DatabaseConfig {
+                path: String::new(),
+            },
+            security: adapteros_server_api::config::SecurityConfig {
+                require_pf_deny: false,
+                mtls_required: false,
+                jwt_secret: String::new(),
+                jwt_ttl_hours: 8,
+                key_provider_mode: String::new(),
+                key_file_path: None,
+                jwt_issuer: String::new(),
+                jwt_audience: None,
+                dev_login_enabled: false,
+                require_mfa: None,
+                token_ttl_seconds: None,
+                jwt_mode: None,
+            },
+            paths: adapteros_server_api::config::PathsConfig {
+                artifacts_root: String::new(),
+                bundles_root: String::new(),
+                adapters_root: String::new(),
+                plan_dir: String::new(),
+            },
+            rate_limits: adapteros_server_api::config::RateLimitsConfig {
+                requests_per_minute: 0,
+                burst_size: 0,
+                inference_per_minute: 0,
+            },
+            metrics: adapteros_server_api::config::MetricsConfig {
+                enabled: false,
+                bearer_token: String::new(),
+                include_histogram: false,
+                histogram_buckets: vec![],
+            },
+            alerting: adapteros_server_api::config::AlertingConfig {
+                enabled: false,
+                alert_dir: String::new(),
+                max_alerts_per_file: 0,
+                rotate_size_mb: 0,
+            },
+            git: None,
+            policies: Default::default(),
+        };
+
+        RuntimeModeResolver::validate(runtime_mode, &api_cfg, &db)
+            .await
+            .map_err(|e| AosError::Config(format!("Runtime mode validation failed: {}", e)))?;
+    }
 
     // Audit log: Executor bootstrap event
     {
@@ -496,6 +667,27 @@ async fn main() -> Result<()> {
             },
             directory_analysis_timeout_secs: 120,
             capacity_limits: Default::default(),
+            general: None,
+            server: adapteros_server_api::state::ServerConfigApi {
+                http_port: Some(cfg.server.port),
+                https_port: None,
+                uds_socket: cfg.server.uds_socket.clone(),
+                production_mode: cfg.server.production_mode,
+            },
+            security: adapteros_server_api::state::SecurityConfigApi {
+                jwt_mode: cfg.security.jwt_mode.clone(),
+                token_ttl_seconds: cfg.security.token_ttl_seconds,
+                require_mfa: cfg.security.require_mfa,
+                require_pf_deny: cfg.security.require_pf_deny,
+                dev_login_enabled: cfg.security.dev_login_enabled,
+            },
+            performance: Default::default(),
+            paths: adapteros_server_api::PathsConfig {
+                artifacts_root: cfg.paths.artifacts_root.clone(),
+                bundles_root: cfg.paths.bundles_root.clone(),
+                adapters_root: cfg.paths.adapters_root.clone(),
+                plan_dir: cfg.paths.plan_dir.clone(),
+            },
         }))
     };
 
@@ -505,9 +697,22 @@ async fn main() -> Result<()> {
         let config_clone = Arc::clone(&server_config);
         let api_config_clone = Arc::clone(&api_config);
         let config_path = cli.config.clone();
-        let sighup_handle = spawn_deterministic("SIGHUP handler".to_string(), async move {
+
+        match spawn_deterministic("SIGHUP handler".to_string(), async move {
             use tokio::signal::unix::{signal, SignalKind};
-            let mut sig = signal(SignalKind::hangup()).expect("Failed to setup SIGHUP handler");
+
+            // Attempt to register signal handler, gracefully degrade if unavailable
+            let mut sig = match signal(SignalKind::hangup()) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "Failed to register SIGHUP handler, config reload will be unavailable"
+                    );
+                    return;
+                }
+            };
+
             loop {
                 sig.recv().await;
                 info!("SIGHUP received, reloading config");
@@ -531,6 +736,13 @@ async fn main() -> Result<()> {
                                 api_cfg.metrics.enabled = new_config.metrics.enabled;
                                 api_cfg.metrics.bearer_token =
                                     new_config.metrics.bearer_token.clone();
+                                // Reload paths config
+                                api_cfg.paths.artifacts_root =
+                                    new_config.paths.artifacts_root.clone();
+                                api_cfg.paths.bundles_root = new_config.paths.bundles_root.clone();
+                                api_cfg.paths.adapters_root =
+                                    new_config.paths.adapters_root.clone();
+                                api_cfg.paths.plan_dir = new_config.paths.plan_dir.clone();
                             }
                             Err(e) => {
                                 error!("API config lock poisoned during reload: {}", e);
@@ -542,9 +754,18 @@ async fn main() -> Result<()> {
                     Err(e) => error!("Failed to reload config: {}", e),
                 }
             }
-        })
-        .expect("Failed to spawn SIGHUP handler");
-        shutdown_coordinator.register_task(sighup_handle);
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("SIGHUP handler registered for config reload");
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to spawn SIGHUP handler task, config reload will be unavailable"
+                );
+            }
+        }
     }
 
     // Initialize status writer uptime tracking early
@@ -557,7 +778,14 @@ async fn main() -> Result<()> {
             .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
         if cfg.alerting.enabled {
             info!("Starting alert watcher");
-            let alert_handle = alerting::spawn_alert_watcher(db.clone(), cfg.alerting.clone())?;
+            // Convert server AlertingConfig to API AlertingConfig
+            let api_alerting_config = adapteros_server_api::config::AlertingConfig {
+                enabled: cfg.alerting.enabled,
+                alert_dir: cfg.alerting.alert_dir.clone(),
+                max_alerts_per_file: cfg.alerting.max_alerts_per_file,
+                rotate_size_mb: cfg.alerting.rotate_size_mb,
+            };
+            let alert_handle = alerting::spawn_alert_watcher(db.clone(), api_alerting_config)?;
             shutdown_coordinator.set_alert_handle(alert_handle);
         }
     }
@@ -612,6 +840,7 @@ async fn main() -> Result<()> {
             let federation_manager = Arc::new(adapteros_federation::FederationManager::new(
                 db.clone(),
                 federation_keypair,
+                "default".to_string(),
             )?);
 
             // Create federation daemon config (5 minute interval per spec)
@@ -684,26 +913,34 @@ async fn main() -> Result<()> {
             .await;
 
         // Bind and start serving in background
-        uds_exporter.bind().await?;
+        match uds_exporter.bind().await {
+            Ok(()) => {
+                let exporter_socket_path = socket_path.clone();
+                let shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+                let uds_handle = tokio::spawn(async move {
+                    if let Err(e) = uds_exporter.serve(shutdown_rx).await {
+                        error!("UDS metrics exporter error: {}", e);
+                    }
+                });
 
-        let exporter_socket_path = socket_path.clone();
-        let shutdown_rx = shutdown_coordinator.subscribe_shutdown();
-        let uds_handle = tokio::spawn(async move {
-            if let Err(e) = uds_exporter.serve(shutdown_rx).await {
-                error!("UDS metrics exporter error: {}", e);
+                shutdown_coordinator.set_uds_metrics_handle(uds_handle);
+
+                info!(
+                    "UDS metrics exporter started on {}",
+                    exporter_socket_path.display()
+                );
+                info!(
+                    "Test with: socat - UNIX-CONNECT:{}",
+                    exporter_socket_path.display()
+                );
             }
-        });
-
-        shutdown_coordinator.set_uds_metrics_handle(uds_handle);
-
-        info!(
-            "UDS metrics exporter started on {}",
-            exporter_socket_path.display()
-        );
-        info!(
-            "Test with: socat - UNIX-CONNECT:{}",
-            exporter_socket_path.display()
-        );
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "UDS metrics exporter disabled (socket unavailable)"
+                );
+            }
+        }
     }
 
     // Create metrics exporter
@@ -756,6 +993,53 @@ async fn main() -> Result<()> {
         db.clone(),
     )));
 
+    // Load embedding model for RAG if embeddings feature enabled
+    #[cfg(feature = "embeddings")]
+    {
+        use adapteros_ingest_docs::EmbeddingModel;
+        use std::path::Path;
+
+        let embedding_model_path = std::env::var("AOS_EMBEDDING_MODEL_PATH")
+            .unwrap_or_else(|_| "models/bge-small-en-v1.5".to_string());
+
+        let tokenizer_path = format!("{}/tokenizer.json", embedding_model_path);
+
+        if Path::new(&tokenizer_path).exists() {
+            match adapteros_ingest_docs::load_tokenizer(Path::new(&tokenizer_path)) {
+                Ok(tokenizer) => {
+                    let embedding_model = Arc::new(
+                        adapteros_ingest_docs::ProductionEmbeddingModel::load(
+                            Some(&embedding_model_path),
+                            tokenizer,
+                        )
+                    );
+
+                    info!(
+                        path = %embedding_model_path,
+                        dimension = embedding_model.dimension(),
+                        hash = %embedding_model.model_hash().to_hex()[..16],
+                        "Loaded embedding model for RAG"
+                    );
+
+                    state = state.with_embedding_model(embedding_model);
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        path = %tokenizer_path,
+                        "Failed to load tokenizer for embedding model, RAG disabled"
+                    );
+                }
+            }
+        } else {
+            warn!(
+                path = %tokenizer_path,
+                "Embedding model tokenizer not found, RAG disabled. \
+                 Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
+            );
+        }
+    }
+
     // Git subsystem initialization
     let git_enabled = server_config
         .read()
@@ -793,7 +1077,7 @@ async fn main() -> Result<()> {
     // Spawn status writer background task
     {
         let state_clone = state.clone();
-        let status_writer_handle = spawn_deterministic("Status writer".to_string(), async move {
+        match spawn_deterministic("Status writer".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             loop {
                 interval.tick().await;
@@ -801,19 +1085,45 @@ async fn main() -> Result<()> {
                     warn!("Failed to write status: {}", e);
                 }
             }
-        })
-        .expect("Failed to spawn status writer");
-        shutdown_coordinator.register_task(status_writer_handle);
-        info!("Status writer started (5s interval)");
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("Status writer started (5s interval)");
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to spawn status writer task, status updates will be unavailable"
+                );
+            }
+        }
     }
 
     // Spawn TTL cleanup background task
     {
         let db_clone = db.clone();
-        let ttl_cleanup_handle = spawn_deterministic("TTL cleanup".to_string(), async move {
+        match spawn_deterministic("TTL cleanup".to_string(), async move {
             let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            let mut consecutive_errors = 0u32;
+            const MAX_CONSECUTIVE_ERRORS: u32 = 5;
+            const CIRCUIT_BREAKER_PAUSE_SECS: u64 = 1800; // 30 minutes
+
             loop {
                 interval.tick().await;
+
+                // Circuit breaker: pause if too many consecutive errors
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    error!(
+                        consecutive_errors,
+                        pause_duration_secs = CIRCUIT_BREAKER_PAUSE_SECS,
+                        "TTL cleanup circuit breaker triggered, pausing task"
+                    );
+                    tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS)).await;
+                    consecutive_errors = 0;
+                    continue;
+                }
+
+                let mut had_error = false;
 
                 // Find and clean up expired adapters
                 match db_clone.find_expired_adapters().await {
@@ -845,8 +1155,10 @@ async fn main() -> Result<()> {
                         }
                     }
                     Err(e) => {
+                        had_error = true;
                         warn!(
                             error = %e,
+                            consecutive_errors = consecutive_errors + 1,
                             "Failed to query for expired adapters"
                         );
                     }
@@ -854,61 +1166,116 @@ async fn main() -> Result<()> {
 
                 // Also cleanup expired pins from pinned_adapters table
                 if let Err(e) = db_clone.cleanup_expired_pins().await {
+                    had_error = true;
                     warn!(
                         error = %e,
+                        consecutive_errors = consecutive_errors + 1,
                         "Failed to cleanup expired pins"
                     );
                 }
+
+                // Update error counter with exponential backoff
+                if had_error {
+                    consecutive_errors += 1;
+                    let backoff_secs = 2u64.pow(consecutive_errors.min(6)); // Cap at 64 seconds
+                    warn!(
+                        consecutive_errors,
+                        backoff_secs, "TTL cleanup error, applying exponential backoff"
+                    );
+                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                } else {
+                    consecutive_errors = 0; // Reset on success
+                }
             }
-        })
-        .expect("Failed to spawn TTL cleanup");
-        shutdown_coordinator.register_task(ttl_cleanup_handle);
-        info!("TTL cleanup task started (5 minute interval)");
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("TTL cleanup task started (5 minute interval, circuit breaker enabled)");
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to spawn TTL cleanup task, expired adapters may not be cleaned up automatically"
+                );
+            }
+        }
     }
 
     // Spawn heartbeat recovery background task
     {
         let db_clone = db.clone();
-        let heartbeat_recovery_handle =
-            spawn_deterministic("Heartbeat recovery".to_string(), async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
-                loop {
-                    interval.tick().await;
+        match spawn_deterministic("Heartbeat recovery".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            let mut consecutive_errors = 0u32;
+            const MAX_CONSECUTIVE_ERRORS: u32 = 5;
+            const CIRCUIT_BREAKER_PAUSE_SECS: u64 = 1800; // 30 minutes
 
-                    // Recover adapters that haven't sent heartbeat in 5 minutes
-                    match db_clone.recover_stale_adapters(300).await {
-                        Ok(recovered) => {
-                            if !recovered.is_empty() {
-                                info!(
-                                    count = recovered.len(),
-                                    "Recovered stale adapters via heartbeat check"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                error = %e,
-                                "Failed to recover stale adapters"
+            loop {
+                interval.tick().await;
+
+                // Circuit breaker: pause if too many consecutive errors
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    error!(
+                        consecutive_errors,
+                        pause_duration_secs = CIRCUIT_BREAKER_PAUSE_SECS,
+                        "Heartbeat recovery circuit breaker triggered, pausing task"
+                    );
+                    tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS)).await;
+                    consecutive_errors = 0;
+                    continue;
+                }
+
+                // Recover adapters that haven't sent heartbeat in 5 minutes
+                match db_clone.recover_stale_adapters(300).await {
+                    Ok(recovered) => {
+                        if !recovered.is_empty() {
+                            info!(
+                                count = recovered.len(),
+                                "Recovered stale adapters via heartbeat check"
                             );
                         }
+                        consecutive_errors = 0; // Reset on success
+                    }
+                    Err(e) => {
+                        consecutive_errors += 1;
+                        let backoff_secs = 2u64.pow(consecutive_errors.min(6)); // Cap at 64 seconds
+                        warn!(
+                            error = %e,
+                            consecutive_errors,
+                            backoff_secs,
+                            "Failed to recover stale adapters, applying exponential backoff"
+                        );
+                        tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
                     }
                 }
-            })
-            .expect("Failed to spawn heartbeat recovery");
-        shutdown_coordinator.register_task(heartbeat_recovery_handle);
-        info!("Heartbeat recovery task started (5 minute interval, 300s timeout)");
+            }
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("Heartbeat recovery task started (5 minute interval, 300s timeout, circuit breaker enabled)");
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to spawn heartbeat recovery task, stale adapters may not be recovered automatically"
+                );
+            }
+        }
     }
 
     // Transition to loading adapters state
     boot_state.load_adapters().await;
+
+    // Clone in_flight_requests counter for shutdown handler before moving state
+    let in_flight_requests = Arc::clone(&state.in_flight_requests);
 
     // Build router with UI
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
 
     let app = axum::Router::new()
-        .merge(ui_routes)
-        .nest("/api", api_routes);
+        .nest("/api", api_routes) // API routes first (higher priority)
+        .merge(ui_routes); // UI fallback for non-API paths
 
     // Bind and serve
     let (production_mode, uds_socket, port, drain_timeout) = {
@@ -929,9 +1296,6 @@ async fn main() -> Result<()> {
             Duration::from_secs(cfg.server.drain_timeout_secs),
         )
     };
-
-    // Clone in_flight_requests counter for shutdown handler
-    let in_flight_requests = Arc::clone(&state.in_flight_requests);
 
     // Egress policy: production_mode requires UDS-only
     if production_mode {
@@ -1049,23 +1413,141 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Download priority models from HuggingFace Hub if enabled
+///
+/// This function checks if the HF Hub integration is enabled via environment variables
+/// and downloads a configured list of priority models during server startup.
+/// Download failures are logged but do not block server startup.
+async fn download_priority_models() {
+    // Check if HF Hub is enabled
+    let hf_enabled = std::env::var("AOS_HF_HUB_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if !hf_enabled {
+        info!("HF Hub integration disabled, skipping priority model downloads");
+        return;
+    }
+
+    // Get priority models from environment variable
+    let priority_models_str = match std::env::var("AOS_PRIORITY_MODELS") {
+        Ok(models) => models,
+        Err(_) => {
+            info!("No priority models configured (AOS_PRIORITY_MODELS not set)");
+            return;
+        }
+    };
+
+    let priority_models: Vec<String> = priority_models_str
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if priority_models.is_empty() {
+        info!("No priority models configured");
+        return;
+    }
+
+    info!(
+        count = priority_models.len(),
+        models = ?priority_models,
+        "Starting priority model downloads"
+    );
+
+    // Create ModelHub client configuration
+    let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR").unwrap_or_else(|_| {
+        let default = std::path::PathBuf::from("var/model-cache");
+        default.to_string_lossy().to_string()
+    });
+
+    let hf_token = std::env::var("HF_TOKEN").ok();
+
+    let config = ModelHubConfig {
+        registry_url: std::env::var("AOS_HF_REGISTRY_URL")
+            .unwrap_or_else(|_| "https://huggingface.co".to_string()),
+        cache_dir: PathBuf::from(cache_dir),
+        max_concurrent_downloads: std::env::var("AOS_MAX_CONCURRENT_DOWNLOADS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4),
+        timeout_secs: std::env::var("AOS_DOWNLOAD_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(300),
+        hf_token,
+    };
+
+    // Create ModelHub client
+    let client = match ModelHubClient::new(config) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(
+                error = %e,
+                "Failed to create ModelHub client, skipping model downloads"
+            );
+            return;
+        }
+    };
+
+    // Download each priority model
+    for model_id in priority_models {
+        info!(model_id = %model_id, "Attempting to download priority model");
+
+        match client.download_model(&model_id).await {
+            Ok(path) => {
+                info!(
+                    model_id = %model_id,
+                    path = %path.display(),
+                    "Priority model downloaded successfully"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    model_id = %model_id,
+                    error = %e,
+                    "Failed to download priority model (continuing with boot)"
+                );
+                // Don't fail boot - continue with other models
+            }
+        }
+    }
+
+    info!("Priority model downloads complete");
+}
+
 async fn shutdown_signal_with_drain(
     boot_state: BootStateManager,
     in_flight_requests: Arc<std::sync::atomic::AtomicUsize>,
     drain_timeout: Duration,
 ) {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        match signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to install Ctrl+C handler, shutdown may not work as expected"
+                );
+            }
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to install SIGTERM handler, will only respond to Ctrl+C"
+                );
+                // Block forever since we can't handle this signal
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]
@@ -1083,9 +1565,17 @@ async fn shutdown_signal_with_drain(
     // Wait for in-flight requests to complete (with timeout)
     let start = tokio::time::Instant::now();
     let mut logged_waiting = false;
+    let mut sample_count = 0u64;
+    let mut total_in_flight = 0u64;
+    let mut peak_in_flight = 0usize;
 
     loop {
         let count = in_flight_requests.load(std::sync::atomic::Ordering::SeqCst);
+
+        // Track statistics for drain analysis
+        sample_count += 1;
+        total_in_flight += count as u64;
+        peak_in_flight = peak_in_flight.max(count);
 
         if count == 0 {
             info!("All in-flight requests completed");
@@ -1103,11 +1593,35 @@ async fn shutdown_signal_with_drain(
 
         let elapsed = start.elapsed();
         if elapsed >= drain_timeout {
-            warn!(
-                in_flight = count,
+            // Calculate average in-flight requests during drain
+            let avg_in_flight = if sample_count > 0 {
+                total_in_flight as f64 / sample_count as f64
+            } else {
+                0.0
+            };
+
+            error!(
+                in_flight_current = count,
+                in_flight_peak = peak_in_flight,
+                in_flight_avg = format!("{:.2}", avg_in_flight),
                 elapsed_secs = elapsed.as_secs(),
-                "Drain timeout exceeded, forcing shutdown"
+                timeout_secs = drain_timeout.as_secs(),
+                sample_count,
+                "Drain timeout exceeded - incomplete operations detected"
             );
+
+            // Log detailed recovery instructions
+            error!(
+                "MANUAL RECOVERY REQUIRED: {} requests did not complete within {}s drain timeout. \
+                 Check application logs for long-running operations. \
+                 Peak in-flight: {}, Average: {:.2}. \
+                 Consider investigating: database locks, slow network I/O, or stuck async tasks.",
+                count,
+                drain_timeout.as_secs(),
+                peak_in_flight,
+                avg_in_flight
+            );
+
             break;
         }
 

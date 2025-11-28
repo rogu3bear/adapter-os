@@ -423,14 +423,26 @@ impl MetalKernels {
         let expected_hash = B3Hash::from_hex(expected_hash_str)
             .map_err(|e| AosError::Kernel(format!("Invalid metallib hash constant: {}", e)))?;
 
+        // Allow hash mismatch in development mode (useful when build environment differs)
+        let skip_hash_check = std::env::var("AOS_DEV_SKIP_METALLIB_CHECK").is_ok();
+
         if actual_hash != expected_hash {
-            return Err(AosError::DeterminismViolation(format!(
-                "Metallib hash mismatch!\n  Expected: {}\n  Got:      {}\n  \
-                This indicates the embedded metallib does not match build.rs output.\n  \
-                Recompile with: cargo clean && cargo build",
-                expected_hash.to_hex(),
-                actual_hash.to_hex()
-            )));
+            if skip_hash_check {
+                tracing::warn!(
+                    "Metallib hash mismatch (dev mode - skipping):\n  Expected: {}\n  Got: {}",
+                    expected_hash.to_hex(),
+                    actual_hash.to_hex()
+                );
+            } else {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Metallib hash mismatch!\n  Expected: {}\n  Got:      {}\n  \
+                    This indicates the embedded metallib does not match build.rs output.\n  \
+                    Recompile with: cargo clean && cargo build\n  \
+                    Or set AOS_DEV_SKIP_METALLIB_CHECK=1 for development",
+                    expected_hash.to_hex(),
+                    actual_hash.to_hex()
+                )));
+            }
         }
 
         tracing::info!("Kernel hash verified: {}", actual_hash.to_short_hex());
@@ -1303,6 +1315,20 @@ impl FusedKernels for MetalKernels {
 
         // Create Metal buffer for embedding matrix
         self.create_embedding_buffer(&embedding_weights)?;
+
+        // Load transformer weights and create intermediate buffers
+        // Note: this may fail if layer 0 weights aren't in this shard;
+        // for sharded models, we gracefully skip transformer weight loading
+        if let Err(e) = self.load_transformer_weights(plan_bytes) {
+            tracing::warn!(
+                "Could not load transformer weights from this shard: {}. \
+                Intermediate buffers will be created with defaults.",
+                e
+            );
+            // Create intermediate buffers anyway with embedding dimensions
+            let intermediate_buffers = self.create_intermediate_buffers()?;
+            self.intermediate_buffers = Some(intermediate_buffers);
+        }
 
         // Initialize kernels
         self.mlp_kernel = Some(FusedMlpKernel::new(self.device.clone())?);

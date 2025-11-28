@@ -286,6 +286,36 @@ pub enum AosError {
     #[error("Routing error: {0}")]
     Routing(String),
 
+    #[error("Federation error: {0}")]
+    Federation(String),
+
+    #[error("Download failed for {repo_id}: {reason}")]
+    DownloadFailed {
+        repo_id: String,
+        reason: String,
+        is_resumable: bool,
+    },
+
+    #[error("Cache corruption at {path}: expected hash {expected}, got {actual}")]
+    CacheCorruption {
+        path: String,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("Health check failed for model {model_id}: {reason} (attempt {retry_count})")]
+    HealthCheckFailed {
+        model_id: String,
+        reason: String,
+        retry_count: u32,
+    },
+
+    #[error("Model not found: {model_id}")]
+    ModelNotFound { model_id: String },
+
+    #[error("Model acquisition in progress: {model_id} is {state}")]
+    ModelAcquisitionInProgress { model_id: String, state: String },
+
     #[error("{0}")]
     Other(String),
 

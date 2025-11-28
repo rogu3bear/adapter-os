@@ -288,8 +288,7 @@ mod tests {
     #[test]
     fn test_gpu_collector_creation() {
         let _collector = GpuMetricsCollector::new();
-        // Test that collector can be created without panicking
-        assert!(true);
+        // Verify collector can be created without panicking on any platform
     }
 
     #[test]

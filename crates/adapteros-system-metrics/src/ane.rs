@@ -306,9 +306,8 @@ mod tests {
 
     #[test]
     fn test_ane_collector_creation() {
-        let collector = AneMetricsCollector::new();
-        // Should not panic on any platform
-        assert!(true);
+        let _collector = AneMetricsCollector::new();
+        // Verify collector can be created without panicking on any platform
     }
 
     #[test]
@@ -320,8 +319,8 @@ mod tests {
         // On other platforms, should return default (unavailable)
         #[cfg(target_os = "macos")]
         {
-            // Metrics should be populated
-            assert!(metrics.allocated_mb >= 0);
+            // Verify metrics structure is valid (allocated_mb is u64, always >= 0)
+            let _allocated = metrics.allocated_mb;
         }
 
         #[cfg(not(target_os = "macos"))]

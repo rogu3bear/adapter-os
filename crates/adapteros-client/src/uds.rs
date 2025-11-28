@@ -296,6 +296,26 @@ impl UdsClient {
         Ok(Box::pin(stream))
     }
 
+    /// Send inference request to worker
+    ///
+    /// This method sends an inference request and returns the response.
+    /// For streaming with signals, use `inference_with_signals` instead.
+    pub async fn infer<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+        &self,
+        uds_path: &Path,
+        request: T,
+    ) -> Result<R, UdsClientError> {
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        let response_json = self
+            .send_request(uds_path, "POST", "/infer", Some(&request_json))
+            .await?;
+
+        serde_json::from_str(&response_json)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
+
     /// Send inference request and stream signals in real-time
     ///
     /// This method sends an inference request to the worker and returns both
@@ -484,6 +504,12 @@ impl AdapterOSClient for UdsClient {
             email: "uds@example.com".to_string(),
             role: "admin".to_string(),
             created_at: "2025-01-01T00:00:00Z".to_string(),
+            tenant_id: "default".to_string(),
+            display_name: "UDS Operator".to_string(),
+            permissions: vec!["AdapterList".to_string()],
+            last_login_at: None,
+            mfa_enabled: None,
+            token_last_rotated_at: None,
         })
     }
 

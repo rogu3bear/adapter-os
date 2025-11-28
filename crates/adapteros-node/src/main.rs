@@ -5,6 +5,7 @@ use anyhow::Result;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
+    middleware,
     response::{IntoResponse, Json},
     routing::{delete, get, post},
     Router,
@@ -152,6 +153,9 @@ async fn main() -> Result<()> {
         .route("/hashes", get(node_hashes))
         .route("/sync/manifest", post(sync_receive_manifest))
         .route("/sync/create-manifest", post(sync_create_manifest))
+        .layer(middleware::from_fn(
+            adapteros_telemetry::middleware::api_logger_middleware,
+        ))
         .with_state(state);
 
     // Start server based on mode

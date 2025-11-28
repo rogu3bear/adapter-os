@@ -439,19 +439,13 @@ mod tests {
     #[test]
     fn test_ane_memory_layout() {
         let layout = ANEMemoryLayout::RowMajor;
-        match layout {
-            ANEMemoryLayout::RowMajor => assert!(true),
-            _ => assert!(false),
-        }
+        assert!(matches!(layout, ANEMemoryLayout::RowMajor));
     }
 
     #[test]
     fn test_ane_session_state() {
         let state = ANESessionState::Created;
-        match state {
-            ANESessionState::Created => assert!(true),
-            _ => assert!(false),
-        }
+        assert!(matches!(state, ANESessionState::Created));
     }
 
     #[test]

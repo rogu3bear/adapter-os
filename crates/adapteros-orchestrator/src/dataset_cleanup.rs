@@ -194,8 +194,8 @@ impl DatasetCleanupManager {
     async fn get_referenced_dataset_files(&self) -> Result<std::collections::HashSet<PathBuf>> {
         let mut referenced = std::collections::HashSet::new();
 
-        // Query all dataset files from database
-        let datasets = self.db.list_training_datasets(10000).await?;
+        // Query all dataset files from database (system-wide for cleanup)
+        let datasets = self.db.list_all_training_datasets_system(10000).await?;
 
         for dataset in datasets {
             let files = self.db.get_dataset_files(&dataset.id).await?;
@@ -243,7 +243,8 @@ impl DatasetCleanupManager {
 
         let cutoff_date = chrono::Utc::now() - chrono::Duration::days(threshold_days as i64);
 
-        let datasets = self.db.list_training_datasets(10000).await?;
+        // System-wide archival scan
+        let datasets = self.db.list_all_training_datasets_system(10000).await?;
 
         for dataset in datasets {
             // Check if dataset is old enough to archive
@@ -338,7 +339,11 @@ impl DatasetCleanupManager {
 
     /// Get storage quota status for a tenant
     pub async fn get_tenant_quota_status(&self, tenant_id: &str) -> Result<StorageQuotaStatus> {
-        let datasets = self.db.list_training_datasets(10000).await?;
+        // Use tenant-scoped API for proper isolation
+        let datasets = self
+            .db
+            .list_training_datasets_for_tenant(tenant_id, 10000)
+            .await?;
 
         let mut used_bytes = 0u64;
         let mut dataset_count = 0u32;
@@ -369,15 +374,26 @@ impl DatasetCleanupManager {
     pub async fn get_storage_health_report(&self) -> Result<StorageHealthReport> {
         info!("Generating storage health report");
 
-        let datasets = self.db.list_training_datasets(10000).await?;
+        // System-wide report needs all datasets
+        let datasets = self.db.list_all_training_datasets_system(10000).await?;
 
         let mut total_used_bytes = 0u64;
         let mut dataset_count = 0u32;
-        let tenant_usage: HashMap<String, (u64, u32)> = HashMap::new();
+        let mut tenant_usage: HashMap<String, (u64, u32)> = HashMap::new();
 
         for dataset in datasets {
-            total_used_bytes += dataset.total_size_bytes as u64;
+            let size = dataset.total_size_bytes as u64;
+            total_used_bytes += size;
             dataset_count += 1;
+
+            // Group by tenant_id - use "unknown" for datasets without tenant
+            let tid = dataset
+                .tenant_id
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+            let entry = tenant_usage.entry(tid).or_insert((0, 0));
+            entry.0 += size;
+            entry.1 += 1;
         }
 
         // Scan for orphaned files

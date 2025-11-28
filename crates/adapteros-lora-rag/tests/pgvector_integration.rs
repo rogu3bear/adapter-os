@@ -5,7 +5,7 @@ use adapteros_lora_rag::PgVectorIndex;
 use sqlx::postgres::PgPool;
 
 #[tokio::test]
-#[ignore] // Requires a running PostgreSQL with pgvector extension and DATABASE_URL
+#[ignore = "Requires PostgreSQL with pgvector extension and DATABASE_URL - run with: cargo test --release -- --ignored"]
 async fn test_pgvector_ordering_ties_by_doc_id() {
     // Skip if no DATABASE_URL is provided
     let url = match std::env::var("DATABASE_URL") {

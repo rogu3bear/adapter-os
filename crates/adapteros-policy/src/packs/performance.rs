@@ -143,9 +143,14 @@ impl PerformancePolicy {
         let max_gpu = metrics
             .iter()
             .map(|m| m.gpu_utilization_pct)
-            .fold(0.0, f64::max);
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(0.0);
 
         let mut violations = Vec::new();
+
+        // Get first/last timestamps (safe because we validated non-empty above)
+        let first_timestamp = metrics[0].timestamp;
+        let last_timestamp = metrics[metrics.len() - 1].timestamp;
 
         // Check for violations
         if p95_latency > self.config.latency_p95_ms {
@@ -154,7 +159,7 @@ impl PerformancePolicy {
                 severity: PerformanceSeverity::Error,
                 value: p95_latency as f64,
                 threshold: self.config.latency_p95_ms as f64,
-                timestamp: metrics.last().unwrap().timestamp,
+                timestamp: last_timestamp,
                 details: format!(
                     "P95 latency {}ms exceeds budget {}ms",
                     p95_latency, self.config.latency_p95_ms
@@ -168,7 +173,7 @@ impl PerformancePolicy {
                 severity: PerformanceSeverity::Warning,
                 value: avg_router_overhead,
                 threshold: self.config.router_overhead_pct_max,
-                timestamp: metrics.last().unwrap().timestamp,
+                timestamp: last_timestamp,
                 details: format!(
                     "Router overhead {:.2}% exceeds limit {:.2}%",
                     avg_router_overhead, self.config.router_overhead_pct_max
@@ -182,7 +187,7 @@ impl PerformancePolicy {
                 severity: PerformanceSeverity::Error,
                 value: avg_throughput,
                 threshold: self.config.throughput_tokens_per_s_min as f64,
-                timestamp: metrics.last().unwrap().timestamp,
+                timestamp: last_timestamp,
                 details: format!(
                     "Throughput {:.2} tokens/s below minimum {} tokens/s",
                     avg_throughput, self.config.throughput_tokens_per_s_min
@@ -196,7 +201,7 @@ impl PerformancePolicy {
                 severity: PerformanceSeverity::Critical,
                 value: max_memory as f64,
                 threshold: self.config.memory_usage_pct_max,
-                timestamp: metrics.last().unwrap().timestamp,
+                timestamp: last_timestamp,
                 details: format!(
                     "Memory usage {}MB exceeds limit {:.2}%",
                     max_memory, self.config.memory_usage_pct_max
@@ -210,7 +215,7 @@ impl PerformancePolicy {
                 severity: PerformanceSeverity::Warning,
                 value: max_gpu,
                 threshold: self.config.gpu_utilization_pct_max,
-                timestamp: metrics.last().unwrap().timestamp,
+                timestamp: last_timestamp,
                 details: format!(
                     "GPU utilization {:.2}% exceeds limit {:.2}%",
                     max_gpu, self.config.gpu_utilization_pct_max
@@ -219,8 +224,8 @@ impl PerformancePolicy {
         }
 
         Ok(PerformanceStats {
-            window_start: metrics.first().unwrap().timestamp,
-            window_end: metrics.last().unwrap().timestamp,
+            window_start: first_timestamp,
+            window_end: last_timestamp,
             total_inferences: metrics.len() as u64,
             p95_latency_ms: p95_latency,
             p99_latency_ms: p99_latency,

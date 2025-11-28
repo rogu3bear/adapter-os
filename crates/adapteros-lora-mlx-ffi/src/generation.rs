@@ -597,7 +597,9 @@ impl MLXGenerator {
             let input_tokens = if step == 0 {
                 tokens.clone()
             } else {
-                vec![*tokens.last().unwrap()]
+                vec![*tokens.last().ok_or_else(|| {
+                    AosError::Internal("Empty token sequence during generation".to_string())
+                })?]
             };
 
             let logits =

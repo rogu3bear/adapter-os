@@ -153,21 +153,23 @@ impl MemoryPressureManager {
 
         // Try channel sender first (preferred, async)
         if let Some(sender) = &self.k_reduction_sender {
-            // Spawn async task to send request to avoid blocking.
-            // Prefer deterministic executor; fall back to Tokio if not initialized (e.g., CLI tools).
+            // Spawn async task to send request with backpressure (blocking send).
+            // Use send_with_timeout instead of try_send to provide backpressure and avoid dropping.
             let send_once = |sender: KReductionRequestSender, request: KReductionRequest| async move {
-                match sender.send(request.clone()).await {
+                // Use blocking send with timeout instead of try_send to avoid silent drops
+                match sender.send_with_timeout(request.clone(), 5000).await {
                     Ok(()) => {
                         info!(
                             request_id = %request.request_id,
                             target_k = request.target_k,
-                            "K reduction request sent through channel"
+                            "K reduction request sent through channel with backpressure"
                         );
                     }
-                    Err(SendError::ChannelFull) => {
-                        warn!(
+                    Err(SendError::SendTimeout) => {
+                        // After timeout, log error but continue - this is a backpressure signal
+                        error!(
                             request_id = %request.request_id,
-                            "K reduction channel buffer full, request dropped"
+                            "K reduction channel send timed out after 5s (backpressure)"
                         );
                     }
                     Err(SendError::ChannelClosed) => {
@@ -176,10 +178,11 @@ impl MemoryPressureManager {
                             "K reduction channel closed, lifecycle manager not available"
                         );
                     }
-                    Err(SendError::SendTimeout) => {
-                        warn!(
+                    Err(SendError::ChannelFull) => {
+                        // This shouldn't happen with send_with_timeout, but handle it
+                        error!(
                             request_id = %request.request_id,
-                            "K reduction channel send timed out"
+                            "K reduction channel unexpectedly full after timeout"
                         );
                     }
                 }

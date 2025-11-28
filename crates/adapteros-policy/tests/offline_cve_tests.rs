@@ -28,9 +28,8 @@ async fn test_load_known_vulnerabilities_offline_database() {
     let result = policy.load_offline_database(Some(&fixtures_path)).await;
     assert!(result.is_ok(), "Failed to load offline database");
 
-    // Verify that data was loaded
-    let stats = policy.get_cache_stats().await;
-    assert!(stats.total_entries >= 0, "Cache should be initialized");
+    // Verify that data was loaded (cache should be initialized)
+    let _stats = policy.get_cache_stats().await;
 }
 
 #[tokio::test]
@@ -296,13 +295,12 @@ async fn test_offline_database_nvd_responses_format() {
     let fixtures_path = get_fixtures_path();
 
     // Load NVD responses which have different schema
-    policy
-        .load_offline_database(Some(&fixtures_path))
-        .await
-        .ok();
+    let result = policy.load_offline_database(Some(&fixtures_path)).await;
 
-    // Should load without errors even with different formats
-    assert!(true);
+    // Should complete without panicking, regardless of whether fixtures exist
+    // The database should be initialized (empty or populated)
+    let _stats = policy.get_cache_stats().await;
+    // Verify cache is initialized (call succeeds without panic)
 }
 
 #[tokio::test]
@@ -311,13 +309,12 @@ async fn test_offline_database_osv_responses_format() {
     let fixtures_path = get_fixtures_path();
 
     // Load OSV responses which have different schema
-    policy
-        .load_offline_database(Some(&fixtures_path))
-        .await
-        .ok();
+    let result = policy.load_offline_database(Some(&fixtures_path)).await;
 
-    // Should load without errors even with different formats
-    assert!(true);
+    // Should complete without panicking, regardless of whether fixtures exist
+    // The database should be initialized (empty or populated)
+    let _stats = policy.get_cache_stats().await;
+    // Verify cache is initialized (call succeeds without panic)
 }
 
 #[tokio::test]
@@ -327,9 +324,8 @@ async fn test_offline_database_missing_files_graceful_handling() {
     let non_existent_path = std::path::PathBuf::from("/nonexistent/path/to/cves");
 
     // Should not panic, but gracefully handle missing files
-    let result = policy.load_offline_database(Some(&non_existent_path)).await;
-    // May succeed with empty database or fail gracefully
-    assert!(true, "Should handle missing database files gracefully");
+    let _result = policy.load_offline_database(Some(&non_existent_path)).await;
+    // May succeed with empty database or fail gracefully - test passes if no panic occurs
 }
 
 #[tokio::test]

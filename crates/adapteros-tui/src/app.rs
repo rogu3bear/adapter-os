@@ -69,8 +69,15 @@ pub struct App {
 }
 
 impl App {
+    /// Default server URL for API connections
+    const DEFAULT_SERVER_URL: &'static str = "http://localhost:8080";
+
     pub async fn new() -> Result<Self> {
-        let api_client = ApiClient::new("http://localhost:3300".to_string())?;
+        Self::new_with_url(Self::DEFAULT_SERVER_URL.to_string()).await
+    }
+
+    pub async fn new_with_url(server_url: String) -> Result<Self> {
+        let api_client = ApiClient::new(server_url)?;
         let db_client = DbClient::new().await?;
         let service_control = ServiceControl::new()?;
         let setup_state = SetupState::new(service_control.missing_prereqs());

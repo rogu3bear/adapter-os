@@ -12,7 +12,7 @@ use crate::key_provider::{KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderMode}
 use crate::providers::file::FileProvider;
 use crate::providers::keychain::KeychainProvider;
 use crate::providers::kms::KmsProvider;
-use crate::signature::{Keypair, SigningKey};
+use crate::signature::SigningKey;
 use adapteros_core::{AosError, Result};
 use std::path::PathBuf;
 use std::sync::Arc;

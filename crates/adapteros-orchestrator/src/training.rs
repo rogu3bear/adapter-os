@@ -423,6 +423,7 @@ async fn run_training_job(
         batch_size: orchestrator_cfg.batch_size as usize,
         epochs: orchestrator_cfg.epochs as usize,
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
+        vocab_size: 32000, // default LLaMA/Mistral vocab size
         preferred_backend: None, // auto-select
         require_gpu: false,
         max_gpu_memory_mb: 0, // unlimited
@@ -535,6 +536,7 @@ async fn run_training_job(
                 batch_size: worker_cfg.batch_size,
                 epochs: worker_cfg.epochs,
                 hidden_dim: worker_cfg.hidden_dim,
+                vocab_size: worker_cfg.vocab_size,
                 preferred_backend: None,
                 require_gpu: false,
                 max_gpu_memory_mb: 0,

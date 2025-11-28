@@ -137,17 +137,21 @@ impl EgressPolicy {
             EnforcementLevel::Block => true,
             EnforcementLevel::Auto => runtime_mode
                 .map(|m| m.should_block_egress())
-                .unwrap_or(false),
+                // Fail-closed: default to blocking when runtime_mode is not specified
+                .unwrap_or(true),
         }
     }
 
     /// Validate PF rules are active
     pub fn validate_pf_rules(&self) -> Result<()> {
         if self.config.serve_requires_pf {
-            // In a real implementation, this would check PF rules
-            // For now, we'll simulate the check
-            tracing::info!("Validating PF rules for egress policy");
-            Ok(())
+            // PF rule validation is not implemented yet
+            // Fail-closed: return error instead of silently passing
+            tracing::error!("PF rule validation not implemented but required by policy");
+            Err(AosError::PolicyViolation(
+                "PF rule validation not implemented - cannot verify packet filter enforcement"
+                    .to_string(),
+            ))
         } else {
             Ok(())
         }
@@ -443,6 +447,9 @@ mod tests {
         assert!(!policy.should_block(Some(RuntimeMode::Dev)));
         assert!(!policy.should_block(Some(RuntimeMode::Staging)));
         assert!(policy.should_block(Some(RuntimeMode::Prod)));
+
+        // Should default to blocking (fail-closed) when runtime_mode is None
+        assert!(policy.should_block(None));
     }
 
     #[test]

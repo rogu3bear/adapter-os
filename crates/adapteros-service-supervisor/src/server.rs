@@ -3,9 +3,11 @@
 use crate::auth::{AuthService, Claims};
 use crate::error::{Result, SupervisorError};
 use crate::supervisor::ServiceSupervisor;
+use adapteros_telemetry::middleware::api_logger_middleware;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
+    middleware,
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -13,7 +15,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 
@@ -51,14 +52,18 @@ impl SupervisorServer {
             .route("/v1/services/start", post(start_service_handler))
             .route("/v1/services/stop", post(stop_service_handler))
             .route("/v1/services/restart", post(restart_service_handler))
-            .route("/v1/services/essential/start", post(start_essential_handler))
-            .route("/v1/services/essential/stop", post(stop_essential_handler))
-            .route("/v1/services/:service_id/logs", get(get_service_logs_handler))
-            .layer(
-                ServiceBuilder::new()
-                    .layer(CorsLayer::permissive())
+            .route(
+                "/v1/services/essential/start",
+                post(start_essential_handler),
             )
-            .with_state(state);
+            .route("/v1/services/essential/stop", post(stop_essential_handler))
+            .route(
+                "/v1/services/:service_id/logs",
+                get(get_service_logs_handler),
+            )
+            .with_state(state)
+            .layer(CorsLayer::permissive())
+            .layer(middleware::from_fn(api_logger_middleware));
 
         Self {
             app,
@@ -74,7 +79,7 @@ impl SupervisorServer {
         // Production mode requires UDS socket (egress policy compliance)
         if self.production_mode {
             let uds_path = self.uds_socket.as_ref().ok_or_else(|| {
-                SupervisorError::Config(
+                SupervisorError::Configuration(
                     "Production mode requires uds_socket to be configured".to_string(),
                 )
             })?;
@@ -82,7 +87,7 @@ impl SupervisorServer {
             // Remove existing socket file if it exists
             if uds_path.exists() {
                 std::fs::remove_file(uds_path).map_err(|e| {
-                    SupervisorError::Io(format!(
+                    SupervisorError::Internal(format!(
                         "Failed to remove existing socket {}: {}",
                         uds_path.display(),
                         e
@@ -93,7 +98,7 @@ impl SupervisorServer {
             // Ensure parent directory exists
             if let Some(parent) = uds_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    SupervisorError::Io(format!(
+                    SupervisorError::Internal(format!(
                         "Failed to create socket directory {}: {}",
                         parent.display(),
                         e
@@ -104,7 +109,7 @@ impl SupervisorServer {
             info!("Starting supervisor server on UDS: {}", uds_path.display());
 
             let listener = tokio::net::UnixListener::bind(uds_path).map_err(|e| {
-                SupervisorError::Io(format!(
+                SupervisorError::Internal(format!(
                     "Failed to bind UDS {}: {}",
                     uds_path.display(),
                     e
@@ -126,14 +131,16 @@ impl SupervisorServer {
 }
 
 /// Health check endpoint
-async fn health_handler(
-    State(state): State<AppState>,
-) -> axum::response::Response {
+async fn health_handler(State(state): State<AppState>) -> axum::response::Response {
     match state.supervisor.get_health_status().await {
         Ok(health) => axum::Json(health).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -162,9 +169,13 @@ async fn get_service_handler(
 ) -> axum::response::Response {
     match state.supervisor.get_service(&service_id).await {
         Ok(service) => axum::Json(service).into_response(),
-        Err(e) => (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -191,11 +202,16 @@ async fn start_service_handler(
             axum::Json(StartResponse {
                 success: true,
                 message,
-            }).into_response()
+            })
+            .into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -221,11 +237,16 @@ async fn stop_service_handler(
             axum::Json(StopResponse {
                 success: true,
                 message,
-            }).into_response()
+            })
+            .into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -251,11 +272,16 @@ async fn restart_service_handler(
             axum::Json(RestartResponse {
                 success: true,
                 message,
-            }).into_response()
+            })
+            .into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -274,11 +300,16 @@ async fn start_essential_handler(
             axum::Json(EssentialResponse {
                 success: true,
                 results,
-            }).into_response()
+            })
+            .into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -297,12 +328,28 @@ async fn stop_essential_handler(
             axum::Json(EssentialResponse {
                 success: true,
                 results,
-            }).into_response()
+            })
+            .into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
+}
+
+/// Query parameters for log retrieval
+#[derive(Deserialize)]
+struct LogsQuery {
+    #[serde(default = "default_log_lines")]
+    lines: usize,
+}
+
+fn default_log_lines() -> usize {
+    100
 }
 
 /// Get service logs
@@ -312,17 +359,11 @@ async fn get_service_logs_handler(
     Query(params): Query<LogsQuery>,
     _headers: HeaderMap,
 ) -> axum::response::Response {
-    #[derive(Deserialize)]
-    struct LogsQuery {
-        #[serde(default = "default_log_lines")]
-        lines: usize,
-    }
-
-    fn default_log_lines() -> usize {
-        100
-    }
-
-    match state.supervisor.get_service_logs(&service_id, params.lines).await {
+    match state
+        .supervisor
+        .get_service_logs(&service_id, params.lines)
+        .await
+    {
         Ok(logs) => {
             #[derive(Serialize)]
             struct LogsResponse {
@@ -330,14 +371,15 @@ async fn get_service_logs_handler(
                 logs: Vec<String>,
             }
 
-            axum::Json(LogsResponse {
-                service_id,
-                logs,
-            }).into_response()
+            axum::Json(LogsResponse { service_id, logs }).into_response()
         }
-        Err(e) => (StatusCode::NOT_FOUND, axum::Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response(),
     }
 }
 

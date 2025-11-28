@@ -56,15 +56,21 @@ mod coreml_tests {
         if let Ok(accelerator) = result {
             let caps = accelerator.capabilities();
 
-            // Verify data types
+            // Verify data types are valid enum variants
             for data_type in &caps.supported_data_types {
                 match data_type {
-                    ANEDataType::Float16 => assert!(true),
-                    ANEDataType::Int8 => assert!(true),
-                    ANEDataType::Int4 => assert!(true),
-                    ANEDataType::Binary => assert!(true),
+                    ANEDataType::Float16 => { /* Valid */ }
+                    ANEDataType::Int8 => { /* Valid */ }
+                    ANEDataType::Int4 => { /* Valid */ }
+                    ANEDataType::Binary => { /* Valid */ }
                 }
             }
+
+            // Verify that at least one data type is supported
+            assert!(
+                !caps.supported_data_types.is_empty(),
+                "ANE should support at least one data type"
+            );
 
             // Verify performance characteristics
             let perf = &caps.performance;

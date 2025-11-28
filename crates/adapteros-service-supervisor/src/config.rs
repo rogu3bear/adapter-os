@@ -150,7 +150,10 @@ impl Default for ServerConfig {
             workers: 4,
             max_connections: 1000,
             timeout_seconds: 30,
-            cors_allowed_origins: vec!["http://localhost:3200".to_string(), "http://localhost:3300".to_string()],
+            cors_allowed_origins: vec![
+                "http://localhost:3200".to_string(),
+                "http://localhost:3300".to_string(),
+            ],
             uds_socket: None,
             production_mode: false,
         }

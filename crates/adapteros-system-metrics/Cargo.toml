@@ -9,6 +9,7 @@ description = "System resource monitoring and metrics collection for AdapterOS"
 
 [features]
 mlx = []
+coreml = []
 
 [dependencies]
 # Internal crates

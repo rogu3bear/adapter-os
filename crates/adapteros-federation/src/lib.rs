@@ -383,10 +383,23 @@ impl FederationManager {
             }
         }
 
+        // At this point, we know host_chain has at least 2 elements (checked at lines 279, 283)
+        // but we use safe unwrapping for robustness
+        let first_host = host_chain
+            .first()
+            .ok_or_else(|| AosError::Internal("Empty host chain after verification".to_string()))?
+            .host_id
+            .as_str();
+        let last_host = host_chain
+            .last()
+            .ok_or_else(|| AosError::Internal("Empty host chain after verification".to_string()))?
+            .host_id
+            .as_str();
+
         info!(
             chain_length = host_chain.len(),
-            first_host = %host_chain.first().unwrap().host_id,
-            last_host = %host_chain.last().unwrap().host_id,
+            first_host = %first_host,
+            last_host = %last_host,
             "Federation chain verified"
         );
 

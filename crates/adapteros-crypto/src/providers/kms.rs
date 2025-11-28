@@ -3340,7 +3340,7 @@ mod tests {
 
     // GCP KMS Emulator Integration Tests
     #[tokio::test]
-    #[ignore] // Requires GCP emulator running
+    #[ignore = "Requires GCP KMS emulator running - run with: cargo test --release -- --ignored"]
     async fn test_gcp_kms_emulator_key_generation() {
         // This test requires the GCP KMS emulator to be running locally
         // Start with: gcloud kms emulator
@@ -3372,21 +3372,21 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires GCP emulator running
+    #[ignore = "Requires GCP KMS emulator running - run with: cargo test --release -- --ignored"]
     async fn test_gcp_kms_emulator_sign_and_verify() {
         // This test demonstrates signing with GCP KMS emulator
         // Requires emulator running and proper authentication
     }
 
     #[tokio::test]
-    #[ignore] // Requires GCP emulator running
+    #[ignore = "Requires GCP KMS emulator running - run with: cargo test --release -- --ignored"]
     async fn test_gcp_kms_emulator_encrypt_decrypt() {
         // This test demonstrates encryption/decryption with GCP KMS emulator
         // Requires emulator running and proper authentication
     }
 
     #[tokio::test]
-    #[ignore] // Requires GCP emulator running
+    #[ignore = "Requires GCP KMS emulator running - run with: cargo test --release -- --ignored"]
     async fn test_gcp_kms_emulator_key_rotation() {
         // This test demonstrates key rotation with GCP KMS emulator
         // Requires emulator running and proper authentication

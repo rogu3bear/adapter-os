@@ -93,7 +93,10 @@ impl ServiceControl {
     }
 
     pub async fn start_all_services(&self) -> Result<ServiceCommandResult> {
-        match self.run_aos(&["start", "backend"], "aos start backend").await {
+        match self
+            .run_aos(&["start", "backend"], "aos start backend")
+            .await
+        {
             Ok(result) => Ok(result),
             Err(err) => {
                 warn!(
@@ -111,7 +114,8 @@ impl ServiceControl {
 
     #[allow(dead_code)]
     pub async fn start_backend(&self) -> Result<ServiceCommandResult> {
-        self.run_aos(&["start", "backend"], "aos start backend").await
+        self.run_aos(&["start", "backend"], "aos start backend")
+            .await
     }
 
     async fn run_aos(&self, args: &[&str], display: &str) -> Result<ServiceCommandResult> {

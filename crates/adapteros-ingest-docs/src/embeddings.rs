@@ -209,21 +209,21 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore] // Requires tokenizer file
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
     fn test_simple_embedding_deterministic() {
         // This test requires a real tokenizer file
         // Skipped for CI/CD
     }
 
     #[test]
-    #[ignore] // Requires tokenizer file
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
     fn test_empty_text_embedding() {
         // This test requires a real tokenizer file
         // Skipped for CI/CD
     }
 
     #[test]
-    #[ignore] // Requires tokenizer file
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored"]
     fn test_production_model_fallback() {
         // This test requires a real tokenizer file
         // Skipped for CI/CD

@@ -24,6 +24,7 @@ pub mod health_monitoring;
 pub mod logging_macros;
 pub mod merkle;
 pub mod metrics;
+pub mod middleware;
 pub mod monitoring;
 pub mod performance_monitoring;
 pub mod replay;

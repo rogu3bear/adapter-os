@@ -1,8 +1,8 @@
 //! Atomic hot-swap support for .aos files
 
+use crate::implementation::{AosLoader, LoadedAdapter};
 use crate::metrics::SwapMetrics;
-use crate::mmap_loader::{MmapAdapter, MmapAdapterLoader};
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,7 +27,7 @@ impl SwapOperation {
 
 #[derive(Debug, Clone)]
 struct AdapterSlot {
-    adapter: Arc<MmapAdapter>,
+    adapter: Arc<LoadedAdapter>,
     #[allow(dead_code)]
     loaded_at: Instant,
 }
@@ -36,36 +36,38 @@ pub struct HotSwapManager {
     active: RwLock<HashMap<String, AdapterSlot>>,
     staged: RwLock<HashMap<String, AdapterSlot>>,
     rollback: RwLock<Option<HashMap<String, AdapterSlot>>>,
-    loader: MmapAdapterLoader,
+    loader: AosLoader,
     metrics: Arc<SwapMetrics>,
 }
 
 impl HotSwapManager {
-    pub fn new() -> Self {
-        Self {
-            active: RwLock::new(HashMap::new()),
-            staged: RwLock::new(HashMap::new()),
-            rollback: RwLock::new(None),
-            loader: MmapAdapterLoader::new(),
-            metrics: Arc::new(SwapMetrics::new()),
-        }
+    pub fn new() -> Result<Self> {
+        Self::with_seed(&B3Hash::hash(b"hot_swap_default_seed"))
     }
 
-    pub fn without_verification() -> Self {
-        Self {
+    pub fn with_seed(seed: &B3Hash) -> Result<Self> {
+        Ok(Self {
             active: RwLock::new(HashMap::new()),
             staged: RwLock::new(HashMap::new()),
             rollback: RwLock::new(None),
-            loader: MmapAdapterLoader::without_verification(),
+            loader: AosLoader::with_seed(seed)?,
             metrics: Arc::new(SwapMetrics::new()),
-        }
+        })
+    }
+
+    /// Deprecated: AosLoader always validates format. Kept for API compatibility.
+    #[deprecated(note = "AosLoader always validates format. Use new() instead.")]
+    pub fn without_verification() -> Result<Self> {
+        // AosLoader always validates the AOS format.
+        // This method is kept for API compatibility.
+        Self::new()
     }
 
     #[instrument(skip(self), fields(slot = %slot, path = %path.as_ref().display()))]
     pub async fn preload<P: AsRef<Path>>(&self, slot: &str, path: P) -> Result<()> {
         debug!("Preloading adapter");
 
-        let adapter = self.loader.load(path).await?;
+        let adapter = self.loader.load_from_path(path.as_ref()).await?;
 
         let slot_state = AdapterSlot {
             adapter: Arc::new(adapter),
@@ -141,7 +143,7 @@ impl HotSwapManager {
         }
     }
 
-    pub fn get_active(&self, slot: &str) -> Option<Arc<MmapAdapter>> {
+    pub fn get_active(&self, slot: &str) -> Option<Arc<LoadedAdapter>> {
         let active = self.active.read();
         active.get(slot).map(|s| Arc::clone(&s.adapter))
     }
@@ -163,6 +165,6 @@ impl HotSwapManager {
 
 impl Default for HotSwapManager {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to create default HotSwapManager")
     }
 }

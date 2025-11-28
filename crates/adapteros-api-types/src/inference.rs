@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 use crate::schema_version;
 
 /// Inference request
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct InferRequest {
     pub prompt: String,
