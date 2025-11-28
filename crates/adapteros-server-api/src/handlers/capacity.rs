@@ -12,7 +12,6 @@ use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 use tracing::debug;
 use utoipa::ToSchema;
 

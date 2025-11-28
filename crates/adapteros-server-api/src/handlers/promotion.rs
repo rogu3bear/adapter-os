@@ -23,7 +23,6 @@ use utoipa::ToSchema;
 
 use crate::audit_helper::{actions, log_failure, log_success, resources};
 use crate::auth::Claims;
-use crate::handlers::aos_error_to_response;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;

@@ -994,7 +994,6 @@ pub async fn stack_policy_stream(
 ) -> axum::response::sse::Sse<impl futures_util::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
     use axum::response::sse::{Event, KeepAlive};
     use futures_util::stream;
-    use std::convert::Infallible;
     use std::time::Duration;
 
     // Permission check: PolicyView required

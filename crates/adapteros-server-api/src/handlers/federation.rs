@@ -6,7 +6,7 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use adapteros_core::AosError;
-use adapteros_db::{Db, QuarantineDetails, QuarantineRecord};
+use adapteros_db::QuarantineDetails;
 use axum::{
     extract::State,
     http::StatusCode,

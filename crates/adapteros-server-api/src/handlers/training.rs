@@ -12,7 +12,6 @@ use crate::services::{DefaultTrainingService, TrainingService};
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::AosError;
-use adapteros_lora_worker::memory::MemoryPressureLevel;
 use axum::{
     extract::State,
     extract::{Extension, Path, Query},
