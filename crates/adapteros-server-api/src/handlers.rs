@@ -4960,7 +4960,7 @@ pub async fn list_adapters(
     // Role check: all roles can list adapters
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterList)?;
 
-    let adapters = state.db.list_adapters().await.map_err(|e| {
+    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -6334,7 +6334,7 @@ pub async fn get_adapter_metrics(
     // Role check: All roles can view metrics
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
-    let adapters = state.db.list_adapters().await.map_err(|e| {
+    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -6657,7 +6657,7 @@ pub async fn get_commit_diff(
 )]
 pub async fn debug_routing(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Json(req): Json<RoutingDebugRequest>,
 ) -> Result<Json<RoutingDebugResponse>, (StatusCode, Json<ErrorResponse>)> {
     use adapteros_lora_router::{AdapterInfo, CodeFeatures, Router, RouterWeights};
@@ -6670,7 +6670,7 @@ pub async fn debug_routing(
     let code_features = CodeFeatures::from_context(&combined_context);
 
     // Fetch all adapters from database
-    let adapters = state.db.list_adapters().await.map_err(|e| {
+    let adapters = state.db.list_adapters_for_tenant(&claims.tenant_id).await.map_err(|e| {
         tracing::error!("Failed to list adapters: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -7333,13 +7333,14 @@ pub async fn telemetry_events_stream(
 /// Streams adapter lifecycle events
 pub async fn adapter_state_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = stream::unfold(state, |state| async move {
+    let tenant_id = claims.tenant_id.clone();
+    let stream = stream::unfold((state, tenant_id), |(state, tenant_id)| async move {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Fetch all adapters
-        let adapters = match state.db.list_adapters().await {
+        let adapters = match state.db.list_adapters_for_tenant(&tenant_id).await {
             Ok(a) => a,
             Err(e) => {
                 tracing::warn!("Failed to fetch adapters for SSE: {}", e);
@@ -7347,7 +7348,7 @@ pub async fn adapter_state_stream(
                     Ok(Event::default()
                         .event("error")
                         .data(format!("{{\"error\": \"{}\"}}", e))),
-                    state,
+                    (state, tenant_id),
                 ));
             }
         };
@@ -7360,12 +7361,12 @@ pub async fn adapter_state_stream(
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"serialization failed\"}".to_string())),
-                    state,
+                    (state, tenant_id),
                 ));
             }
         };
 
-        Some((Ok(Event::default().event("adapters").data(json)), state))
+        Some((Ok(Event::default().event("adapters").data(json)), (state, tenant_id)))
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
