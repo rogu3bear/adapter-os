@@ -43,6 +43,36 @@ const FILE_VALIDATION = {
   allowedExtensions: ['.pdf', '.txt', '.json', '.jsonl', '.csv', '.md', '.py', '.js', '.ts', '.tsx', '.jsx', '.rs', '.go', '.java'],
 };
 
+/**
+ * Format bytes to human-readable string
+ */
+function formatBytes(bytes?: number): string {
+  if (bytes === undefined || bytes === null) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+/**
+ * Maps backend error codes to user-friendly messages
+ * Error codes match those returned by backend training handlers
+ */
+function getTrainingErrorMessage(code: string, fallback: string): string {
+  const messages: Record<string, string> = {
+    'VALIDATION_ERROR': 'Please fix the highlighted configuration issues and try again.',
+    'NOT_FOUND': 'The dataset or template was deleted. Please reselect.',
+    'TENANT_ISOLATION_ERROR': 'This dataset belongs to a different tenant.',
+    'POLICY_VIOLATION': 'Policy requirements not met. Check dataset validation status.',
+    'TRAINING_CAPACITY_LIMIT': 'System is at capacity. Try again later or reduce batch size.',
+    'MEMORY_PRESSURE_CRITICAL': 'Memory pressure too high. Reduce batch size or wait.',
+    'TRAINING_ERROR': 'Training failed. Check the Training Jobs page for details.',
+    'INTERNAL_ERROR': 'An internal error occurred. Please try again later.',
+    'DATABASE_ERROR': 'Database error. Please try again later.',
+  };
+  return messages[code] || fallback;
+}
+
 interface TrainingWizardProps {
   onComplete: (trainingJobId: string) => void;
   onCancel: () => void;
@@ -139,7 +169,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [templates, setTemplates] = useState<TrainingTemplate[]>([]);
-  const [datasets, setDatasets] = useState<Array<{ id: string; name: string; validation_status: string }>>([]);
+  const [datasets, setDatasets] = useState<Array<{ id: string; name: string; validation_status: string; file_count: number; total_size_bytes: number; validation_errors?: string }>>([]);
   const [wizardError, setWizardError] = useState<Error | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
@@ -210,10 +240,13 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         ]);
         setRepositories(reposData);
         setTemplates(templatesData);
-        setDatasets(datasetsData.datasets?.map((d: any) => ({ 
-          id: d.id, 
+        setDatasets(datasetsData.datasets?.map((d: any) => ({
+          id: d.id,
           name: d.name,
-          validation_status: d.validation_status || 'draft'
+          validation_status: d.validation_status || 'draft',
+          file_count: d.file_count || 0,
+          total_size_bytes: d.total_size_bytes || 0,
+          validation_errors: d.validation_errors
         })) || []);
       } catch (error) {
 
@@ -320,6 +353,9 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           id: newDatasetId,
           name: response.dataset.name || nameToUse,
           validation_status: response.dataset.validation_status || 'draft',
+          file_count: response.dataset.file_count || 0,
+          total_size_bytes: response.dataset.total_size_bytes || 0,
+          validation_errors: response.dataset.validation_errors
         },
         ...prev.filter(d => d.id !== newDatasetId),
       ]);
@@ -488,11 +524,16 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
               ) : (
                 datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>
-                    <div className="flex items-center gap-2">
-                      <span>{dataset.name}</span>
-                      <Badge variant="outline" className="text-xs">
-                        {dataset.validation_status}
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <div className="flex items-center gap-2">
+                        <span>{dataset.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {dataset.validation_status}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {dataset.file_count} files • {formatBytes(dataset.total_size_bytes)}
+                      </span>
                     </div>
                   </SelectItem>
                 ))
@@ -511,9 +552,20 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    Collection "{selectedDataset.name}" must be validated before training.
-                    Current status: {selectedDataset.validation_status}.
-                    Please validate from the Document Collections page.
+                    <p className="font-medium">
+                      Collection "{selectedDataset.name}" must be validated before training.
+                    </p>
+                    <p className="text-sm mt-1">
+                      Current status: {selectedDataset.validation_status}.
+                    </p>
+                    {selectedDataset.validation_errors && (
+                      <p className="text-sm mt-2 font-mono">
+                        {selectedDataset.validation_errors}
+                      </p>
+                    )}
+                    <p className="text-sm mt-2">
+                      Please validate from the Document Collections page.
+                    </p>
                   </AlertDescription>
                 </Alert>
               );
@@ -868,11 +920,16 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
               ) : (
                 datasets.map((dataset) => (
                   <SelectItem key={dataset.id} value={dataset.id}>
-                    <div className="flex items-center gap-2">
-                      <span>{dataset.name}</span>
-                      <Badge variant="outline" className="text-xs">
-                        {dataset.validation_status}
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <div className="flex items-center gap-2">
+                        <span>{dataset.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {dataset.validation_status}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {dataset.file_count} files • {formatBytes(dataset.total_size_bytes)}
+                      </span>
                     </div>
                   </SelectItem>
                 ))
@@ -891,9 +948,20 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    Dataset "{selectedDataset.name}" must be validated before training. 
-                    Current status: {selectedDataset.validation_status}. 
-                    Please validate the dataset from the Datasets page.
+                    <p className="font-medium">
+                      Dataset "{selectedDataset.name}" must be validated before training.
+                    </p>
+                    <p className="text-sm mt-1">
+                      Current status: {selectedDataset.validation_status}.
+                    </p>
+                    {selectedDataset.validation_errors && (
+                      <p className="text-sm mt-2 font-mono">
+                        {selectedDataset.validation_errors}
+                      </p>
+                    )}
+                    <p className="text-sm mt-2">
+                      Please validate the dataset from the Datasets page.
+                    </p>
                   </AlertDescription>
                 </Alert>
               );
@@ -1732,19 +1800,23 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         max_seq_length: stateToValidate.maxSeqLength,
       };
 
-      // Start training
+      // Start training - build request matching backend StartTrainingRequest
       const trainingRequest: any = {
         adapter_name: stateToValidate.name,
         config: trainingConfig,
-        adapters_root: stateToValidate.adaptersRoot || undefined,
-        package: !!stateToValidate.packageAfter,
-        register: !!stateToValidate.registerAfter,
-        adapter_id: stateToValidate.adapterId || undefined,
-        tier: stateToValidate.tier,
-      };
 
-      // Add category and configuration fields
-      trainingRequest.category = stateToValidate.category || 'codebase';
+        // Category & metadata
+        category: stateToValidate.category || 'codebase',
+        description: stateToValidate.description || undefined,
+
+        // Post-training actions (wrapped in post_actions object)
+        post_actions: {
+          package: stateToValidate.packageAfter ?? true,
+          register: stateToValidate.registerAfter ?? true,
+          tier: stateToValidate.tier || 'warm',
+          adapters_root: stateToValidate.adaptersRoot || undefined,
+        },
+      };
 
       switch (stateToValidate.category) {
         case 'code':
@@ -1803,7 +1875,12 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 
       // Success - training started, clear persisted state
       clearPersistedState();
-      toast.success(`Training job ${job.id} started successfully!`);
+      toast.success(`Training job ${job.id} started successfully!`, {
+        action: {
+          label: 'View Progress',
+          onClick: () => navigate(`/training/jobs/${job.id}`),
+        },
+      });
       onComplete(job.id);
     } catch (error) {
       if (error instanceof Error && error.name === 'ZodError') {
@@ -1817,14 +1894,27 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           errorCount: validationResult.errors.length,
         });
       } else {
-        const err = error instanceof Error ? error : new Error('Failed to start training');
+        // Extract error code from API response if available
+        const apiError = error as any;
+        const errorCode = apiError?.code || apiError?.response?.data?.code || 'UNKNOWN_ERROR';
+        const errorMessage = getTrainingErrorMessage(errorCode, apiError?.message || 'Failed to start training');
+
+        const err = new Error(errorMessage);
         setWizardError(err);
+
+        // Handle specific error codes
+        if (errorCode === 'TRAINING_CAPACITY_LIMIT' || errorCode === 'MEMORY_PRESSURE_CRITICAL') {
+          toast.error(errorMessage, { duration: 8000 });
+        } else {
+          toast.error(errorMessage);
+        }
+
         logger.error('Training job start failed', {
           component: 'TrainingWizard',
           operation: 'startTraining',
           adapterName: state.name,
+          errorCode,
         }, toError(error));
-        toast.error(err.message);
       }
     } finally {
       setIsLoading(false);

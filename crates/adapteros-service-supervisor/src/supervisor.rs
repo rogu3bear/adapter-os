@@ -5,7 +5,6 @@ use crate::config::SupervisorConfig;
 use crate::error::{Result, SupervisorError};
 use crate::health::{HealthCheck, HealthMonitor, HealthResult};
 use crate::service::{ManagedService, ServiceStatus};
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;

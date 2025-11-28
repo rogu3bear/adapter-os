@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { logger, toError } from '../utils/logger';
 
 export type BookmarkType = 'page' | 'adapter' | 'tenant' | 'policy' | 'node' | 'worker' | 'bundle' | 'event';

@@ -19,7 +19,6 @@ use adapteros_system_metrics::monitoring_types::{
     UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
 };
 use axum::response::Response;
-use sqlx::Row;
 use utoipa::ToSchema;
 
 pub mod activity;
@@ -7267,7 +7266,7 @@ pub async fn telemetry_events_stream(
     Extension(_claims): Extension<Claims>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Subscribe to the telemetry broadcast channel for real-time events
-    let mut receiver = state.telemetry_tx.subscribe();
+    let receiver = state.telemetry_tx.subscribe();
 
     let stream = stream::unfold((receiver, state), |(mut rx, state)| async move {
         // Use select to handle both real-time events and keepalive timeout
@@ -8066,6 +8065,11 @@ pub async fn create_training_session(
 
     let config = req.config.into();
 
+    // Serialize post_actions to JSON if provided
+    let post_actions_json = req.post_actions.as_ref().and_then(|pa| {
+        serde_json::to_string(pa).ok()
+    });
+
     let job = state
         .training_service
         .start_training(
@@ -8074,11 +8078,19 @@ pub async fn create_training_session(
             req.template_id,
             req.repo_id,
             req.dataset_id,                 // dataset_id
-            Some(claims.tenant_id.clone()), // tenant_id (6th parameter)
-            Some(claims.sub.clone()),       // initiated_by (7th parameter)
-            Some(claims.role.clone()),      // initiated_by_role (8th parameter)
-            req.base_model_id,              // base_model_id (9th parameter)
-            req.collection_id,              // collection_id (10th parameter)
+            Some(claims.tenant_id.clone()), // tenant_id
+            Some(claims.sub.clone()),       // initiated_by
+            Some(claims.role.clone()),      // initiated_by_role
+            req.base_model_id,              // base_model_id
+            req.collection_id,              // collection_id
+            // Category metadata
+            req.category,
+            req.description,
+            req.language,
+            req.framework_id,
+            req.framework_version,
+            // Post-training actions
+            post_actions_json,
         )
         .await
         .map_err(|e| {
@@ -8354,7 +8366,7 @@ pub async fn get_training_artifacts(
 
     // Build artifacts list based on job output
     let mut artifacts = Vec::new();
-    let mut total_size_bytes = 0u64;
+    let total_size_bytes = 0u64;
 
     if ready {
         // Add weights artifact if job has adapter_id (populated on completion)
@@ -9982,7 +9994,8 @@ pub async fn query_audit_logs(
     );
     let logs = state
         .db
-        .query_audit_logs(
+        .query_audit_logs_for_tenant(
+            &claims.tenant_id,
             query.user_id.as_deref(),
             query.action.as_deref(),
             query.resource_type.as_deref(),
@@ -10075,18 +10088,8 @@ pub struct ComplianceControl {
 
 use adapteros_core::{AdapterName, StackName};
 use adapteros_policy::{
-    AdapterNameValidation, NamingConfig, NamingPolicy, NamingViolation, StackNameValidation,
+    AdapterNameValidation, NamingConfig, NamingPolicy, StackNameValidation,
 };
-
-/// Convert tier string to integer: persistent=0, warm=1, ephemeral=2
-fn tier_str_to_int(tier: &str) -> i32 {
-    match tier {
-        "persistent" => 0,
-        "warm" => 1,
-        "ephemeral" => 2,
-        _ => 1, // default to warm
-    }
-}
 
 /// Request to validate an adapter name
 #[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]

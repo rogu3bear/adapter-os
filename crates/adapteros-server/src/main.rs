@@ -185,6 +185,8 @@ async fn main() -> Result<()> {
             artifacts_root = %cfg.paths.artifacts_root,
             bundles_root = %cfg.paths.bundles_root,
             adapters_root = %cfg.paths.adapters_root,
+            datasets_root = %cfg.paths.datasets_root,
+            documents_root = %cfg.paths.documents_root,
             "Effective server configuration"
         );
         info!(
@@ -498,6 +500,8 @@ async fn main() -> Result<()> {
                 bundles_root: String::new(),
                 adapters_root: String::new(),
                 plan_dir: String::new(),
+                datasets_root: String::new(),
+                documents_root: String::new(),
             },
             rate_limits: adapteros_server_api::config::RateLimitsConfig {
                 requests_per_minute: 0,
@@ -572,6 +576,8 @@ async fn main() -> Result<()> {
                 bundles_root: String::new(),
                 adapters_root: String::new(),
                 plan_dir: String::new(),
+                datasets_root: String::new(),
+                documents_root: String::new(),
             },
             rate_limits: adapteros_server_api::config::RateLimitsConfig {
                 requests_per_minute: 0,
@@ -687,6 +693,8 @@ async fn main() -> Result<()> {
                 bundles_root: cfg.paths.bundles_root.clone(),
                 adapters_root: cfg.paths.adapters_root.clone(),
                 plan_dir: cfg.paths.plan_dir.clone(),
+                datasets_root: cfg.paths.datasets_root.clone(),
+                documents_root: cfg.paths.documents_root.clone(),
             },
         }))
     };
@@ -743,6 +751,10 @@ async fn main() -> Result<()> {
                                 api_cfg.paths.adapters_root =
                                     new_config.paths.adapters_root.clone();
                                 api_cfg.paths.plan_dir = new_config.paths.plan_dir.clone();
+                                api_cfg.paths.datasets_root =
+                                    new_config.paths.datasets_root.clone();
+                                api_cfg.paths.documents_root =
+                                    new_config.paths.documents_root.clone();
                             }
                             Err(e) => {
                                 error!("API config lock poisoned during reload: {}", e);

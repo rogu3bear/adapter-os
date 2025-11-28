@@ -29,6 +29,8 @@ artifacts_root = "/var/lib/adapteros/artifacts"
 bundles_root = "/var/lib/adapteros/bundles"
 adapters_root = "/var/lib/adapteros/adapters"
 plan_dir = "/var/lib/adapteros/plans"
+datasets_root = "/var/lib/adapteros/datasets"
+documents_root = "/var/lib/adapteros/documents"
 
 [rate_limits]
 requests_per_minute = 600

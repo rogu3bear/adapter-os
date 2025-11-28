@@ -1,9 +1,8 @@
 //! Service definitions and management
 
-use crate::config::{HealthCheckConfig, RestartPolicy, ServiceCategory, ServiceConfig};
+use crate::config::ServiceConfig;
 use crate::error::{Result, SupervisorError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -248,7 +247,7 @@ impl ManagedService {
             }
             crate::config::HealthCheckType::Process => {
                 // Just check if the process is still running
-                if let Some(mut child) = self.process.write().await.as_mut() {
+                if let Some(child) = self.process.write().await.as_mut() {
                     match child.try_wait() {
                         Ok(Some(exit_status)) => {
                             warn!(
@@ -286,7 +285,7 @@ impl ManagedService {
     async fn capture_output(
         service_name: String,
         log_path: PathBuf,
-        mut stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+        stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
         stream_name: &'static str,
     ) {
         tokio::spawn(async move {

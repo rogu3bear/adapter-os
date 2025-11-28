@@ -56,6 +56,8 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
             bundles_root: "/tmp/test-bundles".to_string(),
             adapters_root: "/tmp/test-adapters".to_string(),
             plan_dir: "/tmp/test-plan".to_string(),
+            datasets_root: "/tmp/test-datasets".to_string(),
+            documents_root: "/tmp/test-documents".to_string(),
         },
     }));
 

@@ -26,9 +26,15 @@ pub struct ModelHubConfig {
 
 impl Default for ModelHubConfig {
     fn default() -> Self {
+        // Use AOS_MODEL_CACHE_DIR env var if set, otherwise default to var/model-cache
+        // This aligns with the server's default in main.rs and cp.toml paths configuration
+        let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+
         Self {
             registry_url: "https://huggingface.co".to_string(),
-            cache_dir: PathBuf::from("~/.cache/adapteros"),
+            cache_dir,
             max_concurrent_downloads: 4,
             timeout_secs: 300,
             hf_token: None,
@@ -38,7 +44,7 @@ impl Default for ModelHubConfig {
 
 /// Main client for interacting with the model hub
 pub struct ModelHubClient {
-    config: ModelHubConfig,
+    _config: ModelHubConfig,
     cache: ModelCache,
     download_manager: DownloadManager,
     hf_client: HubClient,
@@ -56,7 +62,7 @@ impl ModelHubClient {
             HubClient::with_base_url(config.registry_url.clone(), config.hf_token.clone());
 
         Ok(Self {
-            config,
+            _config: config,
             cache,
             download_manager,
             hf_client,

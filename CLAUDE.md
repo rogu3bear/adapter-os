@@ -1,6 +1,6 @@
 # CLAUDE.md - AdapterOS Developer Guide
 
-**Single source of truth** for AI assistants and developers. Last updated: 2025-11-25
+**Single source of truth** for AI assistants and developers. Last updated: 2025-11-28
 **Copyright:** 2025 JKCA / James KC Auchterlonie | **Version:** v0.3-alpha
 
 ---
@@ -10,7 +10,7 @@
 |--------|-------|
 | Crates | 70 (+xtask, fuzz) |
 | Rust LOC | 422,000+ |
-| Migrations | 97 (0001-0097) |
+| Migrations | 117 (0001-0117) |
 | Policies | 24 |
 | Permissions | 55 (5 roles) |
 | REST Endpoints | ~190 |
@@ -142,8 +142,10 @@ See [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md), [docs/MLX_INTEGRAT
 
 **Core Tables:** adapters, tenants, adapter_stacks, training_datasets, training_jobs, pinned_adapters, audit_logs
 
-**97 Migrations** (key recent):
+**117 Migrations** (key recent):
 - 0084-0097: Default stacks, chat sessions, evidence, documents/collections, policy packs, base models, crypto audit
+- 0102-0116: Dashboard indexes, federation health, chat features (tags, FTS, sharing), admin access
+- 0117: Training job category metadata (category, language, framework, post_actions)
 
 ```bash
 touch migrations/NNNN_description.sql
@@ -151,6 +153,83 @@ touch migrations/NNNN_description.sql
 ```
 
 See [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md)
+
+---
+
+## Storage Paths
+
+All runtime data is stored under `var/` relative to the working directory. Use `PlatformUtils` from `adapteros-platform` for path resolution.
+
+### Directory Structure
+
+```text
+var/
+├── model-cache/           # Downloaded models from HuggingFace
+│   ├── blobs/             # Content-addressed storage (BLAKE3)
+│   ├── models/            # Model directories with symlinks
+│   ├── downloads/         # In-progress downloads
+│   └── locks/             # File locks for concurrent access
+├── adapters/              # LoRA adapter weights (.aos files)
+├── artifacts/             # Training artifacts, temp files
+│   ├── temp/              # Temporary processing files
+│   └── cache/             # Orchestration cache
+├── bundles/               # Telemetry bundles
+├── alerts/                # Alert logs
+└── aos-cp.sqlite3         # SQLite database
+```
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AOS_VAR_DIR` | `var` | Base directory for all runtime data |
+| `AOS_MODEL_CACHE_DIR` | `var/model-cache` | Downloaded model cache |
+| `AOS_ADAPTERS_DIR` | `var/adapters` | LoRA adapter storage |
+| `AOS_ARTIFACTS_DIR` | `var/artifacts` | Training artifacts |
+| `AOS_MODEL_PATH` | `./models/qwen2.5-7b` | Active model directory |
+| `AOS_TRAINING_OUTPUT_DIR` | `./training-output` | Training job outputs |
+| `AOS_EMBEDDING_MODEL_PATH` | `./models/bge-small-en-v1.5` | Embedding model |
+| `HF_TOKEN` | (none) | HuggingFace authentication |
+| `AOS_HF_REGISTRY_URL` | `https://huggingface.co` | Model registry URL |
+
+### Path Resolution
+
+```rust
+use adapteros_platform::common::PlatformUtils;
+
+// Runtime data (relative to cwd)
+let var_dir = PlatformUtils::aos_var_dir();           // var/
+let cache = PlatformUtils::aos_model_cache_dir();     // var/model-cache
+let adapters = PlatformUtils::aos_adapters_dir();     // var/adapters
+let artifacts = PlatformUtils::aos_artifacts_dir();   // var/artifacts
+
+// Path expansion for user paths (tilde expansion)
+let expanded = PlatformUtils::expand_path("~/custom/path")?;
+
+// User-specific directories (optional, for cross-project data)
+let user_cache = PlatformUtils::aos_user_cache_dir()?;   // ~/.cache/adapteros
+let user_config = PlatformUtils::aos_user_config_dir()?; // ~/.config/adapteros
+```
+
+### Configuration (TOML)
+
+Paths are also configurable via `configs/cp.toml`:
+
+```toml
+[paths]
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+adapters_root = "var/adapters"
+plan_dir = "plan"
+
+[db]
+path = "var/aos-cp.sqlite3"
+
+[alerting]
+alert_dir = "var/alerts"
+```
+
+**Production paths** use `/var/lib/adapteros/` prefix (see `configs/production-multinode.toml`).
 
 ---
 
@@ -162,7 +241,15 @@ See [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md)
 4. `MicroLoRATrainer::new(cfg)?.train(examples, id).await?`
 5. `AdapterPackager::new().package(weights, manifest)?`
 
-**Templates:** `general-code` (rank=16, alpha=32), `framework-specific` (rank=12, alpha=24)
+**Templates:** `general-code` (rank=16, alpha=32), `framework-specific` (rank=12, alpha=24), `codebase-specific` (rank=24, alpha=48), `ephemeral-quick` (rank=8, alpha=16)
+
+**Categories:** code, framework, codebase, docs, domain, ephemeral
+
+**Post-Actions:** Configurable via `post_actions` in StartTrainingRequest:
+- `package`: Package adapter after training (default: true)
+- `register`: Register in database (default: true)
+- `tier`: persistent | warm | ephemeral (default: warm)
+- `adapters_root`: Custom output directory
 
 ---
 

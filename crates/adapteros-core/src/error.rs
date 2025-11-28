@@ -214,6 +214,9 @@ pub enum AosError {
     #[error("System error: {0}")]
     System(String),
 
+    #[error("Platform error: {0}")]
+    Platform(String),
+
     #[error("Anomaly detected: {0}")]
     Anomaly(String),
 

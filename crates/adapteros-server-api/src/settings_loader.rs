@@ -141,6 +141,8 @@ mod tests {
                 bundles_root: "var/bundles".to_string(),
                 adapters_root: "var/adapters".to_string(),
                 plan_dir: "var/plans".to_string(),
+                datasets_root: "var/datasets".to_string(),
+                documents_root: "var/documents".to_string(),
             },
         }));
 

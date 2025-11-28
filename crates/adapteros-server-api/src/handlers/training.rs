@@ -377,6 +377,11 @@ pub async fn start_training(
     // Convert request config to training config
     let config = training_config_from_request(request.config);
 
+    // Serialize post_actions to JSON if provided
+    let post_actions_json = request.post_actions.as_ref().and_then(|pa| {
+        serde_json::to_string(pa).ok()
+    });
+
     // Start training via service
     let job = state
         .training_service
@@ -391,6 +396,14 @@ pub async fn start_training(
             Some(claims.role.clone()),
             request.base_model_id.clone(),
             request.collection_id.clone(),
+            // Category metadata
+            request.category.clone(),
+            request.description.clone(),
+            request.language.clone(),
+            request.framework_id.clone(),
+            request.framework_version.clone(),
+            // Post-training actions
+            post_actions_json,
         )
         .await
         .map_err(|e| {

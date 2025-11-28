@@ -6,7 +6,7 @@
 //! ## Architecture
 //!
 //! ```text
-//! ~/.cache/adapteros/
+//! var/model-cache/
 //!   blobs/           # Content-addressed storage (B3 hash)
 //!     b3-abc123.safetensors
 //!   models/          # Model directories with symlinks
@@ -17,6 +17,9 @@
 //!   locks/           # File locks for concurrent access
 //! ```
 //!
+//! The cache directory is configurable via the `AOS_MODEL_CACHE_DIR` environment
+//! variable. The default is `var/model-cache` relative to the working directory.
+//!
 //! ## Usage
 //!
 //! ```rust,no_run
@@ -24,7 +27,7 @@
 //! use std::path::PathBuf;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let cache = ModelCache::new(PathBuf::from("~/.cache/adapteros"))?;
+//! let cache = ModelCache::new(PathBuf::from("var/model-cache"))?;
 //!
 //! // Store a blob by content
 //! let data = b"model weights data";
@@ -47,7 +50,10 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
+
+#[cfg(not(unix))]
+use tracing::warn;
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
@@ -83,7 +89,7 @@ pub struct ModelCache {
     downloads_dir: PathBuf,
     locks_dir: PathBuf,
     config: CacheConfig,
-    locks: Mutex<HashMap<String, FileLockHandle>>,
+    _locks: Mutex<HashMap<String, FileLockHandle>>,
 }
 
 impl ModelCache {
@@ -123,7 +129,7 @@ impl ModelCache {
             downloads_dir,
             locks_dir,
             config: CacheConfig::default(),
-            locks: Mutex::new(HashMap::new()),
+            _locks: Mutex::new(HashMap::new()),
         })
     }
 

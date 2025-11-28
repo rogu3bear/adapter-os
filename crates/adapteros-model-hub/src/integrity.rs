@@ -132,7 +132,8 @@ impl IntegrityChecker {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use adapteros_model_hub::integrity::{IntegrityChecker, B3Hash};
+    /// use adapteros_model_hub::integrity::IntegrityChecker;
+    /// use adapteros_model_hub::B3Hash;
     /// use std::path::Path;
     ///
     /// #[tokio::main]

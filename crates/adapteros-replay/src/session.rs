@@ -19,9 +19,6 @@ use adapteros_trace::{reader::read_trace_bundle, schema::TraceBundle};
 
 use crate::verification::VerificationMode;
 
-/// Local Result type alias for ReplayError
-type Result<T> = std::result::Result<T, ReplayError>;
-
 #[derive(Error, Debug)]
 pub enum ReplayError {
     #[error("Replay initialization failed: {0}")]

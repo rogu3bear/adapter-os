@@ -103,6 +103,10 @@ pub struct PathsConfig {
     pub adapters_root: String,
     #[serde(default = "default_plan_dir")]
     pub plan_dir: String,
+    #[serde(default = "default_datasets_root")]
+    pub datasets_root: String,
+    #[serde(default = "default_documents_root")]
+    pub documents_root: String,
 }
 
 fn default_adapters_root() -> String {
@@ -111,6 +115,14 @@ fn default_adapters_root() -> String {
 
 fn default_plan_dir() -> String {
     "plan".to_string()
+}
+
+fn default_datasets_root() -> String {
+    "var/datasets".to_string()
+}
+
+fn default_documents_root() -> String {
+    "var/documents".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

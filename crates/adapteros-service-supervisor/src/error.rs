@@ -1,7 +1,6 @@
 //! Error types for the service supervisor
 
 use adapteros_core::AosError;
-use std::fmt;
 
 /// Result type alias for supervisor operations
 pub type Result<T> = std::result::Result<T, SupervisorError>;
@@ -107,7 +106,7 @@ impl From<SupervisorError> for AosError {
             SupervisorError::Jwt(e) => AosError::Auth(format!("JWT error: {}", e)),
             SupervisorError::Http(msg) => AosError::Http(format!("Supervisor HTTP error: {}", msg)),
             SupervisorError::CircuitBreaker(msg) => AosError::CircuitBreakerOpen { service: msg },
-            SupervisorError::Timeout(msg) => AosError::Timeout {
+            SupervisorError::Timeout(_msg) => AosError::Timeout {
                 duration: std::time::Duration::from_secs(0),
             },
             SupervisorError::Internal(msg) => {

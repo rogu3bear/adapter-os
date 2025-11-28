@@ -1,14 +1,14 @@
 //! HTTP server for the service supervisor
 
-use crate::auth::{AuthService, Claims};
+use crate::auth::AuthService;
 use crate::error::{Result, SupervisorError};
 use crate::supervisor::ServiceSupervisor;
 use adapteros_telemetry::middleware::api_logger_middleware;
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     middleware,
-    response::{IntoResponse, Json},
+    response::IntoResponse,
     routing::{get, post},
     Router,
 };
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info, warn};
+use tracing::info;
 
 /// Application state for the HTTP server
 #[derive(Clone)]

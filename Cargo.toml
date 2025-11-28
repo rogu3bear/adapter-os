@@ -12,6 +12,7 @@ exclude = []  # adapteros-server temporarily included for building
 members = [
     "crates/adapteros-core",
     "crates/adapteros-crypto",
+    "crates/adapteros-platform",  # Platform utilities and path resolution
     "crates/adapteros-manifest",
     "crates/adapteros-registry",
     "crates/adapteros-artifacts",

@@ -1,6 +1,6 @@
 //! Metrics collection for the service supervisor
 
-use metrics::{counter, gauge, histogram};
+use metrics::histogram;
 use std::time::Instant;
 
 /// Initialize metrics
@@ -89,7 +89,7 @@ impl Timer {
     }
 
     pub fn finish_with_histogram(self, name: &'static str) {
-        let duration = self.start.elapsed().as_secs_f64();
+        let _duration = self.start.elapsed().as_secs_f64();
         // Simplified - just record without labels for now
         let _histogram = histogram!(name);
         // histogram.record(duration);

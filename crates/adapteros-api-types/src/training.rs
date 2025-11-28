@@ -36,6 +36,48 @@ pub struct StartTrainingRequest {
     pub base_model_id: Option<String>,
     /// Document collection ID for provenance tracking
     pub collection_id: Option<String>,
+
+    // Category & metadata
+    /// Adapter category: code, framework, codebase, docs, domain
+    pub category: Option<String>,
+    /// Human-readable description
+    pub description: Option<String>,
+
+    // Category-specific configuration
+    /// Programming language (for code adapters)
+    pub language: Option<String>,
+    /// Symbol targets (for code adapters)
+    pub symbol_targets: Option<Vec<String>>,
+    /// Framework ID (for framework adapters)
+    pub framework_id: Option<String>,
+    /// Framework version (for framework adapters)
+    pub framework_version: Option<String>,
+    /// API patterns to focus on (for framework adapters)
+    pub api_patterns: Option<Vec<String>>,
+    /// Repository scope (for codebase adapters)
+    pub repo_scope: Option<String>,
+    /// File patterns to include (for codebase adapters)
+    pub file_patterns: Option<Vec<String>>,
+    /// File patterns to exclude (for codebase adapters)
+    pub exclude_patterns: Option<Vec<String>>,
+
+    // Post-training actions
+    /// Actions to perform after training completes
+    pub post_actions: Option<PostActionsRequest>,
+}
+
+/// Post-training actions configuration
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct PostActionsRequest {
+    /// Package adapter after training (default: true)
+    pub package: Option<bool>,
+    /// Register adapter in registry after packaging (default: true)
+    pub register: Option<bool>,
+    /// Tier to assign: persistent, warm, ephemeral (default: warm)
+    pub tier: Option<String>,
+    /// Custom adapters root directory
+    pub adapters_root: Option<String>,
 }
 
 /// Training job response
@@ -61,6 +103,20 @@ pub struct TrainingJobResponse {
     pub adapter_id: Option<String>,
     /// BLAKE3 hash of adapter weights (for verification)
     pub weights_hash_b3: Option<String>,
+
+    // Category metadata
+    /// Adapter category
+    pub category: Option<String>,
+    /// Description
+    pub description: Option<String>,
+    /// Programming language
+    pub language: Option<String>,
+    /// Framework ID
+    pub framework_id: Option<String>,
+    /// Framework version
+    pub framework_version: Option<String>,
+
+    // Training progress
     pub status: String,
     pub progress_pct: f32,
     pub current_epoch: u32,
@@ -90,6 +146,13 @@ impl From<TrainingJob> for TrainingJobResponse {
             config_hash_b3: job.config_hash_b3,
             adapter_id: job.adapter_id,
             weights_hash_b3: job.weights_hash_b3,
+            // Category metadata - will be populated when TrainingJob is extended
+            category: job.category,
+            description: job.description,
+            language: job.language,
+            framework_id: job.framework_id,
+            framework_version: job.framework_version,
+            // Training progress
             status: job.status.to_string(),
             progress_pct: job.progress_pct,
             current_epoch: job.current_epoch,

@@ -25,9 +25,6 @@ use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Default document storage root if not configured
-const DEFAULT_DOCUMENT_STORAGE: &str = "var/documents";
-
 /// Maximum document size (100MB)
 const MAX_DOCUMENT_SIZE: usize = 100 * 1024 * 1024;
 
@@ -88,8 +85,10 @@ pub async fn upload_document(
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let document_id = Uuid::now_v7().to_string();
-    let storage_root = std::env::var("DOCUMENT_STORAGE_PATH")
-        .unwrap_or_else(|_| DEFAULT_DOCUMENT_STORAGE.to_string());
+    let storage_root = std::env::var("AOS_DOCUMENTS_DIR").ok().unwrap_or_else(|| {
+        let config = state.config.read().expect("Config lock poisoned");
+        config.paths.documents_root.clone()
+    });
 
     // Create tenant-specific document directory
     let tenant_path = PathBuf::from(&storage_root).join(&claims.tenant_id);

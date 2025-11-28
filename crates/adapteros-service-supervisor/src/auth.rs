@@ -1,12 +1,11 @@
 //! Authentication service for the supervisor using JWT with Ed25519
 
-use adapteros_core::Result as CoreResult;
 use adapteros_crypto::Keypair;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// JWT claims for service supervisor authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]

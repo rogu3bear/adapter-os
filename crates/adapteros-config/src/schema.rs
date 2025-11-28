@@ -1182,10 +1182,10 @@ pub fn default_schema() -> ConfigSchema {
     );
 
     schema.add_variable(
-        ConfigVariable::new("AOS_HF_CACHE_DIR")
+        ConfigVariable::new("AOS_MODEL_CACHE_DIR")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("~/.cache/adapteros/hf")
-            .description("Shared cache directory for downloads")
+            .default_value("var/model-cache")
+            .description("Directory for downloaded models from HuggingFace Hub")
             .category("MODEL_HUB")
             .build(),
     );
@@ -1221,26 +1221,66 @@ pub fn default_schema() -> ConfigSchema {
     );
 
     schema.add_variable(
-        ConfigVariable::new("AOS_DOWNLOAD_MAX_CONCURRENT")
+        ConfigVariable::new("AOS_MAX_CONCURRENT_DOWNLOADS")
             .config_type(ConfigType::Integer {
                 min: Some(1),
                 max: Some(10),
             })
-            .default_value("2")
-            .description("Maximum concurrent downloads")
+            .default_value("4")
+            .description("Maximum concurrent model downloads")
             .category("MODEL_HUB")
             .build(),
     );
 
     schema.add_variable(
-        ConfigVariable::new("AOS_DOWNLOAD_RETRY_MAX")
+        ConfigVariable::new("AOS_DOWNLOAD_TIMEOUT_SECS")
             .config_type(ConfigType::Integer {
-                min: Some(0),
-                max: Some(10),
+                min: Some(30),
+                max: Some(3600),
             })
-            .default_value("3")
-            .description("Maximum download retry attempts")
+            .default_value("300")
+            .description("Download timeout in seconds")
             .category("MODEL_HUB")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_HF_REGISTRY_URL")
+            .config_type(ConfigType::String)
+            .default_value("https://huggingface.co")
+            .description("HuggingFace Hub registry URL")
+            .category("MODEL_HUB")
+            .build(),
+    );
+
+    // =========================================================================
+    // PATHS - Runtime directory configuration
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_VAR_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var")
+            .description("Base directory for all runtime data")
+            .category("PATHS")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ADAPTERS_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/adapters")
+            .description("Directory for LoRA adapter weights")
+            .category("PATHS")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_ARTIFACTS_DIR")
+            .config_type(ConfigType::Path { must_exist: false })
+            .default_value("var/artifacts")
+            .description("Directory for training artifacts and temp files")
+            .category("PATHS")
             .build(),
     );
 

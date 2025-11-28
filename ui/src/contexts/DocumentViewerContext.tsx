@@ -5,7 +5,7 @@
  * and the PDF viewer in split-view layouts.
  */
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
 interface DocumentViewerState {
   /** Currently active document ID */

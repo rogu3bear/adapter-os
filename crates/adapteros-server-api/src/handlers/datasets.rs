@@ -34,9 +34,6 @@ use tracing::{debug, error, info, warn};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-/// Default dataset storage root if not configured
-const DEFAULT_DATASET_STORAGE: &str = "var/datasets";
-
 /// Maximum file size (100MB)
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
 
@@ -210,8 +207,10 @@ pub async fn upload_dataset(
         ?;
 
     let dataset_id = Uuid::now_v7().to_string();
-    let storage_root = std::env::var("DATASET_STORAGE_PATH")
-        .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
+    let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
+        let config = state.config.read().expect("Config lock poisoned");
+        config.paths.datasets_root.clone()
+    });
 
     // Create dataset directory structure
     let dataset_path = PathBuf::from(&storage_root).join(&dataset_id);
@@ -536,8 +535,10 @@ pub async fn initiate_chunked_upload(
     let compression = CompressionFormat::from_content_type(&content_type);
 
     // Create upload session using the shared session manager
-    let storage_root = std::env::var("DATASET_STORAGE_PATH")
-        .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
+    let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
+        let config = state.config.read().expect("Config lock poisoned");
+        config.paths.datasets_root.clone()
+    });
     let temp_base = PathBuf::from(&storage_root).join("chunked");
 
     fs::create_dir_all(&temp_base)
@@ -1704,8 +1705,10 @@ pub async fn complete_chunked_upload(
     }
 
     // Prepare output paths
-    let storage_root = std::env::var("DATASET_STORAGE_PATH")
-        .unwrap_or_else(|_| DEFAULT_DATASET_STORAGE.to_string());
+    let storage_root = std::env::var("AOS_DATASETS_DIR").ok().unwrap_or_else(|| {
+        let config = state.config.read().expect("Config lock poisoned");
+        config.paths.datasets_root.clone()
+    });
     let dataset_id = Uuid::now_v7().to_string();
     let dataset_path = PathBuf::from(&storage_root).join(&dataset_id);
     let files_path = dataset_path.join("files");
