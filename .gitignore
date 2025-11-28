@@ -299,3 +299,4 @@ create_aos.rs
 launch.sh
 libdeterminism_guardrail_suite.rlib
 libreplay_path_verification.rlib
+aosctl

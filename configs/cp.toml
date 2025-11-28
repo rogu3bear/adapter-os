@@ -4,6 +4,7 @@
 # Use 8080 for development (UI expects this)
 port = 8080
 bind = "127.0.0.1"
+production_mode = false
 
 [db]
 path = "var/aos-cp.sqlite3"
@@ -14,6 +15,7 @@ path = "var/aos-cp.sqlite3"
 require_pf_deny = false
 mtls_required = false
 jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+dev_login_enabled = true
 
 [paths]
 artifacts_root = "var/artifacts"
@@ -56,6 +58,10 @@ recovery_timeout_secs = 10
 requests_per_minute = 100
 burst_size = 20
 inference_per_minute = 50
+
+[capacity_limits]
+# Maximum concurrent training jobs (default: 5)
+max_concurrent_training_jobs = 5
 
 [metrics]
 enabled = true

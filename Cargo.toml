@@ -34,6 +34,7 @@ members = [
     "crates/adapteros-policy",
     "crates/adapteros-config",
     "crates/adapteros-cli",
+    "crates/adapteros-tui",  # Terminal UI dashboard
     "crates/adapteros-api",
     "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
@@ -70,6 +71,8 @@ members = [
     "crates/adapteros-plugin-advanced-metrics",  # Advanced metrics plugin
     "xtask",
     "fuzz",
+    "crates/adapteros-service-supervisor",
+    "crates/adapteros-model-hub",  # Model discovery and download
 ]
 
 [workspace.package]

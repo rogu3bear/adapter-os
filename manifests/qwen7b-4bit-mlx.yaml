@@ -1,0 +1,11 @@
+model_id: "Qwen2.5-7B-Instruct-4bit-MLX"
+model_hash: "b3:placeholder-4bit-mlx"
+version: "1.0.0"
+vocab_size: 152064
+hidden_dim: 3584
+num_layers: 28
+num_attention_heads: 28
+num_kv_heads: 4
+intermediate_size: 18944
+k_sparse: 3
+adapters: []

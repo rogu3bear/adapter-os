@@ -1,0 +1,16 @@
+{
+  "adapter_id": "system/docs/adapteros/20251128-041437",
+  "config": {
+    "alpha": 16.0,
+    "epochs": 3,
+    "hidden_dim": 768,
+    "learning_rate": 0.00009999999747378752,
+    "rank": 8
+  },
+  "created_at": "2025-11-28T04:15:04.855706+00:00",
+  "doc_count": 273,
+  "example_count": 5922,
+  "final_loss": null,
+  "revision": "20251128-041437",
+  "training_time_ms": 16145
+}

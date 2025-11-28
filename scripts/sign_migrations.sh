@@ -156,7 +156,7 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
     # Verify signature
     echo "$signature" | base64 -d > /tmp/migration.sig
     echo -n "$file_hash" > /tmp/hash_input.txt
-    if openssl pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
+    if $OPENSSL_BIN pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
         verify_count=$((verify_count + 1))
     else
         echo -e "${RED}✗ Signature verification failed for $filename${NC}"
